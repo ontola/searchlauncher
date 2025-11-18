@@ -11,5 +11,9 @@ data class AppSearchDocument(
         @Document.StringProperty(
                 indexingType = AppSearchSchema.StringPropertyConfig.INDEXING_TYPE_PREFIXES
         )
-        val name: String // App Name
+        val name: String, // App Name or Shortcut Label
+        @Document.StringProperty(
+                indexingType = AppSearchSchema.StringPropertyConfig.INDEXING_TYPE_NONE
+        )
+        val intentUri: String? = null // Intent URI for shortcuts
 )

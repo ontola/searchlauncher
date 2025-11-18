@@ -63,6 +63,9 @@ class SearchWindowManager(private val context: Context, private val windowManage
     fun show() {
         if (searchView != null) return
 
+        // Refresh shortcuts when showing
+        scope.launch { searchRepository.indexShortcuts() }
+
         lifecycleOwner = MyLifecycleOwner()
         lifecycleOwner?.onCreate()
         lifecycleOwner?.onStart()
@@ -247,14 +250,10 @@ class SearchWindowManager(private val context: Context, private val windowManage
 
         LaunchedEffect(query) {
             if (query.isEmpty()) {
-                isLoading = true
                 searchResults = searchRepository.searchApps("")
-                isLoading = false
             } else {
                 delay(300) // Debounce
-                isLoading = true
-                searchResults = searchRepository.search(query)
-                isLoading = false
+                searchResults = searchRepository.searchApps(query)
             }
         }
 
@@ -415,6 +414,30 @@ class SearchWindowManager(private val context: Context, private val windowManage
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
+                }
+            }
+            is SearchResult.Shortcut -> {
+                try {
+                    val uri = result.intentUri
+                    if (uri.startsWith("shortcut://")) {
+                        val parts = uri.substring("shortcut://".length).split("/")
+                        if (parts.size == 2) {
+                            val pkg = parts[0]
+                            val id = parts[1]
+                            val launcherApps =
+                                    context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as
+                                            android.content.pm.LauncherApps
+                            launcherApps.startShortcut(
+                                    pkg,
+                                    id,
+                                    null,
+                                    null,
+                                    android.os.Process.myUserHandle()
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
             }
         }
