@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("kotlin-kapt")
 }
 
 android {
@@ -66,6 +67,7 @@ dependencies {
     implementation("androidx.appsearch:appsearch:1.1.0-alpha03")
     implementation("androidx.appsearch:appsearch-local-storage:1.1.0-alpha03")
     implementation("androidx.appsearch:appsearch-platform-storage:1.1.0-alpha03")
+    kapt("androidx.appsearch:appsearch-compiler:1.1.0-alpha03")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
