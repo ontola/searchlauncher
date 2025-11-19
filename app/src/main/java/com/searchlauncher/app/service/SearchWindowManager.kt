@@ -139,6 +139,9 @@ class SearchWindowManager(private val context: Context, private val windowManage
                                 } else {
                                     launchResult(context, it)
                                     hide()
+                                    scope.launch {
+                                        searchRepository.reportUsage(it.namespace, it.id)
+                                    }
                                 }
                             }
                             true
@@ -329,6 +332,11 @@ class SearchWindowManager(private val context: Context, private val windowManage
                                                 } else {
                                                     launchResult(context, result)
                                                     onDismiss()
+
+                                                    // Report usage for ranking
+                                                    scope.launch {
+                                                        searchRepository.reportUsage(result.namespace, result.id)
+                                                    }
                                                 }
                                             }
                                     )

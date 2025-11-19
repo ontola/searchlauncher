@@ -8,16 +8,15 @@ import androidx.appsearch.app.PutDocumentsRequest
 import androidx.appsearch.app.SearchSpec
 import androidx.appsearch.app.SetSchemaRequest
 import androidx.appsearch.localstorage.LocalStorage
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-
 import org.json.JSONArray
-import java.net.HttpURLConnection
-import java.net.URL
 
 class SearchRepository(private val context: Context) {
-// ...
+        // ...
 
         private var appSearchSession: AppSearchSession? = null
         private val executor = Executors.newSingleThreadExecutor()
@@ -151,6 +150,23 @@ class SearchRepository(private val context: Context) {
                                 indexApps()
                                 indexCustomShortcuts()
                                 android.util.Log.d("SearchRepository", "resetIndex: Complete")
+                        } catch (e: Exception) {
+                                e.printStackTrace()
+                        }
+                }
+
+        suspend fun reportUsage(namespace: String, id: String) =
+                withContext(Dispatchers.IO) {
+                        val session = appSearchSession ?: return@withContext
+                        try {
+                                val request =
+                                        androidx.appsearch.app.ReportUsageRequest.Builder(
+                                                        namespace,
+                                                        id
+                                                )
+                                                .setUsageTimestampMillis(System.currentTimeMillis())
+                                                .build()
+                                session.reportUsageAsync(request).get()
                         } catch (e: Exception) {
                                 e.printStackTrace()
                         }
@@ -356,7 +372,7 @@ class SearchRepository(private val context: Context) {
                                 val searchSpec =
                                         SearchSpec.Builder()
                                                 .setRankingStrategy(
-                                                        SearchSpec.RANKING_STRATEGY_DOCUMENT_SCORE
+                                                        SearchSpec.RANKING_STRATEGY_USAGE_COUNT
                                                 )
                                                 .setTermMatch(SearchSpec.TERM_MATCH_PREFIX)
                                                 .build()
@@ -379,6 +395,7 @@ class SearchRepository(private val context: Context) {
                                                         results.add(
                                                                 SearchResult.Shortcut(
                                                                         id = doc.id,
+                                                                        namespace = "shortcuts",
                                                                         title = doc.name,
                                                                         subtitle = doc.description
                                                                                         ?: "Shortcut",
@@ -403,6 +420,8 @@ class SearchRepository(private val context: Context) {
                                                                 results.add(
                                                                         SearchResult.Content(
                                                                                 id = doc.id,
+                                                                                namespace =
+                                                                                        "custom_shortcuts",
                                                                                 title = doc.name,
                                                                                 subtitle = "Action",
                                                                                 icon = null,
@@ -418,6 +437,8 @@ class SearchRepository(private val context: Context) {
                                                                 results.add(
                                                                         SearchResult.SearchIntent(
                                                                                 id = doc.id,
+                                                                                namespace =
+                                                                                        "custom_shortcuts",
                                                                                 title = doc.name,
                                                                                 subtitle =
                                                                                         "Type '${doc.description} ' to search",
@@ -443,6 +464,7 @@ class SearchRepository(private val context: Context) {
                                                         results.add(
                                                                 SearchResult.App(
                                                                         id = doc.id,
+                                                                        namespace = "apps",
                                                                         title = doc.name,
                                                                         subtitle = doc.description
                                                                                         ?: doc.id,
@@ -473,27 +495,46 @@ class SearchRepository(private val context: Context) {
 
                                                 if (shortcut != null) {
                                                         // Fetch suggestions if available
-                                                        if (shortcut.suggestionUrl != null && searchTerm.isNotEmpty()) {
-                                                                val suggestions = fetchSuggestions(shortcut.suggestionUrl, searchTerm)
+                                                        val suggestionUrl = shortcut.suggestionUrl
+                                                        if (suggestionUrl != null &&
+                                                                        searchTerm.isNotEmpty()
+                                                        ) {
+                                                                val suggestions =
+                                                                        fetchSuggestions(
+                                                                                suggestionUrl,
+                                                                                searchTerm
+                                                                        )
                                                                 suggestions.forEach { suggestion ->
                                                                         val url =
                                                                                 String.format(
                                                                                         shortcut.urlTemplate,
-                                                                                        java.net.URLEncoder.encode(
-                                                                                                suggestion,
-                                                                                                "UTF-8"
-                                                                                        )
+                                                                                        java.net
+                                                                                                .URLEncoder
+                                                                                                .encode(
+                                                                                                        suggestion,
+                                                                                                        "UTF-8"
+                                                                                                )
                                                                                 )
                                                                         results.add(
                                                                                 0,
-                                                                                SearchResult.Content(
-                                                                                        id = "suggestion_${shortcut.trigger}_$suggestion",
-                                                                                        title = suggestion,
-                                                                                        subtitle = "${shortcut.description} Suggestion",
-                                                                                        icon = null,
-                                                                                        packageName = shortcut.packageName ?: "android",
-                                                                                        deepLink = url
-                                                                                )
+                                                                                SearchResult
+                                                                                        .Content(
+                                                                                                id =
+                                                                                                        "suggestion_${shortcut.trigger}_$suggestion",
+                                                                                                namespace =
+                                                                                                        "custom_shortcuts",
+                                                                                                title =
+                                                                                                        suggestion,
+                                                                                                subtitle =
+                                                                                                        "${shortcut.description} Suggestion",
+                                                                                                icon =
+                                                                                                        null,
+                                                                                                packageName =
+                                                                                                        shortcut.packageName
+                                                                                                                ?: "android",
+                                                                                                deepLink =
+                                                                                                        url
+                                                                                        )
                                                                         )
                                                                 }
                                                         }
@@ -573,7 +614,11 @@ class SearchRepository(private val context: Context) {
         private fun fetchSuggestions(urlTemplate: String, query: String): List<String> {
                 val suggestions = mutableListOf<String>()
                 try {
-                        val urlString = String.format(urlTemplate, java.net.URLEncoder.encode(query, "UTF-8"))
+                        val urlString =
+                                String.format(
+                                        urlTemplate,
+                                        java.net.URLEncoder.encode(query, "UTF-8")
+                                )
                         val url = URL(urlString)
                         val connection = url.openConnection() as HttpURLConnection
                         connection.requestMethod = "GET"
@@ -581,20 +626,28 @@ class SearchRepository(private val context: Context) {
                         connection.readTimeout = 2000
 
                         if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                                val response = connection.inputStream.bufferedReader().use { it.readText() }
-                                // YouTube API returns JSON like: ["query", ["suggestion1", "suggestion2", ...], ...]
+                                val response =
+                                        connection.inputStream.bufferedReader().use {
+                                                it.readText()
+                                        }
+                                // YouTube API returns JSON like: ["query", ["suggestion1",
+                                // "suggestion2", ...], ...]
                                 val jsonArray = JSONArray(response)
                                 if (jsonArray.length() > 1) {
                                         val suggestionsArray = jsonArray.getJSONArray(1)
                                         for (i in 0 until suggestionsArray.length()) {
                                                 suggestions.add(suggestionsArray.getString(i))
-                                                if (suggestions.size >= 5) break // Limit to 5 suggestions
+                                                if (suggestions.size >= 5)
+                                                        break // Limit to 5 suggestions
                                         }
                                 }
                         }
                 } catch (e: Exception) {
                         // Log error but don't crash search
-                        android.util.Log.w("SearchRepository", "Error fetching suggestions: ${e.message}")
+                        android.util.Log.w(
+                                "SearchRepository",
+                                "Error fetching suggestions: ${e.message}"
+                        )
                 }
                 return suggestions
         }

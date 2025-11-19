@@ -1,6 +1,5 @@
 package com.searchlauncher.app.data
 
-// Reformatted to 4 spaces
 sealed class CustomShortcut {
         abstract val description: String
         abstract val packageName: String?
@@ -80,7 +79,6 @@ object CustomShortcuts {
                         "android.settings.WEBVIEW_SETTINGS",
                         "android.settings.WIFI_SETTINGS",
                         "android.settings.WIRELESS_SETTINGS",
-                        "android.settings.WIRELESS_DEBUGGING_SETTINGS",
                         "android.settings.ZEN_MODE_PRIORITY_SETTINGS",
                         "android.settings.action.MANAGE_OVERLAY_PERMISSION",
                         "android.settings.action.MANAGE_WRITE_SETTINGS"

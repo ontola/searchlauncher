@@ -51,12 +51,7 @@ cd searchlauncher
    - **VSCode**: Just open the folder (`code .`)
    - **Android Studio**: Use "Open" and select the folder
 
-3. Build the project:
-```bash
-./gradlew assembleDebug
-```
-
-4. Install on device:
+3. Install on device:
 ```bash
 ./gradlew installDebug
 ```
