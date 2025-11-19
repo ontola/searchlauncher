@@ -8,10 +8,14 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -20,21 +24,36 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
+import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.service.OverlayService
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
-import androidx.core.content.ContextCompat
-
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 class MainActivity : ComponentActivity() {
 
+    private var queryState by mutableStateOf("")
+    private var currentScreenState by mutableStateOf(Screen.Search)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.hasCategory(Intent.CATEGORY_HOME) && intent.action == Intent.ACTION_MAIN) {
+            queryState = ""
+            currentScreenState = Screen.Search
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        // Ensure keyboard opens automatically
+        window.setSoftInputMode(
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                        android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+        )
 
         setContent {
             SearchLauncherTheme {
@@ -44,6 +63,11 @@ class MainActivity : ComponentActivity() {
                 ) { MainScreen() }
             }
         }
+    }
+
+    private enum class Screen {
+        Search,
+        Settings
     }
 
     @Composable
@@ -59,6 +83,11 @@ class MainActivity : ComponentActivity() {
                             preferences[PreferencesKeys.ONBOARDING_COMPLETE] ?: false
                         }
                         .collectAsState(initial = false)
+
+        // Handle back press
+        BackHandler(enabled = currentScreenState == Screen.Settings) {
+            currentScreenState = Screen.Search
+        }
 
         if (showPractice) {
             PracticeGestureScreen(onBack = { showPractice = false })
@@ -83,11 +112,26 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            HomeScreen(
-                    onStartService = { startOverlayService() },
-                    onStopService = { stopOverlayService() },
-                    onOpenPractice = { showPractice = true }
-            )
+            when (currentScreenState) {
+                Screen.Search -> {
+                    val app = application as SearchLauncherApp
+                    SearchScreen(
+                            query = queryState,
+                            onQueryChange = { queryState = it },
+                            onDismiss = { /* No-op for home screen */},
+                            onOpenSettings = { currentScreenState = Screen.Settings },
+                            searchRepository = app.searchRepository
+                    )
+                }
+                Screen.Settings -> {
+                    HomeScreen(
+                            onStartService = { startOverlayService() },
+                            onStopService = { stopOverlayService() },
+                            onOpenPractice = { showPractice = true },
+                            onBack = { currentScreenState = Screen.Search }
+                    )
+                }
+            }
         }
     }
 
@@ -115,7 +159,12 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun HomeScreen(onStartService: () -> Unit, onStopService: () -> Unit, onOpenPractice: () -> Unit) {
+fun HomeScreen(
+        onStartService: () -> Unit,
+        onStopService: () -> Unit,
+        onOpenPractice: () -> Unit,
+        onBack: () -> Unit
+) {
     val context = LocalContext.current
     var isServiceRunning by remember { mutableStateOf(false) }
 
@@ -123,11 +172,19 @@ fun HomeScreen(onStartService: () -> Unit, onStopService: () -> Unit, onOpenPrac
             modifier = Modifier.fillMaxSize().padding(PaddingValues(16.dp)),
             verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-                text = "SearchLauncher",
-                style = MaterialTheme.typography.headlineLarge,
-                modifier = Modifier.padding(vertical = 16.dp)
-        )
+        Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Default.ArrowBack,
+                        contentDescription = "Back"
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(text = "SearchLauncher", style = MaterialTheme.typography.headlineLarge)
+        }
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
@@ -232,10 +289,11 @@ fun HomeScreen(onStartService: () -> Unit, onStopService: () -> Unit, onOpenPrac
                         title = "Modify System Settings (Rotation)",
                         granted =
                                 rememberPermissionState {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                        Settings.System.canWrite(context)
-                                    } else true
-                                }.value,
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                                Settings.System.canWrite(context)
+                                            } else true
+                                        }
+                                        .value,
                         onGrant = {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                                 val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)

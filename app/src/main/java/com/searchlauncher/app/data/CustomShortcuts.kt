@@ -223,6 +223,11 @@ object CustomShortcuts {
                                 intentUri =
                                         "intent:#Intent;action=com.searchlauncher.action.TOGGLE_ROTATION;end",
                                 description = "Toggle Rotation Lock"
+                        ),
+                        CustomShortcut.Action(
+                                intentUri =
+                                        "intent:#Intent;action=android.settings.HOME_SETTINGS;end",
+                                description = "Set as Launcher"
                         )
                 ) + generateSettingsShortcuts()
 }

@@ -22,7 +22,6 @@ class OverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private var leftEdgeView: View? = null
     private var rightEdgeView: View? = null
-    private var searchWindowManager: SearchWindowManager? = null
 
     private var initialX = 0f
     private var initialY = 0f
@@ -31,21 +30,24 @@ class OverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        searchWindowManager = SearchWindowManager(this, windowManager)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(SearchLauncherApp.NOTIFICATION_ID, createNotification())
 
         if (intent?.action == ACTION_SHOW_SEARCH) {
-            searchWindowManager?.show()
-        } else if (intent?.action == ACTION_HIDE_SEARCH) {
-            searchWindowManager?.hide()
+            launchSearchActivity()
         } else {
             setupEdgeDetector()
         }
 
         return START_STICKY
+    }
+
+    private fun launchSearchActivity() {
+        val intent = Intent(this, com.searchlauncher.app.ui.SearchActivity::class.java)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
     }
 
     private fun setupEdgeDetector() {
@@ -108,7 +110,7 @@ class OverlayService : Service() {
                 // 2. Swipe OUT (back to edge)
                 else if (hasMovedBack && deltaIn < SWIPE_THRESHOLD / 2) {
                     // User moved back to starting position
-                    searchWindowManager?.show()
+                    launchSearchActivity()
                     hasMovedBack = false
                 }
             }
@@ -144,8 +146,6 @@ class OverlayService : Service() {
         super.onDestroy()
         leftEdgeView?.let { windowManager.removeView(it) }
         rightEdgeView?.let { windowManager.removeView(it) }
-        searchWindowManager?.hide()
-        searchWindowManager = null
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
