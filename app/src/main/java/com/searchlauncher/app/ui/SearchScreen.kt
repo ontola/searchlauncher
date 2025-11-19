@@ -23,6 +23,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
@@ -437,6 +439,7 @@ private fun SearchResultItem(
         }
 
         if (showMenu && onToggleFavorite != null) {
+            val context = LocalContext.current
             DropdownMenu(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false }
@@ -458,6 +461,53 @@ private fun SearchResultItem(
                         )
                     }
                 )
+
+                if (result is SearchResult.App) {
+                    DropdownMenuItem(
+                            text = { Text("App Info") },
+                            onClick = {
+                                try {
+                                    val intent =
+                                            Intent(
+                                                    android.provider.Settings
+                                                            .ACTION_APPLICATION_DETAILS_SETTINGS
+                                            )
+                                    intent.data = Uri.parse("package:${result.packageName}")
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(
+                                                    context,
+                                                    "Cannot open App Info",
+                                                    Toast.LENGTH_SHORT
+                                            )
+                                            .show()
+                                }
+                                showMenu = false
+                            },
+                            leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) }
+                    )
+                    DropdownMenuItem(
+                            text = { Text("Uninstall") },
+                            onClick = {
+                                try {
+                                    val intent = Intent(Intent.ACTION_DELETE)
+                                    intent.data = Uri.parse("package:${result.packageName}")
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(
+                                                    context,
+                                                    "Cannot start uninstall",
+                                                    Toast.LENGTH_SHORT
+                                            )
+                                            .show()
+                                }
+                                showMenu = false
+                            },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) }
+                    )
+                }
             }
         }
     }
@@ -658,6 +708,40 @@ private fun FavoritesRow(
                             )
                         }
                     )
+
+                    if (result is SearchResult.App) {
+                        val context = LocalContext.current
+                        DropdownMenuItem(
+                            text = { Text("App Info") },
+                            onClick = {
+                                try {
+                                    val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                    intent.data = Uri.parse("package:${result.packageName}")
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Cannot open App Info", Toast.LENGTH_SHORT).show()
+                                }
+                                showMenu = false
+                            },
+                            leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Uninstall") },
+                            onClick = {
+                                try {
+                                    val intent = Intent(Intent.ACTION_DELETE)
+                                    intent.data = Uri.parse("package:${result.packageName}")
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Cannot start uninstall", Toast.LENGTH_SHORT).show()
+                                }
+                                showMenu = false
+                            },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) }
+                        )
+                    }
                 }
             }
         }
