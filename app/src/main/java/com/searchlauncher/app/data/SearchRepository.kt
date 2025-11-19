@@ -184,7 +184,7 @@ class SearchRepository(private val context: Context) {
                         }
                 }
 
-        suspend fun getRecentItems(limit: Int = 10): List<SearchResult> =
+        suspend fun getRecentItems(limit: Int = 10, excludedIds: Set<String> = emptySet()): List<SearchResult> =
                 withContext(Dispatchers.IO) {
                         val session = appSearchSession
                         if (session == null) return@withContext emptyList()
@@ -204,7 +204,6 @@ class SearchRepository(private val context: Context) {
                                 // Only return items that have been used (ranking signal > 0)
                                 return@withContext page
                                         .filter { result -> result.rankingSignal > 0 }
-                                        .take(limit)
                                         .mapNotNull { result ->
                                                 val doc =
                                                         result.genericDocument.toDocumentClass(
@@ -215,6 +214,8 @@ class SearchRepository(private val context: Context) {
                                                         result.rankingSignal.toInt()
                                                 )
                                         }
+                                        .filter { !excludedIds.contains(it.id) }
+                                        .take(limit)
                         } catch (e: Exception) {
                                 e.printStackTrace()
                                 return@withContext emptyList()
@@ -225,8 +226,9 @@ class SearchRepository(private val context: Context) {
                 withContext(Dispatchers.IO) {
                         try {
                                 // Get all custom search shortcuts from cache
-                                val searchShortcuts = documentCache
-                                        .filter { it.namespace == "custom_shortcuts" && !it.isAction }
+                                val searchShortcuts = synchronized(documentCache) {
+                                    documentCache.filter { it.namespace == "custom_shortcuts" && !it.isAction }
+                                }
 
                                 android.util.Log.d("SearchRepository", "Found ${searchShortcuts.size} search shortcuts in cache")
 
@@ -278,6 +280,20 @@ class SearchRepository(private val context: Context) {
                                         e
                                 )
                                 return@withContext emptyList()
+                        }
+                }
+
+        suspend fun getFavorites(favoriteIds: Set<String>): List<SearchResult> =
+                withContext(Dispatchers.IO) {
+                        try {
+                                synchronized(documentCache) {
+                                        documentCache
+                                                .filter { favoriteIds.contains(it.id) }
+                                                .map { doc -> convertDocumentToResult(doc, 100) }
+                                }
+                        } catch (e: Exception) {
+                                e.printStackTrace()
+                                emptyList()
                         }
                 }
 
