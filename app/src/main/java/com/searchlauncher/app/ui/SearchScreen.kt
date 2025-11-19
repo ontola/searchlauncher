@@ -27,6 +27,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -42,7 +43,6 @@ import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.util.CustomActionHandler
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -53,7 +53,8 @@ fun SearchScreen(
         onDismiss: () -> Unit,
         onOpenSettings: () -> Unit,
         searchRepository: SearchRepository,
-        focusTrigger: Long = 0L
+        focusTrigger: Long = 0L,
+        showHistory: Boolean = true
 ) {
     var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
@@ -63,11 +64,15 @@ fun SearchScreen(
 
     LaunchedEffect(focusTrigger) { focusRequester.requestFocus() }
 
-    LaunchedEffect(query) {
+    LaunchedEffect(query, showHistory) {
         if (query.isEmpty()) {
-            searchResults = searchRepository.searchApps("", limit = 50)
+            searchResults =
+                    if (showHistory) {
+                        searchRepository.getRecentItems(limit = 10)
+                    } else {
+                        emptyList()
+                    }
         } else {
-            delay(50) // Debounce
             searchResults = searchRepository.searchApps(query)
         }
     }
@@ -108,7 +113,7 @@ fun SearchScreen(
                     verticalArrangement = Arrangement.Bottom
             ) {
                 // Results (displayed above search bar)
-                if (searchResults.isNotEmpty() || (query.isNotEmpty() && !isLoading)) {
+                if (searchResults.isNotEmpty()) {
                     Surface(
                             modifier =
                                     Modifier.fillMaxWidth().weight(1f, fill = false).clickable(
@@ -147,17 +152,6 @@ fun SearchScreen(
                                                 }
                                             }
                                     )
-                                }
-
-                                if (searchResults.isEmpty() && query.isNotEmpty()) {
-                                    item {
-                                        Text(
-                                                text = "No results found",
-                                                modifier = Modifier.padding(32.dp),
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
                                 }
                             }
                         }
@@ -356,10 +350,16 @@ private fun SearchResultItem(result: SearchResult, onClick: () -> Unit) {
     ) {
         Box(modifier = Modifier.size(40.dp)) {
             if (result.icon != null) {
+                val iconModifier =
+                        if (result is SearchResult.Contact) {
+                            Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
+                        } else {
+                            Modifier.size(40.dp)
+                        }
                 Image(
                         bitmap = result.icon!!.toImageBitmap(),
                         contentDescription = null,
-                        modifier = Modifier.size(40.dp)
+                        modifier = iconModifier
                 )
             }
 

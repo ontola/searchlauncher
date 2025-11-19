@@ -12,6 +12,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,10 +27,13 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
 import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.service.OverlayService
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -78,13 +83,17 @@ class MainActivity : ComponentActivity() {
         val scope = rememberCoroutineScope()
         var showPractice by remember { mutableStateOf(false) }
 
-        val onboardingComplete by
+        val onboardingComplete =
                 context.dataStore
                         .data
-                        .map { preferences ->
-                            preferences[PreferencesKeys.ONBOARDING_COMPLETE] ?: false
-                        }
+                        .map { it[booleanPreferencesKey("onboarding_complete")] ?: false }
                         .collectAsState(initial = false)
+
+        val showHistory =
+                context.dataStore
+                        .data
+                        .map { it[booleanPreferencesKey("show_history")] ?: true }
+                        .collectAsState(initial = true)
 
         // Handle back press
         BackHandler(enabled = currentScreenState == Screen.Settings) {
@@ -93,46 +102,49 @@ class MainActivity : ComponentActivity() {
 
         if (showPractice) {
             PracticeGestureScreen(onBack = { showPractice = false })
-        } else if (!onboardingComplete) {
-            OnboardingScreen(
-                    onComplete = {
-                        scope.launch {
-                            context.dataStore.edit { preferences ->
-                                preferences[PreferencesKeys.ONBOARDING_COMPLETE] = true
-                            }
-                            startOverlayService()
-                        }
-                    }
-            )
         } else {
-            // Auto-start service if permissions are granted
-            LaunchedEffect(Unit) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-                                Settings.canDrawOverlays(context)
-                ) {
-                    startOverlayService()
+            if (!onboardingComplete.value) { // Show onboarding if not complete
+                OnboardingScreen(
+                        onComplete = {
+                            scope.launch {
+                                context.dataStore.edit { preferences ->
+                                    preferences[PreferencesKeys.ONBOARDING_COMPLETE] = true
+                                }
+                                startOverlayService()
+                            }
+                        }
+                )
+            } else {
+                // Auto-start service if permissions are granted
+                LaunchedEffect(Unit) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                                    Settings.canDrawOverlays(context)
+                    ) {
+                        startOverlayService()
+                    }
                 }
-            }
 
-            when (currentScreenState) {
-                Screen.Search -> {
-                    val app = application as SearchLauncherApp
-                    SearchScreen(
-                            query = queryState,
-                            onQueryChange = { queryState = it },
-                            onDismiss = { /* No-op for home screen */},
-                            onOpenSettings = { currentScreenState = Screen.Settings },
-                            searchRepository = app.searchRepository,
-                            focusTrigger = focusTrigger
-                    )
-                }
-                Screen.Settings -> {
-                    HomeScreen(
-                            onStartService = { startOverlayService() },
-                            onStopService = { stopOverlayService() },
-                            onOpenPractice = { showPractice = true },
-                            onBack = { currentScreenState = Screen.Search }
-                    )
+                when (currentScreenState) {
+                    Screen.Search -> {
+                        val app = application as SearchLauncherApp
+                        SearchScreen(
+                                query = queryState,
+                                onQueryChange = { queryState = it },
+                                onDismiss = { /* No-op for home screen */},
+                                onOpenSettings = { currentScreenState = Screen.Settings },
+                                searchRepository = app.searchRepository,
+                                focusTrigger = focusTrigger,
+                                showHistory = showHistory.value
+                        )
+                    }
+                    Screen.Settings -> {
+                        HomeScreen(
+                                onStartService = { startOverlayService() },
+                                onStopService = { stopOverlayService() },
+                                onOpenPractice = { showPractice = true },
+                                onBack = { currentScreenState = Screen.Search }
+                        )
+                    }
                 }
             }
         }
@@ -182,7 +194,10 @@ fun HomeScreen(
     }
 
     Column(
-            modifier = Modifier.fillMaxSize().padding(PaddingValues(16.dp)),
+            modifier =
+                    Modifier.fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(PaddingValues(16.dp)),
             verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Row(
@@ -245,6 +260,47 @@ fun HomeScreen(
 
                 Button(onClick = onOpenPractice, modifier = Modifier.fillMaxWidth()) {
                     Text("Practice Gesture")
+                }
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(text = "Search Settings", style = MaterialTheme.typography.titleMedium)
+
+                val scope = rememberCoroutineScope()
+                val showHistory =
+                        context.dataStore
+                                .data
+                                .map { it[booleanPreferencesKey("show_history")] ?: true }
+                                .collectAsState(initial = true)
+
+                Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "Show History", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                                text = "Display recently used items when search is empty",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                            checked = showHistory.value,
+                            onCheckedChange = { enabled ->
+                                scope.launch {
+                                    context.dataStore.edit { preferences ->
+                                        preferences[booleanPreferencesKey("show_history")] = enabled
+                                    }
+                                }
+                            }
+                    )
                 }
             }
         }
@@ -333,6 +389,51 @@ fun HomeScreen(
                             }
                         }
                 )
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(text = "Developer Actions", style = MaterialTheme.typography.titleMedium)
+
+                val scope = rememberCoroutineScope()
+                val searchRepository = remember { SearchRepository(context) }
+
+                LaunchedEffect(Unit) { searchRepository.initialize() }
+
+                Button(
+                        onClick = {
+                            scope.launch {
+                                searchRepository.resetIndex()
+                                withContext(Dispatchers.Main) {
+                                    android.widget.Toast.makeText(
+                                                    context,
+                                                    "Search Index Reset",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                            )
+                                            .show()
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                ) { Text("Reset Search Index") }
+
+                Button(
+                        onClick = {
+                            val activityManager =
+                                    context.getSystemService(Context.ACTIVITY_SERVICE) as
+                                            android.app.ActivityManager
+                            activityManager.clearApplicationUserData()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors =
+                                ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.error
+                                )
+                ) { Text("Reset App Data") }
             }
         }
     }

@@ -183,6 +183,45 @@ class SearchRepository(private val context: Context) {
                         }
                 }
 
+        suspend fun getRecentItems(limit: Int = 10): List<SearchResult> =
+                withContext(Dispatchers.IO) {
+                        val session = appSearchSession
+                        if (session == null) return@withContext emptyList()
+
+                        try {
+                                val searchSpec =
+                                        SearchSpec.Builder()
+                                                .setRankingStrategy(
+                                                        SearchSpec.RANKING_STRATEGY_USAGE_COUNT
+                                                )
+                                                .setResultCountPerPage(100) // Get more to filter
+                                                .build()
+
+                                val searchResults = session.search("", searchSpec)
+                                val page = searchResults.nextPageAsync.get()
+
+                                // Only return items that have been used (ranking signal > 0)
+                                return@withContext page
+                                        .filter { result -> result.rankingSignal > 0 }
+                                        .take(limit)
+                                        .mapNotNull { result ->
+                                                val doc =
+                                                        result.genericDocument.toDocumentClass(
+                                                                AppSearchDocument::class.java
+                                                        )
+                                                if (doc != null) {
+                                                        convertDocumentToResult(
+                                                                doc,
+                                                                result.rankingSignal.toInt()
+                                                        )
+                                                } else null
+                                        }
+                        } catch (e: Exception) {
+                                e.printStackTrace()
+                                return@withContext emptyList()
+                        }
+                }
+
         suspend fun reportUsage(namespace: String, id: String) =
                 withContext(Dispatchers.IO) {
                         val session = appSearchSession ?: return@withContext

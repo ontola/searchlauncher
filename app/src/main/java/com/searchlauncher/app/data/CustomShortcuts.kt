@@ -180,6 +180,12 @@ object CustomShortcuts {
                                 color = 0xFFFF4500
                         ),
                         CustomShortcut.Search(
+                                trigger = "tt",
+                                urlTemplate = "https://www.tiktok.com/search?q=%s",
+                                description = "TikTok Search",
+                                color = 0x000000
+                        ),
+                        CustomShortcut.Search(
                                 trigger = "w",
                                 urlTemplate = "https://en.wikipedia.org/w/index.php?search=%s",
                                 description = "Wikipedia Search",
