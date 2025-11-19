@@ -11,22 +11,54 @@ object CustomShortcuts {
         val shortcuts =
                 listOf(
                         CustomShortcut("g", "https://www.google.com/search?q=%s", "Google Search"),
+                        CustomShortcut("call", "tel:%s", "Call"),
+                        CustomShortcut("sms", "sms:%s", "Send SMS"),
+                        CustomShortcut("mailto", "mailto:%s", "Send Email to"),
+                        CustomShortcut("gmail", "gmail://search/%s", "Gmail Search"),
+                        CustomShortcut("tg", "tg://search?q=%s", "Telegram Search"),
+                        CustomShortcut(
+                                "adbw",
+                                "intent:#Intent;action=android.settings.WIRELESS_DEBUGGING_SETTINGS;end",
+                                "ADB Wireless Debugging Settings"
+                        ),
+                        CustomShortcut(
+                                "wifi",
+                                "intent:#Intent;action=android.settings.WIFI_SETTINGS;end",
+                                "Wi-Fi Settings"
+                        ),
+                        CustomShortcut(
+                                "bt",
+                                "intent:#Intent;action=android.settings.BLUETOOTH_SETTINGS;end",
+                                "Bluetooth Settings"
+                        ),
+                        CustomShortcut(
+                                "noti",
+                                "intent:#Intent;action=android.settings.APP_NOTIFICATION_SETTINGS;end",
+                                "Notification Settings"
+                        ),
+                        CustomShortcut(
+                                "apps",
+                                "intent:#Intent;action=android.settings.APPLICATION_SETTINGS;end",
+                                "App Settings"
+                        ),
+                        CustomShortcut(
+                                "pkg",
+                                "intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;end",
+                                "App Details"
+                        ),
+                        CustomShortcut(
+                                "cal",
+                                "intent:#Intent;action=android.intent.action.INSERT;type=vnd.android.cursor.item/event;S.title=%s;end",
+                                "Add Calendar Item"
+                        ),
                         CustomShortcut(
                                 "ff",
                                 "https://www.google.com/search?q=%s",
                                 "Firefox Search",
                                 "org.mozilla.firefox"
                         ),
-                        CustomShortcut(
-                                "yt",
-                                "https://www.youtube.com/results?search_query=%s",
-                                "YouTube Search"
-                        ),
-                        CustomShortcut(
-                                "maps",
-                                "https://www.google.com/maps/search/%s",
-                                "Google Maps"
-                        ),
+                        CustomShortcut("yt", "vnd.youtube:%s", "YouTube Search"),
+                        CustomShortcut("maps", "geo:0,0?q=%s", "Google Maps"),
                         CustomShortcut(
                                 "play",
                                 "https://play.google.com/store/search?q=%s",
