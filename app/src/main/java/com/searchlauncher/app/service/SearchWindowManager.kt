@@ -488,7 +488,10 @@ class SearchWindowManager(private val context: Context, private val windowManage
     @Composable
     private fun SearchResultItem(result: SearchResult, onClick: () -> Unit) {
         Row(
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
+                modifier =
+                        Modifier.fillMaxWidth()
+                                .clickable(onClick = onClick)
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
         ) {
             Box(modifier = Modifier.size(40.dp)) {
@@ -516,14 +519,6 @@ class SearchWindowManager(private val context: Context, private val windowManage
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
                 )
-
-                result.subtitle?.let { subtitle ->
-                    Text(
-                            text = subtitle,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
         }
     }
