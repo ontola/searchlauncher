@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -40,6 +41,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.platform.LocalContext
@@ -125,7 +127,12 @@ fun SearchScreen(
             Column(
                     modifier =
                             Modifier.fillMaxSize()
-                                    .padding(16.dp)
+                                    .padding(
+                                            start = 16.dp,
+                                            end = 16.dp,
+                                            top = 16.dp,
+                                            bottom = 12.dp
+                                    )
                                     .windowInsetsPadding(
                                             WindowInsets.ime.union(WindowInsets.navigationBars)
                                     ),
@@ -288,7 +295,7 @@ fun SearchScreen(
                             modifier =
                                     Modifier.fillMaxWidth()
                                             .heightIn(min = 40.dp)
-                                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                                            .padding(horizontal = 16.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                     ) {
                         val activeShortcut =
@@ -314,12 +321,6 @@ fun SearchScreen(
                                 )
                             }
                             Spacer(modifier = Modifier.width(8.dp))
-                        } else {
-                            Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "Search",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
 
                         val displayQuery =
@@ -329,7 +330,7 @@ fun SearchScreen(
                                     query
                                 }
 
-                        TextField(
+                        BasicTextField(
                                 value = displayQuery,
                                 onValueChange = { newText ->
                                     if (activeShortcut != null) {
@@ -354,23 +355,11 @@ fun SearchScreen(
                                                         false
                                                     }
                                                 },
-                                colors =
-                                        TextFieldDefaults.colors(
-                                                focusedContainerColor = Color.Transparent,
-                                                unfocusedContainerColor = Color.Transparent,
-                                                focusedIndicatorColor = Color.Transparent,
-                                                unfocusedIndicatorColor = Color.Transparent
+                                textStyle =
+                                        LocalTextStyle.current.copy(
+                                                fontSize = 18.sp,
+                                                color = MaterialTheme.colorScheme.onSurface
                                         ),
-                                placeholder = {
-                                    if (activeShortcut == null) {
-                                        Text(
-                                                "Search apps and content…",
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                },
-                                singleLine = true,
-                                textStyle = LocalTextStyle.current.copy(fontSize = 18.sp),
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                                 keyboardActions =
                                         KeyboardActions(
@@ -391,7 +380,22 @@ fun SearchScreen(
                                                         }
                                                     }
                                                 }
-                                        )
+                                        ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                decorationBox = { innerTextField ->
+                                    Box(contentAlignment = Alignment.CenterStart) {
+                                        if (displayQuery.isEmpty() && activeShortcut == null) {
+                                            Text(
+                                                    "Search apps and content…",
+                                                    color =
+                                                            MaterialTheme.colorScheme
+                                                                    .onSurfaceVariant,
+                                                    fontSize = 18.sp
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                }
                         )
 
                         if (query.isNotEmpty()) {
