@@ -5,11 +5,10 @@ Swipe from the side and back to open the search bar.
 
 ## Features
 
-- **Search everything on your phone** - Apps, settings
+- **Search everything on your phone** - Apps, their shortcuts, device settings
 - **Search everything on the web** - Youtube and google (with autocomplete), maps, spotify, more!
-- **Quick app launcher** - Fast access to all your installed apps
 - **Gesture activation** - Swipe from the edge and back to open search from any screen
-- **Modern architecture** - Built with Jetpack Compose, Material 3, and AppSearch API
+- **Speed** - Lightweight, fast!
 - **Smart sorting** - Apps sorted by recent usage (with optional usage stats permission)
 - **Guided onboarding** - Step-by-step permission setup
 
