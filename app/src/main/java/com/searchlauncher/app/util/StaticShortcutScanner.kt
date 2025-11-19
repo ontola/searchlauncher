@@ -111,12 +111,12 @@ object StaticShortcutScanner {
                                  if (action != null) {
                                      currentIntent = Intent(action)
                                      if (targetClass != null) {
-                                         currentIntent!!.component = ComponentName(targetPackage!!, targetClass)
+                                         currentIntent.component = ComponentName(targetPackage!!, targetClass)
                                      } else {
-                                         currentIntent!!.setPackage(targetPackage)
+                                         currentIntent.setPackage(targetPackage)
                                      }
                                      if (data != null) {
-                                         currentIntent!!.data = android.net.Uri.parse(data)
+                                         currentIntent.data = android.net.Uri.parse(data)
                                      }
                                  }
                              }
@@ -128,11 +128,11 @@ object StaticShortcutScanner {
                                 shortcuts.add(
                                     StaticShortcut(
                                         packageName,
-                                        currentShortcutId!!,
-                                        currentShortLabel!!,
+                                        currentShortcutId,
+                                        currentShortLabel,
                                         currentLongLabel,
                                         currentIconResId,
-                                        currentIntent!!
+                                        currentIntent
                                     )
                                 )
                             }

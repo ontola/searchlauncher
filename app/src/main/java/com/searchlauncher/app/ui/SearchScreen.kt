@@ -416,7 +416,7 @@ private fun SearchResultItem(result: SearchResult, onClick: () -> Unit) {
 
             if (result is SearchResult.Shortcut && result.appIcon != null) {
                 Image(
-                        bitmap = result.appIcon!!.toImageBitmap(),
+                        bitmap = result.appIcon.toImageBitmap(),
                         contentDescription = null,
                         modifier = Modifier.size(16.dp).align(Alignment.TopStart)
                 )

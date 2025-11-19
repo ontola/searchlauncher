@@ -62,7 +62,7 @@ class OverlayService : Service() {
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                                 } else {
-                                    WindowManager.LayoutParams.TYPE_PHONE
+                                    @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
                                 },
                                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -128,6 +128,7 @@ class OverlayService : Service() {
                     .setContentIntent(pendingIntent)
                     .build()
         } else {
+            @Suppress("DEPRECATION")
             Notification.Builder(this)
                     .setContentTitle(getString(R.string.service_notification_title))
                     .setContentText(getString(R.string.service_notification_desc))

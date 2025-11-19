@@ -210,12 +210,10 @@ class SearchRepository(private val context: Context) {
                                                         result.genericDocument.toDocumentClass(
                                                                 AppSearchDocument::class.java
                                                         )
-                                                if (doc != null) {
-                                                        convertDocumentToResult(
-                                                                doc,
-                                                                result.rankingSignal.toInt()
-                                                        )
-                                                } else null
+                                                convertDocumentToResult(
+                                                        doc,
+                                                        result.rankingSignal.toInt()
+                                                )
                                         }
                         } catch (e: Exception) {
                                 e.printStackTrace()
@@ -728,7 +726,7 @@ class SearchRepository(private val context: Context) {
                                                         .sortedByDescending { it.second }
                                                         .take(10)
 
-                                        for ((doc, score) in fuzzyMatches) {
+                                        for ((doc, _) in fuzzyMatches) {
                                                 if (doc.id !in existingIds) {
                                                         val boost =
                                                                 if (doc.namespace == "apps") 5
@@ -753,11 +751,8 @@ class SearchRepository(private val context: Context) {
                         results
                 }
 
-        suspend fun searchContent(query: String): List<SearchResult.Content> =
+        suspend fun searchContent(): List<SearchResult.Content> =
                 withContext(Dispatchers.IO) { emptyList() }
-
-        suspend fun search(query: String): List<SearchResult> =
-                withContext(Dispatchers.IO) { searchApps(query) }
 
         private fun fetchSuggestions(urlTemplate: String, query: String): List<String> {
                 val suggestions = mutableListOf<String>()

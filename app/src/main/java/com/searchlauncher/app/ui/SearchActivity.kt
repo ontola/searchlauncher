@@ -26,8 +26,6 @@ class SearchActivity : ComponentActivity() {
                         android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
         )
 
-        val app = application as SearchLauncherApp
-
         setContent {
             val context = LocalContext.current
             val query = remember { mutableStateOf("") }

@@ -61,6 +61,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         // Ensure keyboard opens automatically
+        @Suppress("DEPRECATION")
         window.setSoftInputMode(
                 android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
                         android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
@@ -589,6 +590,7 @@ fun hasUsageStatsPermission(context: Context): Boolean {
                             context.packageName
                     )
                 } else {
+                    @Suppress("DEPRECATION")
                     appOps.checkOpNoThrow(
                             AppOpsManager.OPSTR_GET_USAGE_STATS,
                             android.os.Process.myUid(),
@@ -841,13 +843,11 @@ private suspend fun exportQuickCopyData(
 
             val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
                     .format(java.util.Date())
+            @Suppress("UNUSED_VARIABLE")
             val fileName = "searchlauncher_quickcopy_$timestamp.json"
 
-            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "application/json"
-                putExtra(Intent.EXTRA_TITLE, fileName)
-            }
+            // Future enhancement: could use ACTION_CREATE_DOCUMENT for file export
+            // For now, clipboard is simpler and works across all devices
 
             // Save to clipboard as fallback
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager

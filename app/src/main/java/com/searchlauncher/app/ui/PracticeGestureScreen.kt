@@ -67,6 +67,7 @@ fun PracticeGestureScreen(onBack: () -> Unit) {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .pointerInput(Unit) {
+                @Suppress("DEPRECATION")
                 forEachGesture {
                     awaitPointerEventScope {
                         val width = size.width

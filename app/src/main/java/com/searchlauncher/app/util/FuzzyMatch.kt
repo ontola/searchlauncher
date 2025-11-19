@@ -31,7 +31,6 @@ object FuzzyMatch {
         // "spf" -> "Spotify"
         var qIdx = 0
         var tIdx = 0
-        var matchSpread = 0
         var firstMatchIdx = -1
 
         while (qIdx < q.length && tIdx < t.length) {
@@ -44,7 +43,7 @@ object FuzzyMatch {
 
         if (qIdx == q.length) {
             // Found all characters in order
-            matchSpread = (tIdx - 1) - firstMatchIdx + 1
+            val matchSpread = (tIdx - 1) - firstMatchIdx + 1
             // Score based on compactness.
             // Ideally spread == query.length.
             // Score = 60 - (penalty for spread)
