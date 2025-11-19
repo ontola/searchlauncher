@@ -539,6 +539,10 @@ class SearchWindowManager(private val context: Context, private val windowManage
                                             .show()
                                 }
                             }
+                        } else if (intent.action ==
+                                        "com.searchlauncher.action.TOGGLE_FLASHLIGHT"
+                        ) {
+                            toggleFlashlight(context)
                         } else {
                             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             context.startActivity(intent)
@@ -580,6 +584,59 @@ class SearchWindowManager(private val context: Context, private val windowManage
                 // We need to refactor SearchResultItem onClick to handle this specific case in
                 // SearchUI
             }
+        }
+    }
+
+    private fun toggleFlashlight(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val cameraManager =
+                    context.getSystemService(Context.CAMERA_SERVICE) as
+                            android.hardware.camera2.CameraManager
+            try {
+                val cameraId =
+                        cameraManager.cameraIdList.firstOrNull { id ->
+                            val characteristics = cameraManager.getCameraCharacteristics(id)
+                            characteristics.get(
+                                    android.hardware.camera2.CameraCharacteristics
+                                            .FLASH_INFO_AVAILABLE
+                            ) == true
+                        }
+
+                if (cameraId != null) {
+                    cameraManager.registerTorchCallback(
+                            object : android.hardware.camera2.CameraManager.TorchCallback() {
+                                override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
+                                    super.onTorchModeChanged(cameraId, enabled)
+                                    cameraManager.unregisterTorchCallback(this)
+                                    try {
+                                        cameraManager.setTorchMode(cameraId, !enabled)
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        Toast.makeText(
+                                                        context,
+                                                        "Error toggling flashlight",
+                                                        Toast.LENGTH_SHORT
+                                                )
+                                                .show()
+                                    }
+                                }
+                            },
+                            null
+                    )
+                } else {
+                    Toast.makeText(context, "No flash available", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "Error accessing camera", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(
+                            context,
+                            "Flashlight not supported on this device",
+                            Toast.LENGTH_SHORT
+                    )
+                    .show()
         }
     }
 }

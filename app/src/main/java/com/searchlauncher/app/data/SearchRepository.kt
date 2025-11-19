@@ -371,7 +371,8 @@ class SearchRepository(private val context: Context) {
 
                         // Check for custom shortcuts (Direct use: "g test")
                         // If we match a shortcut trigger, we manually add the result and
-                        // filter out the generic "custom_shortcuts" from AppSearch to avoid duplicates.
+                        // filter out the generic "custom_shortcuts" from AppSearch to avoid
+                        // duplicates.
                         var filterCustomShortcuts = false
 
                         if (query.isNotEmpty()) {
@@ -380,8 +381,8 @@ class SearchRepository(private val context: Context) {
                                         val trigger = parts[0]
                                         val searchTerm = parts[1]
                                         val shortcut =
-                                                CustomShortcuts.shortcuts
-                                                        .filterIsInstance<CustomShortcut.Search>()
+                                                CustomShortcuts.shortcuts.filterIsInstance<
+                                                                CustomShortcut.Search>()
                                                         .find {
                                                                 it.trigger.equals(
                                                                         trigger,
@@ -394,8 +395,7 @@ class SearchRepository(private val context: Context) {
 
                                                 // Fetch suggestions if available
                                                 val suggestionUrl = shortcut.suggestionUrl
-                                                if (suggestionUrl != null &&
-                                                                searchTerm.isNotEmpty()
+                                                if (suggestionUrl != null && searchTerm.isNotEmpty()
                                                 ) {
                                                         val suggestions =
                                                                 fetchSuggestions(
@@ -448,8 +448,7 @@ class SearchRepository(private val context: Context) {
                                                                 subtitle = "Custom Shortcut",
                                                                 icon = null, // TODO: Add
                                                                 // icon
-                                                                packageName =
-                                                                        shortcut.packageName
+                                                                packageName = shortcut.packageName
                                                                                 ?: "android",
                                                                 deepLink = url
                                                         )
@@ -467,7 +466,8 @@ class SearchRepository(private val context: Context) {
                                                 .setTermMatch(SearchSpec.TERM_MATCH_PREFIX)
 
                                 if (filterCustomShortcuts) {
-                                        // If we handled a custom shortcut manually, exclude them from search
+                                        // If we handled a custom shortcut manually, exclude them
+                                        // from search
                                         // to avoid "discovery" items appearing
                                         searchSpecBuilder.addFilterNamespaces("apps", "shortcuts")
                                 }

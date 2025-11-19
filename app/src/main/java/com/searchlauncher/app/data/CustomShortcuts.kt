@@ -208,6 +208,11 @@ object CustomShortcuts {
                                 intentUri =
                                         "intent:#Intent;action=com.searchlauncher.RESET_INDEX;end",
                                 description = "Reset Search Index"
+                        ),
+                        CustomShortcut.Action(
+                                intentUri =
+                                        "intent:#Intent;action=com.searchlauncher.action.TOGGLE_FLASHLIGHT;end",
+                                description = "Toggle Flashlight"
                         )
                 ) + generateSettingsShortcuts()
 }
