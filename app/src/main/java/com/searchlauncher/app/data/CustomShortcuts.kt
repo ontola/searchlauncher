@@ -116,6 +116,20 @@ object CustomShortcuts {
                                 color = 0xFF4285F4
                         ),
                         CustomShortcut.Search(
+                                trigger = "dd",
+                                urlTemplate = "https://duckduckgo.com/?q=%s",
+                                description = "DuckDuckGo Search",
+                                suggestionUrl = "https://ac.duckduckgo.com/ac/?q=%s&type=list",
+                                color = 0xFFDE5833
+                        ),
+                        CustomShortcut.Search(
+                                trigger = "bing",
+                                urlTemplate = "https://www.bing.com/search?q=%s",
+                                description = "Bing Search",
+                                suggestionUrl = "https://api.bing.com/osjson.aspx?query=%s",
+                                color = 0xFF008373
+                        ),
+                        CustomShortcut.Search(
                                 trigger = "call",
                                 urlTemplate = "tel:%s",
                                 description = "Call",
@@ -132,12 +146,6 @@ object CustomShortcuts {
                                 urlTemplate = "mailto:%s",
                                 description = "Send Email to",
                                 color = 0xFFF44336
-                        ),
-                        CustomShortcut.Search(
-                                trigger = "gmail",
-                                urlTemplate = "gmail://search/%s",
-                                description = "Gmail Search",
-                                color = 0xFFDB4437
                         ),
                         CustomShortcut.Search(
                                 trigger = "cal",

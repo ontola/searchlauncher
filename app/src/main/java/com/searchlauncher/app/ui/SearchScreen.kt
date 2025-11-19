@@ -58,6 +58,7 @@ fun SearchScreen(
 ) {
     var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
+    var isFallbackMode by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
@@ -72,8 +73,20 @@ fun SearchScreen(
                     } else {
                         emptyList()
                     }
+            isFallbackMode = false
         } else {
-            searchResults = searchRepository.searchApps(query)
+            val results = searchRepository.searchApps(query)
+            android.util.Log.d("SearchScreen", "Query: '$query', Results: ${results.size}")
+            // If no results found, show search shortcuts as fallback
+            if (results.isEmpty()) {
+                val shortcuts = searchRepository.getSearchShortcuts(limit = 10)
+                android.util.Log.d("SearchScreen", "Showing ${shortcuts.size} search shortcuts")
+                searchResults = shortcuts
+                isFallbackMode = true
+            } else {
+                searchResults = results
+                isFallbackMode = false
+            }
         }
     }
 
@@ -140,7 +153,63 @@ fun SearchScreen(
                                             result = result,
                                             onClick = {
                                                 if (result is SearchResult.SearchIntent) {
-                                                    onQueryChange(result.trigger + " ")
+                                                    // In fallback mode (no results), perform search
+                                                    // directly
+                                                    // Otherwise, activate the filter
+                                                    if (isFallbackMode && query.isNotEmpty()) {
+                                                        // Perform search with current query in this
+                                                        // service
+                                                        val shortcut =
+                                                                com.searchlauncher.app.data
+                                                                        .CustomShortcuts.shortcuts
+                                                                        .filterIsInstance<
+                                                                                com.searchlauncher.app.data.CustomShortcut.Search>()
+                                                                        .find {
+                                                                            it.trigger ==
+                                                                                    result.trigger
+                                                                        }
+
+                                                        if (shortcut != null) {
+                                                            val url =
+                                                                    shortcut.urlTemplate.replace(
+                                                                            "%s",
+                                                                            java.net.URLEncoder
+                                                                                    .encode(
+                                                                                            query,
+                                                                                            "UTF-8"
+                                                                                    )
+                                                                    )
+                                                            try {
+                                                                val intent =
+                                                                        Intent(
+                                                                                Intent.ACTION_VIEW,
+                                                                                Uri.parse(url)
+                                                                        )
+                                                                intent.addFlags(
+                                                                        Intent.FLAG_ACTIVITY_NEW_TASK
+                                                                )
+                                                                context.startActivity(intent)
+                                                                // Report usage for ranking
+                                                                scope.launch {
+                                                                    searchRepository.reportUsage(
+                                                                            result.namespace,
+                                                                            result.id
+                                                                    )
+                                                                }
+                                                                onDismiss()
+                                                            } catch (e: Exception) {
+                                                                Toast.makeText(
+                                                                                context,
+                                                                                "Cannot open: ${shortcut.description}",
+                                                                                Toast.LENGTH_SHORT
+                                                                        )
+                                                                        .show()
+                                                            }
+                                                        }
+                                                    } else {
+                                                        // Activate the filter
+                                                        onQueryChange(result.trigger + " ")
+                                                    }
                                                 } else {
                                                     launchResult(
                                                             context,

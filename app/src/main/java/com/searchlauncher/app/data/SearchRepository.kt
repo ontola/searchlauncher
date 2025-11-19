@@ -192,7 +192,7 @@ class SearchRepository(private val context: Context) {
                                 val searchSpec =
                                         SearchSpec.Builder()
                                                 .setRankingStrategy(
-                                                        SearchSpec.RANKING_STRATEGY_USAGE_COUNT
+                                                        SearchSpec.RANKING_STRATEGY_USAGE_LAST_USED_TIMESTAMP
                                                 )
                                                 .setResultCountPerPage(100) // Get more to filter
                                                 .build()
@@ -218,6 +218,66 @@ class SearchRepository(private val context: Context) {
                                         }
                         } catch (e: Exception) {
                                 e.printStackTrace()
+                                return@withContext emptyList()
+                        }
+                }
+
+        suspend fun getSearchShortcuts(limit: Int = 10): List<SearchResult> =
+                withContext(Dispatchers.IO) {
+                        try {
+                                // Get all custom search shortcuts from cache
+                                val searchShortcuts = documentCache
+                                        .filter { it.namespace == "custom_shortcuts" && !it.isAction }
+
+                                android.util.Log.d("SearchRepository", "Found ${searchShortcuts.size} search shortcuts in cache")
+
+                                // Try to get usage data from AppSearch to sort them
+                                val session = appSearchSession
+                                if (session != null) {
+                                        try {
+                                                val searchSpec =
+                                                        SearchSpec.Builder()
+                                                                .setRankingStrategy(
+                                                                        SearchSpec.RANKING_STRATEGY_USAGE_COUNT
+                                                                )
+                                                                .addFilterNamespaces("custom_shortcuts")
+                                                                .setResultCountPerPage(50)
+                                                                .build()
+
+                                                // Try searching for common terms that would match shortcuts
+                                                val searchResults = session.search("search", searchSpec)
+                                                val page = searchResults.nextPageAsync.get()
+
+                                                // Build a map of document ID to usage count
+                                                val usageMap = page.associate { result ->
+                                                        result.genericDocument.id to result.rankingSignal
+                                                }
+
+                                                android.util.Log.d("SearchRepository", "Got usage data for ${usageMap.size} shortcuts")
+
+                                                // Sort by usage, with unused items at the end
+                                                return@withContext searchShortcuts
+                                                        .sortedByDescending { doc -> usageMap[doc.id] ?: 0.0 }
+                                                        .take(limit)
+                                                        .map { doc -> convertDocumentToResult(doc, 100) }
+                                                        .filterIsInstance<SearchResult.SearchIntent>()
+                                        } catch (e: Exception) {
+                                                android.util.Log.e("SearchRepository", "Error querying usage", e)
+                                        }
+                                }
+
+                                // Fallback: return all shortcuts without usage sorting
+                                return@withContext searchShortcuts
+                                        .take(limit)
+                                        .map { doc -> convertDocumentToResult(doc, 100) }
+                                        .filterIsInstance<SearchResult.SearchIntent>()
+                        } catch (e: Exception) {
+                                e.printStackTrace()
+                                android.util.Log.e(
+                                        "SearchRepository",
+                                        "Error getting search shortcuts",
+                                        e
+                                )
                                 return@withContext emptyList()
                         }
                 }
@@ -665,20 +725,6 @@ class SearchRepository(private val context: Context) {
                                 } else {
                                         results.addAll(appSearchResults)
                                 }
-
-                                if (query.isNotEmpty()) {
-                                        results.add(
-                                                SearchResult.Content(
-                                                        id = "web_search",
-                                                        title = "Search \"$query\" in Browser",
-                                                        subtitle = "Web Search",
-                                                        icon = null,
-                                                        packageName = "android",
-                                                        deepLink =
-                                                                "https://www.google.com/search?q=$query"
-                                                )
-                                        )
-                                }
                         } catch (e: Exception) {
                                 e.printStackTrace()
                         }
@@ -735,7 +781,10 @@ class SearchRepository(private val context: Context) {
                 if (color == null) return null
 
                 val background = GradientDrawable()
-                background.shape = GradientDrawable.OVAL
+                background.shape = GradientDrawable.RECTANGLE
+                // Match the 8.dp corner radius used for Contact icons
+                val cornerRadius = 8 * context.resources.displayMetrics.density
+                background.cornerRadius = cornerRadius
                 background.setColor(color.toInt())
 
                 val icon =
