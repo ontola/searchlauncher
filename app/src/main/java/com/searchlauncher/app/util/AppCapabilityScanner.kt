@@ -23,8 +23,6 @@ object AppCapabilityScanner {
         val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
 
         for (appInfo in packages) {
-            // Skip system apps that aren't updated (optional optimization, maybe we want system handlers too)
-            // For now, scanning everything.
 
             try {
                 val pkgContext = context.createPackageContext(appInfo.packageName, 0)
@@ -36,88 +34,88 @@ object AppCapabilityScanner {
                     capabilities.addAll(appCaps)
                 }
                 parser.close()
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Ignore errors (e.g. restricted packages)
             }
         }
         return capabilities
     }
 
-    private fun parseManifest(packageName: String, parser: XmlResourceParser): List<AppCapability> {
+    fun parseManifest(packageName: String, parser: XmlResourceParser): List<AppCapability> {
         val appCapabilities = mutableListOf<AppCapability>()
-        var currentActivity: String? = null
-        var currentSchemes = mutableListOf<String>()
-        var currentMimeTypes = mutableListOf<String>()
-        var currentActions = mutableListOf<String>()
+        var currentActivityName: String? = null
+        val currentSchemes = mutableListOf<String>()
+        val currentMimeTypes = mutableListOf<String>()
+        val currentActions = mutableListOf<String>()
         var isExported = false
 
-        // We only care about activities with intent-filters that have data/actions
-
         try {
-            var eventType = parser.eventType
-            while (eventType != XmlPullParser.END_DOCUMENT) {
-                when (eventType) {
+            var type = parser.eventType
+            while (type != XmlPullParser.END_DOCUMENT) {
+                when (type) {
                     XmlPullParser.START_TAG -> {
-                        val name = parser.name
-                        if (name == "activity" || name == "activity-alias") {
-                            // New activity start
-                            val rawName = parser.getAttributeValue(ANDROID_NS, "name")
-                            currentActivity = if (rawName != null) {
-                                if (rawName.startsWith(".")) {
-                                    packageName + rawName
-                                } else if (!rawName.contains(".")) {
-                                    "$packageName.$rawName"
-                                } else {
-                                    rawName
-                                }
-                            } else null
+                        when (parser.name) {
+                            "activity", "activity-alias" -> {
+                                // Reset state for new activity
+                                val rawName = parser.getAttributeValue(ANDROID_NS, "name")
+                                currentActivityName = resolveActivityName(packageName, rawName)
+                                isExported =
+                                    parser.getAttributeValue(ANDROID_NS, "exported") == "true"
 
-                            // Check exported
-                            val exportedVal = parser.getAttributeValue(ANDROID_NS, "exported")
-                            isExported = exportedVal == "true"
+                                currentSchemes.clear()
+                                currentMimeTypes.clear()
+                                currentActions.clear()
+                            }
 
-                            // Reset filters
-                            currentSchemes = mutableListOf()
-                            currentMimeTypes = mutableListOf()
-                            currentActions = mutableListOf()
+                            "action" -> {
+                                parser.getAttributeValue(ANDROID_NS, "name")
+                                    ?.let { currentActions.add(it) }
+                            }
 
-                        } else if (name == "action") {
-                             val action = parser.getAttributeValue(ANDROID_NS, "name")
-                             if (action != null) currentActions.add(action)
-                        } else if (name == "data") {
-                            val scheme = parser.getAttributeValue(ANDROID_NS, "scheme")
-                            val mimeType = parser.getAttributeValue(ANDROID_NS, "mimeType")
-
-                            if (scheme != null) currentSchemes.add(scheme)
-                            if (mimeType != null) currentMimeTypes.add(mimeType)
+                            "data" -> {
+                                parser.getAttributeValue(ANDROID_NS, "scheme")
+                                    ?.let { currentSchemes.add(it) }
+                                parser.getAttributeValue(ANDROID_NS, "mimeType")
+                                    ?.let { currentMimeTypes.add(it) }
+                            }
                         }
                     }
+
                     XmlPullParser.END_TAG -> {
                         if (parser.name == "activity" || parser.name == "activity-alias") {
-                            // End of activity, save if interesting
-                            if (isExported && currentActivity != null &&
-                                (currentSchemes.isNotEmpty() || currentMimeTypes.isNotEmpty())) {
+                            if (isExported && currentActivityName != null &&
+                                (currentSchemes.isNotEmpty() || currentMimeTypes.isNotEmpty())
+                            ) {
 
                                 appCapabilities.add(
                                     AppCapability(
-                                        packageName,
-                                        currentActivity!!,
-                                        currentSchemes.distinct(),
-                                        currentMimeTypes.distinct(),
-                                        currentActions.distinct()
+                                        packageName = packageName,
+                                        activityName = currentActivityName,
+                                        schemes = currentSchemes.toList(),
+                                        mimeTypes = currentMimeTypes.toList(),
+                                        actions = currentActions.toList()
                                     )
                                 )
                             }
-                            currentActivity = null
+                            currentActivityName = null
                         }
                     }
                 }
-                eventType = parser.next()
+                type = parser.next()
             }
         } catch (e: Exception) {
-            // Parsing failed
+            e.printStackTrace()
         }
 
         return appCapabilities
+    }
+
+    private fun resolveActivityName(pkg: String, rawName: String?): String? {
+        if (rawName == null) return null
+        return when {
+            rawName.startsWith(".") -> "$pkg$rawName"
+            !rawName.contains(".") -> "$pkg.$rawName"
+            else -> rawName
+        }
     }
 }
