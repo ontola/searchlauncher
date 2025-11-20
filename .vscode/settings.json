@@ -12,7 +12,7 @@
     "**/build/**": true
   },
   "[kotlin]": {
-    "editor.tabSize": 4,
+    "editor.tabSize": 1,
     "editor.insertSpaces": true,
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "fwcd.kotlin"

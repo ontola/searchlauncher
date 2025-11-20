@@ -28,6 +28,12 @@ class SearchRepository(private val context: Context) {
         private var appSearchSession: AppSearchSession? = null
         private val executor = Executors.newSingleThreadExecutor()
 
+        // Tracks whether the search index has been fully initialized.
+        // This is used to prevent the UI from querying the index before it's ready,
+        // which was causing favorites to not load on fresh installs.
+        private val _isInitialized = kotlinx.coroutines.flow.MutableStateFlow(false)
+        val isInitialized: kotlinx.coroutines.flow.StateFlow<Boolean> = _isInitialized
+
         suspend fun initialize() =
                 withContext(Dispatchers.IO) {
                         try {
@@ -51,6 +57,7 @@ class SearchRepository(private val context: Context) {
                                 indexCustomShortcuts()
                                 indexStaticShortcuts()
                                 indexContacts()
+                                _isInitialized.value = true
                         } catch (e: Exception) {
                                 e.printStackTrace()
                         }

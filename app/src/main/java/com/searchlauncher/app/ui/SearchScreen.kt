@@ -76,6 +76,7 @@ fun SearchScreen(
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     val favoriteIds by app.favoritesRepository.favoriteIds.collectAsState()
+    val isSearchInitialized by searchRepository.isInitialized.collectAsState(initial = false)
 
     var favorites by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
     var showQuickCopyDialog by remember { mutableStateOf(false) }
@@ -84,8 +85,10 @@ fun SearchScreen(
 
     LaunchedEffect(focusTrigger) { focusRequester.requestFocus() }
 
-    LaunchedEffect(favoriteIds) {
-        if (favoriteIds.isNotEmpty()) {
+    // Wait for the search repository to be initialized before loading favorites.
+    // This prevents a race condition where we try to query the index before it's ready.
+    LaunchedEffect(favoriteIds, isSearchInitialized) {
+        if (isSearchInitialized && favoriteIds.isNotEmpty()) {
             favorites = searchRepository.getFavorites(favoriteIds)
         } else {
             favorites = emptyList()
