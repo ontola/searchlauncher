@@ -46,11 +46,14 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import coil.compose.AsyncImage
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
@@ -155,35 +158,117 @@ fun SearchScreen(
                     }
                     .collectAsState(initial = null)
 
+    // Remember the max height of the IME observed so far
+    var maxImeHeight by remember { mutableStateOf(0) }
+    val imeHeight = WindowInsets.ime.getBottom(LocalDensity.current)
+
+    // Update max height if current IME is taller (e.g. first load or different keyboard)
+    if (imeHeight > maxImeHeight) {
+        maxImeHeight = imeHeight
+    }
+
+    // Use the max known height for padding to prevent jank,
+    // unless the keyboard is actually closed (height 0 or very small),
+    // but here we assume we want it "always visible" style or at least reserved space.
+    // However, to be safe, we'll use the larger of the two: current or max.
+    // Ideally, we persist this in DataStore, but for now, session memory.
+    // To persist across sessions, we'd need to pass a callback or use DataStore here.
+    // For this request "stored / persisted / remembered", we should probably save it.
+
+    // Let's read/write to DataStore for persistence
+    val density = LocalDensity.current
+    val imeHeightPx = WindowInsets.ime.getBottom(density)
+    val storedKeyboardHeight =
+            context.dataStore
+                    .data
+                    .map { it[intPreferencesKey("keyboard_height")] ?: 0 }
+                    .collectAsState(initial = 0)
+
+    LaunchedEffect(imeHeightPx) {
+        if (imeHeightPx > storedKeyboardHeight.value) {
+            context.dataStore.edit { prefs ->
+                prefs[intPreferencesKey("keyboard_height")] = imeHeightPx
+            }
+        }
+    }
+
+    // The effective padding is the max of current IME or stored IME height
+    val bottomPadding =
+            with(density) { kotlin.math.max(imeHeightPx, storedKeyboardHeight.value).toDp() }
+
     SearchLauncherTheme(
             themeColor = themeColor,
             darkThemeMode = darkMode,
             chroma = themeSaturation
     ) {
-        Box(
-                modifier =
-                        Modifier.fillMaxSize()
-                                .clickable { onDismiss() }
-                                .windowInsetsPadding(WindowInsets.statusBars)
-        ) {
+        Box(modifier = Modifier.fillMaxSize().clickable { onDismiss() }) {
             // Background: either image or solid color
+            // Modified to only fill the space ABOVE the keyboard
+            // Use the FULL available size for the background, not padded by bottomPadding
+            // This ensures the background extends behind the keyboard area if needed,
+            // or at least covers the "gap" if there is a mismatch.
+            // But user asked: "bg to fit the space above the keyboard"
+
+            // Re-evaluating the screenshot:
+            // The user is seeing a big black void where the keyboard is supposed to be.
+            // The "Background fitting space above keyboard" logic is doing exactly that:
+            // it stops drawing the background at 'bottomPadding'.
+
+            // If the keyboard is NOT actually visible or has a different height than stored,
+            // we get a black bar.
+            // The black bar is the window background because our Surface/Box doesn't cover it.
+
+            // To fix the "black void" issue while keeping "bg fits space above keyboard":
+            // 1. We should probably draw a solid color background (window background) behind
+            // everything
+            //    to ensure no transparency leaks to system black.
+            // 2. OR, better yet: The user's request "bg to fit space above keyboard"
+            //    probably meant the BACKGROUND IMAGE should be cropped/positioned there,
+            //    but the app background color should likely extend or be handled gracefully.
+
+            // Given the screenshot showing a black bottom half, it seems the 'bottomPadding'
+            // is reserving space but nothing is drawing there.
+
+            // Let's make the root Box fill the entire screen including behind nav bar/ime
+            // and only pad the *content* (Columns).
+            // BUT for the background IMAGE, we apply the padding so it doesn't get covered.
+
+            // If no image is set (solid color), we probably want that solid color to fill the whole
+            // screen
+            // or at least not leave a black void.
+
+            // Strategy:
+            // 1. Root Box fills max size.
+            // 2. If Background Image -> Apply bottom padding to it so it squats above keyboard.
+            //    Underneath (behind) it, draw a solid surface color so no black void if gaps.
+            // 3. If Solid Color -> Fill max size (behind keyboard too) so it looks seamless?
+            //    OR if user strictly wants it to stop above keyboard, we must ensure what's behind
+            // is acceptable.
+
+            // Current implementation:
+            // val contentModifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
+            // This is leaving the bottom area transparent -> Activity window background (Black).
+
+            // Fix: Draw a base background color filling the whole screen first.
+
+            Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+
+            val contentModifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
+
             if (backgroundUriString != null) {
                 AsyncImage(
                         model = android.net.Uri.parse(backgroundUriString),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = contentModifier
                 )
             } else {
                 // Solid background when no image
                 Box(
                         modifier =
-                                Modifier.fillMaxSize()
-                                        .background(
-                                                MaterialTheme.colorScheme.background.copy(
-                                                        alpha = 0.9f
-                                                )
-                                        )
+                                contentModifier.background(
+                                        MaterialTheme.colorScheme.background.copy(alpha = 0.9f)
+                                )
                 )
             }
 
@@ -191,20 +276,18 @@ fun SearchScreen(
                     modifier =
                             Modifier.fillMaxSize()
                                     .padding(
-                                            start = 16.dp,
-                                            end = 16.dp,
-                                            top = 16.dp,
-                                            bottom = 12.dp
-                                    )
-                                    .windowInsetsPadding(
-                                            WindowInsets.ime.union(WindowInsets.navigationBars)
-                                    ),
+                                            bottom = bottomPadding
+                                    ) // Push content up by reserved space
+                                    .padding(top = 16.dp, bottom = 12.dp),
                     verticalArrangement = Arrangement.Bottom
             ) {
                 if (searchResults.isNotEmpty()) {
                     Surface(
                             modifier =
-                                    Modifier.fillMaxWidth().weight(1f, fill = false).clickable(
+                                    Modifier.fillMaxWidth()
+                                            .weight(1f, fill = false)
+                                            .padding(horizontal = 16.dp)
+                                            .clickable(
                                                     indication = null,
                                                     interactionSource =
                                                             remember { MutableInteractionSource() }
@@ -346,7 +429,7 @@ fun SearchScreen(
 
                 Surface(
                         modifier =
-                                Modifier.fillMaxWidth().clickable(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clickable(
                                                 indication = null,
                                                 interactionSource =
                                                         remember { MutableInteractionSource() }
@@ -432,7 +515,84 @@ fun SearchScreen(
                                                     if (topResult != null) {
                                                         if (topResult is SearchResult.SearchIntent
                                                         ) {
-                                                            onQueryChange(topResult.trigger + " ")
+                                                            if (isFallbackMode && query.isNotEmpty()
+                                                            ) {
+                                                                // In fallback mode (e.g. random
+                                                                // text), 'Go' should perform the
+                                                                // search
+                                                                // using the top shortcut, instead
+                                                                // of just expanding the filter.
+                                                                val shortcut =
+                                                                        com.searchlauncher.app.data
+                                                                                .CustomShortcuts
+                                                                                .shortcuts
+                                                                                .filterIsInstance<
+                                                                                        com.searchlauncher.app.data.CustomShortcut.Search>()
+                                                                                .find {
+                                                                                    it.trigger ==
+                                                                                            topResult
+                                                                                                    .trigger
+                                                                                }
+
+                                                                if (shortcut != null) {
+                                                                    try {
+                                                                        val url =
+                                                                                shortcut.urlTemplate
+                                                                                        .replace(
+                                                                                                "%s",
+                                                                                                java.net
+                                                                                                        .URLEncoder
+                                                                                                        .encode(
+                                                                                                                query,
+                                                                                                                "UTF-8"
+                                                                                                        )
+                                                                                        )
+                                                                        val intent =
+                                                                                Intent(
+                                                                                        Intent.ACTION_VIEW,
+                                                                                        Uri.parse(
+                                                                                                url
+                                                                                        )
+                                                                                )
+                                                                        intent.addFlags(
+                                                                                Intent.FLAG_ACTIVITY_NEW_TASK
+                                                                        )
+                                                                        context.startActivity(
+                                                                                intent
+                                                                        )
+                                                                        scope.launch {
+                                                                            searchRepository
+                                                                                    .reportUsage(
+                                                                                            topResult
+                                                                                                    .namespace,
+                                                                                            topResult
+                                                                                                    .id
+                                                                                    )
+                                                                        }
+                                                                        onDismiss()
+                                                                    } catch (e: Exception) {
+                                                                        Toast.makeText(
+                                                                                        context,
+                                                                                        "Cannot open: ${topResult.title}",
+                                                                                        Toast.LENGTH_SHORT
+                                                                                )
+                                                                                .show()
+                                                                    }
+                                                                } else {
+                                                                    // Should not happen if data
+                                                                    // integrity is good, but
+                                                                    // fallback:
+                                                                    onQueryChange(
+                                                                            topResult.trigger + " "
+                                                                    )
+                                                                }
+                                                            } else {
+                                                                // Normal mode: pressing enter on a
+                                                                // shortcut expands it (sub-search)
+                                                                onQueryChange(
+                                                                        topResult.trigger + " "
+                                                                )
+                                                            }
                                                         } else {
                                                             launchResult(
                                                                     context,
@@ -862,8 +1022,8 @@ private fun FavoritesRow(
 
     androidx.compose.foundation.lazy.LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(spacing, Alignment.CenterHorizontally),
-            contentPadding = PaddingValues(horizontal = padding, vertical = 4.dp)
+            horizontalArrangement = Arrangement.spacedBy(spacing, Alignment.Start),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
     ) {
         items(favorites) { result ->
             var showMenu by remember { mutableStateOf(false) }
