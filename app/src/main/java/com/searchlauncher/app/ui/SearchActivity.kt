@@ -1,6 +1,5 @@
 package com.searchlauncher.app.ui
 
-import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -12,9 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
-import androidx.datastore.preferences.preferencesDataStore
 import com.searchlauncher.app.SearchLauncherApp
-import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import kotlinx.coroutines.flow.map
 
 class SearchActivity : ComponentActivity() {
@@ -42,24 +39,18 @@ class SearchActivity : ComponentActivity() {
                             }
                             .collectAsState(initial = true)
 
-            SearchLauncherTheme {
-                SearchScreen(
-                        query = query.value,
-                        onQueryChange = { query.value = it },
-                        onDismiss = { finish() },
-                        onOpenSettings = {
-                            val intent = Intent(this, MainActivity::class.java)
-                            startActivity(intent)
-                        },
-                        searchRepository = (application as SearchLauncherApp).searchRepository,
-                        focusTrigger = 0L,
-                        showHistory = showHistory.value
-                )
-            }
+            SearchScreen(
+                    query = query.value,
+                    onQueryChange = { query.value = it },
+                    onDismiss = { finish() },
+                    onOpenSettings = {
+                        val intent = Intent(this, MainActivity::class.java)
+                        startActivity(intent)
+                    },
+                    searchRepository = (application as SearchLauncherApp).searchRepository,
+                    focusTrigger = 0L,
+                    showHistory = showHistory.value
+            )
         }
     }
 }
-
-private val Context.dataStore:
-        androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences> by
-        androidx.datastore.preferences.preferencesDataStore(name = "settings")

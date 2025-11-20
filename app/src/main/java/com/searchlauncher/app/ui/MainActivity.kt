@@ -11,6 +11,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -29,6 +32,8 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.SearchRepository
@@ -39,7 +44,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 class MainActivity : ComponentActivity() {
 
@@ -68,7 +73,29 @@ class MainActivity : ComponentActivity() {
         )
 
         setContent {
-            SearchLauncherTheme {
+            val themeColor =
+                    dataStore
+                            .data
+                            .map { it[PreferencesKeys.THEME_COLOR] ?: 0xFF00639B.toInt() }
+                            .collectAsState(initial = 0xFF00639B.toInt())
+
+            val themeSaturation =
+                    dataStore
+                            .data
+                            .map { it[PreferencesKeys.THEME_SATURATION] ?: 50f }
+                            .collectAsState(initial = 50f)
+
+            val darkMode =
+                    dataStore
+                            .data
+                            .map { it[PreferencesKeys.DARK_MODE] ?: 0 }
+                            .collectAsState(initial = 0)
+
+            SearchLauncherTheme(
+                    themeColor = themeColor.value,
+                    darkThemeMode = darkMode.value,
+                    chroma = themeSaturation.value
+            ) {
                 Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
@@ -173,8 +200,11 @@ class MainActivity : ComponentActivity() {
         stopService(intent)
     }
 
-    private object PreferencesKeys {
+    object PreferencesKeys {
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
+        val THEME_COLOR = intPreferencesKey("theme_color")
+        val THEME_SATURATION = floatPreferencesKey("theme_saturation")
+        val DARK_MODE = intPreferencesKey("dark_mode") // 0: System, 1: Light, 2: Dark
     }
 }
 
@@ -236,6 +266,8 @@ fun HomeScreen(
             Text(text = "SearchLauncher", style = MaterialTheme.typography.headlineLarge)
         }
 
+        ThemeSettingsCard()
+
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
                     modifier = Modifier.padding(16.dp),
@@ -243,8 +275,7 @@ fun HomeScreen(
             ) {
                 Text(text = "Side swipe gesture", style = MaterialTheme.typography.titleMedium)
                 Text(
-                        text =
-                                "Swipe from the edge of the screen and back to open search",
+                        text = "Swipe from the edge of the screen and back to open search",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -271,10 +302,7 @@ fun HomeScreen(
                             modifier = Modifier.weight(1f)
                     ) { Text(if (isServiceRunning) "Stop" else "Start") }
 
-                    OutlinedButton(
-                            onClick = onOpenPractice,
-                            modifier = Modifier.weight(1f)
-                    ) {
+                    OutlinedButton(onClick = onOpenPractice, modifier = Modifier.weight(1f)) {
                         Text("Practice")
                     }
                 }
@@ -301,9 +329,7 @@ fun HomeScreen(
                                 context.startActivity(intent)
                             },
                             modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Set as Default Launcher")
-                    }
+                    ) { Text("Set as Default Launcher") }
                 }
             }
         }
@@ -536,9 +562,7 @@ fun HomeScreen(
                     }
                 },
                 confirmButton = {
-                    Button(onClick = { showPermissionDialog = false }) {
-                        Text("Got it")
-                    }
+                    Button(onClick = { showPermissionDialog = false }) { Text("Got it") }
                 }
         )
     }
@@ -636,15 +660,14 @@ private fun QuickCopyCard() {
                             editingItem = null
                             showDialog = true
                         }
-                ) {
-                    Text("Add")
-                }
+                ) { Text("Add") }
             }
 
             // List existing items
             if (quickCopyItems.value.isNotEmpty()) {
                 Text(
-                        text = "${quickCopyItems.value.size} item${if (quickCopyItems.value.size != 1) "s" else ""}",
+                        text =
+                                "${quickCopyItems.value.size} item${if (quickCopyItems.value.size != 1) "s" else ""}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -652,9 +675,11 @@ private fun QuickCopyCard() {
                 quickCopyItems.value.forEach { item ->
                     Card(
                             modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
+                            colors =
+                                    CardDefaults.cardColors(
+                                            containerColor =
+                                                    MaterialTheme.colorScheme.surfaceVariant
+                                    )
                     ) {
                         Row(
                                 modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -668,7 +693,9 @@ private fun QuickCopyCard() {
                                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                 )
                                 Text(
-                                        text = item.content.take(50) + if (item.content.length > 50) "..." else "",
+                                        text =
+                                                item.content.take(50) +
+                                                        if (item.content.length > 50) "..." else "",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -681,7 +708,9 @@ private fun QuickCopyCard() {
                                         }
                                 ) {
                                     Icon(
-                                            imageVector = androidx.compose.material.icons.Icons.Default.Edit,
+                                            imageVector =
+                                                    androidx.compose.material.icons.Icons.Default
+                                                            .Edit,
                                             contentDescription = "Edit"
                                     )
                                 }
@@ -766,16 +795,163 @@ private fun QuickCopyDialog(
                             }
                         },
                         enabled = alias.isNotBlank() && content.isNotBlank()
-                ) {
-                    Text("Save")
-                }
+                ) { Text("Save") }
             },
-            dismissButton = {
-                TextButton(onClick = onDismiss) {
-                    Text("Cancel")
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun ThemeSettingsCard() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val themeColor =
+            context.dataStore
+                    .data
+                    .map { it[MainActivity.PreferencesKeys.THEME_COLOR] ?: 0xFF00639B.toInt() }
+                    .collectAsState(initial = 0xFF00639B.toInt())
+
+    val themeSaturation =
+            context.dataStore
+                    .data
+                    .map { it[MainActivity.PreferencesKeys.THEME_SATURATION] ?: 50f }
+                    .collectAsState(initial = 50f)
+
+    val darkMode =
+            context.dataStore
+                    .data
+                    .map { it[MainActivity.PreferencesKeys.DARK_MODE] ?: 0 }
+                    .collectAsState(initial = 0)
+
+    val colors =
+            listOf(
+                    0xFF00639B.toInt(), // Blue
+                    0xFF6750A4.toInt(), // Purple
+                    0xFFBF0031.toInt(), // Red
+                    0xFF006D3B.toInt(), // Green
+                    0xFF6F5B40.toInt(), // Brown
+                    0xFF5D5F5F.toInt(), // Grey
+                    0xFF9C4146.toInt(), // Pink
+                    0xFF006874.toInt() // Teal
+            )
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(text = "Theme Color", style = MaterialTheme.typography.titleMedium)
+                Text(
+                        text = "Select a base color for the app theme",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    colors.forEach { color ->
+                        Box(
+                                modifier =
+                                        Modifier.size(32.dp)
+                                                .background(
+                                                        androidx.compose.ui.graphics.Color(color),
+                                                        androidx.compose.foundation.shape
+                                                                .CircleShape
+                                                )
+                                                .clickable {
+                                                    scope.launch {
+                                                        context.dataStore.edit { preferences ->
+                                                            preferences[
+                                                                    MainActivity.PreferencesKeys
+                                                                            .THEME_COLOR] = color
+                                                        }
+                                                        withContext(Dispatchers.Main) {
+                                                            android.widget.Toast.makeText(
+                                                                            context,
+                                                                            "Theme updated",
+                                                                            android.widget.Toast
+                                                                                    .LENGTH_SHORT
+                                                                    )
+                                                                    .show()
+                                                        }
+                                                    }
+                                                }
+                                                .then(
+                                                        if (themeColor.value == color) {
+                                                            Modifier.border(
+                                                                    2.dp,
+                                                                    MaterialTheme.colorScheme
+                                                                            .onSurface,
+                                                                    androidx.compose.foundation
+                                                                            .shape.CircleShape
+                                                            )
+                                                        } else Modifier
+                                                )
+                        )
+                    }
                 }
             }
-    )
+
+            Divider()
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(text = "Saturation", style = MaterialTheme.typography.titleMedium)
+                Slider(
+                        value = themeSaturation.value,
+                        onValueChange = { newValue ->
+                            scope.launch {
+                                context.dataStore.edit { preferences ->
+                                    preferences[MainActivity.PreferencesKeys.THEME_SATURATION] =
+                                            newValue
+                                }
+                            }
+                        },
+                        valueRange = 0f..100f
+                )
+            }
+
+            Divider()
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(text = "Dark Mode", style = MaterialTheme.typography.titleMedium)
+                Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("System" to 0, "Light" to 1, "Dark" to 2).forEach { (label, mode) ->
+                        val isSelected = darkMode.value == mode
+                        OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        context.dataStore.edit { preferences ->
+                                            preferences[MainActivity.PreferencesKeys.DARK_MODE] =
+                                                    mode
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors =
+                                        if (isSelected) {
+                                            ButtonDefaults.outlinedButtonColors(
+                                                    containerColor =
+                                                            MaterialTheme.colorScheme
+                                                                    .secondaryContainer,
+                                                    contentColor =
+                                                            MaterialTheme.colorScheme
+                                                                    .onSecondaryContainer
+                                            )
+                                        } else {
+                                            ButtonDefaults.outlinedButtonColors()
+                                        }
+                        ) { Text(label) }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -802,25 +978,17 @@ private fun BackupRestoreCard() {
             ) {
                 Button(
                         onClick = {
-                            scope.launch {
-                                exportQuickCopyData(context, app.quickCopyRepository)
-                            }
+                            scope.launch { exportQuickCopyData(context, app.quickCopyRepository) }
                         },
                         modifier = Modifier.weight(1f)
-                ) {
-                    Text("Export")
-                }
+                ) { Text("Export") }
 
                 OutlinedButton(
                         onClick = {
-                            scope.launch {
-                                importQuickCopyData(context, app.quickCopyRepository)
-                            }
+                            scope.launch { importQuickCopyData(context, app.quickCopyRepository) }
                         },
                         modifier = Modifier.weight(1f)
-                ) {
-                    Text("Import")
-                }
+                ) { Text("Import") }
             }
         }
     }
@@ -841,33 +1009,38 @@ private suspend fun exportQuickCopyData(
                 jsonArray.put(obj)
             }
 
-            val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
-                    .format(java.util.Date())
-            @Suppress("UNUSED_VARIABLE")
-            val fileName = "searchlauncher_quickcopy_$timestamp.json"
+            val timestamp =
+                    java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
+                            .format(java.util.Date())
+            @Suppress("UNUSED_VARIABLE") val fileName = "searchlauncher_quickcopy_$timestamp.json"
 
             // Future enhancement: could use ACTION_CREATE_DOCUMENT for file export
             // For now, clipboard is simpler and works across all devices
 
             // Save to clipboard as fallback
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            val clip = android.content.ClipData.newPlainText("QuickCopy Backup", jsonArray.toString())
+            val clipboard =
+                    context.getSystemService(Context.CLIPBOARD_SERVICE) as
+                            android.content.ClipboardManager
+            val clip =
+                    android.content.ClipData.newPlainText("QuickCopy Backup", jsonArray.toString())
             clipboard.setPrimaryClip(clip)
 
             withContext(Dispatchers.Main) {
                 android.widget.Toast.makeText(
-                        context,
-                        "Backup copied to clipboard (${items.size} items)",
-                        android.widget.Toast.LENGTH_LONG
-                ).show()
+                                context,
+                                "Backup copied to clipboard (${items.size} items)",
+                                android.widget.Toast.LENGTH_LONG
+                        )
+                        .show()
             }
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
                 android.widget.Toast.makeText(
-                        context,
-                        "Export failed: ${e.message}",
-                        android.widget.Toast.LENGTH_SHORT
-                ).show()
+                                context,
+                                "Export failed: ${e.message}",
+                                android.widget.Toast.LENGTH_SHORT
+                        )
+                        .show()
             }
         }
     }
@@ -878,7 +1051,9 @@ private suspend fun importQuickCopyData(
         repository: com.searchlauncher.app.data.QuickCopyRepository
 ) {
     withContext(Dispatchers.Main) {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clipboard =
+                context.getSystemService(Context.CLIPBOARD_SERVICE) as
+                        android.content.ClipboardManager
         val clipData = clipboard.primaryClip
 
         if (clipData != null && clipData.itemCount > 0) {
@@ -897,23 +1072,26 @@ private suspend fun importQuickCopyData(
                 }
 
                 android.widget.Toast.makeText(
-                        context,
-                        "Imported $importedCount QuickCopy items",
-                        android.widget.Toast.LENGTH_SHORT
-                ).show()
+                                context,
+                                "Imported $importedCount QuickCopy items",
+                                android.widget.Toast.LENGTH_SHORT
+                        )
+                        .show()
             } catch (e: Exception) {
                 android.widget.Toast.makeText(
-                        context,
-                        "Import failed: Invalid format. Copy backup data to clipboard first.",
-                        android.widget.Toast.LENGTH_LONG
-                ).show()
+                                context,
+                                "Import failed: Invalid format. Copy backup data to clipboard first.",
+                                android.widget.Toast.LENGTH_LONG
+                        )
+                        .show()
             }
         } else {
             android.widget.Toast.makeText(
-                    context,
-                    "No data in clipboard. Copy your backup data first.",
-                    android.widget.Toast.LENGTH_SHORT
-            ).show()
+                            context,
+                            "No data in clipboard. Copy your backup data first.",
+                            android.widget.Toast.LENGTH_SHORT
+                    )
+                    .show()
         }
     }
 }

@@ -55,6 +55,7 @@ import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import com.searchlauncher.app.util.CustomActionHandler
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -126,11 +127,31 @@ fun SearchScreen(
         }
     }
 
-    SearchLauncherTheme {
+    val themeColor by
+            context.dataStore
+                    .data
+                    .map { it[MainActivity.PreferencesKeys.THEME_COLOR] ?: 0xFF00639B.toInt() }
+                    .collectAsState(initial = 0xFF00639B.toInt())
+    val themeSaturation by
+            context.dataStore
+                    .data
+                    .map { it[MainActivity.PreferencesKeys.THEME_SATURATION] ?: 50f }
+                    .collectAsState(initial = 50f)
+    val darkMode by
+            context.dataStore
+                    .data
+                    .map { it[MainActivity.PreferencesKeys.DARK_MODE] ?: 0 }
+                    .collectAsState(initial = 0)
+
+    SearchLauncherTheme(
+            themeColor = themeColor,
+            darkThemeMode = darkMode,
+            chroma = themeSaturation
+    ) {
         Box(
                 modifier =
                         Modifier.fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.7f))
+                                .background(MaterialTheme.colorScheme.background.copy(alpha = 0.9f))
                                 .clickable { onDismiss() }
                                 .windowInsetsPadding(WindowInsets.statusBars)
         ) {
@@ -368,7 +389,7 @@ fun SearchScreen(
                                                 },
                                 textStyle =
                                         LocalTextStyle.current.copy(
-                                                fontSize = 18.sp,
+                                                fontSize = 16.sp,
                                                 color = MaterialTheme.colorScheme.onSurface
                                         ),
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
@@ -401,7 +422,7 @@ fun SearchScreen(
                                                     color =
                                                             MaterialTheme.colorScheme
                                                                     .onSurfaceVariant,
-                                                    fontSize = 18.sp
+                                                    fontSize = 16.sp
                                             )
                                         }
                                         innerTextField()
