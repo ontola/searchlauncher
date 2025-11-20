@@ -8,6 +8,7 @@ Swipe from the side and back to open the search bar.
 - **Search everything on your phone** - Apps, their shortcuts, device settings
 - **Search everything on the web** - Youtube and google (with autocomplete), maps, spotify, more!
 - **Gesture activation** - Swipe from the edge and back to open search from any screen
+- **QuickCopy** - Fast access to frequently used text snippets
 - **Speed** - Lightweight, fast!
 - **Smart sorting** - Apps sorted by recent usage (with optional usage stats permission)
 - **Guided onboarding** - Step-by-step permission setup

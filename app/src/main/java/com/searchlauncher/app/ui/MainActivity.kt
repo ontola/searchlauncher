@@ -3,6 +3,8 @@ package com.searchlauncher.app.ui
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -31,7 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -74,7 +75,7 @@ class MainActivity : ComponentActivity() {
             .collectAsState(initial = false)
 
         if (showPractice) {
-            PracticeGestureScreen(onBack = { })
+            PracticeGestureScreen(onBack = { showPractice = false })
         } else if (!onboardingComplete) {
             OnboardingScreen(
                 onComplete = {
@@ -89,7 +90,8 @@ class MainActivity : ComponentActivity() {
         } else {
             // Auto-start service if permissions are granted
             LaunchedEffect(Unit) {
-                if (Settings.canDrawOverlays(context)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                    Settings.canDrawOverlays(context)
                 ) {
                     startOverlayService()
                 }
@@ -98,15 +100,21 @@ class MainActivity : ComponentActivity() {
             HomeScreen(
                 onStartService = { startOverlayService() },
                 onStopService = { stopOverlayService() },
-                onOpenPractice = { }
+                onOpenPractice = { showPractice = true }
             )
         }
     }
 
     private fun startOverlayService() {
-        if (Settings.canDrawOverlays(this)) {
-            val intent = Intent(this, OverlayService::class.java)
-            startForegroundService(intent)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (Settings.canDrawOverlays(this)) {
+                val intent = Intent(this, OverlayService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            }
         }
     }
 
@@ -198,16 +206,20 @@ fun HomeScreen(onStartService: () -> Unit, onStopService: () -> Unit, onOpenPrac
                     title = "Display Over Other Apps",
                     granted =
                         rememberPermissionState {
-                            Settings.canDrawOverlays(context)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                Settings.canDrawOverlays(context)
+                            } else true
                         }
                             .value,
                     onGrant = {
-                        val intent =
-                            Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                "package:${context.packageName}".toUri()
-                            )
-                        context.startActivity(intent)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            val intent =
+                                Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:${context.packageName}")
+                                )
+                            context.startActivity(intent)
+                        }
                     }
                 )
 
@@ -236,12 +248,16 @@ fun HomeScreen(onStartService: () -> Unit, onStopService: () -> Unit, onOpenPrac
                     title = "Modify System Settings (Rotation)",
                     granted =
                         rememberPermissionState {
-                            Settings.System.canWrite(context)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                Settings.System.canWrite(context)
+                            } else true
                         }.value,
                     onGrant = {
-                        val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)
-                        intent.data = "package:${context.packageName}".toUri()
-                        context.startActivity(intent)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)
+                            intent.data = Uri.parse("package:${context.packageName}")
+                            context.startActivity(intent)
+                        }
                     }
                 )
             }
@@ -282,13 +298,21 @@ fun hasUsageStatsPermission(context: Context): Boolean {
     return try {
         val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
         val mode =
-            appOps.checkOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                android.os.Process.myUid(),
-                context.packageName
-            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                appOps.unsafeCheckOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    android.os.Process.myUid(),
+                    context.packageName
+                )
+            } else {
+                appOps.checkOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    android.os.Process.myUid(),
+                    context.packageName
+                )
+            }
         mode == AppOpsManager.MODE_ALLOWED
-    } catch (_: Exception) {
+    } catch (e: Exception) {
         false
     }
 }

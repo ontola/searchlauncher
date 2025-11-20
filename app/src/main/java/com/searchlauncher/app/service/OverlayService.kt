@@ -22,30 +22,27 @@ class OverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private var leftEdgeView: View? = null
     private var rightEdgeView: View? = null
-    private var searchWindowManager: SearchWindowManager? = null
 
     private var initialX = 0f
     private var initialY = 0f
     private var hasMovedBack = false
 
-    override fun onCreate() {
-        super.onCreate()
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        searchWindowManager = SearchWindowManager(this, windowManager)
-    }
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(SearchLauncherApp.NOTIFICATION_ID, createNotification())
 
         if (intent?.action == ACTION_SHOW_SEARCH) {
-            searchWindowManager?.show()
-        } else if (intent?.action == ACTION_HIDE_SEARCH) {
-            searchWindowManager?.hide()
+            launchSearchActivity()
         } else {
             setupEdgeDetector()
         }
 
         return START_STICKY
+    }
+
+    private fun launchSearchActivity() {
+        val intent = Intent(this, com.searchlauncher.app.ui.SearchActivity::class.java)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
     }
 
     private fun setupEdgeDetector() {
@@ -65,7 +62,7 @@ class OverlayService : Service() {
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                                 } else {
-                                    WindowManager.LayoutParams.TYPE_PHONE
+                                    @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
                                 },
                                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -108,7 +105,7 @@ class OverlayService : Service() {
                 // 2. Swipe OUT (back to edge)
                 else if (hasMovedBack && deltaIn < SWIPE_THRESHOLD / 2) {
                     // User moved back to starting position
-                    searchWindowManager?.show()
+                    launchSearchActivity()
                     hasMovedBack = false
                 }
             }
@@ -131,6 +128,7 @@ class OverlayService : Service() {
                     .setContentIntent(pendingIntent)
                     .build()
         } else {
+            @Suppress("DEPRECATION")
             Notification.Builder(this)
                     .setContentTitle(getString(R.string.service_notification_title))
                     .setContentText(getString(R.string.service_notification_desc))
@@ -140,17 +138,23 @@ class OverlayService : Service() {
         }
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        isRunning = true
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         leftEdgeView?.let { windowManager.removeView(it) }
         rightEdgeView?.let { windowManager.removeView(it) }
-        searchWindowManager?.hide()
-        searchWindowManager = null
+        isRunning = false
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        var isRunning = false
         const val ACTION_SHOW_SEARCH = "com.searchlauncher.SHOW_SEARCH"
         const val ACTION_HIDE_SEARCH = "com.searchlauncher.HIDE_SEARCH"
         private const val SWIPE_THRESHOLD = 100f

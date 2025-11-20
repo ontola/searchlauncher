@@ -4,24 +4,47 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.core.content.ContextCompat
-import com.searchlauncher.app.R
 
 @Composable
 fun rememberPermissionState(check: () -> Boolean): State<Boolean> {
@@ -35,9 +58,7 @@ fun rememberPermissionState(check: () -> Boolean): State<Boolean> {
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     return state
 }
@@ -49,6 +70,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .systemBarsPadding()
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
@@ -59,9 +81,10 @@ fun OnboardingScreen(onComplete: () -> Unit) {
             0 -> WelcomeStep()
             1 -> OverlayPermissionStep()
             2 -> AccessibilityPermissionStep()
-            3 -> UsageStatsPermissionStep()
-            4 -> AdvancedFeaturesStep()
-            5 -> CompleteStep()
+            3 -> ContactPermissionStep()
+            4 -> UsageStatsPermissionStep()
+            5 -> AdvancedFeaturesStep()
+            6 -> CompleteStep()
         }
 
         Column(
@@ -73,16 +96,12 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(bottom = 24.dp)
             ) {
-                repeat(6) { index ->
+                repeat(7) { index ->
                     Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .then(
-                                if (index == currentStep)
-                                    Modifier
-                                else
-                                    Modifier
-                            )
+                        modifier =
+                            Modifier
+                                .size(8.dp)
+                                .then(if (index == currentStep) Modifier else Modifier)
                     ) {
                         if (index == currentStep) {
                             Surface(
@@ -103,7 +122,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
 
             Button(
                 onClick = {
-                    if (currentStep < 5) {
+                    if (currentStep < 6) {
                         currentStep++
                     } else {
                         onComplete()
@@ -112,19 +131,17 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = when (currentStep) {
-                        0 -> "Get Started"
-                        5 -> "Finish"
-                        else -> "Continue"
-                    }
+                    text =
+                        when (currentStep) {
+                            0 -> "Get Started"
+                            6 -> "Finish"
+                            else -> "Continue"
+                        }
                 )
             }
 
-            if (currentStep > 0 && currentStep < 5) {
-                TextButton(
-                    onClick = { currentStep++ },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+            if (currentStep > 0 && currentStep < 6) {
+                TextButton(onClick = { currentStep++ }, modifier = Modifier.fillMaxWidth()) {
                     Text("Skip")
                 }
             }
@@ -173,14 +190,16 @@ fun OverlayPermissionStep() {
     PermissionStep(
         icon = Icons.Default.Settings,
         title = "Display Over Other Apps",
-        description = "This permission allows SearchLauncher to show the search bar on top of other apps. This is essential for the app to work.",
+        description =
+            "This permission allows SearchLauncher to show the search bar on top of other apps. This is essential for the app to work.",
         isGranted = isGranted.value,
         onGrantClick = {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:${context.packageName}")
-                )
+                val intent =
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:${context.packageName}")
+                    )
                 context.startActivity(intent)
             }
         }
@@ -195,7 +214,8 @@ fun AccessibilityPermissionStep() {
     PermissionStep(
         icon = Icons.Default.Lock,
         title = "Accessibility Service",
-        description = "This permission allows SearchLauncher to detect gestures from any screen. Without this, you'll need to open the app manually each time.",
+        description =
+            "This permission allows SearchLauncher to detect gestures from any screen. Without this, you'll need to open the app manually each time.",
         isGranted = isGranted.value,
         onGrantClick = {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
@@ -212,11 +232,33 @@ fun UsageStatsPermissionStep() {
     PermissionStep(
         icon = Icons.Default.Settings,
         title = "Usage Access (Optional)",
-        description = "This optional permission helps sort apps by most recently used, making search results more relevant to you.",
+        description =
+            "This optional permission helps sort apps by most recently used, making search results more relevant to you.",
         isGranted = isGranted.value,
         isOptional = true,
         onGrantClick = {
             val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+            context.startActivity(intent)
+        }
+    )
+}
+
+@Composable
+fun ContactPermissionStep() {
+    val context = LocalContext.current
+    val isGranted = rememberPermissionState {
+        context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
+    PermissionStep(
+        icon = androidx.compose.material.icons.Icons.Default.Person,
+        title = "Contacts Permission",
+        description = "Allow SearchLauncher to search your contacts.",
+        isGranted = isGranted.value,
+        onGrantClick = {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            intent.data = Uri.fromParts("package", context.packageName, null)
             context.startActivity(intent)
         }
     )
@@ -296,9 +338,10 @@ fun PermissionStep(
         if (isGranted) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
             ) {
                 Row(
                     modifier = Modifier
@@ -320,10 +363,7 @@ fun PermissionStep(
                 }
             }
         } else {
-            Button(
-                onClick = onGrantClick,
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            Button(onClick = onGrantClick, modifier = Modifier.fillMaxWidth()) {
                 Text("Grant Permission")
             }
         }
@@ -364,10 +404,10 @@ fun AdvancedFeaturesStep() {
         // Rotation
         val writeSettingsGranted =
             rememberPermissionState {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-                        Settings.System.canWrite(context)
-                    else true
-                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                    Settings.System.canWrite(context)
+                else true
+            }
                 .value
 
         PermissionStatusItem(
@@ -394,7 +434,9 @@ fun PermissionStatusItem(title: String, granted: Boolean, onGrant: () -> Unit) {
             )
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
