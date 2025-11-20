@@ -51,14 +51,15 @@ class QuickCopyRepository(context: Context) {
         saveItems(currentItems)
     }
 
-    suspend fun updateItem(oldAlias: String, newAlias: String, newContent: String) = withContext(Dispatchers.IO) {
-        val currentItems = _items.value.toMutableList()
-        val index = currentItems.indexOfFirst { it.alias.equals(oldAlias, ignoreCase = true) }
-        if (index != -1) {
-            currentItems[index] = QuickCopyItem(newAlias, newContent)
-            saveItems(currentItems)
+    suspend fun updateItem(oldAlias: String, newAlias: String, newContent: String) =
+        withContext(Dispatchers.IO) {
+            val currentItems = _items.value.toMutableList()
+            val index = currentItems.indexOfFirst { it.alias.equals(oldAlias, ignoreCase = true) }
+            if (index != -1) {
+                currentItems[index] = QuickCopyItem(newAlias, newContent)
+                saveItems(currentItems)
+            }
         }
-    }
 
     private fun saveItems(items: List<QuickCopyItem>) {
         val jsonArray = JSONArray()
@@ -77,7 +78,7 @@ class QuickCopyRepository(context: Context) {
         val lowerQuery = query.lowercase()
         return _items.value.filter {
             it.alias.lowercase().contains(lowerQuery) ||
-            it.content.lowercase().contains(lowerQuery)
+                    it.content.lowercase().contains(lowerQuery)
         }
     }
 }

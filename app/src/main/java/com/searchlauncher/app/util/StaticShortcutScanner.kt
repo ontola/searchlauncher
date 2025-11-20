@@ -18,8 +18,6 @@ data class StaticShortcut(
 )
 
 object StaticShortcutScanner {
-    private const val ANDROID_NS = "http://schemas.android.com/apk/res/android"
-
     fun scan(context: Context): List<StaticShortcut> {
         val shortcuts = mutableListOf<StaticShortcut>()
         val pm = context.packageManager
@@ -40,19 +38,23 @@ object StaticShortcutScanner {
 
                 shortcuts.addAll(parseShortcuts(activityInfo.packageName, resources, parser))
                 parser.close()
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Ignore
             }
         }
         return shortcuts
     }
 
-    private fun parseShortcuts(packageName: String, resources: Resources, parser: XmlResourceParser): List<StaticShortcut> {
+    private fun parseShortcuts(
+        packageName: String,
+        resources: Resources,
+        parser: XmlResourceParser
+    ): List<StaticShortcut> {
         val shortcuts = mutableListOf<StaticShortcut>()
         var currentShortcutId: String? = null
         var currentShortLabel: String? = null
         var currentLongLabel: String? = null
-        var currentIconResId: Int = 0
+        var currentIconResId = 0
         var currentIntent: Intent? = null
 
         try {
@@ -72,56 +74,74 @@ object StaticShortcutScanner {
                                 val name = parser.getAttributeName(i)
                                 val valResId = parser.getAttributeResourceValue(i, 0)
 
-                                if (name == "shortcutId") {
-                                    currentShortcutId = parser.getAttributeValue(i)
-                                } else if (name == "shortcutShortLabel") {
-                                    currentShortLabel = if (valResId != 0) {
-                                        try { resources.getString(valResId) } catch(e:Exception){ null }
-                                    } else {
-                                        parser.getAttributeValue(i)
+                                when (name) {
+                                    "shortcutId" -> {
+                                        currentShortcutId = parser.getAttributeValue(i)
                                     }
-                                } else if (name == "shortcutLongLabel") {
-                                    currentLongLabel = if (valResId != 0) {
-                                        try { resources.getString(valResId) } catch(e:Exception){ null }
-                                    } else {
-                                        parser.getAttributeValue(i)
+
+                                    "shortcutShortLabel" -> {
+                                        currentShortLabel = if (valResId != 0) {
+                                            try {
+                                                resources.getString(valResId)
+                                            } catch (_: Exception) {
+                                                null
+                                            }
+                                        } else {
+                                            parser.getAttributeValue(i)
+                                        }
                                     }
-                                } else if (name == "icon") {
-                                    currentIconResId = valResId
+
+                                    "shortcutLongLabel" -> {
+                                        currentLongLabel = if (valResId != 0) {
+                                            try {
+                                                resources.getString(valResId)
+                                            } catch (_: Exception) {
+                                                null
+                                            }
+                                        } else {
+                                            parser.getAttributeValue(i)
+                                        }
+                                    }
+
+                                    "icon" -> {
+                                        currentIconResId = valResId
+                                    }
                                 }
                             }
                         } else if (parser.name == "intent") {
-                             if (currentShortcutId != null && currentIntent == null) {
-                                 var action: String? = null
-                                 var targetPackage: String? = packageName
-                                 var targetClass: String? = null
-                                 var data: String? = null
+                            if (currentShortcutId != null && currentIntent == null) {
+                                var action: String? = null
+                                var targetPackage: String? = packageName
+                                var targetClass: String? = null
+                                var data: String? = null
 
-                                 for (i in 0 until parser.attributeCount) {
-                                     val name = parser.getAttributeName(i)
-                                     val value = parser.getAttributeValue(i)
-                                     when(name) {
-                                         "action" -> action = value
-                                         "targetPackage" -> targetPackage = value
-                                         "targetClass" -> targetClass = value
-                                         "data" -> data = value
-                                     }
-                                 }
+                                for (i in 0 until parser.attributeCount) {
+                                    val name = parser.getAttributeName(i)
+                                    val value = parser.getAttributeValue(i)
+                                    when (name) {
+                                        "action" -> action = value
+                                        "targetPackage" -> targetPackage = value
+                                        "targetClass" -> targetClass = value
+                                        "data" -> data = value
+                                    }
+                                }
 
-                                 if (action != null) {
-                                     currentIntent = Intent(action)
-                                     if (targetClass != null) {
-                                         currentIntent.component = ComponentName(targetPackage!!, targetClass)
-                                     } else {
-                                         currentIntent.setPackage(targetPackage)
-                                     }
-                                     if (data != null) {
-                                         currentIntent.data = android.net.Uri.parse(data)
-                                     }
-                                 }
-                             }
+                                if (action != null) {
+                                    currentIntent = Intent(action)
+                                    if (targetClass != null) {
+                                        currentIntent.component =
+                                            ComponentName(targetPackage!!, targetClass)
+                                    } else {
+                                        currentIntent.setPackage(targetPackage)
+                                    }
+                                    if (data != null) {
+                                        currentIntent.data = android.net.Uri.parse(data)
+                                    }
+                                }
+                            }
                         }
                     }
+
                     XmlPullParser.END_TAG -> {
                         if (parser.name == "shortcut") {
                             if (currentShortcutId != null && currentIntent != null && currentShortLabel != null) {

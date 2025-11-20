@@ -35,18 +35,18 @@ class SearchLauncherApp : Application() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel =
-                    NotificationChannel(
-                                    NOTIFICATION_CHANNEL_ID,
-                                    "SearchLauncher Service",
-                                    NotificationManager.IMPORTANCE_LOW
-                            )
-                            .apply {
-                                description = "Keeps SearchLauncher running in the background"
-                                setShowBadge(false)
-                            }
+                NotificationChannel(
+                    NOTIFICATION_CHANNEL_ID,
+                    "SearchLauncher Service",
+                    NotificationManager.IMPORTANCE_LOW
+                )
+                    .apply {
+                        description = "Keeps SearchLauncher running in the background"
+                        setShowBadge(false)
+                    }
 
             val notificationManager =
-                    getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
     }

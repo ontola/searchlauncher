@@ -16,14 +16,17 @@ object CustomActionHandler {
                 toggleFlashlight(context)
                 true
             }
+
             "com.searchlauncher.action.TOGGLE_ROTATION" -> {
                 toggleRotation(context)
                 true
             }
+
             "com.searchlauncher.RESET_APP_DATA" -> {
                 resetAppData(context)
                 true
             }
+
             else -> false
         }
     }
@@ -33,31 +36,31 @@ object CustomActionHandler {
             val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
             try {
                 val cameraId =
-                        cameraManager.cameraIdList.firstOrNull { id ->
-                            val characteristics = cameraManager.getCameraCharacteristics(id)
-                            characteristics.get(
-                                    android.hardware.camera2.CameraCharacteristics
-                                            .FLASH_INFO_AVAILABLE
-                            ) == true
-                        }
+                    cameraManager.cameraIdList.firstOrNull { id ->
+                        val characteristics = cameraManager.getCameraCharacteristics(id)
+                        characteristics.get(
+                            android.hardware.camera2.CameraCharacteristics
+                                .FLASH_INFO_AVAILABLE
+                        ) == true
+                    }
 
                 if (cameraId != null) {
                     cameraManager.registerTorchCallback(
-                            object : CameraManager.TorchCallback() {
-                                override fun onTorchModeChanged(
-                                        cameraId: String,
-                                        enabled: Boolean
-                                ) {
-                                    super.onTorchModeChanged(cameraId, enabled)
-                                    cameraManager.unregisterTorchCallback(this)
-                                    try {
-                                        cameraManager.setTorchMode(cameraId, !enabled)
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                    }
+                        object : CameraManager.TorchCallback() {
+                            override fun onTorchModeChanged(
+                                cameraId: String,
+                                enabled: Boolean
+                            ) {
+                                super.onTorchModeChanged(cameraId, enabled)
+                                cameraManager.unregisterTorchCallback(this)
+                                try {
+                                    cameraManager.setTorchMode(cameraId, !enabled)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
                                 }
-                            },
-                            null
+                            }
+                        },
+                        null
                     )
                 } else {
                     Toast.makeText(context, "Flashlight not supported", Toast.LENGTH_SHORT).show()
@@ -75,16 +78,16 @@ object CustomActionHandler {
                 try {
                     val resolver = context.contentResolver
                     val currentRotation =
-                            Settings.System.getInt(
-                                    resolver,
-                                    Settings.System.ACCELEROMETER_ROTATION,
-                                    0
-                            )
-                    val newRotation = if (currentRotation == 1) 0 else 1
-                    Settings.System.putInt(
+                        Settings.System.getInt(
                             resolver,
                             Settings.System.ACCELEROMETER_ROTATION,
-                            newRotation
+                            0
+                        )
+                    val newRotation = if (currentRotation == 1) 0 else 1
+                    Settings.System.putInt(
+                        resolver,
+                        Settings.System.ACCELEROMETER_ROTATION,
+                        newRotation
                     )
                     val status = if (newRotation == 1) "Unlocked" else "Locked"
                     Toast.makeText(context, "Rotation $status", Toast.LENGTH_SHORT).show()
@@ -105,8 +108,8 @@ object CustomActionHandler {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
                 val activityManager =
-                        context.getSystemService(Context.ACTIVITY_SERVICE) as
-                                android.app.ActivityManager
+                    context.getSystemService(Context.ACTIVITY_SERVICE) as
+                            android.app.ActivityManager
                 activityManager.clearApplicationUserData()
                 // The app will be killed automatically after clearing data
             } else {
@@ -115,7 +118,7 @@ object CustomActionHandler {
         } catch (e: Exception) {
             e.printStackTrace()
             Toast.makeText(context, "Error clearing app data: ${e.message}", Toast.LENGTH_LONG)
-                    .show()
+                .show()
         }
     }
 }
