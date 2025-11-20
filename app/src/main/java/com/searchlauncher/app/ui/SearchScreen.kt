@@ -187,22 +187,6 @@ fun SearchScreen(
                 )
             }
 
-            // Debug: Show background URI in toast
-            LaunchedEffect(backgroundUriString, showBackgroundImage) {
-                android.util.Log.d(
-                        "SearchScreen",
-                        "Background URI: $backgroundUriString, showBackgroundImage: $showBackgroundImage"
-                )
-                withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(
-                                    context,
-                                    "URI: ${backgroundUriString?.take(30) ?: "NULL"}, show=$showBackgroundImage",
-                                    android.widget.Toast.LENGTH_LONG
-                            )
-                            .show()
-                }
-            }
-
             Column(
                     modifier =
                             Modifier.fillMaxSize()
