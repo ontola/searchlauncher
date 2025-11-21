@@ -28,7 +28,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -365,12 +364,11 @@ fun SearchScreen(
                                                     ) {
                                                         // Perform Search
                                                         val shortcut =
-                                                                com.searchlauncher.app.data
-                                                                        .CustomShortcuts.shortcuts
-                                                                        .filterIsInstance<
-                                                                                com.searchlauncher.app.data.CustomShortcut.Search>()
+                                                                app.searchShortcutRepository.items
+                                                                        .value.filterIsInstance<
+                                                                                com.searchlauncher.app.data.SearchShortcut>()
                                                                         .find {
-                                                                            it.trigger ==
+                                                                            it.alias ==
                                                                                     result.trigger
                                                                         }
 
@@ -477,15 +475,9 @@ fun SearchScreen(
                     ) {
                         val activeShortcut =
                                 remember(query) {
-                                    com.searchlauncher.app.data.CustomShortcuts.shortcuts
-                                            .filterIsInstance<
-                                                    com.searchlauncher.app.data.CustomShortcut.Search>()
-                                            .find {
-                                                query.startsWith(
-                                                        "${it.trigger} ",
-                                                        ignoreCase = true
-                                                )
-                                            }
+                                    app.searchShortcutRepository.items.value.find {
+                                        query.startsWith("${it.alias} ", ignoreCase = true)
+                                    }
                                 }
 
                         if (activeShortcut != null) {
@@ -493,7 +485,7 @@ fun SearchScreen(
                                     remember(activeShortcut) {
                                         searchRepository.getColoredSearchIcon(
                                                 activeShortcut.color,
-                                                activeShortcut.trigger
+                                                activeShortcut.alias
                                         )
                                     }
 
@@ -509,7 +501,7 @@ fun SearchScreen(
 
                         val displayQuery =
                                 if (activeShortcut != null) {
-                                    query.substring("${activeShortcut.trigger} ".length)
+                                    query.substring("${activeShortcut.alias} ".length)
                                 } else {
                                     query
                                 }
@@ -518,7 +510,7 @@ fun SearchScreen(
                                 value = displayQuery,
                                 onValueChange = { newText ->
                                     if (activeShortcut != null) {
-                                        onQueryChange("${activeShortcut.trigger} $newText")
+                                        onQueryChange("${activeShortcut.alias} $newText")
                                     } else {
                                         onQueryChange(newText)
                                     }
@@ -560,16 +552,12 @@ fun SearchScreen(
                                                                 // using the top shortcut, instead
                                                                 // of just expanding the filter.
                                                                 val shortcut =
-                                                                        com.searchlauncher.app.data
-                                                                                .CustomShortcuts
-                                                                                .shortcuts
-                                                                                .filterIsInstance<
-                                                                                        com.searchlauncher.app.data.CustomShortcut.Search>()
-                                                                                .find {
-                                                                                    it.trigger ==
-                                                                                            topResult
-                                                                                                    .trigger
-                                                                                }
+                                                                        app.searchShortcutRepository
+                                                                                .items.value.find {
+                                                                            it.alias ==
+                                                                                    topResult
+                                                                                            .trigger
+                                                                        }
 
                                                                 if (shortcut != null) {
                                                                     try {
@@ -1059,7 +1047,6 @@ private fun FavoritesRow(
     val iconSize = if (isCrowded) 40.dp else 48.dp
     // Minimal spacing/padding requested
     val spacing = 4.dp
-    val padding = 4.dp
 
     androidx.compose.foundation.lazy.LazyRow(
             modifier = Modifier.fillMaxWidth(),
