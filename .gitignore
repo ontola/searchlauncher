@@ -78,3 +78,6 @@ lint-results.xml
 
 # Android Profiling
 *.hprof
+
+# Kotlin incremental compiler sessions
+.kotlin/
