@@ -1015,31 +1015,19 @@ private fun ThemeSettingsCard(onNavigateToHome: () -> Unit) {
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(bottom = 8.dp)
             )
-            Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                val modes = listOf("System", "Light", "Dark")
+            val modes = listOf("System", "Light", "Dark")
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 modes.forEachIndexed { index, mode ->
-                    OutlinedButton(
+                    SegmentedButton(
+                            shape = SegmentedButtonDefaults.itemShape(index, modes.lastIndex),
+                            selected = darkMode == index,
                             onClick = {
                                 scope.launch {
                                     context.dataStore.edit { preferences ->
                                         preferences[MainActivity.PreferencesKeys.DARK_MODE] = index
                                     }
                                 }
-                            },
-                            colors =
-                                    if (darkMode == index)
-                                            ButtonDefaults.outlinedButtonColors(
-                                                    containerColor =
-                                                            MaterialTheme.colorScheme
-                                                                    .primaryContainer,
-                                                    contentColor =
-                                                            MaterialTheme.colorScheme
-                                                                    .onPrimaryContainer
-                                            )
-                                    else ButtonDefaults.outlinedButtonColors()
+                            }
                     ) { Text(mode) }
                 }
             }
