@@ -201,7 +201,7 @@ object DefaultShortcuts {
                         ),
                         SearchShortcut(
                                 id = "youtube",
-                                alias = "yt",
+                                alias = "y",
                                 urlTemplate = "https://www.youtube.com/results?search_query=%s",
                                 description = "YouTube Search",
                                 suggestionUrl =
