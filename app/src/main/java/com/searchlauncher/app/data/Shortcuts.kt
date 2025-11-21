@@ -114,13 +114,6 @@ object DefaultShortcuts {
         val appShortcuts =
                 listOf(
                         AppShortcut.Action(
-                                id = "firefox_private",
-                                intentUri =
-                                        "intent:#Intent;action=org.mozilla.fenix.OPEN_PRIVATE_TAB;package=org.mozilla.firefox;component=org.mozilla.firefox/org.mozilla.fenix.IntentReceiverActivity;end",
-                                description = "Firefox Private Tab",
-                                packageName = "org.mozilla.firefox"
-                        ),
-                        AppShortcut.Action(
                                 id = "reset_index",
                                 intentUri =
                                         "intent:#Intent;action=com.searchlauncher.RESET_INDEX;end",
@@ -160,7 +153,7 @@ object DefaultShortcuts {
                                 id = "create_quick_copy",
                                 intentUri =
                                         "intent:#Intent;action=com.searchlauncher.action.CREATE_QUICK_COPY;end",
-                                description = "Create Quick Copy"
+                                description = "Create QuickCopy snippet"
                         ),
                         AppShortcut.Action(
                                 id = "settings",
