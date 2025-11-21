@@ -204,6 +204,12 @@ object CustomShortcuts {
                                 description = "ChatGPT",
                                 color = 0xFF10A37F
                         ),
+                        CustomShortcut.Search(
+                                trigger = "play",
+                                urlTemplate = "market://search?q=%s",
+                                description = "Play Store",
+                                color = 0xFF01875F
+                        ),
                         CustomShortcut.Action(
                                 intentUri =
                                         "intent:#Intent;action=org.mozilla.fenix.OPEN_PRIVATE_TAB;package=org.mozilla.firefox;component=org.mozilla.firefox/org.mozilla.fenix.IntentReceiverActivity;end",

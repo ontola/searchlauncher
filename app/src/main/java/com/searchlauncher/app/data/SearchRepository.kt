@@ -846,7 +846,7 @@ class SearchRepository(private val context: Context) {
                 executor.shutdown()
         }
 
-        private fun getColoredSearchIcon(color: Long?, text: String? = null): Drawable? {
+        fun getColoredSearchIcon(color: Long?, text: String? = null): Drawable? {
                 if (color == null) return null
 
                 if (text != null) {
@@ -890,11 +890,23 @@ class SearchRepository(private val context: Context) {
                                                 )
                                 }
 
+                        val displayText = text.uppercase()
+                        val maxTextWidth = size * 0.85f
+                        var currentTextSize = size * 0.5f
+                        textPaint.textSize = currentTextSize
+
+                        // Dynamic text scaling
+                        while (textPaint.measureText(displayText) > maxTextWidth &&
+                                currentTextSize > 10f) {
+                                currentTextSize -= 2f
+                                textPaint.textSize = currentTextSize
+                        }
+
                         // Center text both horizontally and vertically
                         val xPos = size / 2f
                         val yPos = (size / 2f) - ((textPaint.descent() + textPaint.ascent()) / 2f)
 
-                        canvas.drawText(text.uppercase().take(2), xPos, yPos, textPaint)
+                        canvas.drawText(displayText, xPos, yPos, textPaint)
 
                         return android.graphics.drawable.BitmapDrawable(context.resources, bitmap)
                 }

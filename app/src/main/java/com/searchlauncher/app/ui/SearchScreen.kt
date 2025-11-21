@@ -39,7 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -52,6 +51,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
+import androidx.core.graphics.drawable.toBitmap
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import coil.compose.AsyncImage
@@ -491,17 +491,19 @@ fun SearchScreen(
                                 }
 
                         if (activeShortcut != null) {
-                            Surface(
-                                    color = activeShortcut.color?.let { Color(it.toInt()) }
-                                                    ?: MaterialTheme.colorScheme.primary,
-                                    shape = RoundedCornerShape(8.dp),
-                            ) {
-                                Text(
-                                        text = activeShortcut.trigger,
-                                        color = Color.White,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        modifier =
-                                                Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            val iconDrawable =
+                                    remember(activeShortcut) {
+                                        searchRepository.getColoredSearchIcon(
+                                                activeShortcut.color,
+                                                activeShortcut.trigger
+                                        )
+                                    }
+
+                            if (iconDrawable != null) {
+                                Image(
+                                        bitmap = iconDrawable.toBitmap().asImageBitmap(),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp)
                                 )
                             }
                             Spacer(modifier = Modifier.width(8.dp))
@@ -789,7 +791,9 @@ private fun SearchResultItem(
                         text = result.title,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
             }
         }
