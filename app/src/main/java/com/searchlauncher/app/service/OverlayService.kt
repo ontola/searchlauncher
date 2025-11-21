@@ -26,6 +26,7 @@ class OverlayService : Service() {
     private var initialX = 0f
     private var initialY = 0f
     private var hasMovedBack = false
+    private var isTapCandidate = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(SearchLauncherApp.NOTIFICATION_ID, createNotification())
@@ -90,8 +91,17 @@ class OverlayService : Service() {
                 initialX = event.rawX
                 initialY = event.rawY
                 hasMovedBack = false
+                isTapCandidate = true
             }
             MotionEvent.ACTION_MOVE -> {
+                if (isTapCandidate) {
+                    val dx = event.rawX - initialX
+                    val dy = event.rawY - initialY
+                    if (kotlin.math.hypot(dx, dy) > TAP_THRESHOLD_PX) {
+                        isTapCandidate = false
+                    }
+                }
+
                 val rawDelta = event.rawX - initialX
                 // Normalize delta: Positive means moving "in" (away from edge)
                 // For Left edge: +x is in
@@ -101,19 +111,59 @@ class OverlayService : Service() {
                 // 1. Swipe IN (away from edge)
                 if (!hasMovedBack && deltaIn > SWIPE_THRESHOLD) {
                     hasMovedBack = true
+                    isTapCandidate = false
                 }
                 // 2. Swipe OUT (back to edge)
                 else if (hasMovedBack && deltaIn < SWIPE_THRESHOLD / 2) {
                     // User moved back to starting position
                     launchSearchActivity()
                     hasMovedBack = false
+                    isTapCandidate = false
                 }
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+            MotionEvent.ACTION_UP -> {
+                if (isTapCandidate) {
+                    handleTap(event.rawX, event.rawY)
+                }
                 hasMovedBack = false
+                isTapCandidate = false
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                hasMovedBack = false
+                isTapCandidate = false
             }
         }
         return true
+    }
+
+    private fun handleTap(x: Float, y: Float) {
+        val scheduled = GestureAccessibilityService.performClick(x, y) {
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                setUntouchable(false)
+            }, 200)
+        }
+
+        if (scheduled) {
+            setUntouchable(true)
+        }
+    }
+
+    private fun setUntouchable(untouchable: Boolean) {
+        leftEdgeView?.let { updateViewFlags(it, untouchable) }
+        rightEdgeView?.let { updateViewFlags(it, untouchable) }
+    }
+
+    private fun updateViewFlags(view: View, untouchable: Boolean) {
+        val params = view.layoutParams as WindowManager.LayoutParams
+        val flags = params.flags
+        if (untouchable) {
+            params.flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        } else {
+            params.flags = flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        }
+        if (params.flags != flags) {
+            windowManager.updateViewLayout(view, params)
+        }
     }
 
     private fun createNotification(): Notification {
@@ -158,5 +208,6 @@ class OverlayService : Service() {
         const val ACTION_SHOW_SEARCH = "com.searchlauncher.SHOW_SEARCH"
         const val ACTION_HIDE_SEARCH = "com.searchlauncher.HIDE_SEARCH"
         private const val SWIPE_THRESHOLD = 100f
+        private const val TAP_THRESHOLD_PX = 20f
     }
 }
