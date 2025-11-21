@@ -18,4 +18,5 @@
     <string name="onboarding_complete">You\'re all set!</string>
     <string name="service_notification_title">SearchLauncher Active</string>
     <string name="service_notification_desc">Swipe from side and back to search</string>
+    <string name="widget_description">Quick access to search</string>
 </resources>

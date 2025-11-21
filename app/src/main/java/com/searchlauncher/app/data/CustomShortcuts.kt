@@ -251,7 +251,7 @@ object CustomShortcuts {
                         CustomShortcut.Action(
                                 intentUri =
                                         "intent:#Intent;action=android.settings.HOME_SETTINGS;end",
-                                description = "Set as Launcher"
+                                description = "Set a default Launcher"
                         ),
                         CustomShortcut.Action(
                                 intentUri =

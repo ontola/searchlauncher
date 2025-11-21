@@ -1,17 +1,23 @@
 # SearchLauncher
 
-Android app that lets you search everything on your phone, accessible from any screen.
-Swipe from the side and back to open the search bar.
+Android app that lets you search everything on your phone, and more.
 
 ## Features
 
 - **Search everything on your phone** - Apps, their shortcuts, device settings
-- **Search everything on the web** - Youtube and google (with autocomplete), maps, spotify, more!
-- **Gesture activation** - Swipe from the edge and back to open search from any screen
+- **Search everything on the web** - Youtube, google, bing, maps, spotify... Or add your own custom shortcuts!
 - **QuickCopy** - Fast access to frequently used text snippets
+- **Custom shortcuts** - Directly call actions from android using Intents (flashlight, rotation)
 - **Speed** - Lightweight, fast!
 - **Smart sorting** - Apps sorted by recent usage (with optional usage stats permission)
 - **Guided onboarding** - Step-by-step permission setup
+- **Background image & Theme** - Customize color theme (including system dark mode) and use your own background image
+
+## Use as Launcher, Widget, or Overlay
+
+- **Launcher** - Use it as your default homescreen
+- **Widget** - Add the most powerful search bar to your existing launcher / homescreen
+- **Swipe gesture (Overlay)** - With a gesture from the side, open the search bar from any screen.
 
 ## Architecture
 
@@ -22,6 +28,10 @@ Swipe from the side and back to open the search bar.
 - **DataStore** - For preferences management
 - **Overlay Service** - For gesture detection and floating UI
 - **Accessibility Service** - For system-wide gesture detection
+
+## Custom Shortcuts
+
+If you want
 
 ## Requirements
 
@@ -61,10 +71,7 @@ cd searchlauncher
 ## Usage
 
 1. **First Launch**: The app will guide you through the onboarding process
-2. **Grant Permissions**:
-   - Display over other apps (required)
-   - Accessibility service (required)
-   - Usage stats (optional)
+2. **Grant Permissions**: All are optional.
 3. **Start Service**: The overlay service will start automatically after onboarding
 4. **Use Gesture**: Swipe from the edge of the screen and back to open search
 5. **Search**: Type to search apps and content, tap to launch

@@ -259,9 +259,7 @@ fun SearchScreen(
             // val contentModifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
             // This is leaving the bottom area transparent -> Activity window background (Black).
 
-            // Fix: Draw a base background color filling the whole screen first.
-
-            Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+            // For overlay mode, we want transparency, so don't draw an opaque base background
 
             val contentModifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
 
@@ -273,11 +271,11 @@ fun SearchScreen(
                         modifier = contentModifier
                 )
             } else {
-                // Solid background when no image
+                // Solid background when no image - semi-transparent so app underneath shows through
                 Box(
                         modifier =
                                 contentModifier.background(
-                                        MaterialTheme.colorScheme.background.copy(alpha = 0.9f)
+                                        MaterialTheme.colorScheme.background.copy(alpha = 0.7f)
                                 )
                 )
             }

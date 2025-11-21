@@ -89,6 +89,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent) {
+        // Check if we should open settings directly
+        if (intent.getBooleanExtra("open_settings", false)) {
+            currentScreenState = Screen.Settings
+            return
+        }
+
         if (intent.hasCategory(Intent.CATEGORY_HOME) && intent.action == Intent.ACTION_MAIN) {
             queryState = ""
             currentScreenState = Screen.Search
