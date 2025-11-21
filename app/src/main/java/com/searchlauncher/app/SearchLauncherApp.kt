@@ -8,6 +8,7 @@ import android.os.Build
 import com.searchlauncher.app.data.FavoritesRepository
 import com.searchlauncher.app.data.QuickCopyRepository
 import com.searchlauncher.app.data.SearchRepository
+import com.searchlauncher.app.data.SearchShortcutRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -26,12 +27,16 @@ class SearchLauncherApp : Application() {
     lateinit var customShortcutRepository: com.searchlauncher.app.data.CustomShortcutRepository
         private set
 
+    lateinit var searchShortcutRepository: com.searchlauncher.app.data.SearchShortcutRepository
+        private set
+
     override fun onCreate() {
         super.onCreate()
         searchRepository = SearchRepository(this)
         quickCopyRepository = QuickCopyRepository(this)
         favoritesRepository = FavoritesRepository(this)
         customShortcutRepository = com.searchlauncher.app.data.CustomShortcutRepository(this)
+        searchShortcutRepository = com.searchlauncher.app.data.SearchShortcutRepository(this)
         CoroutineScope(Dispatchers.IO).launch { searchRepository.initialize() }
         createNotificationChannel()
     }
@@ -39,18 +44,18 @@ class SearchLauncherApp : Application() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel =
-                NotificationChannel(
-                    NOTIFICATION_CHANNEL_ID,
-                    "SearchLauncher Service",
-                    NotificationManager.IMPORTANCE_LOW
-                )
-                    .apply {
-                        description = "Keeps SearchLauncher running in the background"
-                        setShowBadge(false)
-                    }
+                    NotificationChannel(
+                                    NOTIFICATION_CHANNEL_ID,
+                                    "SearchLauncher Service",
+                                    NotificationManager.IMPORTANCE_LOW
+                            )
+                            .apply {
+                                description = "Keeps SearchLauncher running in the background"
+                                setShowBadge(false)
+                            }
 
             val notificationManager =
-                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
     }

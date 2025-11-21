@@ -70,65 +70,42 @@ class SearchRepository(private val context: Context) {
                         val app =
                                 context.applicationContext as? SearchLauncherApp
                                         ?: return@withContext
-                        val shortcuts = app.customShortcutRepository.items.value
 
-                        data class ShortcutInfo(
-                                val idSuffix: String,
-                                val docDescription: String?,
-                                val intentUri: String,
-                                val isAction: Boolean
-                        )
-
-                        val shortcutDocs =
-                                shortcuts.map { shortcut ->
-                                        val info =
-                                                when (shortcut) {
-                                                        is CustomShortcut.Search -> {
-                                                                val trigger = shortcut.trigger
-                                                                ShortcutInfo(
-                                                                        trigger,
-                                                                        trigger,
-                                                                        shortcut.urlTemplate,
-                                                                        false
-                                                                )
-                                                        }
-                                                        is CustomShortcut.Action -> {
-                                                                val slug =
-                                                                        shortcut.description
-                                                                                .replace(
-                                                                                        Regex(
-                                                                                                "[^a-zA-Z0-9]"
-                                                                                        ),
-                                                                                        ""
-                                                                                )
-                                                                                .lowercase()
-                                                                ShortcutInfo(
-                                                                        slug,
-                                                                        null,
-                                                                        shortcut.intentUri,
-                                                                        true
-                                                                )
-                                                        }
-                                                }
-
+                        // Index app-defined shortcuts (settings, actions)
+                        val appShortcutDocs: List<AppSearchDocument> =
+                                DefaultShortcuts.appShortcuts.map { shortcut ->
                                         AppSearchDocument(
-                                                namespace = "custom_shortcuts",
-                                                id = "custom_${info.idSuffix}",
+                                                namespace = "app_shortcuts",
+                                                id = "app_${shortcut.id}",
                                                 name = shortcut.description,
                                                 score = 3,
-                                                description = info.docDescription,
-                                                intentUri = info.intentUri,
-                                                isAction = info.isAction
+                                                description = null,
+                                                intentUri = shortcut.intentUri,
+                                                isAction = true
                                         )
                                 }
 
-                        if (shortcutDocs.isNotEmpty()) {
+                        // Index user-editable search shortcuts
+                        val searchShortcuts = app.searchShortcutRepository.items.value
+                        val searchShortcutDocs: List<AppSearchDocument> =
+                                searchShortcuts.map { shortcut ->
+                                        AppSearchDocument(
+                                                namespace = "search_shortcuts",
+                                                id = "search_${shortcut.id}",
+                                                name = shortcut.description,
+                                                score = 3,
+                                                description = shortcut.alias,
+                                                intentUri = shortcut.urlTemplate,
+                                                isAction = false
+                                        )
+                                }
+
+                        val allDocs = appShortcutDocs + searchShortcutDocs
+                        if (allDocs.isNotEmpty()) {
                                 val putRequest =
-                                        PutDocumentsRequest.Builder()
-                                                .addDocuments(shortcutDocs)
-                                                .build()
+                                        PutDocumentsRequest.Builder().addDocuments(allDocs).build()
                                 session.putAsync(putRequest).get()
-                                documentCache.addAll(shortcutDocs)
+                                documentCache.addAll(allDocs)
                         }
                 }
 
@@ -241,12 +218,11 @@ class SearchRepository(private val context: Context) {
         suspend fun getSearchShortcuts(limit: Int = 10): List<SearchResult> =
                 withContext(Dispatchers.IO) {
                         try {
-                                // Get all custom search shortcuts from cache
+                                // Get all search shortcuts from cache
                                 val searchShortcuts =
                                         synchronized(documentCache) {
                                                 documentCache.filter {
-                                                        it.namespace == "custom_shortcuts" &&
-                                                                !it.isAction
+                                                        it.namespace == "search_shortcuts"
                                                 }
                                         }
 
@@ -266,7 +242,7 @@ class SearchRepository(private val context: Context) {
                                                                                 .RANKING_STRATEGY_USAGE_COUNT
                                                                 )
                                                                 .addFilterNamespaces(
-                                                                        "custom_shortcuts"
+                                                                        "search_shortcuts"
                                                                 )
                                                                 .setResultCountPerPage(50)
                                                                 .build()
@@ -652,15 +628,13 @@ class SearchRepository(private val context: Context) {
                 val trigger = parts[0]
                 val searchTerm = parts[1]
                 val app = context.applicationContext as? SearchLauncherApp ?: return emptyList()
-                val shortcuts = app.customShortcutRepository.items.value
+                val shortcuts = app.searchShortcutRepository.items.value
                 val shortcut =
-                        shortcuts.filterIsInstance<CustomShortcut.Search>().find {
-                                it.trigger.equals(trigger, ignoreCase = true)
-                        }
+                        shortcuts.find { it.alias.equals(trigger, ignoreCase = true) }
                                 ?: return emptyList()
 
                 val results = mutableListOf<SearchResult>()
-                val icon = getColoredSearchIcon(shortcut.color, shortcut.trigger)
+                val icon = getColoredSearchIcon(shortcut.color, shortcut.alias)
 
                 val url =
                         String.format(
@@ -669,10 +643,10 @@ class SearchRepository(private val context: Context) {
                         )
                 results.add(
                         SearchResult.Content(
-                                id = "shortcut_${shortcut.trigger}",
-                                namespace = "custom_shortcuts",
+                                id = "shortcut_${shortcut.alias}",
+                                namespace = "search_shortcuts",
                                 title = "${shortcut.description}: $searchTerm",
-                                subtitle = "Custom Shortcut",
+                                subtitle = "Search Shortcut",
                                 icon = icon,
                                 packageName = shortcut.packageName ?: "android",
                                 deepLink = url,
@@ -691,8 +665,8 @@ class SearchRepository(private val context: Context) {
                                         )
                                 results.add(
                                         SearchResult.Content(
-                                                id = "suggestion_${shortcut.trigger}_$suggestion",
-                                                namespace = "custom_shortcuts",
+                                                id = "suggestion_${shortcut.alias}_$suggestion",
+                                                namespace = "search_shortcuts",
                                                 title = suggestion,
                                                 subtitle = "${shortcut.description} Suggestion",
                                                 icon = icon,
@@ -759,10 +733,14 @@ class SearchRepository(private val context: Context) {
 
                         // Optimization: For short queries, limit scope to apps only
                         if (query.length < 3) {
-                                // Restrict to "apps" and "custom_shortcuts" namespace to avoid
-                                // expensive contact
-                                // lookups/large result sets, but still show search shortcuts
-                                searchSpecBuilder.addFilterNamespaces("apps", "custom_shortcuts")
+                                // Restrict to "apps", "app_shortcuts", and "search_shortcuts" to
+                                // avoid
+                                // expensive contact lookups/large result sets
+                                searchSpecBuilder.addFilterNamespaces(
+                                        "apps",
+                                        "app_shortcuts",
+                                        "search_shortcuts"
+                                )
                         }
 
                         val searchSpec = searchSpecBuilder.build()
@@ -1035,56 +1013,50 @@ class SearchRepository(private val context: Context) {
                                         rankingScore = rankingScore
                                 )
                         }
-                        "custom_shortcuts" -> {
-                                if (doc.isAction) {
-                                        val icon =
-                                                if (doc.intentUri?.contains("android.settings") ==
-                                                                true
-                                                ) {
-                                                        try {
-                                                                context.packageManager
-                                                                        .getApplicationIcon(
-                                                                                "com.android.settings"
-                                                                        )
-                                                        } catch (e: Exception) {
-                                                                null
-                                                        }
-                                                } else {
+                        "app_shortcuts" -> {
+                                val icon =
+                                        if (doc.intentUri?.contains("android.settings") == true) {
+                                                try {
+                                                        context.packageManager.getApplicationIcon(
+                                                                "com.android.settings"
+                                                        )
+                                                } catch (e: Exception) {
                                                         null
                                                 }
+                                        } else {
+                                                null
+                                        }
 
-                                        SearchResult.Content(
-                                                id = doc.id,
-                                                namespace = "custom_shortcuts",
-                                                title = doc.name,
-                                                subtitle = "Action",
-                                                icon = icon,
-                                                packageName = "android",
-                                                deepLink = doc.intentUri,
-                                                rankingScore = rankingScore
-                                        )
-                                } else {
-                                        val trigger = doc.description ?: ""
-                                        val shortcutDef =
-                                                CustomShortcuts.shortcuts.filterIsInstance<
-                                                                CustomShortcut.Search>()
-                                                        .find { it.trigger == trigger }
-                                        val icon =
-                                                getColoredSearchIcon(
-                                                        shortcutDef?.color,
-                                                        shortcutDef?.trigger
-                                                )
+                                SearchResult.Content(
+                                        id = doc.id,
+                                        namespace = "app_shortcuts",
+                                        title = doc.name,
+                                        subtitle = "Action",
+                                        icon = icon,
+                                        packageName = "android",
+                                        deepLink = doc.intentUri,
+                                        rankingScore = rankingScore
+                                )
+                        }
+                        "search_shortcuts" -> {
+                                val alias = doc.description ?: ""
+                                val app = context.applicationContext as? SearchLauncherApp
+                                val shortcutDef =
+                                        app?.searchShortcutRepository?.items?.value?.find {
+                                                it.alias == alias
+                                        }
+                                val icon =
+                                        getColoredSearchIcon(shortcutDef?.color, shortcutDef?.alias)
 
-                                        SearchResult.SearchIntent(
-                                                id = doc.id,
-                                                namespace = "custom_shortcuts",
-                                                title = doc.name,
-                                                subtitle = "Type '${doc.description} ' to search",
-                                                icon = icon,
-                                                trigger = doc.description ?: "",
-                                                rankingScore = rankingScore
-                                        )
-                                }
+                                SearchResult.SearchIntent(
+                                        id = doc.id,
+                                        namespace = "search_shortcuts",
+                                        title = doc.name,
+                                        subtitle = "Type '${doc.description} ' to search",
+                                        icon = icon,
+                                        trigger = doc.description ?: "",
+                                        rankingScore = rankingScore
+                                )
                         }
                         "static_shortcuts" -> {
                                 var icon: Drawable? = null

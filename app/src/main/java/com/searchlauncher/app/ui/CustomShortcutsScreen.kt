@@ -15,7 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.searchlauncher.app.SearchLauncherApp
-import com.searchlauncher.app.data.CustomShortcut
+import com.searchlauncher.app.data.SearchShortcut
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -23,19 +23,19 @@ import kotlinx.coroutines.launch
 fun CustomShortcutsScreen(onBack: () -> Unit) {
         val context = LocalContext.current
         val app = context.applicationContext as SearchLauncherApp
-        val shortcuts by app.customShortcutRepository.items.collectAsState()
+        val shortcuts by app.searchShortcutRepository.items.collectAsState()
         val scope = rememberCoroutineScope()
 
         var showDialog by remember { mutableStateOf(false) }
-        var editingShortcut by remember { mutableStateOf<CustomShortcut?>(null) }
+        var editingShortcut by remember { mutableStateOf<SearchShortcut?>(null) }
 
         val snackbarHostState = remember { SnackbarHostState() }
-        var deletedShortcut by remember { mutableStateOf<CustomShortcut?>(null) }
+        var deletedShortcut by remember { mutableStateOf<SearchShortcut?>(null) }
 
         Scaffold(
                 topBar = {
                         TopAppBar(
-                                title = { Text("Custom Shortcuts") },
+                                title = { Text("Search Shortcuts") },
                                 navigationIcon = {
                                         IconButton(onClick = onBack) {
                                                 Icon(
@@ -48,7 +48,7 @@ fun CustomShortcutsScreen(onBack: () -> Unit) {
                                         TextButton(
                                                 onClick = {
                                                         scope.launch {
-                                                                app.customShortcutRepository
+                                                                app.searchShortcutRepository
                                                                         .resetToDefaults()
                                                         }
                                                 }
@@ -80,8 +80,8 @@ fun CustomShortcutsScreen(onBack: () -> Unit) {
                                         onDelete = {
                                                 deletedShortcut = shortcut
                                                 scope.launch {
-                                                        app.customShortcutRepository.removeShortcut(
-                                                                shortcut
+                                                        app.searchShortcutRepository.removeShortcut(
+                                                                shortcut.id
                                                         )
                                                         val result =
                                                                 snackbarHostState.showSnackbar(
@@ -95,7 +95,7 @@ fun CustomShortcutsScreen(onBack: () -> Unit) {
                                                         if (result == SnackbarResult.ActionPerformed
                                                         ) {
                                                                 deletedShortcut?.let {
-                                                                        app.customShortcutRepository
+                                                                        app.searchShortcutRepository
                                                                                 .addShortcut(it)
                                                                 }
                                                         }
@@ -114,16 +114,19 @@ fun CustomShortcutsScreen(onBack: () -> Unit) {
                         onSave = { newShortcut ->
                                 scope.launch {
                                         if (editingShortcut != null) {
-                                                app.customShortcutRepository.updateShortcut(
-                                                        editingShortcut!!,
-                                                        newShortcut
+                                                // Update existing shortcut
+                                                app.searchShortcutRepository.updateAlias(
+                                                        newShortcut.id,
+                                                        newShortcut.alias
                                                 )
                                         } else {
-                                                app.customShortcutRepository.addShortcut(
+                                                app.searchShortcutRepository.addShortcut(
                                                         newShortcut
                                                 )
                                         }
                                         showDialog = false
+                                        // Re-index shortcuts after changes
+                                        app.searchRepository.indexCustomShortcuts()
                                 }
                         }
                 )
@@ -131,7 +134,7 @@ fun CustomShortcutsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-fun ShortcutItem(shortcut: CustomShortcut, onEdit: () -> Unit, onDelete: () -> Unit) {
+fun ShortcutItem(shortcut: SearchShortcut, onEdit: () -> Unit, onDelete: () -> Unit) {
         Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors =
@@ -150,13 +153,19 @@ fun ShortcutItem(shortcut: CustomShortcut, onEdit: () -> Unit, onDelete: () -> U
                                         style = MaterialTheme.typography.bodyLarge,
                                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                 )
-                                if (shortcut is CustomShortcut.Search) {
-                                        Text(
-                                                text = "Trigger: ${shortcut.trigger}",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                }
+                                Text(
+                                        text = "Alias: ${shortcut.alias}",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                        text = shortcut.urlTemplate,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color =
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                        alpha = 0.7f
+                                                )
+                                )
                         }
                         Row {
                                 IconButton(onClick = onEdit) {
@@ -176,56 +185,54 @@ fun ShortcutItem(shortcut: CustomShortcut, onEdit: () -> Unit, onDelete: () -> U
 
 @Composable
 fun ShortcutDialog(
-        shortcut: CustomShortcut?,
+        shortcut: SearchShortcut?,
         onDismiss: () -> Unit,
-        onSave: (CustomShortcut) -> Unit
+        onSave: (SearchShortcut) -> Unit
 ) {
-        // Default to Search type for new shortcuts
-        var type by remember {
-                mutableStateOf(if (shortcut is CustomShortcut.Action) "Action" else "Search")
+        var id by remember {
+                mutableStateOf(shortcut?.id ?: java.util.UUID.randomUUID().toString())
         }
-
-        // Search fields
-        var trigger by remember {
-                mutableStateOf((shortcut as? CustomShortcut.Search)?.trigger ?: "")
-        }
-        var urlTemplate by remember {
-                mutableStateOf((shortcut as? CustomShortcut.Search)?.urlTemplate ?: "")
-        }
+        var alias by remember { mutableStateOf(shortcut?.alias ?: "") }
+        var urlTemplate by remember { mutableStateOf(shortcut?.urlTemplate ?: "") }
         var description by remember { mutableStateOf(shortcut?.description ?: "") }
         var colorHex by remember {
-                mutableStateOf(
-                        ((shortcut as? CustomShortcut.Search)?.color ?: 0xFF000000).toString(16)
-                )
-        }
-
-        // Action fields
-        var intentUri by remember {
-                mutableStateOf((shortcut as? CustomShortcut.Action)?.intentUri ?: "")
+                mutableStateOf((shortcut?.color ?: 0xFF000000).toString(16).padStart(8, '0'))
         }
 
         AlertDialog(
                 onDismissRequest = onDismiss,
-                title = { Text(if (shortcut != null) "Edit Shortcut" else "New Shortcut") },
+                title = { Text(if (shortcut != null) "Edit Alias" else "New Search Shortcut") },
                 text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                // Type Selector (only for new shortcuts or if we want to allow
-                                // changing type)
-                                // For simplicity, let's stick to the current type if editing
-
-                                OutlinedTextField(
-                                        value = description,
-                                        onValueChange = { description = it },
-                                        label = { Text("Description") },
-                                        modifier = Modifier.fillMaxWidth()
-                                )
-
-                                if (type == "Search") {
+                                if (shortcut != null) {
+                                        // Editing: only allow changing the alias
+                                        Text(
+                                                text =
+                                                        "Edit the alias/trigger for this search shortcut",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                         OutlinedTextField(
-                                                value = trigger,
-                                                onValueChange = { trigger = it },
-                                                label = { Text("Trigger (e.g., 'r')") },
+                                                value = alias,
+                                                onValueChange = { alias = it },
+                                                label = { Text("Alias (e.g., 'r', 'yt')") },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                singleLine = true
+                                        )
+                                } else {
+                                        // New shortcut: allow all fields
+                                        OutlinedTextField(
+                                                value = description,
+                                                onValueChange = { description = it },
+                                                label = { Text("Description") },
                                                 modifier = Modifier.fillMaxWidth()
+                                        )
+                                        OutlinedTextField(
+                                                value = alias,
+                                                onValueChange = { alias = it },
+                                                label = { Text("Alias (e.g., 'r', 'yt')") },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                singleLine = true
                                         )
                                         OutlinedTextField(
                                                 value = urlTemplate,
@@ -233,21 +240,13 @@ fun ShortcutDialog(
                                                 label = { Text("URL Template (use %s for query)") },
                                                 modifier = Modifier.fillMaxWidth()
                                         )
-                                } else {
                                         OutlinedTextField(
-                                                value = intentUri,
-                                                onValueChange = { intentUri = it },
-                                                label = { Text("Intent URI") },
+                                                value = colorHex,
+                                                onValueChange = { colorHex = it },
+                                                label = { Text("Color (Hex, e.g., FF4285F4)") },
                                                 modifier = Modifier.fillMaxWidth()
                                         )
                                 }
-
-                                OutlinedTextField(
-                                        value = colorHex,
-                                        onValueChange = { colorHex = it },
-                                        label = { Text("Color (Hex)") },
-                                        modifier = Modifier.fillMaxWidth()
-                                )
                         }
                 },
                 confirmButton = {
@@ -261,27 +260,15 @@ fun ShortcutDialog(
                                                 }
 
                                         val newShortcut =
-                                                if (type == "Search") {
-                                                        CustomShortcut.Search(
-                                                                trigger = trigger,
-                                                                urlTemplate = urlTemplate,
-                                                                description = description,
-                                                                color = color,
-                                                                suggestionUrl =
-                                                                        (shortcut as?
-                                                                                        CustomShortcut.Search)
-                                                                                ?.suggestionUrl,
-                                                                packageName =
-                                                                        (shortcut as?
-                                                                                        CustomShortcut.Search)
-                                                                                ?.packageName
-                                                        )
-                                                } else {
-                                                        CustomShortcut.Action(
-                                                                intentUri = intentUri,
-                                                                description = description
-                                                        )
-                                                }
+                                                SearchShortcut(
+                                                        id = id,
+                                                        alias = alias,
+                                                        urlTemplate = urlTemplate,
+                                                        description = description,
+                                                        color = color,
+                                                        suggestionUrl = shortcut?.suggestionUrl,
+                                                        packageName = shortcut?.packageName
+                                                )
                                         onSave(newShortcut)
                                 }
                         ) { Text("Save") }
