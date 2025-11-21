@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 class FavoritesRepository(context: Context) {
     private val prefs: SharedPreferences =
-        context.getSharedPreferences("favorites", Context.MODE_PRIVATE)
+            context.getSharedPreferences("favorites", Context.MODE_PRIVATE)
 
     private val _favoriteIds = MutableStateFlow<Set<String>>(emptySet())
     val favoriteIds: StateFlow<Set<String>> = _favoriteIds
@@ -42,5 +42,10 @@ class FavoritesRepository(context: Context) {
 
     fun getFavoriteIds(): Set<String> {
         return _favoriteIds.value
+    }
+
+    fun replaceAll(favorites: Set<String>) {
+        _favoriteIds.value = favorites
+        saveFavorites(favorites)
     }
 }

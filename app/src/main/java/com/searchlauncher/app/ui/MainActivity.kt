@@ -41,6 +41,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.lifecycle.lifecycleScope
 import coil.compose.AsyncImage
 import com.google.android.material.color.utilities.Hct
 import com.searchlauncher.app.SearchLauncherApp
@@ -48,6 +49,7 @@ import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.service.OverlayService
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -63,6 +65,30 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        handleIntent(intent)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(
+            requestCode: Int,
+            resultCode: Int,
+            data: android.content.Intent?
+    ) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode == RESULT_OK && data != null) {
+            val uri = data.data
+            if (uri != null) {
+                lifecycleScope.launch {
+                    when (requestCode) {
+                        EXPORT_BACKUP_REQUEST -> performExport(uri)
+                        IMPORT_BACKUP_REQUEST -> performImport(uri)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun handleIntent(intent: Intent) {
         if (intent.hasCategory(Intent.CATEGORY_HOME) && intent.action == Intent.ACTION_MAIN) {
             queryState = ""
             currentScreenState = Screen.Search
@@ -1067,6 +1093,7 @@ private fun BackupRestoreCard() {
     val context = LocalContext.current
     val app = context.applicationContext as SearchLauncherApp
     val scope = rememberCoroutineScope()
+    val activity = context as? MainActivity
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -1075,7 +1102,8 @@ private fun BackupRestoreCard() {
         ) {
             Text(text = "Backup & Restore", style = MaterialTheme.typography.titleMedium)
             Text(
-                    text = "Export your QuickCopy items to share or backup to cloud storage",
+                    text =
+                            "Export all your data (QuickCopy, Shortcuts, Favorites, Background) to a .searchlauncher file",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1084,17 +1112,12 @@ private fun BackupRestoreCard() {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(
-                        onClick = {
-                            scope.launch { exportQuickCopyData(context, app.quickCopyRepository) }
-                        },
-                        modifier = Modifier.weight(1f)
-                ) { Text("Export") }
+                Button(onClick = { activity?.exportBackup() }, modifier = Modifier.weight(1f)) {
+                    Text("Export")
+                }
 
                 OutlinedButton(
-                        onClick = {
-                            scope.launch { importQuickCopyData(context, app.quickCopyRepository) }
-                        },
+                        onClick = { activity?.importBackup() },
                         modifier = Modifier.weight(1f)
                 ) { Text("Import") }
             }
@@ -1102,51 +1125,74 @@ private fun BackupRestoreCard() {
     }
 }
 
-private suspend fun exportQuickCopyData(
-        context: Context,
-        repository: com.searchlauncher.app.data.QuickCopyRepository
-) {
+private const val EXPORT_BACKUP_REQUEST = 1001
+private const val IMPORT_BACKUP_REQUEST = 1002
+
+private fun MainActivity.exportBackup() {
+    val timestamp =
+            java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
+                    .format(java.util.Date())
+    val fileName = "searchlauncher_backup_$timestamp.searchlauncher"
+
+    val intent =
+            android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                type = "application/json"
+                putExtra(android.content.Intent.EXTRA_TITLE, fileName)
+            }
+    @Suppress("DEPRECATION") startActivityForResult(intent, EXPORT_BACKUP_REQUEST)
+}
+
+private fun MainActivity.importBackup() {
+    val intent =
+            android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+            }
+    @Suppress("DEPRECATION") startActivityForResult(intent, IMPORT_BACKUP_REQUEST)
+}
+
+private suspend fun MainActivity.performExport(uri: android.net.Uri) {
     withContext(Dispatchers.IO) {
         try {
-            val items = repository.items.value
-            val jsonArray = org.json.JSONArray()
-            items.forEach { item ->
-                val obj = org.json.JSONObject()
-                obj.put("alias", item.alias)
-                obj.put("content", item.content)
-                jsonArray.put(obj)
-            }
+            val app = applicationContext as SearchLauncherApp
+            val backgroundUri =
+                    dataStore.data.map { it[MainActivity.PreferencesKeys.BACKGROUND_URI] }.first()
 
-            val timestamp =
-                    java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
-                            .format(java.util.Date())
-            @Suppress("UNUSED_VARIABLE") val fileName = "searchlauncher_quickcopy_$timestamp.json"
+            val backupManager =
+                    com.searchlauncher.app.data.BackupManager(
+                            context = this@performExport,
+                            quickCopyRepository = app.quickCopyRepository,
+                            customShortcutRepository = app.customShortcutRepository,
+                            favoritesRepository = app.favoritesRepository
+                    )
 
-            // Future enhancement: could use ACTION_CREATE_DOCUMENT for file export
-            // For now, clipboard is simpler and works across all devices
-
-            // Save to clipboard as fallback
-            val clipboard =
-                    context.getSystemService(Context.CLIPBOARD_SERVICE) as
-                            android.content.ClipboardManager
-            val clip =
-                    android.content.ClipData.newPlainText("QuickCopy Backup", jsonArray.toString())
-            clipboard.setPrimaryClip(clip)
-
-            withContext(Dispatchers.Main) {
-                android.widget.Toast.makeText(
-                                context,
-                                "Backup copied to clipboard (${items.size} items)",
-                                android.widget.Toast.LENGTH_LONG
-                        )
-                        .show()
+            contentResolver.openOutputStream(uri)?.use { outputStream ->
+                val result = backupManager.exportBackup(outputStream, backgroundUri)
+                withContext(Dispatchers.Main) {
+                    if (result.isSuccess) {
+                        android.widget.Toast.makeText(
+                                        this@performExport,
+                                        "Backup exported successfully (${result.getOrNull()} items)",
+                                        android.widget.Toast.LENGTH_LONG
+                                )
+                                .show()
+                    } else {
+                        android.widget.Toast.makeText(
+                                        this@performExport,
+                                        "Export failed: ${result.exceptionOrNull()?.message}",
+                                        android.widget.Toast.LENGTH_LONG
+                                )
+                                .show()
+                    }
+                }
             }
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
                 android.widget.Toast.makeText(
-                                context,
+                                this@performExport,
                                 "Export failed: ${e.message}",
-                                android.widget.Toast.LENGTH_SHORT
+                                android.widget.Toast.LENGTH_LONG
                         )
                         .show()
             }
@@ -1154,52 +1200,58 @@ private suspend fun exportQuickCopyData(
     }
 }
 
-private suspend fun importQuickCopyData(
-        context: Context,
-        repository: com.searchlauncher.app.data.QuickCopyRepository
-) {
-    withContext(Dispatchers.Main) {
-        val clipboard =
-                context.getSystemService(Context.CLIPBOARD_SERVICE) as
-                        android.content.ClipboardManager
-        val clipData = clipboard.primaryClip
+private suspend fun MainActivity.performImport(uri: android.net.Uri) {
+    withContext(Dispatchers.IO) {
+        try {
+            val app = applicationContext as SearchLauncherApp
 
-        if (clipData != null && clipData.itemCount > 0) {
-            val text = clipData.getItemAt(0).text.toString()
+            val backupManager =
+                    com.searchlauncher.app.data.BackupManager(
+                            context = this@performImport,
+                            quickCopyRepository = app.quickCopyRepository,
+                            customShortcutRepository = app.customShortcutRepository,
+                            favoritesRepository = app.favoritesRepository
+                    )
 
-            try {
-                val jsonArray = org.json.JSONArray(text)
-                var importedCount = 0
-
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    val alias = obj.getString("alias")
-                    val content = obj.getString("content")
-                    repository.addItem(alias, content)
-                    importedCount++
+            contentResolver.openInputStream(uri)?.use { inputStream ->
+                val result = backupManager.importBackup(inputStream)
+                withContext(Dispatchers.Main) {
+                    if (result.isSuccess) {
+                        val stats = result.getOrNull()!!
+                        val message = buildString {
+                            append("Import successful:\n")
+                            append("- ${stats.quickCopyCount} QuickCopy items\n")
+                            append("- ${stats.shortcutsCount} Custom Shortcuts\n")
+                            append("- ${stats.favoritesCount} Favorites")
+                            if (stats.backgroundRestored) {
+                                append("\n- Background image restored")
+                            }
+                        }
+                        android.widget.Toast.makeText(
+                                        this@performImport,
+                                        message,
+                                        android.widget.Toast.LENGTH_LONG
+                                )
+                                .show()
+                    } else {
+                        android.widget.Toast.makeText(
+                                        this@performImport,
+                                        "Import failed: ${result.exceptionOrNull()?.message}",
+                                        android.widget.Toast.LENGTH_LONG
+                                )
+                                .show()
+                    }
                 }
-
+            }
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
                 android.widget.Toast.makeText(
-                                context,
-                                "Imported $importedCount QuickCopy items",
-                                android.widget.Toast.LENGTH_SHORT
-                        )
-                        .show()
-            } catch (e: Exception) {
-                android.widget.Toast.makeText(
-                                context,
-                                "Import failed: Invalid format. Copy backup data to clipboard first.",
+                                this@performImport,
+                                "Import failed: ${e.message}",
                                 android.widget.Toast.LENGTH_LONG
                         )
                         .show()
             }
-        } else {
-            android.widget.Toast.makeText(
-                            context,
-                            "No data in clipboard. Copy your backup data first.",
-                            android.widget.Toast.LENGTH_SHORT
-                    )
-                    .show()
         }
     }
 }

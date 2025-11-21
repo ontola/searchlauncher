@@ -118,4 +118,8 @@ class CustomShortcutRepository(context: Context) {
                 prefs.edit().putString("shortcuts", jsonArray.toString()).apply()
                 _items.value = items
         }
+
+        fun replaceAll(shortcuts: List<CustomShortcut>) {
+                saveItems(shortcuts)
+        }
 }
