@@ -8,6 +8,10 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -136,6 +140,21 @@ fun SearchScreen(
                 isFallbackMode = false
             }
         }
+    }
+
+    // Hint Logic
+    val quickCopyItems by app.quickCopyRepository.items.collectAsState()
+    val hintManager =
+            remember(folderImages, quickCopyItems) {
+                HintManager(
+                        isWallpaperFolderSet = { folderImages.isNotEmpty() },
+                        isQuickCopySet = { quickCopyItems.isNotEmpty() }
+                )
+            }
+    var currentHint by remember { mutableStateOf("Search apps and content…") }
+
+    LaunchedEffect(hintManager) {
+        hintManager.getHintsFlow().collect { hint -> currentHint = hint }
     }
 
     val themeColor by
@@ -585,13 +604,25 @@ fun SearchScreen(
                                 decorationBox = { innerTextField ->
                                     Box(contentAlignment = Alignment.CenterStart) {
                                         if (displayQuery.isEmpty() && activeShortcut == null) {
-                                            Text(
-                                                    "Search apps and content…",
-                                                    color =
-                                                            MaterialTheme.colorScheme
-                                                                    .onSurfaceVariant,
-                                                    fontSize = 16.sp
-                                            )
+                                            AnimatedContent(
+                                                    targetState = currentHint,
+                                                    transitionSpec = {
+                                                        fadeIn() togetherWith fadeOut()
+                                                    },
+                                                    label = "HintAnimation"
+                                            ) { targetHint ->
+                                                Text(
+                                                        text = targetHint,
+                                                        color =
+                                                                MaterialTheme.colorScheme
+                                                                        .onSurfaceVariant,
+                                                        fontSize = 16.sp,
+                                                        maxLines = 1,
+                                                        overflow =
+                                                                androidx.compose.ui.text.style
+                                                                        .TextOverflow.Ellipsis
+                                                )
+                                            }
                                         }
                                         innerTextField()
                                     }
