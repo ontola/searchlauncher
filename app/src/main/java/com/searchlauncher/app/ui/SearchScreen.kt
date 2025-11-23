@@ -9,8 +9,8 @@ import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,7 +34,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
@@ -43,9 +43,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
-import coil.compose.AsyncImage
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.service.GestureAccessibilityService
 import com.searchlauncher.app.ui.components.FavoritesRow
 import com.searchlauncher.app.ui.components.QuickCopyDialog
 import com.searchlauncher.app.ui.components.SearchResultItem
@@ -197,7 +197,54 @@ fun SearchScreen(
             darkThemeMode = darkMode,
             chroma = themeSaturation
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+                modifier =
+                        Modifier.fillMaxSize().pointerInput(Unit) {
+                            detectDragGestures { change, dragAmount ->
+                                // Detect vertical swipe down
+                                if (dragAmount.y > 20) { // Threshold for swipe down
+                                    val isLeft = change.position.x < size.width / 2
+                                    val success =
+                                            if (isLeft) {
+                                                GestureAccessibilityService.openNotifications()
+                                            } else {
+                                                GestureAccessibilityService.openQuickSettings()
+                                            }
+
+                                    if (!success) {
+                                        // Show toast if service is not connected
+                                        // We need to run this on the main thread
+                                        // Since we are in a suspend function scope (pointerInput),
+                                        // we can't easily show Toast directly
+                                        // But we can't easily get context here inside the callback
+                                        // without some setup.
+                                        // Actually we have 'context' available in the composable.
+                                        // However, detectDragGestures is a suspend function but the
+                                        // callback is not.
+                                        // Let's just use the return value to trigger a side effect
+                                        // if possible,
+                                        // or just fire and forget, but the user requested a Toast
+                                        // if not enabled.
+
+                                        // Since we are inside a callback, we can't launch a
+                                        // coroutine directly without a scope.
+                                        // But we shouldn't block the UI thread.
+                                        // Let's use the scope defined above.
+                                        scope.launch(Dispatchers.Main) {
+                                            if (!GestureAccessibilityService.isConnected()) {
+                                                Toast.makeText(
+                                                                context,
+                                                                "Accessibility Service not enabled",
+                                                                Toast.LENGTH_SHORT
+                                                        )
+                                                        .show()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+        ) {
             WallpaperBackground(
                     showBackgroundImage = showBackgroundImage,
                     bottomPadding = bottomPadding,
@@ -648,7 +695,7 @@ private fun launchResult(
         query: String = "",
         wasFirstResult: Boolean = false
 ) {
-        when (result) {
+    when (result) {
         is SearchResult.App -> {
             val launchIntent = context.packageManager.getLaunchIntentForPackage(result.packageName)
             launchIntent?.let {
@@ -746,12 +793,7 @@ private fun launchResult(
 
     // Usage reporting
     scope.launch {
-        searchRepository.reportUsage(
-                result.namespace,
-                result.id,
-                query,
-                wasFirstResult
-        )
+        searchRepository.reportUsage(result.namespace, result.id, query, wasFirstResult)
     }
 }
 

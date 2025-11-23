@@ -12,6 +12,7 @@ Android app that lets you search everything on your phone, and more.
 - **Smart sorting** - Apps sorted by recent usage (with optional usage stats permission)
 - **Guided onboarding** - Step-by-step permission setup
 - **Background image & Theme** - Customize color theme (including system dark mode) and use your own background image
+- **Quick Access to notification bar & quick settings** - With a swipe gesture from middle to the bottom, open the notification bar & quick settings.
 
 ## Use as Launcher, Widget, or Overlay
 
@@ -45,8 +46,8 @@ If you want
 
 ### Prerequisites
 
-- JDK 17 or newer
-- Android SDK with API 34
+- JDK 17 (LTS, is recommended for Android development)
+- Android SDK with API 36
 
 ### Build Instructions
 

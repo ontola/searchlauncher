@@ -74,5 +74,15 @@ class GestureAccessibilityService : AccessibilityService() {
                 }
             }, null)
         }
+
+        fun openNotifications(): Boolean {
+            val service = instance?.get() ?: return false
+            return service.performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)
+        }
+
+        fun openQuickSettings(): Boolean {
+            val service = instance?.get() ?: return false
+            return service.performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
+        }
     }
 }
