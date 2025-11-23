@@ -54,6 +54,8 @@ If you want
 ```bash
 git clone https://github.com/joepio/searchlauncher.git
 cd searchlauncher
+# Format code
+./gradlew spotlessApply
 # Install to connected device over ADB
 ./gradlew installDebug
 # Run tests
@@ -75,6 +77,8 @@ cd searchlauncher
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+Before submitting, please run: `./gradlew spotlessApply`
 
 ## License
 

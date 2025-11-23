@@ -12,12 +12,12 @@
     "**/build/**": true
   },
   "[kotlin]": {
-    "editor.tabSize": 1,
+    "editor.tabSize": 2,
     "editor.insertSpaces": true,
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "fwcd.kotlin"
   },
   "kotlin.languageServer.enabled": true,
   "kotlin.formatter": "ktfmt",
-  "kotlin.ktfmt.style": "kotlinlang"
+  "kotlin.ktfmt.style": "google"
 }

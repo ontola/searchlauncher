@@ -12,9 +12,12 @@ class HintManager(
 ) {
   private val hints =
     listOf(
+      Hint("Search anything"),
       Hint("Set a folder with wallpapers and rotate wallpapers") { !isWallpaperFolderSet() },
       Hint("Type a phone number and call"),
       Hint("Type a website URL to open"),
+      Hint("Swipe down left to open notifications"),
+      Hint("Swipe down right to open quick settings"),
       Hint("Set custom snippets with QuickCopy") { !isQuickCopySet() },
       Hint("Press 'y ' to search youtube"),
       Hint("Press 'm ' to search maps"),
