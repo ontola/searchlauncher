@@ -230,9 +230,19 @@ fun SearchScreen(
               val isLeft = change.position.x < size.width / 2
               val success =
                 if (isLeft) {
-                  GestureAccessibilityService.openNotifications()
+                  if (!GestureAccessibilityService.openNotifications()) {
+                    com.searchlauncher.app.util.SystemUtils.expandNotifications(context)
+                    true
+                  } else {
+                    true
+                  }
                 } else {
-                  GestureAccessibilityService.openQuickSettings()
+                  if (!GestureAccessibilityService.openQuickSettings()) {
+                    com.searchlauncher.app.util.SystemUtils.expandQuickSettings(context)
+                    true
+                  } else {
+                    true
+                  }
                 }
             }
           }

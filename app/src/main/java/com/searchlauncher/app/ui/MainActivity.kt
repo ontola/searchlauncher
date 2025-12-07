@@ -201,6 +201,11 @@ class MainActivity : ComponentActivity() {
       }
     }
 
+    val swipeGestureEnabled =
+      context.dataStore.data
+        .map { it[PreferencesKeys.SWIPE_GESTURE_ENABLED] ?: false }
+        .collectAsState(initial = false)
+
     if (showPractice) {
       PracticeGestureScreen(onBack = { showPractice = false })
     } else {
@@ -211,15 +216,23 @@ class MainActivity : ComponentActivity() {
               context.dataStore.edit { preferences ->
                 preferences[PreferencesKeys.ONBOARDING_COMPLETE] = true
               }
-              startOverlayService()
+              // Don't auto-enable swipe gesture on fresh install, let user decide in settings
+              // or maybe enable it by default? User asked for "not auto-enable".
+              // So we do nothing here regarding the service.
             }
           }
         )
       } else {
-        // Auto-start service if permissions are granted
-        LaunchedEffect(Unit) {
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)) {
-            startOverlayService()
+        // Auto-start service if enabled in settings AND permissions are granted
+        LaunchedEffect(swipeGestureEnabled.value) {
+          if (swipeGestureEnabled.value) {
+            if (
+              Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)
+            ) {
+              startOverlayService()
+            }
+          } else {
+            stopOverlayService()
           }
         }
 
@@ -287,6 +300,7 @@ class MainActivity : ComponentActivity() {
       androidx.datastore.preferences.core.stringPreferencesKey("background_folder_uri")
     val BACKGROUND_LAST_IMAGE_URI =
       androidx.datastore.preferences.core.stringPreferencesKey("background_last_image_uri")
+    val SWIPE_GESTURE_ENABLED = booleanPreferencesKey("swipe_gesture_enabled")
   }
 }
 
@@ -299,18 +313,7 @@ fun HomeScreen(
   onBack: () -> Unit,
 ) {
   val context = LocalContext.current
-  var isServiceRunning by remember { mutableStateOf(OverlayService.isRunning) }
   var showPermissionDialog by remember { mutableStateOf(false) }
-
-  // Keep UI in sync if service state changes externally (optional but good practice)
-  LaunchedEffect(Unit) {
-    while (true) {
-      if (isServiceRunning != OverlayService.isRunning) {
-        isServiceRunning = OverlayService.isRunning
-      }
-      kotlinx.coroutines.delay(1000)
-    }
-  }
 
   // Check if required permissions are granted
   val hasOverlayPermission = remember {
@@ -348,40 +351,54 @@ fun HomeScreen(
 
     Card(modifier = Modifier.fillMaxWidth()) {
       Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = "Side swipe gesture", style = MaterialTheme.typography.titleMedium)
-        Text(
-          text = "Swipe from the edge of the screen and back to open search",
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        val scope = rememberCoroutineScope()
+        val swipeGestureEnabled =
+          context.dataStore.data
+            .map { it[MainActivity.PreferencesKeys.SWIPE_GESTURE_ENABLED] ?: false }
+            .collectAsState(initial = false)
 
         Row(
           modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically,
         ) {
-          Button(
-            onClick = {
-              if (isServiceRunning) {
-                onStopService()
-                isServiceRunning = false
-              } else {
-                // Check permissions before starting
+          Column(modifier = Modifier.weight(1f)) {
+            Text(text = "Side swipe gesture", style = MaterialTheme.typography.titleMedium)
+            Text(
+              text = "Swipe from the edge of the screen and back to open search",
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+          Switch(
+            checked = swipeGestureEnabled.value,
+            onCheckedChange = { enabled ->
+              if (enabled) {
+                // Check permissions before enabling
                 if (hasOverlayPermission && hasAccessibilityPermission) {
-                  onStartService()
-                  isServiceRunning = true
+                  scope.launch {
+                    context.dataStore.edit { preferences ->
+                      preferences[MainActivity.PreferencesKeys.SWIPE_GESTURE_ENABLED] = true
+                    }
+                    onStartService()
+                  }
                 } else {
                   showPermissionDialog = true
                 }
+              } else {
+                scope.launch {
+                  context.dataStore.edit { preferences ->
+                    preferences[MainActivity.PreferencesKeys.SWIPE_GESTURE_ENABLED] = false
+                  }
+                  onStopService()
+                }
               }
             },
-            modifier = Modifier.weight(1f),
-          ) {
-            Text(if (isServiceRunning) "Stop" else "Start")
-          }
+          )
+        }
 
-          OutlinedButton(onClick = onOpenPractice, modifier = Modifier.weight(1f)) {
-            Text("Practice")
-          }
+        OutlinedButton(onClick = onOpenPractice, modifier = Modifier.fillMaxWidth()) {
+          Text("Practice Gesture")
         }
       }
     }
@@ -470,6 +487,8 @@ fun HomeScreen(
 
         PermissionStatus(
           title = "Display Over Other Apps",
+          description =
+            "Required for the side swipe gesture to show the search overlay on top of other apps.",
           granted =
             rememberPermissionState {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -491,6 +510,8 @@ fun HomeScreen(
 
         PermissionStatus(
           title = "Accessibility Service",
+          description =
+            "Required for the side swipe gesture to detect swipes from the edge of the screen.",
           granted = rememberPermissionState { isAccessibilityServiceEnabled(context) }.value,
           onGrant = {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
@@ -500,6 +521,7 @@ fun HomeScreen(
 
         PermissionStatus(
           title = "Usage Access (Optional)",
+          description = "Used to rank search results based on your most frequently used apps.",
           granted = rememberPermissionState { hasUsageStatsPermission(context) }.value,
           onGrant = {
             val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
@@ -509,6 +531,7 @@ fun HomeScreen(
 
         PermissionStatus(
           title = "Contacts (Optional)",
+          description = "Allows you to search for contacts directly from the launcher.",
           granted =
             rememberPermissionState {
                 context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) ==
@@ -524,6 +547,8 @@ fun HomeScreen(
 
         PermissionStatus(
           title = "Modify System Settings (Rotation)",
+          description =
+            "Required if you want the launcher to control screen rotation or other system settings.",
           granted =
             rememberPermissionState {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -644,13 +669,27 @@ fun HomeScreen(
 }
 
 @Composable
-fun PermissionStatus(title: String, granted: Boolean, onGrant: () -> Unit) {
+fun PermissionStatus(
+  title: String,
+  description: String? = null,
+  granted: Boolean,
+  onGrant: () -> Unit,
+) {
   Row(
     modifier = Modifier.fillMaxWidth(),
     horizontalArrangement = Arrangement.SpaceBetween,
     verticalAlignment = Alignment.CenterVertically,
   ) {
-    Text(text = title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+      Text(text = title, style = MaterialTheme.typography.bodyMedium)
+      if (description != null) {
+        Text(
+          text = description,
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+    }
 
     if (granted) {
       Icon(
