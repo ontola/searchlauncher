@@ -63,16 +63,16 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun SearchScreen(
-  query: String,
-  onQueryChange: (String) -> Unit,
-  onDismiss: () -> Unit,
-  onOpenSettings: () -> Unit,
-  searchRepository: SearchRepository,
-  focusTrigger: Long = 0L,
-  showHistory: Boolean = true,
-  showBackgroundImage: Boolean = false,
-  folderImages: List<Uri> = emptyList(),
-  lastImageUriString: String? = null,
+        query: String,
+        onQueryChange: (String) -> Unit,
+        onDismiss: () -> Unit,
+        onOpenSettings: () -> Unit,
+        searchRepository: SearchRepository,
+        focusTrigger: Long = 0L,
+        showHistory: Boolean = true,
+        showBackgroundImage: Boolean = false,
+        folderImages: List<Uri> = emptyList(),
+        lastImageUriString: String? = null,
 ) {
   var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
   var isLoading by remember { mutableStateOf(false) }
@@ -111,11 +111,11 @@ fun SearchScreen(
   LaunchedEffect(query, showHistory, favoriteIds) {
     if (query.isEmpty()) {
       searchResults =
-        if (showHistory) {
-          searchRepository.getRecentItems(limit = 10, excludedIds = favoriteIds)
-        } else {
-          emptyList()
-        }
+              if (showHistory) {
+                searchRepository.getRecentItems(limit = 10, excludedIds = favoriteIds)
+              } else {
+                emptyList()
+              }
       isFallbackMode = false
     } else {
       val results = searchRepository.searchApps(query)
@@ -156,34 +156,41 @@ fun SearchScreen(
   // Check if contacts permission is granted
   val hasContactsPermission = remember {
     context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) ==
-      android.content.pm.PackageManager.PERMISSION_GRANTED
+            android.content.pm.PackageManager.PERMISSION_GRANTED
   }
 
   val hintManager =
-    remember(folderImages, snippetItems, isDefaultLauncher, hasContactsPermission) {
-      HintManager(
-        isWallpaperFolderSet = { folderImages.isNotEmpty() },
-        isSnippetsSet = { snippetItems.isNotEmpty() },
-        isDefaultLauncher = { isDefaultLauncher },
-        isContactsAccessGranted = { hasContactsPermission },
-      )
-    }
+          remember(folderImages, snippetItems, isDefaultLauncher, hasContactsPermission) {
+            HintManager(
+                    isWallpaperFolderSet = { folderImages.isNotEmpty() },
+                    isSnippetsSet = { snippetItems.isNotEmpty() },
+                    isDefaultLauncher = { isDefaultLauncher },
+                    isContactsAccessGranted = { hasContactsPermission },
+            )
+          }
   var currentHint by remember { mutableStateOf("Search apps and content…") }
 
   LaunchedEffect(hintManager) { hintManager.getHintsFlow().collect { hint -> currentHint = hint } }
 
   val themeColor by
-    context.dataStore.data
-      .map { it[MainActivity.PreferencesKeys.THEME_COLOR] ?: 0xFF00639B.toInt() }
-      .collectAsState(initial = 0xFF00639B.toInt())
+          remember {
+                    context.dataStore.data.map {
+                      it[MainActivity.PreferencesKeys.THEME_COLOR] ?: 0xFF00639B.toInt()
+                    }
+                  }
+                  .collectAsState(initial = 0xFF00639B.toInt())
   val themeSaturation by
-    context.dataStore.data
-      .map { it[MainActivity.PreferencesKeys.THEME_SATURATION] ?: 50f }
-      .collectAsState(initial = 50f)
+          remember {
+                    context.dataStore.data.map {
+                      it[MainActivity.PreferencesKeys.THEME_SATURATION] ?: 50f
+                    }
+                  }
+                  .collectAsState(initial = 50f)
   val darkMode by
-    context.dataStore.data
-      .map { it[MainActivity.PreferencesKeys.DARK_MODE] ?: 0 }
-      .collectAsState(initial = 0)
+          remember {
+                    context.dataStore.data.map { it[MainActivity.PreferencesKeys.DARK_MODE] ?: 0 }
+                  }
+                  .collectAsState(initial = 0)
 
   // Remember the max height of the IME observed so far
   var maxImeHeight by remember { mutableStateOf(0) }
@@ -206,9 +213,8 @@ fun SearchScreen(
   val density = LocalDensity.current
   val imeHeightPx = WindowInsets.ime.getBottom(density)
   val storedKeyboardHeight =
-    context.dataStore.data
-      .map { it[intPreferencesKey("keyboard_height")] ?: 0 }
-      .collectAsState(initial = 0)
+          remember { context.dataStore.data.map { it[intPreferencesKey("keyboard_height")] ?: 0 } }
+                  .collectAsState(initial = 0)
 
   LaunchedEffect(imeHeightPx) {
     if (imeHeightPx > storedKeyboardHeight.value) {
@@ -218,170 +224,173 @@ fun SearchScreen(
 
   // The effective padding is the max of current IME or stored IME height
   val bottomPadding =
-    with(density) { kotlin.math.max(imeHeightPx, storedKeyboardHeight.value).toDp() }
+          with(density) { kotlin.math.max(imeHeightPx, storedKeyboardHeight.value).toDp() }
 
   SearchLauncherTheme(themeColor = themeColor, darkThemeMode = darkMode, chroma = themeSaturation) {
     Box(
-      modifier =
-        Modifier.fillMaxSize().pointerInput(Unit) {
-          detectDragGestures { change, dragAmount ->
-            // Detect vertical swipe down
-            if (dragAmount.y > 20) { // Threshold for swipe down
-              val isLeft = change.position.x < size.width / 2
-              val success =
-                if (isLeft) {
-                  if (!GestureAccessibilityService.openNotifications()) {
-                    com.searchlauncher.app.util.SystemUtils.expandNotifications(context)
-                    true
-                  } else {
-                    true
-                  }
-                } else {
-                  if (!GestureAccessibilityService.openQuickSettings()) {
-                    com.searchlauncher.app.util.SystemUtils.expandQuickSettings(context)
-                    true
-                  } else {
-                    true
-                  }
-                }
-            }
-          }
-        }
+            modifier =
+                    Modifier.fillMaxSize().pointerInput(Unit) {
+                      detectDragGestures { change, dragAmount ->
+                        // Detect vertical swipe down
+                        if (dragAmount.y > 20) { // Threshold for swipe down
+                          val isLeft = change.position.x < size.width / 2
+                          if (isLeft) {
+                            if (!GestureAccessibilityService.openNotifications()) {
+                              com.searchlauncher.app.util.SystemUtils.expandNotifications(context)
+                            }
+                          } else {
+                            if (!GestureAccessibilityService.openQuickSettings()) {
+                              com.searchlauncher.app.util.SystemUtils.expandQuickSettings(context)
+                            }
+                          }
+                        }
+                      }
+                    }
     ) {
       WallpaperBackground(
-        showBackgroundImage = showBackgroundImage,
-        bottomPadding = bottomPadding,
-        onDismiss = onDismiss,
-        folderImages = folderImages,
-        lastImageUriString = lastImageUriString,
+              showBackgroundImage = showBackgroundImage,
+              bottomPadding = bottomPadding,
+              onDismiss = onDismiss,
+              folderImages = folderImages,
+              lastImageUriString = lastImageUriString,
       )
 
       Column(
-        modifier =
-          Modifier.fillMaxSize()
-            .padding(bottom = bottomPadding) // Push content up by reserved space
-            .padding(top = 16.dp, bottom = 12.dp),
-        verticalArrangement = Arrangement.Bottom,
+              modifier =
+                      Modifier.fillMaxSize()
+                              .padding(bottom = bottomPadding) // Push content up by reserved space
+                              .padding(top = 16.dp, bottom = 12.dp),
+              verticalArrangement = Arrangement.Bottom,
       ) {
         if (searchResults.isNotEmpty()) {
           Surface(
-            modifier =
-              Modifier.fillMaxWidth()
-                .weight(1f, fill = false)
-                .padding(horizontal = 16.dp)
-                .clickable(
-                  indication = null,
-                  interactionSource = remember { MutableInteractionSource() },
-                ) {},
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 2.dp,
+                  modifier =
+                          Modifier.fillMaxWidth()
+                                  .weight(1f, fill = false)
+                                  .padding(horizontal = 16.dp)
+                                  .clickable(
+                                          indication = null,
+                                          interactionSource =
+                                                  remember { MutableInteractionSource() },
+                                  ) {},
+                  shape = RoundedCornerShape(16.dp),
+                  color = MaterialTheme.colorScheme.surface,
+                  tonalElevation = 2.dp,
           ) {
             if (isLoading) {
               Box(
-                modifier = Modifier.fillMaxWidth().padding(32.dp),
-                contentAlignment = Alignment.Center,
-              ) {
-                CircularProgressIndicator()
-              }
+                      modifier = Modifier.fillMaxWidth().padding(32.dp),
+                      contentAlignment = Alignment.Center,
+              ) { CircularProgressIndicator() }
             } else {
               LazyColumn(
-                state = listState,
-                reverseLayout = true,
-                contentPadding = PaddingValues(vertical = 8.dp),
+                      state = listState,
+                      reverseLayout = true,
+                      contentPadding = PaddingValues(vertical = 8.dp),
               ) {
                 itemsIndexed(searchResults, key = { _, item -> "${item.namespace}/${item.id}" }) {
-                  index,
-                  result ->
+                        index,
+                        result ->
                   SearchResultItem(
-                    result = result,
-                    isFavorite = favoriteIds.contains(result.id),
-                    onToggleFavorite =
-                      if (result is SearchResult.App) {
-                        { app.favoritesRepository.toggleFavorite(result.id) }
-                      } else null,
-                    onEditSnippet =
-                      if (result is SearchResult.Snippet) {
-                        {
-                          snippetItemToEdit = result
-                          snippetEditMode = true
-                          showSnippetDialog = true
-                        }
-                      } else null,
-                    onCreateSnippet = {
-                      snippetEditMode = false
-                      showSnippetDialog = true
-                    },
-                    onClick = {
-                      if (result is SearchResult.SearchIntent) {
-                        // If the title implies a direct search (or we
-                        // are in fallback mode with query), perform
-                        // search
-                        // OR if the result title was modified to
-                        // include "Search ... on ..."
-                        // A better check: if query is not empty AND
-                        // it's not just the trigger itself.
-                        // The logic below handles both cases.
+                          result = result,
+                          isFavorite = favoriteIds.contains(result.id),
+                          onToggleFavorite =
+                                  if (result is SearchResult.App) {
+                                    { app.favoritesRepository.toggleFavorite(result.id) }
+                                  } else null,
+                          onEditSnippet =
+                                  if (result is SearchResult.Snippet) {
+                                    {
+                                      snippetItemToEdit = result
+                                      snippetEditMode = true
+                                      showSnippetDialog = true
+                                    }
+                                  } else null,
+                          onCreateSnippet = {
+                            snippetEditMode = false
+                            showSnippetDialog = true
+                          },
+                          onClick = {
+                            if (result is SearchResult.SearchIntent) {
+                              // If the title implies a direct search (or we
+                              // are in fallback mode with query), perform
+                              // search
+                              // OR if the result title was modified to
+                              // include "Search ... on ..."
+                              // A better check: if query is not empty AND
+                              // it's not just the trigger itself.
+                              // The logic below handles both cases.
 
-                        // If it's a "Search X on Y" action (inferred
-                        // from query context)
-                        if (
-                          query.isNotEmpty() &&
-                            !result.trigger.equals(query.trim(), ignoreCase = true) &&
-                            !result.title.contains(query.trim(), ignoreCase = true)
-                        ) {
-                          // Perform Search
-                          val shortcut =
-                            app.searchShortcutRepository.items.value
-                              .filterIsInstance<com.searchlauncher.app.data.SearchShortcut>()
-                              .find { it.alias == result.trigger }
+                              // If it's a "Search X on Y" action (inferred
+                              // from query context)
+                              if (query.isNotEmpty() &&
+                                              !result.trigger.equals(
+                                                      query.trim(),
+                                                      ignoreCase = true
+                                              ) &&
+                                              !result.title.contains(
+                                                      query.trim(),
+                                                      ignoreCase = true
+                                              )
+                              ) {
+                                // Perform Search
+                                val shortcut =
+                                        app.searchShortcutRepository.items.value.filterIsInstance<
+                                                        com.searchlauncher.app.data.SearchShortcut>()
+                                                .find { it.alias == result.trigger }
 
-                          if (shortcut != null) {
-                            try {
-                              val url =
-                                shortcut.urlTemplate.replace(
-                                  "%s",
-                                  java.net.URLEncoder.encode(query, "UTF-8"),
-                                )
-                              val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                              intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                              context.startActivity(intent)
-                              scope.launch {
-                                searchRepository.reportUsage(
-                                  result.namespace,
-                                  result.id,
-                                  query,
-                                  index == 0,
-                                )
+                                if (shortcut != null) {
+                                  try {
+                                    val url =
+                                            shortcut.urlTemplate.replace(
+                                                    "%s",
+                                                    java.net.URLEncoder.encode(query, "UTF-8"),
+                                            )
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(intent)
+                                    scope.launch {
+                                      searchRepository.reportUsage(
+                                              result.namespace,
+                                              result.id,
+                                              query,
+                                              index == 0,
+                                      )
+                                    }
+                                    onDismiss()
+                                  } catch (e: Exception) {
+                                    Toast.makeText(
+                                                    context,
+                                                    "Cannot open: ${result.title}",
+                                                    Toast.LENGTH_SHORT,
+                                            )
+                                            .show()
+                                  }
+                                }
+                              } else {
+                                // Enter sub-search mode (append trigger)
+                                onQueryChange(result.trigger + " ")
                               }
-                              onDismiss()
-                            } catch (e: Exception) {
-                              Toast.makeText(
-                                  context,
-                                  "Cannot open: ${result.title}",
-                                  Toast.LENGTH_SHORT,
+                            } else {
+                              if (result is SearchResult.Content &&
+                                              result.deepLink ==
+                                                      "intent:#Intent;action=com.searchlauncher.action.CREATE_SNIPPET;end"
+                              ) {
+                                snippetEditMode = false
+                                showSnippetDialog = true
+                              } else {
+                                launchResult(
+                                        context,
+                                        result,
+                                        searchRepository,
+                                        scope,
+                                        query,
+                                        index == 0
                                 )
-                                .show()
+                                onDismiss()
+                              }
                             }
-                          }
-                        } else {
-                          // Enter sub-search mode (append trigger)
-                          onQueryChange(result.trigger + " ")
-                        }
-                      } else {
-                        if (
-                          result is SearchResult.Content &&
-                            result.deepLink ==
-                              "intent:#Intent;action=com.searchlauncher.action.CREATE_SNIPPET;end"
-                        ) {
-                          snippetEditMode = false
-                          showSnippetDialog = true
-                        } else {
-                          launchResult(context, result, searchRepository, scope, query, index == 0)
-                          onDismiss()
-                        }
-                      }
-                    },
+                          },
                   )
                 }
               }
@@ -393,185 +402,194 @@ fun SearchScreen(
 
         if (query.isEmpty() && favorites.isNotEmpty()) {
           FavoritesRow(
-            favorites = favorites,
-            onLaunch = { result ->
-              launchResult(context, result, searchRepository, scope)
-              onDismiss()
-            },
-            onRemoveFavorite = { result -> app.favoritesRepository.toggleFavorite(result.id) },
+                  favorites = favorites,
+                  onLaunch = { result ->
+                    launchResult(context, result, searchRepository, scope)
+                    onDismiss()
+                  },
+                  onRemoveFavorite = { result ->
+                    app.favoritesRepository.toggleFavorite(result.id)
+                  },
           )
           Spacer(modifier = Modifier.height(4.dp))
         }
 
         Surface(
-          modifier =
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp).clickable(
-              indication = null,
-              interactionSource = remember { MutableInteractionSource() },
-            ) {},
-          shape = RoundedCornerShape(16.dp),
-          color = MaterialTheme.colorScheme.surface,
-          tonalElevation = 3.dp,
+                modifier =
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp).clickable(
+                                        indication = null,
+                                        interactionSource = remember { MutableInteractionSource() },
+                                ) {},
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 3.dp,
         ) {
           Row(
-            modifier =
-              Modifier.fillMaxWidth()
-                .heightIn(min = 40.dp)
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                  modifier =
+                          Modifier.fillMaxWidth()
+                                  .heightIn(min = 40.dp)
+                                  .padding(horizontal = 16.dp, vertical = 4.dp),
+                  verticalAlignment = Alignment.CenterVertically,
           ) {
             val activeShortcut =
-              remember(query) {
-                app.searchShortcutRepository.items.value.find {
-                  query.startsWith("${it.alias} ", ignoreCase = true)
-                }
-              }
+                    remember(query) {
+                      app.searchShortcutRepository.items.value.find {
+                        query.startsWith("${it.alias} ", ignoreCase = true)
+                      }
+                    }
 
             if (activeShortcut != null) {
               val iconDrawable =
-                remember(activeShortcut) {
-                  searchRepository.getColoredSearchIcon(activeShortcut.color, activeShortcut.alias)
-                }
+                      remember(activeShortcut) {
+                        searchRepository.getColoredSearchIcon(
+                                activeShortcut.color,
+                                activeShortcut.alias
+                        )
+                      }
 
               if (iconDrawable != null) {
                 Image(
-                  bitmap = iconDrawable.toBitmap().asImageBitmap(),
-                  contentDescription = null,
-                  modifier = Modifier.size(24.dp),
+                        bitmap = iconDrawable.toBitmap().asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
                 )
               }
               Spacer(modifier = Modifier.width(8.dp))
             }
 
             val displayQuery =
-              if (activeShortcut != null) {
-                query.substring("${activeShortcut.alias} ".length)
-              } else {
-                query
-              }
+                    if (activeShortcut != null) {
+                      query.substring("${activeShortcut.alias} ".length)
+                    } else {
+                      query
+                    }
 
             BasicTextField(
-              value = displayQuery,
-              onValueChange = { newText ->
-                if (activeShortcut != null) {
-                  onQueryChange("${activeShortcut.alias} $newText")
-                } else {
-                  onQueryChange(newText)
-                }
-              },
-              modifier =
-                Modifier.weight(1f).focusRequester(focusRequester).onKeyEvent { event ->
-                  if (
-                    event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
-                      displayQuery.isEmpty() &&
-                      activeShortcut != null
-                  ) {
-                    onQueryChange("")
-                    true
-                  } else {
-                    false
-                  }
-                },
-              textStyle =
-                LocalTextStyle.current.copy(
-                  fontSize = 16.sp,
-                  color = MaterialTheme.colorScheme.onSurface,
-                ),
-              keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-              keyboardActions =
-                KeyboardActions(
-                  onGo = {
-                    val topResult = searchResults.firstOrNull()
-                    if (topResult != null) {
-                      if (topResult is SearchResult.SearchIntent) {
-                        if (isFallbackMode && query.isNotEmpty()) {
-                          // In fallback mode (e.g. random
-                          // text), 'Go' should perform the
-                          // search
-                          // using the top shortcut, instead
-                          // of just expanding the filter.
-                          val shortcut =
-                            app.searchShortcutRepository.items.value.find {
-                              it.alias == topResult.trigger
-                            }
-
-                          if (shortcut != null) {
-                            try {
-                              val url =
-                                shortcut.urlTemplate.replace(
-                                  "%s",
-                                  java.net.URLEncoder.encode(query, "UTF-8"),
-                                )
-                              val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                              intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                              context.startActivity(intent)
-                              scope.launch {
-                                searchRepository.reportUsage(
-                                  topResult.namespace,
-                                  topResult.id,
-                                  query,
-                                  true,
-                                )
-                              }
-                              onDismiss()
-                            } catch (e: Exception) {
-                              Toast.makeText(
-                                  context,
-                                  "Cannot open: ${topResult.title}",
-                                  Toast.LENGTH_SHORT,
-                                )
-                                .show()
-                            }
-                          } else {
-                            // Should not happen if data
-                            // integrity is good, but
-                            // fallback:
-                            onQueryChange(topResult.trigger + " ")
-                          }
-                        } else {
-                          // Normal mode: pressing enter on a
-                          // shortcut expands it (sub-search)
-                          onQueryChange(topResult.trigger + " ")
-                        }
+                    value = displayQuery,
+                    onValueChange = { newText ->
+                      if (activeShortcut != null) {
+                        onQueryChange("${activeShortcut.alias} $newText")
                       } else {
-                        launchResult(context, topResult, searchRepository, scope)
-                        onDismiss()
+                        onQueryChange(newText)
                       }
-                    }
-                  }
-                ),
-              cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-              decorationBox = { innerTextField ->
-                Box(contentAlignment = Alignment.CenterStart) {
-                  if (displayQuery.isEmpty() && activeShortcut == null) {
-                    AnimatedContent(
-                      targetState = currentHint,
-                      transitionSpec = { fadeIn() togetherWith fadeOut() },
-                      label = "HintAnimation",
-                    ) { targetHint ->
-                      Text(
-                        text = targetHint,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 16.sp,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                      )
-                    }
-                  }
-                  innerTextField()
-                }
-              },
+                    },
+                    modifier =
+                            Modifier.weight(1f).focusRequester(focusRequester).onKeyEvent { event ->
+                              if (event.nativeKeyEvent.keyCode ==
+                                              android.view.KeyEvent.KEYCODE_DEL &&
+                                              displayQuery.isEmpty() &&
+                                              activeShortcut != null
+                              ) {
+                                onQueryChange("")
+                                true
+                              } else {
+                                false
+                              }
+                            },
+                    textStyle =
+                            LocalTextStyle.current.copy(
+                                    fontSize = 16.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                            ),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                    keyboardActions =
+                            KeyboardActions(
+                                    onGo = {
+                                      val topResult = searchResults.firstOrNull()
+                                      if (topResult != null) {
+                                        if (topResult is SearchResult.SearchIntent) {
+                                          if (isFallbackMode && query.isNotEmpty()) {
+                                            // In fallback mode (e.g. random
+                                            // text), 'Go' should perform the
+                                            // search
+                                            // using the top shortcut, instead
+                                            // of just expanding the filter.
+                                            val shortcut =
+                                                    app.searchShortcutRepository.items.value.find {
+                                                      it.alias == topResult.trigger
+                                                    }
+
+                                            if (shortcut != null) {
+                                              try {
+                                                val url =
+                                                        shortcut.urlTemplate.replace(
+                                                                "%s",
+                                                                java.net.URLEncoder.encode(
+                                                                        query,
+                                                                        "UTF-8"
+                                                                ),
+                                                        )
+                                                val intent =
+                                                        Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                context.startActivity(intent)
+                                                scope.launch {
+                                                  searchRepository.reportUsage(
+                                                          topResult.namespace,
+                                                          topResult.id,
+                                                          query,
+                                                          true,
+                                                  )
+                                                }
+                                                onDismiss()
+                                              } catch (e: Exception) {
+                                                Toast.makeText(
+                                                                context,
+                                                                "Cannot open: ${topResult.title}",
+                                                                Toast.LENGTH_SHORT,
+                                                        )
+                                                        .show()
+                                              }
+                                            } else {
+                                              // Should not happen if data
+                                              // integrity is good, but
+                                              // fallback:
+                                              onQueryChange(topResult.trigger + " ")
+                                            }
+                                          } else {
+                                            // Normal mode: pressing enter on a
+                                            // shortcut expands it (sub-search)
+                                            onQueryChange(topResult.trigger + " ")
+                                          }
+                                        } else {
+                                          launchResult(context, topResult, searchRepository, scope)
+                                          onDismiss()
+                                        }
+                                      }
+                                    }
+                            ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    decorationBox = { innerTextField ->
+                      Box(contentAlignment = Alignment.CenterStart) {
+                        if (displayQuery.isEmpty() && activeShortcut == null) {
+                          AnimatedContent(
+                                  targetState = currentHint,
+                                  transitionSpec = { fadeIn() togetherWith fadeOut() },
+                                  label = "HintAnimation",
+                          ) { targetHint ->
+                            Text(
+                                    text = targetHint,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 16.sp,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            )
+                          }
+                        }
+                        innerTextField()
+                      }
+                    },
             )
 
             if (query.isNotEmpty()) {
               IconButton(
-                onClick = { onQueryChange("") },
-                modifier = Modifier.size(32.dp).padding(4.dp),
+                      onClick = { onQueryChange("") },
+                      modifier = Modifier.size(32.dp).padding(4.dp),
               ) {
                 Icon(
-                  imageVector = Icons.Default.Close,
-                  contentDescription = "Clear",
-                  modifier = Modifier.size(16.dp),
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Clear",
+                        modifier = Modifier.size(16.dp),
                 )
               }
             } else {
@@ -587,33 +605,35 @@ fun SearchScreen(
 
   if (showSnippetDialog) {
     SnippetDialog(
-      initialAlias =
-        if (snippetEditMode && snippetItemToEdit != null) snippetItemToEdit!!.alias else "",
-      initialContent =
-        if (snippetEditMode && snippetItemToEdit != null) snippetItemToEdit!!.content else "",
-      isEditMode = snippetEditMode,
-      onDismiss = { showSnippetDialog = false },
-      onConfirm = { alias, content ->
-        scope.launch(Dispatchers.IO) {
-          if (snippetEditMode && snippetItemToEdit != null) {
-            app.snippetsRepository.updateItem(snippetItemToEdit!!.alias, alias, content)
-          } else {
-            app.snippetsRepository.addItem(alias, content)
-          }
-        }
-        showSnippetDialog = false
-      },
+            initialAlias =
+                    if (snippetEditMode && snippetItemToEdit != null) snippetItemToEdit!!.alias
+                    else "",
+            initialContent =
+                    if (snippetEditMode && snippetItemToEdit != null) snippetItemToEdit!!.content
+                    else "",
+            isEditMode = snippetEditMode,
+            onDismiss = { showSnippetDialog = false },
+            onConfirm = { alias, content ->
+              scope.launch(Dispatchers.IO) {
+                if (snippetEditMode && snippetItemToEdit != null) {
+                  app.snippetsRepository.updateItem(snippetItemToEdit!!.alias, alias, content)
+                } else {
+                  app.snippetsRepository.addItem(alias, content)
+                }
+              }
+              showSnippetDialog = false
+            },
     )
   }
 }
 
 private fun launchResult(
-  context: Context,
-  result: SearchResult,
-  searchRepository: SearchRepository,
-  scope: kotlinx.coroutines.CoroutineScope,
-  query: String = "",
-  wasFirstResult: Boolean = false,
+        context: Context,
+        result: SearchResult,
+        searchRepository: SearchRepository,
+        scope: kotlinx.coroutines.CoroutineScope,
+        query: String = "",
+        wasFirstResult: Boolean = false,
 ) {
   when (result) {
     is SearchResult.App -> {
@@ -627,11 +647,11 @@ private fun launchResult(
       result.deepLink?.let { deepLink ->
         try {
           val intent =
-            if (deepLink.startsWith("intent:")) {
-              Intent.parseUri(deepLink, Intent.URI_INTENT_SCHEME)
-            } else {
-              Intent(Intent.ACTION_VIEW, Uri.parse(deepLink))
-            }
+                  if (deepLink.startsWith("intent:")) {
+                    Intent.parseUri(deepLink, Intent.URI_INTENT_SCHEME)
+                  } else {
+                    Intent(Intent.ACTION_VIEW, Uri.parse(deepLink))
+                  }
 
           if (intent.action == "com.searchlauncher.RESET_INDEX") {
             scope.launch {
@@ -661,8 +681,8 @@ private fun launchResult(
             val pkg = parts[0]
             val id = parts[1]
             val launcherApps =
-              context.getSystemService(Context.LAUNCHER_APPS_SERVICE)
-                as android.content.pm.LauncherApps
+                    context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as
+                            android.content.pm.LauncherApps
             launcherApps.startShortcut(pkg, id, null, null, android.os.Process.myUserHandle())
           }
         } else {
@@ -682,10 +702,10 @@ private fun launchResult(
       try {
         val intent = Intent(Intent.ACTION_VIEW)
         val uri =
-          Uri.withAppendedPath(
-            android.provider.ContactsContract.Contacts.CONTENT_LOOKUP_URI,
-            result.lookupKey,
-          )
+                Uri.withAppendedPath(
+                        android.provider.ContactsContract.Contacts.CONTENT_LOOKUP_URI,
+                        result.lookupKey,
+                )
         intent.data = uri
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
@@ -696,7 +716,8 @@ private fun launchResult(
     }
     is SearchResult.Snippet -> {
       val clipboard =
-        context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+              context.getSystemService(Context.CLIPBOARD_SERVICE) as
+                      android.content.ClipboardManager
       val clip = android.content.ClipData.newPlainText(result.alias, result.content)
       clipboard.setPrimaryClip(clip)
       Toast.makeText(context, "Copied ${result.content}", Toast.LENGTH_SHORT).show()
@@ -710,21 +731,21 @@ private fun launchResult(
 internal fun Drawable.toImageBitmap(): ImageBitmap? {
   try {
     val bitmap =
-      if (this is BitmapDrawable) {
-        if (this.bitmap != null && !this.bitmap.isRecycled) {
-          this.bitmap
-        } else {
-          null
-        }
-      } else {
-        val width = intrinsicWidth.takeIf { it > 0 } ?: 1
-        val height = intrinsicHeight.takeIf { it > 0 } ?: 1
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        setBounds(0, 0, canvas.width, canvas.height)
-        draw(canvas)
-        bitmap
-      }
+            if (this is BitmapDrawable) {
+              if (this.bitmap != null && !this.bitmap.isRecycled) {
+                this.bitmap
+              } else {
+                null
+              }
+            } else {
+              val width = intrinsicWidth.takeIf { it > 0 } ?: 1
+              val height = intrinsicHeight.takeIf { it > 0 } ?: 1
+              val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+              val canvas = Canvas(bitmap)
+              setBounds(0, 0, canvas.width, canvas.height)
+              draw(canvas)
+              bitmap
+            }
     return bitmap?.asImageBitmap()
   } catch (e: Exception) {
     return null

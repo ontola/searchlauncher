@@ -51,14 +51,15 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "se
 class MainActivity : ComponentActivity() {
 
   private val exportBackupLauncher =
-    registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-      uri?.let { lifecycleScope.launch { performExport(it) } }
-    }
+          registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) {
+                  uri ->
+            uri?.let { lifecycleScope.launch { performExport(it) } }
+          }
 
   private val importBackupLauncher =
-    registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-      uri?.let { lifecycleScope.launch { performImport(it) } }
-    }
+          registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            uri?.let { lifecycleScope.launch { performImport(it) } }
+          }
 
   private var queryState by mutableStateOf("")
   private var currentScreenState by mutableStateOf(Screen.Search)
@@ -86,9 +87,8 @@ class MainActivity : ComponentActivity() {
 
   fun exportBackup() {
     val timestamp =
-      java.text
-        .SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
-        .format(java.util.Date())
+            java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
+                    .format(java.util.Date())
     val fileName = "searchlauncher_backup_$timestamp.searchlauncher"
 
     exportBackupLauncher.launch(fileName)
@@ -104,28 +104,29 @@ class MainActivity : ComponentActivity() {
     // Ensure keyboard opens automatically
     @Suppress("DEPRECATION")
     window.setSoftInputMode(
-      android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
-        android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+            android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                    android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
     )
 
     setContent {
       val themeColor =
-        dataStore.data
-          .map { it[PreferencesKeys.THEME_COLOR] ?: 0xFF00639B.toInt() }
-          .collectAsState(initial = 0xFF00639B.toInt())
+              remember {
+                        dataStore.data.map { it[PreferencesKeys.THEME_COLOR] ?: 0xFF00639B.toInt() }
+                      }
+                      .collectAsState(initial = 0xFF00639B.toInt())
 
       val themeSaturation =
-        dataStore.data
-          .map { it[PreferencesKeys.THEME_SATURATION] ?: 50f }
-          .collectAsState(initial = 50f)
+              remember { dataStore.data.map { it[PreferencesKeys.THEME_SATURATION] ?: 50f } }
+                      .collectAsState(initial = 50f)
 
       val darkMode =
-        dataStore.data.map { it[PreferencesKeys.DARK_MODE] ?: 0 }.collectAsState(initial = 0)
+              remember { dataStore.data.map { it[PreferencesKeys.DARK_MODE] ?: 0 } }
+                      .collectAsState(initial = 0)
 
       SearchLauncherTheme(
-        themeColor = themeColor.value,
-        darkThemeMode = darkMode.value,
-        chroma = themeSaturation.value,
+              themeColor = themeColor.value,
+              darkThemeMode = darkMode.value,
+              chroma = themeSaturation.value,
       ) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
           MainScreen()
@@ -148,9 +149,8 @@ class MainActivity : ComponentActivity() {
 
     // Hoist wallpaper state
     val backgroundFolderUriString by
-      context.dataStore.data
-        .map { it[PreferencesKeys.BACKGROUND_FOLDER_URI] }
-        .collectAsState(initial = null)
+            remember { context.dataStore.data.map { it[PreferencesKeys.BACKGROUND_FOLDER_URI] } }
+                    .collectAsState(initial = null)
     var folderImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
 
     LaunchedEffect(backgroundFolderUriString) {
@@ -159,13 +159,13 @@ class MainActivity : ComponentActivity() {
           try {
             val folderUri = Uri.parse(backgroundFolderUriString)
             val documentFile =
-              androidx.documentfile.provider.DocumentFile.fromTreeUri(context, folderUri)
+                    androidx.documentfile.provider.DocumentFile.fromTreeUri(context, folderUri)
             val files = documentFile?.listFiles()
             val images =
-              files?.filter { file ->
-                val mimeType = file.type
-                mimeType != null && mimeType.startsWith("image/")
-              }
+                    files?.filter { file ->
+                      val mimeType = file.type
+                      mimeType != null && mimeType.startsWith("image/")
+                    }
             val uris = images?.sortedBy { it.name }?.map { it.uri } ?: emptyList()
             withContext(Dispatchers.Main) { folderImages = uris }
           } catch (e: Exception) {
@@ -178,19 +178,26 @@ class MainActivity : ComponentActivity() {
     }
 
     val lastImageUriString by
-      context.dataStore.data
-        .map { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] }
-        .collectAsState(initial = null)
+            remember {
+                      context.dataStore.data.map { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] }
+                    }
+                    .collectAsState(initial = null)
 
     val onboardingComplete =
-      context.dataStore.data
-        .map { it[booleanPreferencesKey("onboarding_complete")] ?: false }
-        .collectAsState(initial = false)
+            remember {
+                      context.dataStore.data.map {
+                        it[booleanPreferencesKey("onboarding_complete")] ?: false
+                      }
+                    }
+                    .collectAsState(initial = false)
 
     val showHistory =
-      context.dataStore.data
-        .map { it[booleanPreferencesKey("show_history")] ?: true }
-        .collectAsState(initial = true)
+            remember {
+                      context.dataStore.data.map {
+                        it[booleanPreferencesKey("show_history")] ?: true
+                      }
+                    }
+                    .collectAsState(initial = true)
 
     // Handle back press
     BackHandler(enabled = currentScreenState != Screen.Search) {
@@ -202,32 +209,34 @@ class MainActivity : ComponentActivity() {
     }
 
     val swipeGestureEnabled =
-      context.dataStore.data
-        .map { it[PreferencesKeys.SWIPE_GESTURE_ENABLED] ?: false }
-        .collectAsState(initial = false)
+            remember {
+                      context.dataStore.data.map {
+                        it[PreferencesKeys.SWIPE_GESTURE_ENABLED] ?: false
+                      }
+                    }
+                    .collectAsState(initial = false)
 
     if (showPractice) {
       PracticeGestureScreen(onBack = { showPractice = false })
     } else {
       if (!onboardingComplete.value) { // Show onboarding if not complete
         OnboardingScreen(
-          onComplete = {
-            scope.launch {
-              context.dataStore.edit { preferences ->
-                preferences[PreferencesKeys.ONBOARDING_COMPLETE] = true
-              }
-              // Don't auto-enable swipe gesture on fresh install, let user decide in settings
-              // or maybe enable it by default? User asked for "not auto-enable".
-              // So we do nothing here regarding the service.
-            }
-          }
+                onComplete = {
+                  scope.launch {
+                    context.dataStore.edit { preferences ->
+                      preferences[PreferencesKeys.ONBOARDING_COMPLETE] = true
+                    }
+                    // Don't auto-enable swipe gesture on fresh install, let user decide in settings
+                    // or maybe enable it by default? User asked for "not auto-enable".
+                    // So we do nothing here regarding the service.
+                  }
+                }
         )
       } else {
         // Auto-start service if enabled in settings AND permissions are granted
         LaunchedEffect(swipeGestureEnabled.value) {
           if (swipeGestureEnabled.value) {
-            if (
-              Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)
             ) {
               startOverlayService()
             }
@@ -240,25 +249,25 @@ class MainActivity : ComponentActivity() {
           Screen.Search -> {
             val app = application as SearchLauncherApp
             SearchScreen(
-              query = queryState,
-              onQueryChange = { queryState = it },
-              onDismiss = { queryState = "" },
-              onOpenSettings = { currentScreenState = Screen.Settings },
-              searchRepository = app.searchRepository,
-              focusTrigger = focusTrigger,
-              showHistory = showHistory.value,
-              showBackgroundImage = true,
-              folderImages = folderImages,
-              lastImageUriString = lastImageUriString,
+                    query = queryState,
+                    onQueryChange = { queryState = it },
+                    onDismiss = { queryState = "" },
+                    onOpenSettings = { currentScreenState = Screen.Settings },
+                    searchRepository = app.searchRepository,
+                    focusTrigger = focusTrigger,
+                    showHistory = showHistory.value,
+                    showBackgroundImage = true,
+                    folderImages = folderImages,
+                    lastImageUriString = lastImageUriString,
             )
           }
           Screen.Settings -> {
             HomeScreen(
-              onStartService = { startOverlayService() },
-              onStopService = { stopOverlayService() },
-              onOpenPractice = { showPractice = true },
-              onOpenCustomShortcuts = { currentScreenState = Screen.CustomShortcuts },
-              onBack = { currentScreenState = Screen.Search },
+                    onStartService = { startOverlayService() },
+                    onStopService = { stopOverlayService() },
+                    onOpenPractice = { showPractice = true },
+                    onOpenCustomShortcuts = { currentScreenState = Screen.CustomShortcuts },
+                    onBack = { currentScreenState = Screen.Search },
             )
           }
           Screen.CustomShortcuts -> {
@@ -293,24 +302,24 @@ class MainActivity : ComponentActivity() {
     val THEME_SATURATION = floatPreferencesKey("theme_saturation")
     val DARK_MODE = intPreferencesKey("dark_mode")
     val BACKGROUND_URI =
-      androidx.datastore.preferences.core.stringPreferencesKey(
-        "background_uri"
-      ) // 0: System, 1: Light, 2: Dark
+            androidx.datastore.preferences.core.stringPreferencesKey(
+                    "background_uri"
+            ) // 0: System, 1: Light, 2: Dark
     val BACKGROUND_FOLDER_URI =
-      androidx.datastore.preferences.core.stringPreferencesKey("background_folder_uri")
+            androidx.datastore.preferences.core.stringPreferencesKey("background_folder_uri")
     val BACKGROUND_LAST_IMAGE_URI =
-      androidx.datastore.preferences.core.stringPreferencesKey("background_last_image_uri")
+            androidx.datastore.preferences.core.stringPreferencesKey("background_last_image_uri")
     val SWIPE_GESTURE_ENABLED = booleanPreferencesKey("swipe_gesture_enabled")
   }
 }
 
 @Composable
 fun HomeScreen(
-  onStartService: () -> Unit,
-  onStopService: () -> Unit,
-  onOpenPractice: () -> Unit,
-  onOpenCustomShortcuts: () -> Unit,
-  onBack: () -> Unit,
+        onStartService: () -> Unit,
+        onStopService: () -> Unit,
+        onOpenPractice: () -> Unit,
+        onOpenCustomShortcuts: () -> Unit,
+        onBack: () -> Unit,
 ) {
   val context = LocalContext.current
   var showPermissionDialog by remember { mutableStateOf(false) }
@@ -332,13 +341,15 @@ fun HomeScreen(
   }
 
   Column(
-    modifier =
-      Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(PaddingValues(16.dp)),
-    verticalArrangement = Arrangement.spacedBy(16.dp),
+          modifier =
+                  Modifier.fillMaxSize()
+                          .verticalScroll(rememberScrollState())
+                          .padding(PaddingValues(16.dp)),
+          verticalArrangement = Arrangement.spacedBy(16.dp),
   ) {
     Row(
-      modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-      verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
     ) {
       IconButton(onClick = onBack) {
         Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -353,47 +364,50 @@ fun HomeScreen(
       Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val scope = rememberCoroutineScope()
         val swipeGestureEnabled =
-          context.dataStore.data
-            .map { it[MainActivity.PreferencesKeys.SWIPE_GESTURE_ENABLED] ?: false }
-            .collectAsState(initial = false)
+                remember {
+                          context.dataStore.data.map {
+                            it[MainActivity.PreferencesKeys.SWIPE_GESTURE_ENABLED] ?: false
+                          }
+                        }
+                        .collectAsState(initial = false)
 
         Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
         ) {
           Column(modifier = Modifier.weight(1f)) {
             Text(text = "Side swipe gesture", style = MaterialTheme.typography.titleMedium)
             Text(
-              text = "Swipe from the edge of the screen and back to open search",
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "Swipe from the edge of the screen and back to open search",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
           }
           Switch(
-            checked = swipeGestureEnabled.value,
-            onCheckedChange = { enabled ->
-              if (enabled) {
-                // Check permissions before enabling
-                if (hasOverlayPermission && hasAccessibilityPermission) {
-                  scope.launch {
-                    context.dataStore.edit { preferences ->
-                      preferences[MainActivity.PreferencesKeys.SWIPE_GESTURE_ENABLED] = true
+                  checked = swipeGestureEnabled.value,
+                  onCheckedChange = { enabled ->
+                    if (enabled) {
+                      // Check permissions before enabling
+                      if (hasOverlayPermission && hasAccessibilityPermission) {
+                        scope.launch {
+                          context.dataStore.edit { preferences ->
+                            preferences[MainActivity.PreferencesKeys.SWIPE_GESTURE_ENABLED] = true
+                          }
+                          onStartService()
+                        }
+                      } else {
+                        showPermissionDialog = true
+                      }
+                    } else {
+                      scope.launch {
+                        context.dataStore.edit { preferences ->
+                          preferences[MainActivity.PreferencesKeys.SWIPE_GESTURE_ENABLED] = false
+                        }
+                        onStopService()
+                      }
                     }
-                    onStartService()
-                  }
-                } else {
-                  showPermissionDialog = true
-                }
-              } else {
-                scope.launch {
-                  context.dataStore.edit { preferences ->
-                    preferences[MainActivity.PreferencesKeys.SWIPE_GESTURE_ENABLED] = false
-                  }
-                  onStopService()
-                }
-              }
-            },
+                  },
           )
         }
 
@@ -407,25 +421,23 @@ fun HomeScreen(
     if (!isDefaultLauncher) {
       Card(modifier = Modifier.fillMaxWidth()) {
         Column(
-          modifier = Modifier.padding(16.dp),
-          verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
           Text(text = "Launcher", style = MaterialTheme.typography.titleMedium)
           Text(
-            text = "Set SearchLauncher as your default home screen",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  text = "Set SearchLauncher as your default home screen",
+                  style = MaterialTheme.typography.bodyMedium,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
 
           Button(
-            onClick = {
-              val intent = Intent(Settings.ACTION_HOME_SETTINGS)
-              context.startActivity(intent)
-            },
-            modifier = Modifier.fillMaxWidth(),
-          ) {
-            Text("Set as Default Launcher")
-          }
+                  onClick = {
+                    val intent = Intent(Settings.ACTION_HOME_SETTINGS)
+                    context.startActivity(intent)
+                  },
+                  modifier = Modifier.fillMaxWidth(),
+          ) { Text("Set as Default Launcher") }
         }
       }
     }
@@ -436,32 +448,35 @@ fun HomeScreen(
 
         val scope = rememberCoroutineScope()
         val showHistory =
-          context.dataStore.data
-            .map { it[booleanPreferencesKey("show_history")] ?: true }
-            .collectAsState(initial = true)
+                remember {
+                          context.dataStore.data.map {
+                            it[booleanPreferencesKey("show_history")] ?: true
+                          }
+                        }
+                        .collectAsState(initial = true)
 
         Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
         ) {
           Column(modifier = Modifier.weight(1f)) {
             Text(text = "Show History", style = MaterialTheme.typography.bodyMedium)
             Text(
-              text = "Display recently used items when search is empty",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "Display recently used items when search is empty",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
           }
           Switch(
-            checked = showHistory.value,
-            onCheckedChange = { enabled ->
-              scope.launch {
-                context.dataStore.edit { preferences ->
-                  preferences[booleanPreferencesKey("show_history")] = enabled
-                }
-              }
-            },
+                  checked = showHistory.value,
+                  onCheckedChange = { enabled ->
+                    scope.launch {
+                      context.dataStore.edit { preferences ->
+                        preferences[booleanPreferencesKey("show_history")] = enabled
+                      }
+                    }
+                  },
           )
         }
       }
@@ -471,9 +486,9 @@ fun HomeScreen(
       Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(text = "Custom Shortcuts", style = MaterialTheme.typography.titleMedium)
         Text(
-          text = "Manage your custom search shortcuts (e.g., 'r' for Reddit)",
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = "Manage your custom search shortcuts (e.g., 'r' for Reddit)",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Button(onClick = onOpenCustomShortcuts, modifier = Modifier.fillMaxWidth()) {
           Text("Manage Shortcuts")
@@ -486,83 +501,85 @@ fun HomeScreen(
         Text(text = "Permissions", style = MaterialTheme.typography.titleMedium)
 
         PermissionStatus(
-          title = "Display Over Other Apps",
-          description =
-            "Required for the side swipe gesture to show the search overlay on top of other apps.",
-          granted =
-            rememberPermissionState {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                  Settings.canDrawOverlays(context)
-                } else true
-              }
-              .value,
-          onGrant = {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-              val intent =
-                Intent(
-                  Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                  Uri.parse("package:${context.packageName}"),
-                )
-              context.startActivity(intent)
-            }
-          },
+                title = "Display Over Other Apps",
+                description =
+                        "Required for the side swipe gesture to show the search overlay on top of other apps.",
+                granted =
+                        rememberPermissionState {
+                                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                    Settings.canDrawOverlays(context)
+                                  } else true
+                                }
+                                .value,
+                onGrant = {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    val intent =
+                            Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:${context.packageName}"),
+                            )
+                    context.startActivity(intent)
+                  }
+                },
         )
 
         PermissionStatus(
-          title = "Accessibility Service",
-          description =
-            "Required for the side swipe gesture to detect swipes from the edge of the screen.",
-          granted = rememberPermissionState { isAccessibilityServiceEnabled(context) }.value,
-          onGrant = {
-            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-            context.startActivity(intent)
-          },
+                title = "Accessibility Service",
+                description =
+                        "Required for the side swipe gesture to detect swipes from the edge of the screen.",
+                granted = rememberPermissionState { isAccessibilityServiceEnabled(context) }.value,
+                onGrant = {
+                  val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                  context.startActivity(intent)
+                },
         )
 
         PermissionStatus(
-          title = "Usage Access (Optional)",
-          description = "Used to rank search results based on your most frequently used apps.",
-          granted = rememberPermissionState { hasUsageStatsPermission(context) }.value,
-          onGrant = {
-            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-            context.startActivity(intent)
-          },
+                title = "Usage Access (Optional)",
+                description =
+                        "Used to rank search results based on your most frequently used apps.",
+                granted = rememberPermissionState { hasUsageStatsPermission(context) }.value,
+                onGrant = {
+                  val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                  context.startActivity(intent)
+                },
         )
 
         PermissionStatus(
-          title = "Contacts (Optional)",
-          description = "Allows you to search for contacts directly from the launcher.",
-          granted =
-            rememberPermissionState {
-                context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) ==
-                  android.content.pm.PackageManager.PERMISSION_GRANTED
-              }
-              .value,
-          onGrant = {
-            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-            intent.data = Uri.fromParts("package", context.packageName, null)
-            context.startActivity(intent)
-          },
+                title = "Contacts (Optional)",
+                description = "Allows you to search for contacts directly from the launcher.",
+                granted =
+                        rememberPermissionState {
+                                  context.checkSelfPermission(
+                                          android.Manifest.permission.READ_CONTACTS
+                                  ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                }
+                                .value,
+                onGrant = {
+                  val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                  intent.data = Uri.fromParts("package", context.packageName, null)
+                  context.startActivity(intent)
+                },
         )
 
         PermissionStatus(
-          title = "Modify System Settings (Rotation)",
-          description =
-            "Required if you want the launcher to control screen rotation or other system settings.",
-          granted =
-            rememberPermissionState {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                  Settings.System.canWrite(context)
-                } else true
-              }
-              .value,
-          onGrant = {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-              val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)
-              intent.data = Uri.parse("package:${context.packageName}")
-              context.startActivity(intent)
-            }
-          },
+                title = "Modify System Settings (Rotation)",
+                description =
+                        "Required if you want the launcher to control screen rotation or other system settings.",
+                granted =
+                        rememberPermissionState {
+                                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                    Settings.System.canWrite(context)
+                                  } else true
+                                }
+                                .value,
+                onGrant = {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)
+                    intent.data = Uri.parse("package:${context.packageName}")
+                    context.startActivity(intent)
+                  }
+                },
         )
       }
     }
@@ -581,35 +598,35 @@ fun HomeScreen(
         LaunchedEffect(Unit) { searchRepository.initialize() }
 
         Button(
-          onClick = {
-            scope.launch {
-              searchRepository.resetIndex()
-              withContext(Dispatchers.Main) {
-                android.widget.Toast.makeText(
-                    context,
-                    "Search Index Reset",
-                    android.widget.Toast.LENGTH_SHORT,
-                  )
-                  .show()
-              }
-            }
-          },
-          modifier = Modifier.fillMaxWidth(),
-        ) {
-          Text("Reset Search Index")
-        }
+                onClick = {
+                  scope.launch {
+                    searchRepository.resetIndex()
+                    withContext(Dispatchers.Main) {
+                      android.widget.Toast.makeText(
+                                      context,
+                                      "Search Index Reset",
+                                      android.widget.Toast.LENGTH_SHORT,
+                              )
+                              .show()
+                    }
+                  }
+                },
+                modifier = Modifier.fillMaxWidth(),
+        ) { Text("Reset Search Index") }
 
         Button(
-          onClick = {
-            val activityManager =
-              context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-            activityManager.clearApplicationUserData()
-          },
-          modifier = Modifier.fillMaxWidth(),
-          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-        ) {
-          Text("Reset App Data")
-        }
+                onClick = {
+                  val activityManager =
+                          context.getSystemService(Context.ACTIVITY_SERVICE) as
+                                  android.app.ActivityManager
+                  activityManager.clearApplicationUserData()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors =
+                        ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error
+                        ),
+        ) { Text("Reset App Data") }
       }
     }
   }
@@ -617,86 +634,88 @@ fun HomeScreen(
   // Show permission guide dialog
   if (showPermissionDialog) {
     AlertDialog(
-      onDismissRequest = { showPermissionDialog = false },
-      title = { Text("Required Permissions") },
-      text = {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-          Text(
-            "To use the side swipe gesture, SearchLauncher needs the following permissions:",
-            style = MaterialTheme.typography.bodyMedium,
-          )
+            onDismissRequest = { showPermissionDialog = false },
+            title = { Text("Required Permissions") },
+            text = {
+              Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                        "To use the side swipe gesture, SearchLauncher needs the following permissions:",
+                        style = MaterialTheme.typography.bodyMedium,
+                )
 
-          if (!hasOverlayPermission) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-              Text(
-                "• Display Over Other Apps",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-              )
-              Text(
-                "Allows SearchLauncher to show the search interface on top of other apps",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-          }
+                if (!hasOverlayPermission) {
+                  Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                            "• Display Over Other Apps",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    )
+                    Text(
+                            "Allows SearchLauncher to show the search interface on top of other apps",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                  }
+                }
 
-          if (!hasAccessibilityPermission) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-              Text(
-                "• Accessibility Service",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-              )
-              Text(
-                "Detects swipe gestures from the edge of your screen",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-          }
+                if (!hasAccessibilityPermission) {
+                  Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                            "• Accessibility Service",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    )
+                    Text(
+                            "Detects swipe gestures from the edge of your screen",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                  }
+                }
 
-          Text(
-            "You can grant these permissions in the Permissions section below.",
-            style = MaterialTheme.typography.bodySmall,
-            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-          )
-        }
-      },
-      confirmButton = { Button(onClick = { showPermissionDialog = false }) { Text("Got it") } },
+                Text(
+                        "You can grant these permissions in the Permissions section below.",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                )
+              }
+            },
+            confirmButton = {
+              Button(onClick = { showPermissionDialog = false }) { Text("Got it") }
+            },
     )
   }
 }
 
 @Composable
 fun PermissionStatus(
-  title: String,
-  description: String? = null,
-  granted: Boolean,
-  onGrant: () -> Unit,
+        title: String,
+        description: String? = null,
+        granted: Boolean,
+        onGrant: () -> Unit,
 ) {
   Row(
-    modifier = Modifier.fillMaxWidth(),
-    horizontalArrangement = Arrangement.SpaceBetween,
-    verticalAlignment = Alignment.CenterVertically,
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically,
   ) {
     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
       Text(text = title, style = MaterialTheme.typography.bodyMedium)
       if (description != null) {
         Text(
-          text = description,
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
     }
 
     if (granted) {
       Icon(
-        imageVector = androidx.compose.material.icons.Icons.Default.Check,
-        contentDescription = "Granted",
-        tint = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.size(32.dp),
+              imageVector = androidx.compose.material.icons.Icons.Default.Check,
+              contentDescription = "Granted",
+              tint = MaterialTheme.colorScheme.primary,
+              modifier = Modifier.size(32.dp),
       )
     } else {
       Button(onClick = onGrant) { Text("Grant") }
@@ -706,10 +725,10 @@ fun PermissionStatus(
 
 fun isAccessibilityServiceEnabled(context: Context): Boolean {
   val enabledServices =
-    Settings.Secure.getString(
-      context.contentResolver,
-      Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-    )
+          Settings.Secure.getString(
+                  context.contentResolver,
+                  Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+          )
   return enabledServices?.contains(context.packageName) == true
 }
 
@@ -717,21 +736,21 @@ fun hasUsageStatsPermission(context: Context): Boolean {
   return try {
     val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
     val mode =
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        @Suppress("DEPRECATION")
-        appOps.unsafeCheckOpNoThrow(
-          AppOpsManager.OPSTR_GET_USAGE_STATS,
-          android.os.Process.myUid(),
-          context.packageName,
-        )
-      } else {
-        @Suppress("DEPRECATION")
-        appOps.checkOpNoThrow(
-          AppOpsManager.OPSTR_GET_USAGE_STATS,
-          android.os.Process.myUid(),
-          context.packageName,
-        )
-      }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+              @Suppress("DEPRECATION")
+              appOps.unsafeCheckOpNoThrow(
+                      AppOpsManager.OPSTR_GET_USAGE_STATS,
+                      android.os.Process.myUid(),
+                      context.packageName,
+              )
+            } else {
+              @Suppress("DEPRECATION")
+              appOps.checkOpNoThrow(
+                      AppOpsManager.OPSTR_GET_USAGE_STATS,
+                      android.os.Process.myUid(),
+                      context.packageName,
+              )
+            }
     mode == AppOpsManager.MODE_ALLOWED
   } catch (e: Exception) {
     false
@@ -751,74 +770,73 @@ private fun SnippetsCard() {
   Card(modifier = Modifier.fillMaxWidth()) {
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically,
       ) {
         Column(modifier = Modifier.weight(1f)) {
           Text(text = "Snippets", style = MaterialTheme.typography.titleMedium)
           Text(
-            text = "Quick access to frequently used text snippets",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  text = "Quick access to frequently used text snippets",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
         }
         Button(
-          onClick = {
-            editingItem = null
-            showDialog = true
-          }
-        ) {
-          Text("Add")
-        }
+                onClick = {
+                  editingItem = null
+                  showDialog = true
+                }
+        ) { Text("Add") }
       }
 
       // List existing items
       if (snippetItems.value.isNotEmpty()) {
         Text(
-          text = "${snippetItems.value.size} item${if (snippetItems.value.size != 1) "s" else ""}",
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text =
+                        "${snippetItems.value.size} item${if (snippetItems.value.size != 1) "s" else ""}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         snippetItems.value.forEach { item ->
           Card(modifier = Modifier.fillMaxWidth()) {
             Row(
-              modifier = Modifier.fillMaxWidth().padding(12.dp),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
             ) {
               Column(modifier = Modifier.weight(1f)) {
                 Text(
-                  text = item.alias,
-                  style = MaterialTheme.typography.bodyLarge,
-                  fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        text = item.alias,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                 )
                 Text(
-                  text = item.content.take(50) + if (item.content.length > 50) "..." else "",
-                  style = MaterialTheme.typography.bodySmall,
-                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = item.content.take(50) + if (item.content.length > 50) "..." else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
               }
               Row {
                 IconButton(
-                  onClick = {
-                    editingItem = item
-                    showDialog = true
-                  }
+                        onClick = {
+                          editingItem = item
+                          showDialog = true
+                        }
                 ) {
                   Icon(
-                    imageVector = androidx.compose.material.icons.Icons.Default.Edit,
-                    contentDescription = "Edit",
+                          imageVector = androidx.compose.material.icons.Icons.Default.Edit,
+                          contentDescription = "Edit",
                   )
                 }
                 IconButton(
-                  onClick = { scope.launch { app.snippetsRepository.deleteItem(item.alias) } }
+                        onClick = { scope.launch { app.snippetsRepository.deleteItem(item.alias) } }
                 ) {
                   Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.error,
+                          imageVector = Icons.Default.Close,
+                          contentDescription = "Delete",
+                          tint = MaterialTheme.colorScheme.error,
                   )
                 }
               }
@@ -831,87 +849,83 @@ private fun SnippetsCard() {
 
   if (showDialog) {
     SnippetDialog(
-      item = editingItem,
-      onDismiss = { showDialog = false },
-      onSave = { alias, content ->
-        scope.launch {
-          if (editingItem != null) {
-            app.snippetsRepository.updateItem(editingItem!!.alias, alias, content)
-          } else {
-            app.snippetsRepository.addItem(alias, content)
-          }
-          showDialog = false
-        }
-      },
+            item = editingItem,
+            onDismiss = { showDialog = false },
+            onSave = { alias, content ->
+              scope.launch {
+                if (editingItem != null) {
+                  app.snippetsRepository.updateItem(editingItem!!.alias, alias, content)
+                } else {
+                  app.snippetsRepository.addItem(alias, content)
+                }
+                showDialog = false
+              }
+            },
     )
   }
 }
 
 @Composable
 private fun SnippetDialog(
-  item: com.searchlauncher.app.data.SnippetItem?,
-  onDismiss: () -> Unit,
-  onSave: (String, String) -> Unit,
+        item: com.searchlauncher.app.data.SnippetItem?,
+        onDismiss: () -> Unit,
+        onSave: (String, String) -> Unit,
 ) {
   var alias by remember { mutableStateOf(item?.alias ?: "") }
   var content by remember { mutableStateOf(item?.content ?: "") }
 
   AlertDialog(
-    onDismissRequest = onDismiss,
-    title = { Text(if (item != null) "Edit Snippet" else "Add Snippet") },
-    text = {
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-          value = alias,
-          onValueChange = { alias = it },
-          label = { Text("Alias") },
-          placeholder = { Text("e.g., 'bank', 'meet'") },
-          modifier = Modifier.fillMaxWidth(),
-          singleLine = true,
-        )
+          onDismissRequest = onDismiss,
+          title = { Text(if (item != null) "Edit Snippet" else "Add Snippet") },
+          text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+              OutlinedTextField(
+                      value = alias,
+                      onValueChange = { alias = it },
+                      label = { Text("Alias") },
+                      placeholder = { Text("e.g., 'bank', 'meet'") },
+                      modifier = Modifier.fillMaxWidth(),
+                      singleLine = true,
+              )
 
-        OutlinedTextField(
-          value = content,
-          onValueChange = { content = it },
-          label = { Text("Content") },
-          placeholder = { Text("The text to copy") },
-          modifier = Modifier.fillMaxWidth(),
-          minLines = 3,
-          maxLines = 6,
-        )
-      }
-    },
-    confirmButton = {
-      Button(
-        onClick = {
-          if (alias.isNotBlank() && content.isNotBlank()) {
-            onSave(alias.trim(), content.trim())
-          }
-        },
-        enabled = alias.isNotBlank() && content.isNotBlank(),
-      ) {
-        Text("Save")
-      }
-    },
-    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+              OutlinedTextField(
+                      value = content,
+                      onValueChange = { content = it },
+                      label = { Text("Content") },
+                      placeholder = { Text("The text to copy") },
+                      modifier = Modifier.fillMaxWidth(),
+                      minLines = 3,
+                      maxLines = 6,
+              )
+            }
+          },
+          confirmButton = {
+            Button(
+                    onClick = {
+                      if (alias.isNotBlank() && content.isNotBlank()) {
+                        onSave(alias.trim(), content.trim())
+                      }
+                    },
+                    enabled = alias.isNotBlank() && content.isNotBlank(),
+            ) { Text("Save") }
+          },
+          dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
   )
 }
 
 @Composable
 private fun BackupRestoreCard() {
   val context = LocalContext.current
-  val app = context.applicationContext as SearchLauncherApp
-  val scope = rememberCoroutineScope()
   val activity = context as? MainActivity
 
   Card(modifier = Modifier.fillMaxWidth()) {
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       Text(text = "Backup & Restore", style = MaterialTheme.typography.titleMedium)
       Text(
-        text =
-          "Export all your data (Snippets, Shortcuts, Favorites, Background) to a .searchlauncher file",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+              text =
+                      "Export all your data (Snippets, Shortcuts, Favorites, Background) to a .searchlauncher file",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
 
       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -932,44 +946,44 @@ private suspend fun MainActivity.performExport(uri: android.net.Uri) {
     try {
       val app = applicationContext as SearchLauncherApp
       val backgroundUri =
-        dataStore.data.map { it[MainActivity.PreferencesKeys.BACKGROUND_URI] }.first()
+              dataStore.data.map { it[MainActivity.PreferencesKeys.BACKGROUND_URI] }.first()
 
       val backupManager =
-        com.searchlauncher.app.data.BackupManager(
-          context = this@performExport,
-          snippetsRepository = app.snippetsRepository,
-          searchShortcutRepository = app.searchShortcutRepository,
-          favoritesRepository = app.favoritesRepository,
-        )
+              com.searchlauncher.app.data.BackupManager(
+                      context = this@performExport,
+                      snippetsRepository = app.snippetsRepository,
+                      searchShortcutRepository = app.searchShortcutRepository,
+                      favoritesRepository = app.favoritesRepository,
+              )
 
       contentResolver.openOutputStream(uri)?.use { outputStream ->
         val result = backupManager.exportBackup(outputStream, backgroundUri)
         withContext(Dispatchers.Main) {
           if (result.isSuccess) {
             android.widget.Toast.makeText(
-                this@performExport,
-                "Backup exported successfully (${result.getOrNull()} items)",
-                android.widget.Toast.LENGTH_LONG,
-              )
-              .show()
+                            this@performExport,
+                            "Backup exported successfully (${result.getOrNull()} items)",
+                            android.widget.Toast.LENGTH_LONG,
+                    )
+                    .show()
           } else {
             android.widget.Toast.makeText(
-                this@performExport,
-                "Export failed: ${result.exceptionOrNull()?.message}",
-                android.widget.Toast.LENGTH_LONG,
-              )
-              .show()
+                            this@performExport,
+                            "Export failed: ${result.exceptionOrNull()?.message}",
+                            android.widget.Toast.LENGTH_LONG,
+                    )
+                    .show()
           }
         }
       }
     } catch (e: Exception) {
       withContext(Dispatchers.Main) {
         android.widget.Toast.makeText(
-            this@performExport,
-            "Export failed: ${e.message}",
-            android.widget.Toast.LENGTH_LONG,
-          )
-          .show()
+                        this@performExport,
+                        "Export failed: ${e.message}",
+                        android.widget.Toast.LENGTH_LONG,
+                )
+                .show()
       }
     }
   }
@@ -981,12 +995,12 @@ private suspend fun MainActivity.performImport(uri: android.net.Uri) {
       val app = applicationContext as SearchLauncherApp
 
       val backupManager =
-        com.searchlauncher.app.data.BackupManager(
-          context = this@performImport,
-          snippetsRepository = app.snippetsRepository,
-          searchShortcutRepository = app.searchShortcutRepository,
-          favoritesRepository = app.favoritesRepository,
-        )
+              com.searchlauncher.app.data.BackupManager(
+                      context = this@performImport,
+                      snippetsRepository = app.snippetsRepository,
+                      searchShortcutRepository = app.searchShortcutRepository,
+                      favoritesRepository = app.favoritesRepository,
+              )
 
       contentResolver.openInputStream(uri)?.use { inputStream ->
         val result = backupManager.importBackup(inputStream)
@@ -1003,29 +1017,29 @@ private suspend fun MainActivity.performImport(uri: android.net.Uri) {
               }
             }
             android.widget.Toast.makeText(
-                this@performImport,
-                message,
-                android.widget.Toast.LENGTH_LONG,
-              )
-              .show()
+                            this@performImport,
+                            message,
+                            android.widget.Toast.LENGTH_LONG,
+                    )
+                    .show()
           } else {
             android.widget.Toast.makeText(
-                this@performImport,
-                "Import failed: ${result.exceptionOrNull()?.message}",
-                android.widget.Toast.LENGTH_LONG,
-              )
-              .show()
+                            this@performImport,
+                            "Import failed: ${result.exceptionOrNull()?.message}",
+                            android.widget.Toast.LENGTH_LONG,
+                    )
+                    .show()
           }
         }
       }
     } catch (e: Exception) {
       withContext(Dispatchers.Main) {
         android.widget.Toast.makeText(
-            this@performImport,
-            "Import failed: ${e.message}",
-            android.widget.Toast.LENGTH_LONG,
-          )
-          .show()
+                        this@performImport,
+                        "Import failed: ${e.message}",
+                        android.widget.Toast.LENGTH_LONG,
+                )
+                .show()
       }
     }
   }
