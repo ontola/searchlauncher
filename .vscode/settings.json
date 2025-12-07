@@ -1,11 +1,13 @@
 {
   "java.configuration.updateBuildConfiguration": "automatic",
   "java.compile.nullAnalysis.mode": "automatic",
+  "java.import.gradle.enabled": true,
   "files.exclude": {
     "**/.gradle": true,
     "**/build": true,
     "**/.idea": true,
-    "**/*.iml": true
+    "**/*.iml": true,
+    "**/local.properties": true
   },
   "files.watcherExclude": {
     "**/.gradle/**": true,
@@ -14,10 +16,23 @@
   "[kotlin]": {
     "editor.tabSize": 2,
     "editor.insertSpaces": true,
-    "editor.formatOnSave": true,
-    "editor.defaultFormatter": "fwcd.kotlin"
+    "editor.defaultFormatter": "shape-app.ktfmtter",
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    },
+    "editor.formatOnSave": true
   },
   "kotlin.languageServer.enabled": true,
+  "kotlin.linting.enabled": true,
+  "editor.rulers": [
+    100
+  ],
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-17",
+      "path": "/Users/joep/Library/Java/JavaVirtualMachines/openjdk-17.0.2/Contents/Home",
+      "default": true
+    }
+  ],
   "kotlin.formatter": "ktfmt",
-  "kotlin.ktfmt.style": "google"
 }

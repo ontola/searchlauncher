@@ -5,7 +5,9 @@
       "label": "Build Debug",
       "type": "shell",
       "command": "./gradlew",
-      "args": ["assembleDebug"],
+      "args": [
+        "assembleDebug"
+      ],
       "group": {
         "kind": "build",
         "isDefault": true
@@ -16,7 +18,9 @@
       "label": "Install Debug",
       "type": "shell",
       "command": "./gradlew",
-      "args": ["installDebug"],
+      "args": [
+        "installDebug"
+      ],
       "group": "build",
       "problemMatcher": []
     },
@@ -24,7 +28,10 @@
       "label": "Clean Build",
       "type": "shell",
       "command": "./gradlew",
-      "args": ["clean", "build"],
+      "args": [
+        "clean",
+        "build"
+      ],
       "group": "build",
       "problemMatcher": []
     },
@@ -32,15 +39,32 @@
       "label": "Uninstall App",
       "type": "shell",
       "command": "adb",
-      "args": ["uninstall", "com.searchlauncher.app"],
+      "args": [
+        "uninstall",
+        "com.searchlauncher.app"
+      ],
       "problemMatcher": []
     },
     {
       "label": "View Logs",
       "type": "shell",
       "command": "adb",
-      "args": ["logcat", "-s", "SearchLauncher"],
+      "args": [
+        "logcat",
+        "-s",
+        "SearchLauncher"
+      ],
       "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Spotless Apply",
+      "type": "shell",
+      "command": "./gradlew",
+      "args": [
+        "spotlessApply"
+      ],
+      "group": "none",
       "problemMatcher": []
     }
   ]
