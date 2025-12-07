@@ -37,34 +37,41 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
+@android.annotation.SuppressLint("FlowOperatorInvokedInComposition")
 fun ThemeSettingsCard(onNavigateToHome: () -> Unit) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   val themeColor by
-          context.dataStore
-                  .data
-                  .map { it[MainActivity.PreferencesKeys.THEME_COLOR] ?: 0xFF00639B.toInt() }
+          remember {
+                    context.dataStore.data.map {
+                      it[MainActivity.PreferencesKeys.THEME_COLOR] ?: 0xFF00639B.toInt()
+                    }
+                  }
                   .collectAsState(initial = 0xFF00639B.toInt())
 
   val themeSaturation by
-          context.dataStore
-                  .data
-                  .map { it[MainActivity.PreferencesKeys.THEME_SATURATION] ?: 50f }
+          remember {
+                    context.dataStore.data.map {
+                      it[MainActivity.PreferencesKeys.THEME_SATURATION] ?: 50f
+                    }
+                  }
                   .collectAsState(initial = 50f)
   val darkMode by
-          context.dataStore
-                  .data
-                  .map { it[MainActivity.PreferencesKeys.DARK_MODE] ?: 0 }
+          remember {
+                    context.dataStore.data.map { it[MainActivity.PreferencesKeys.DARK_MODE] ?: 0 }
+                  }
                   .collectAsState(initial = 0)
   val backgroundUriString by
-          context.dataStore
-                  .data
-                  .map { it[MainActivity.PreferencesKeys.BACKGROUND_URI] }
+          remember {
+                    context.dataStore.data.map { it[MainActivity.PreferencesKeys.BACKGROUND_URI] }
+                  }
                   .collectAsState(initial = null)
   val backgroundFolderUriString by
-          context.dataStore
-                  .data
-                  .map { it[MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI] }
+          remember {
+                    context.dataStore.data.map {
+                      it[MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI]
+                    }
+                  }
                   .collectAsState(initial = null)
 
   var showColorPickerDialog by remember { mutableStateOf(false) }
