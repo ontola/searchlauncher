@@ -15,6 +15,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -258,13 +259,103 @@ fun SearchScreen(
           }
         }
     ) {
-      WallpaperBackground(
-        showBackgroundImage = showBackgroundImage,
-        bottomPadding = bottomPadding,
-        onDismiss = onDismiss,
-        folderImages = folderImages,
-        lastImageUriString = lastImageUriString,
-      )
+      val launcher =
+        androidx.activity.compose.rememberLauncherForActivityResult(
+          contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+          onResult = { uri: Uri? ->
+            uri?.let {
+              val flag = Intent.FLAG_GRANT_READ_URI_PERMISSION
+              context.contentResolver.takePersistableUriPermission(it, flag)
+              scope.launch {
+                context.dataStore.edit { preferences ->
+                  preferences[MainActivity.PreferencesKeys.BACKGROUND_URI] = it.toString()
+                  preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI)
+                }
+              }
+            }
+          },
+        )
+
+      val folderLauncher =
+        androidx.activity.compose.rememberLauncherForActivityResult(
+          contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree(),
+          onResult = { uri: Uri? ->
+            uri?.let {
+              val flag = Intent.FLAG_GRANT_READ_URI_PERMISSION
+              context.contentResolver.takePersistableUriPermission(it, flag)
+              scope.launch {
+                context.dataStore.edit { preferences ->
+                  preferences[MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI] = it.toString()
+                  preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_URI)
+                }
+              }
+            }
+          },
+        )
+
+      var showBackgroundMenu by remember { mutableStateOf(false) }
+      var menuOffset by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+
+      Box(
+        modifier =
+          Modifier.fillMaxSize().pointerInput(Unit) {
+            detectTapGestures(
+              onLongPress = { offset: androidx.compose.ui.geometry.Offset ->
+                menuOffset = offset
+                showBackgroundMenu = true
+              },
+              onTap = { onDismiss() },
+            )
+          }
+      ) {
+        WallpaperBackground(
+          showBackgroundImage = showBackgroundImage,
+          bottomPadding = bottomPadding,
+          folderImages = folderImages,
+          lastImageUriString = lastImageUriString,
+          modifier = Modifier.fillMaxSize(),
+        )
+
+        if (showBackgroundMenu) {
+          DropdownMenu(
+            expanded = showBackgroundMenu,
+            onDismissRequest = { showBackgroundMenu = false },
+            offset =
+              androidx.compose.ui.unit.DpOffset(
+                x = with(LocalDensity.current) { menuOffset.x.toDp() },
+                y = with(LocalDensity.current) { menuOffset.y.toDp() },
+              ),
+          ) {
+            DropdownMenuItem(
+              text = { Text("Set Image") },
+              onClick = {
+                showBackgroundMenu = false
+                launcher.launch(arrayOf("image/*"))
+              },
+            )
+            DropdownMenuItem(
+              text = { Text("Set Folder") },
+              onClick = {
+                showBackgroundMenu = false
+                folderLauncher.launch(null)
+              },
+            )
+            DropdownMenuItem(
+              text = { Text("Clear Current") },
+              onClick = {
+                showBackgroundMenu = false
+                scope.launch {
+                  context.dataStore.edit { preferences ->
+                    preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_URI)
+                    preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI)
+                    preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_LAST_IMAGE_URI)
+                  }
+                }
+              },
+            )
+          }
+        }
+      }
 
       Column(
         modifier =

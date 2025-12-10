@@ -2,7 +2,6 @@ package com.searchlauncher.app.ui.components
 
 import android.net.Uri
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -30,7 +29,6 @@ import kotlinx.coroutines.flow.map
 fun WallpaperBackground(
   showBackgroundImage: Boolean,
   bottomPadding: Dp,
-  onDismiss: () -> Unit,
   modifier: Modifier = Modifier,
   folderImages: List<Uri> = emptyList(),
   lastImageUriString: String? = null,
@@ -92,7 +90,7 @@ fun WallpaperBackground(
         model = Uri.parse(backgroundUriString),
         contentDescription = null,
         contentScale = ContentScale.Crop,
-        modifier = contentModifier.clickable { onDismiss() },
+        modifier = contentModifier,
       )
     } else if (folderImages.isNotEmpty()) {
       HorizontalPager(
@@ -101,8 +99,7 @@ fun WallpaperBackground(
         // Allow swiping beyond bounds? Default is fine.
       ) { page ->
         val imageIndex = page % folderImages.size
-        // We need to handle the click here to allow dismissing
-        Box(modifier = Modifier.fillMaxSize().clickable { onDismiss() }) {
+        Box(modifier = Modifier.fillMaxSize()) {
           AsyncImage(
             model = folderImages[imageIndex],
             contentDescription = null,
@@ -115,9 +112,7 @@ fun WallpaperBackground(
       // Solid background when no image - semi-transparent so app underneath shows through
       Box(
         modifier =
-          contentModifier
-            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.7f))
-            .clickable { onDismiss() }
+          contentModifier.background(MaterialTheme.colorScheme.background.copy(alpha = 0.7f))
       )
     }
   }

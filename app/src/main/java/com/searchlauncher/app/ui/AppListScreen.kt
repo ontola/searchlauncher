@@ -81,8 +81,10 @@ fun AppListScreen(
       }
 
       override suspend fun onPreFling(available: Velocity): Velocity {
-        if (offsetY.value > 150f || available.y > 1000f) {
-          // If dragged enough or flung down, close
+        val isAtTop =
+          listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+        if ((offsetY.value > 150f) || (isAtTop && available.y > 1000f)) {
+          // If dragged enough or flung down while at top, close
           onBack()
           return available
         } else {
