@@ -67,6 +67,7 @@ fun SearchScreen(
   onQueryChange: (String) -> Unit,
   onDismiss: () -> Unit,
   onOpenSettings: () -> Unit,
+  onOpenAppDrawer: () -> Unit,
   searchRepository: SearchRepository,
   focusTrigger: Long = 0L,
   showHistory: Boolean = true,
@@ -250,6 +251,9 @@ fun SearchScreen(
                   com.searchlauncher.app.util.SystemUtils.expandQuickSettings(context)
                 }
               }
+            } else if (dragAmount.y < -20) {
+              // Swipe Up
+              onOpenAppDrawer()
             }
           }
         }

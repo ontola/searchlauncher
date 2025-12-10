@@ -56,6 +56,7 @@ class SearchActivity : ComponentActivity() {
           startActivity(intent)
           finish()
         },
+        onOpenAppDrawer = {},
         searchRepository = (application as SearchLauncherApp).searchRepository,
         focusTrigger = 0L,
         showHistory = showHistory.value,

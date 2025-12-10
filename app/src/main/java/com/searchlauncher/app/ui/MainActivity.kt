@@ -13,6 +13,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -137,6 +139,7 @@ class MainActivity : ComponentActivity() {
     Search,
     Settings,
     CustomShortcuts,
+    AppList,
   }
 
   @Composable
@@ -144,6 +147,8 @@ class MainActivity : ComponentActivity() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showPractice by remember { mutableStateOf(false) }
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     // Hoist wallpaper state
     val backgroundFolderUriString by
@@ -232,33 +237,86 @@ class MainActivity : ComponentActivity() {
           }
         }
 
-        when (currentScreenState) {
-          Screen.Search -> {
+        // Hide keyboard when opening App List
+        LaunchedEffect(currentScreenState) {
+          if (currentScreenState == Screen.AppList) {
+            keyboardController?.hide()
+            focusManager.clearFocus()
+          }
+        }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+          // Layer 1: Base Content (Search, Settings, etc.)
+          // When AppList is open, we want the base layer to be Search
+          val baseState =
+            if (currentScreenState == Screen.AppList) Screen.Search else currentScreenState
+
+          androidx.compose.animation.AnimatedContent(
+            targetState = baseState,
+            transitionSpec = {
+              androidx.compose.animation.fadeIn() togetherWith androidx.compose.animation.fadeOut()
+            },
+            label = "BaseScreenTransition",
+          ) { targetState ->
+            when (targetState) {
+              Screen.Search -> {
+                val app = application as SearchLauncherApp
+                SearchScreen(
+                  query = queryState,
+                  onQueryChange = { queryState = it },
+                  onDismiss = { queryState = "" },
+                  onOpenSettings = { currentScreenState = Screen.Settings },
+                  onOpenAppDrawer = { currentScreenState = Screen.AppList },
+                  searchRepository = app.searchRepository,
+                  focusTrigger = focusTrigger,
+                  showHistory = showHistory.value,
+                  showBackgroundImage = true,
+                  folderImages = folderImages,
+                  lastImageUriString = lastImageUriString,
+                )
+              }
+              Screen.Settings -> {
+                HomeScreen(
+                  onStartService = { startOverlayService() },
+                  onStopService = { stopOverlayService() },
+                  onOpenPractice = { showPractice = true },
+                  onOpenCustomShortcuts = { currentScreenState = Screen.CustomShortcuts },
+                  onBack = { currentScreenState = Screen.Search },
+                )
+              }
+              Screen.CustomShortcuts -> {
+                CustomShortcutsScreen(onBack = { currentScreenState = Screen.Settings })
+              }
+              else -> {
+                /* No-op */
+              }
+            }
+          }
+
+          // Layer 2: App List Overlay
+          androidx.compose.animation.AnimatedVisibility(
+            visible = currentScreenState == Screen.AppList,
+            enter =
+              androidx.compose.animation.slideInVertically { height -> height } +
+                androidx.compose.animation.fadeIn(),
+            exit =
+              androidx.compose.animation.slideOutVertically { height -> height } +
+                androidx.compose.animation.fadeOut(),
+            modifier = Modifier.fillMaxSize(),
+          ) {
             val app = application as SearchLauncherApp
-            SearchScreen(
-              query = queryState,
-              onQueryChange = { queryState = it },
-              onDismiss = { queryState = "" },
-              onOpenSettings = { currentScreenState = Screen.Settings },
+            AppListScreen(
               searchRepository = app.searchRepository,
-              focusTrigger = focusTrigger,
-              showHistory = showHistory.value,
-              showBackgroundImage = true,
-              folderImages = folderImages,
-              lastImageUriString = lastImageUriString,
+              onAppClick = { result ->
+                launchApp(context, result)
+                currentScreenState = Screen.Search
+                queryState = ""
+              },
+              onBack = {
+                currentScreenState = Screen.Search
+                focusTrigger = System.currentTimeMillis()
+              },
             )
-          }
-          Screen.Settings -> {
-            HomeScreen(
-              onStartService = { startOverlayService() },
-              onStopService = { stopOverlayService() },
-              onOpenPractice = { showPractice = true },
-              onOpenCustomShortcuts = { currentScreenState = Screen.CustomShortcuts },
-              onBack = { currentScreenState = Screen.Search },
-            )
-          }
-          Screen.CustomShortcuts -> {
-            CustomShortcutsScreen(onBack = { currentScreenState = Screen.Settings })
           }
         }
       }
@@ -281,6 +339,22 @@ class MainActivity : ComponentActivity() {
   private fun stopOverlayService() {
     val intent = Intent(this, OverlayService::class.java)
     stopService(intent)
+  }
+
+  private fun launchApp(context: Context, result: com.searchlauncher.app.data.SearchResult) {
+    try {
+      if (result is com.searchlauncher.app.data.SearchResult.Shortcut) {
+        val intent = Intent.parseUri(result.intentUri, Intent.URI_INTENT_SCHEME)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+      } else if (result is com.searchlauncher.app.data.SearchResult.App) {
+        val intent = context.packageManager.getLaunchIntentForPackage(result.packageName)
+        intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+      }
+    } catch (e: Exception) {
+      Toast.makeText(context, "Cannot launch app", Toast.LENGTH_SHORT).show()
+    }
   }
 
   object PreferencesKeys {

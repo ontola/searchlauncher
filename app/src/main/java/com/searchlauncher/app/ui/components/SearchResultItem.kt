@@ -53,7 +53,7 @@ fun SearchResultItem(
           .then(
             if (onToggleFavorite != null) {
               Modifier.combinedClickable(onClick = onClick, onLongClick = { showMenu = true })
-            } else if (result is SearchResult.Snippet) {
+            } else if (result is SearchResult.Snippet || result is SearchResult.App) {
               Modifier.combinedClickable(onClick = onClick, onLongClick = { showMenu = true })
             } else {
               Modifier.clickable(onClick = onClick)

@@ -18,6 +18,7 @@ import java.net.URL
 import java.util.Collections
 import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -155,6 +156,7 @@ class SearchRepository(private val context: Context) {
       } catch (e: Exception) {
         e.printStackTrace()
       }
+      updateAppsCache()
       _indexUpdated.emit(Unit)
     }
 
@@ -588,6 +590,29 @@ class SearchRepository(private val context: Context) {
         documentCache.addAll(contacts)
       }
     }
+
+  private val _allApps = kotlinx.coroutines.flow.MutableStateFlow<List<SearchResult>>(emptyList())
+  val allApps = _allApps.asStateFlow()
+
+  private suspend fun updateAppsCache() {
+    val apps =
+      withContext(Dispatchers.IO) {
+        synchronized(documentCache) {
+          documentCache
+            .filter { it.namespace == "apps" }
+            .sortedBy { it.name.lowercase() }
+            .map { convertDocumentToResult(it, 0) }
+        }
+      }
+    _allApps.emit(apps)
+  }
+
+  suspend fun getAllApps(): List<SearchResult> {
+    if (_allApps.value.isEmpty()) {
+      updateAppsCache()
+    }
+    return _allApps.value
+  }
 
   suspend fun searchApps(query: String, limit: Int = -1): List<SearchResult> =
     withContext(Dispatchers.IO) {

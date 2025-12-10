@@ -20,6 +20,7 @@ class HintManager(
       Hint("Give access to contacts to search them") { !isContactsAccessGranted() },
       Hint("Type a phone number and call"),
       Hint("Type a website URL to open"),
+      Hint("Swipe up to open the app drawer"),
       Hint("Swipe down left to open notifications"),
       Hint("Swipe down right to open quick settings"),
       Hint("Set custom snippets") { !isSnippetsSet() },
