@@ -88,9 +88,6 @@ class SearchRepository(private val context: Context) {
       }
     }
 
-  // ... (indexCustomShortcuts, indexStaticShortcuts, resetIndex, getRecentItems,
-  // getSearchShortcuts, getFavorites, reportUsage omitted as they are unchanged) ...
-
   private suspend fun indexApps() =
     withContext(Dispatchers.IO) {
       searchCache.clear() // Invalidate cache
@@ -148,8 +145,8 @@ class SearchRepository(private val context: Context) {
         } catch (e: Exception) {
           android.util.Log.e("SearchRepository", "Failed to index apps", e)
         }
-        documentCache.addAll(apps)
       }
+      documentCache.addAll(apps)
 
       try {
         indexShortcuts()
@@ -157,7 +154,6 @@ class SearchRepository(private val context: Context) {
         e.printStackTrace()
       }
       updateAppsCache()
-      _indexUpdated.emit(Unit)
     }
 
   suspend fun indexShortcuts() =

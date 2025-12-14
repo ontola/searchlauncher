@@ -44,10 +44,10 @@ fun ThemeSettingsCard(onNavigateToHome: () -> Unit) {
   val themeColor by
     remember {
         context.dataStore.data.map {
-          it[MainActivity.PreferencesKeys.THEME_COLOR] ?: 0xFF00639B.toInt()
+          it[MainActivity.PreferencesKeys.THEME_COLOR] ?: 0xFF5E6D4E.toInt()
         }
       }
-      .collectAsState(initial = 0xFF00639B.toInt())
+      .collectAsState(initial = 0xFF5E6D4E.toInt())
 
   val themeSaturation by
     remember {
@@ -57,6 +57,9 @@ fun ThemeSettingsCard(onNavigateToHome: () -> Unit) {
   val darkMode by
     remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.DARK_MODE] ?: 0 } }
       .collectAsState(initial = 0)
+  val isOled by
+    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.OLED_MODE] ?: false } }
+      .collectAsState(initial = false)
   val backgroundUriString by
     remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.BACKGROUND_URI] } }
       .collectAsState(initial = null)
@@ -81,7 +84,8 @@ fun ThemeSettingsCard(onNavigateToHome: () -> Unit) {
               preferences[MainActivity.PreferencesKeys.BACKGROUND_URI] = it.toString()
               preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI)
             }
-            // Navigate after save completes
+
+            // Navigate after save completes (apply is async but fast enough usually, or commit)
             withContext(Dispatchers.Main) { onNavigateToHome() }
           }
         }
@@ -100,6 +104,7 @@ fun ThemeSettingsCard(onNavigateToHome: () -> Unit) {
               preferences[MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI] = it.toString()
               preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_URI)
             }
+
             // Navigate after save completes
             withContext(Dispatchers.Main) { onNavigateToHome() }
           }
@@ -127,6 +132,33 @@ fun ThemeSettingsCard(onNavigateToHome: () -> Unit) {
         }
       }
 
+      // OLED Toggle (only if dark mode is enabled or system is dark)
+      // Simplified: Just show it always, let user control it.
+      Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(text = "OLED Mode", style = MaterialTheme.typography.titleMedium)
+          Text(
+            text = "Use true black background in dark mode",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Switch(
+          checked = isOled,
+          onCheckedChange = { checked ->
+            scope.launch {
+              context.dataStore.edit { preferences ->
+                preferences[MainActivity.PreferencesKeys.OLED_MODE] = checked
+              }
+            }
+          },
+        )
+      }
+
       if (backgroundUriString != null || backgroundFolderUriString != null) {
         OutlinedButton(
           onClick = {
@@ -141,7 +173,7 @@ fun ThemeSettingsCard(onNavigateToHome: () -> Unit) {
           },
           modifier = Modifier.fillMaxWidth(),
         ) {
-          Text("Clear Background")
+          Text("Use Default Background")
         }
       }
 
@@ -181,7 +213,16 @@ fun ThemeSettingsCard(onNavigateToHome: () -> Unit) {
           modifier =
             Modifier.size(48.dp)
               .clip(CircleShape)
-              .background(Color(themeColor))
+              .background(
+                Color(
+                  Hct.from(
+                      Hct.fromInt(themeColor).hue,
+                      themeSaturation.toDouble(),
+                      Hct.fromInt(themeColor).tone,
+                    )
+                    .toInt()
+                )
+              )
               .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
               .clickable { showColorPickerDialog = true }
         )
@@ -327,6 +368,18 @@ private fun ColorPickerDialog(
 
         Text("Saturation", style = MaterialTheme.typography.titleSmall)
         Slider(value = saturation, onValueChange = { saturation = it }, valueRange = 0f..100f)
+
+        // Palette Preview
+        Row(
+          modifier = Modifier.fillMaxWidth().height(48.dp).clip(MaterialTheme.shapes.medium),
+          horizontalArrangement = Arrangement.Center,
+        ) {
+          val tones = listOf(10.0, 40.0, 90.0) // Darkest, Primary, Lightest
+          tones.forEach { tone ->
+            val colorInt = Hct.from(hue.toDouble(), saturation.toDouble(), tone).toInt()
+            Box(modifier = Modifier.weight(1f).fillMaxHeight().background(Color(colorInt)))
+          }
+        }
       }
     },
     confirmButton = {

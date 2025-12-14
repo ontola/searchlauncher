@@ -10,9 +10,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -23,7 +21,6 @@ import androidx.datastore.preferences.core.edit
 import coil.compose.AsyncImage
 import com.searchlauncher.app.ui.MainActivity
 import com.searchlauncher.app.ui.dataStore
-import kotlinx.coroutines.flow.map
 
 @Composable
 fun WallpaperBackground(
@@ -34,14 +31,6 @@ fun WallpaperBackground(
   lastImageUriString: String? = null,
 ) {
   val context = LocalContext.current
-
-  val backgroundUriString by
-    remember(showBackgroundImage) {
-        context.dataStore.data.map {
-          if (showBackgroundImage) it[MainActivity.PreferencesKeys.BACKGROUND_URI] else null
-        }
-      }
-      .collectAsState(initial = null)
 
   val contentModifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
   val pagerState =
@@ -54,9 +43,9 @@ fun WallpaperBackground(
         if (lastImageUriString != null) {
           val uri = Uri.parse(lastImageUriString)
           val index = folderImages.indexOf(uri)
-          if (index != -1) index else folderImages.indices.random()
+          if (index != -1) index else 0
         } else {
-          folderImages.indices.random()
+          0
         }
 
       // Calculate a page in the middle of MAX_VALUE that maps to targetIndex
@@ -85,17 +74,11 @@ fun WallpaperBackground(
   }
 
   Box(modifier = modifier.fillMaxSize()) {
-    if (backgroundUriString != null) {
-      AsyncImage(
-        model = Uri.parse(backgroundUriString),
-        contentDescription = null,
-        contentScale = ContentScale.Crop,
-        modifier = contentModifier,
-      )
-    } else if (folderImages.isNotEmpty()) {
+    if (showBackgroundImage && folderImages.isNotEmpty()) {
       HorizontalPager(
         state = pagerState,
         modifier = Modifier.fillMaxSize(),
+        userScrollEnabled = folderImages.size > 1,
         // Allow swiping beyond bounds? Default is fine.
       ) { page ->
         val imageIndex = page % folderImages.size

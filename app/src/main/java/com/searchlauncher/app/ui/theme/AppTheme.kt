@@ -1,13 +1,17 @@
 package com.searchlauncher.app.ui.theme
 
+import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import com.google.android.material.color.utilities.Hct
 import com.google.android.material.color.utilities.TonalPalette
 
@@ -16,6 +20,7 @@ fun SearchLauncherTheme(
   themeColor: Int,
   darkThemeMode: Int = 0, // 0: System, 1: Light, 2: Dark
   chroma: Float = 50f,
+  isOled: Boolean = false,
   content: @Composable () -> Unit,
 ) {
   val useDarkTheme =
@@ -26,15 +31,34 @@ fun SearchLauncherTheme(
     }
 
   val colorScheme =
-    remember(themeColor, useDarkTheme, chroma) {
-      schemeFromUserColor(themeColor, useDarkTheme, chroma)
+    remember(themeColor, useDarkTheme, chroma, isOled) {
+      schemeFromUserColor(themeColor, useDarkTheme, chroma, isOled)
     }
+
+  val view = LocalView.current
+  if (!view.isInEditMode) {
+    SideEffect {
+      val window = (view.context as Activity).window
+      // Force navigation bar color to be transparent to let edge-to-edge work
+      // or set it to match theme if desired. For now, keep transparent for edge-to-edge.
+      // But we MUST update the icon colors (appearanceLight...).
+
+      val insetsController = WindowCompat.getInsetsController(window, view)
+      insetsController.isAppearanceLightStatusBars = !useDarkTheme
+      insetsController.isAppearanceLightNavigationBars = !useDarkTheme
+    }
+  }
 
   MaterialTheme(colorScheme = colorScheme, content = content)
 }
 
 @android.annotation.SuppressLint("RestrictedApi")
-fun schemeFromUserColor(seed: Int, isDark: Boolean, chroma: Float): ColorScheme {
+fun schemeFromUserColor(
+  seed: Int,
+  isDark: Boolean,
+  chroma: Float,
+  isOled: Boolean = false,
+): ColorScheme {
   val seedHct = Hct.fromInt(seed)
   val hue = seedHct.hue
 
@@ -72,9 +96,13 @@ fun schemeFromUserColor(seed: Int, isDark: Boolean, chroma: Float): ColorScheme 
   val errorContainer = if (isDark) Color(errorPalette.tone(30)) else Color(errorPalette.tone(90))
   val onErrorContainer = if (isDark) Color(errorPalette.tone(90)) else Color(errorPalette.tone(10))
 
-  val background = if (isDark) Color(neutralPalette.tone(6)) else Color(neutralPalette.tone(98))
+  val background =
+    if (isDark && isOled) Color.Black
+    else if (isDark) Color(neutralPalette.tone(6)) else Color(neutralPalette.tone(98))
   val onBackground = if (isDark) Color(neutralPalette.tone(90)) else Color(neutralPalette.tone(10))
-  val surface = if (isDark) Color(neutralPalette.tone(6)) else Color(neutralPalette.tone(98))
+  val surface =
+    if (isDark && isOled) Color.Black
+    else if (isDark) Color(neutralPalette.tone(6)) else Color(neutralPalette.tone(98))
   val onSurface = if (isDark) Color(neutralPalette.tone(90)) else Color(neutralPalette.tone(10))
   val surfaceVariant =
     if (isDark) Color(neutralVariantPalette.tone(30)) else Color(neutralVariantPalette.tone(90))

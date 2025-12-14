@@ -45,6 +45,10 @@ Android app that lets you search everything on your phone, and more.
 - JDK 17 (LTS, is recommended for Android development)
 - Android SDK with API 36
 
+### Editing default bg images
+
+Source images: https://www.figma.com/design/smIXjlmBe67Y0KVsx7EXE4/SearchLauncher?node-id=0-1&p=f&t=5ijYxLO4lpjlFUCs-0
+
 ### Build Instructions
 
 ```bash

@@ -84,7 +84,14 @@ fun SearchScreen(
   val focusRequester = remember { FocusRequester() }
   val favoriteIds by app.favoritesRepository.favoriteIds.collectAsState()
   val isSearchInitialized by searchRepository.isInitialized.collectAsState(initial = false)
-  val indexUpdateTrigger by searchRepository.indexUpdated.collectAsState(initial = Unit)
+  val backgroundUriString by
+    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.BACKGROUND_URI] } }
+      .collectAsState(initial = null)
+  val backgroundFolderUriString by
+    remember {
+        context.dataStore.data.map { it[MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI] }
+      }
+      .collectAsState(initial = null)
 
   var favorites by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
   var showSnippetDialog by remember { mutableStateOf(false) }
@@ -98,7 +105,15 @@ fun SearchScreen(
     }
   }
 
-  LaunchedEffect(focusTrigger) { focusRequester.requestFocus() }
+  val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+  val isImeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+
+  LaunchedEffect(focusTrigger, isImeVisible) {
+    focusRequester.requestFocus()
+    if (!isImeVisible) {
+      keyboardController?.show()
+    }
+  }
 
   // Wait for the search repository to be initialized before loading favorites.
   // This prevents a race condition where we try to query the index before it's ready.
@@ -110,7 +125,7 @@ fun SearchScreen(
     }
   }
 
-  LaunchedEffect(query, showHistory, favoriteIds, indexUpdateTrigger) {
+  LaunchedEffect(query, showHistory, favoriteIds) {
     if (query.isEmpty()) {
       searchResults =
         if (showHistory) {
@@ -187,10 +202,10 @@ fun SearchScreen(
   val themeColor by
     remember {
         context.dataStore.data.map {
-          it[MainActivity.PreferencesKeys.THEME_COLOR] ?: 0xFF00639B.toInt()
+          it[MainActivity.PreferencesKeys.THEME_COLOR] ?: 0xFF5E6D4E.toInt()
         }
       }
-      .collectAsState(initial = 0xFF00639B.toInt())
+      .collectAsState(initial = 0xFF5E6D4E.toInt())
   val themeSaturation by
     remember {
         context.dataStore.data.map { it[MainActivity.PreferencesKeys.THEME_SATURATION] ?: 50f }
@@ -199,6 +214,9 @@ fun SearchScreen(
   val darkMode by
     remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.DARK_MODE] ?: 0 } }
       .collectAsState(initial = 0)
+  val isOled by
+    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.OLED_MODE] ?: false } }
+      .collectAsState(initial = false)
 
   // Use SharedPreferences for synchronous read to avoid initial jump
   val sharedPrefs = remember { context.getSharedPreferences("window_prefs", Context.MODE_PRIVATE) }
@@ -221,7 +239,12 @@ fun SearchScreen(
   // The effective padding is the max of current IME or stored IME height
   val bottomPadding = with(density) { kotlin.math.max(imeHeightPx, storedKeyboardHeight).toDp() }
 
-  SearchLauncherTheme(themeColor = themeColor, darkThemeMode = darkMode, chroma = themeSaturation) {
+  SearchLauncherTheme(
+    themeColor = themeColor,
+    darkThemeMode = darkMode,
+    chroma = themeSaturation,
+    isOled = isOled,
+  ) {
     Box(
       modifier =
         Modifier.fillMaxSize().pointerInput(Unit) {
@@ -326,19 +349,21 @@ fun SearchScreen(
                 folderLauncher.launch(null)
               },
             )
-            DropdownMenuItem(
-              text = { Text("Clear Current") },
-              onClick = {
-                showBackgroundMenu = false
-                scope.launch {
-                  context.dataStore.edit { preferences ->
-                    preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_URI)
-                    preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI)
-                    preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_LAST_IMAGE_URI)
+            if (backgroundUriString != null || backgroundFolderUriString != null) {
+              DropdownMenuItem(
+                text = { Text("Use default") },
+                onClick = {
+                  showBackgroundMenu = false
+                  scope.launch {
+                    context.dataStore.edit { preferences ->
+                      preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_URI)
+                      preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI)
+                      preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_LAST_IMAGE_URI)
+                    }
                   }
-                }
-              },
-            )
+                },
+              )
+            }
           }
         }
       }
@@ -385,7 +410,10 @@ fun SearchScreen(
                     isFavorite = favoriteIds.contains(result.id),
                     onToggleFavorite =
                       if (result is SearchResult.App) {
-                        { app.favoritesRepository.toggleFavorite(result.id) }
+                        {
+                          app.favoritesRepository.toggleFavorite(result.id)
+                          onQueryChange("")
+                        }
                       } else null,
                     onEditSnippet =
                       if (result is SearchResult.Snippet) {

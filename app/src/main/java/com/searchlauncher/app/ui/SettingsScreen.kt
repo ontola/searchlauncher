@@ -1,8 +1,10 @@
 package com.searchlauncher.app.ui
 
+import android.Manifest
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -31,6 +33,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,8 +47,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.searchlauncher.app.ui.MainActivity.PreferencesKeys
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -185,6 +192,7 @@ fun SettingsScreen(
           remember { context.dataStore.data.map { it[PreferencesKeys.HOME_TO_APPLIST] ?: false } }
             .collectAsState(initial = false)
 
+        /*
         Row(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.SpaceBetween,
@@ -209,6 +217,7 @@ fun SettingsScreen(
             },
           )
         }
+        */
       }
     }
 
@@ -308,6 +317,25 @@ fun SettingsScreen(
           granted = rememberPermissionState { hasUsageStatsPermission(context) }.value,
           onGrant = {
             val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+            context.startActivity(intent)
+          },
+        )
+
+        PermissionStatus(
+          title = "Read Contacts",
+          description = "Required to search your contacts.",
+          granted =
+            rememberPermissionState {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) ==
+                  PackageManager.PERMISSION_GRANTED
+              }
+              .value,
+          onGrant = {
+            val intent =
+              Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:${context.packageName}"),
+              )
             context.startActivity(intent)
           },
         )
@@ -467,4 +495,20 @@ fun hasUsageStatsPermission(context: Context): Boolean {
   } catch (e: Exception) {
     false
   }
+}
+
+@Composable
+fun rememberPermissionState(check: () -> Boolean): State<Boolean> {
+  val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+  val state = remember { mutableStateOf(check()) }
+  DisposableEffect(lifecycleOwner) {
+    val observer = LifecycleEventObserver { _, event ->
+      if (event == Lifecycle.Event.ON_RESUME) {
+        state.value = check()
+      }
+    }
+    lifecycleOwner.lifecycle.addObserver(observer)
+    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+  }
+  return state
 }

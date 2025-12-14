@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SearchLauncher - Command your Android</title>
+    <meta name="description" content="The launcher that thinks like you do. Keyboard ready instantly. Search apps, contacts, settings, and services without leaving the home screen.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #000000;
+            --text-color: #ffffff;
+            --accent-color: #333333;
+            --highlight-color: #ffffff;
+            --text-secondary: #a1a1a1;
+            --font-main: 'Inter', sans-serif;
+            --max-width: 1200px;
+            --spacing-section: 120px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-main);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+        }
+
+        a {
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .container {
+            max-width: var(--max-width);
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Typography */
+        h1, h2, h3 {
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            line-height: 1.2;
+        }
+
+        h1 {
+            font-size: clamp(3rem, 8vw, 5rem);
+            margin-bottom: 1rem;
+        }
+
+        h2 {
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            margin-bottom: 1.5rem;
+        }
+
+        h3 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        p {
+            color: var(--text-secondary);
+            font-size: 1.125rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .lead {
+            font-size: 1.5rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-block;
+            background-color: var(--highlight-color);
+            color: var(--bg-color);
+            padding: 16px 32px;
+            font-size: 1.125rem;
+            font-weight: 600;
+            border-radius: 8px;
+            transition: transform 0.2s ease, opacity 0.2s ease;
+            border: 1px solid transparent;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            opacity: 0.9;
+        }
+
+        .btn-subtext {
+            display: block;
+            margin-top: 12px;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            opacity: 0.7;
+        }
+
+        /* Sections */
+        section {
+            padding: var(--spacing-section) 0;
+        }
+
+        /* Hero */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            padding-top: 80px; /* Header offset if needed */
+            position: relative;
+        }
+
+        .hero-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 60px;
+            align-items: center;
+        }
+
+        .hero-text {
+            z-index: 10;
+        }
+
+        .hero-image {
+            position: relative;
+            display: flex;
+            justify-content: center;
+        }
+
+        .hero-image img {
+            max-width: 100%;
+            height: auto;
+            max-height: 80vh;
+            border-radius: 20px; /* Soften edges slightly */
+            box-shadow: 0 20px 50px rgba(255, 255, 255, 0.05);
+        }
+
+        /* Anchor */
+        .anchor {
+            text-align: center;
+            background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(20,20,20,1) 50%, rgba(0,0,0,0) 100%);
+        }
+
+        .quote {
+            font-size: clamp(1.5rem, 4vw, 2.5rem);
+            font-weight: 300;
+            color: var(--highlight-color);
+            max-width: 900px;
+            margin: 0 auto;
+            line-height: 1.4;
+        }
+
+        /* Features */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 40px;
+        }
+
+        .feature-card {
+            padding: 40px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            transition: background 0.3s ease;
+        }
+
+        .feature-card:hover {
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .feature-card h3 {
+            color: var(--highlight-color);
+            margin-bottom: 1rem;
+        }
+
+        /* Trust */
+        .trust {
+            text-align: center;
+        }
+
+        .trust-content {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        /* Aesthetics */
+        .aesthetics {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            background: radial-gradient(circle at center, #1a1a1a 0%, #000000 70%);
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 100px 0;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .footer-links {
+            margin-top: 40px;
+        }
+
+        .footer-link {
+            color: var(--text-secondary);
+            margin: 0 15px;
+            transition: color 0.2s;
+        }
+
+        .footer-link:hover {
+            color: var(--highlight-color);
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .hero-content {
+                grid-template-columns: 1fr;
+                text-align: center;
+            }
+
+            .hero-image {
+                order: -1;
+                margin-bottom: 40px;
+            }
+
+            .lead {
+                margin: 0 auto 2rem auto;
+            }
+
+            .hero-image img {
+                max-height: 50vh;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-text">
+                    <h1>Command your Android.</h1>
+                    <p class="lead">The launcher that thinks like you do. Keyboard ready instantly. Search apps, contacts, settings, and services without leaving the home screen.</p>
+                    <a href="https://f-droid.org/" class="btn">Install SearchLauncher</a>
+                    <span class="btn-subtext">Free, Open Source, and Zero Tracking.</span>
+                </div>
+                <div class="hero-image">
+                    <img src="assets/hero_phone.png" alt="SearchLauncher Interface">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Anchor Statement -->
+    <section class="anchor">
+        <div class="container">
+            <blockquote class="quote">
+                "Finally, a launcher for people who type faster than they swipe. It’s the power of Raycast, now in your pocket."
+            </blockquote>
+        </div>
+    </section>
+
+    <!-- Features Grid -->
+    <section class="features">
+        <div class="container">
+            <div class="features-grid">
+                <div class="feature-card">
+                    <h3>Search everything.</h3>
+                    <p>Don't just launch apps. Query your contacts, toggle system settings, or jump straight into external services. If it’s on your phone, you can find it from here in milliseconds.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>Shortcuts & Snippets.</h3>
+                    <p>Built for velocity. Create custom aliases (e.g., type <strong>y test</strong> to search YouTube). Store frequently used text snippets for instant insertion anywhere.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>Smart Parsing.</h3>
+                    <p>Type a URL, a phone number, or an email address. SearchLauncher recognizes the format and instantly suggests the best app to execute the action.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Trust Section -->
+    <section class="trust">
+        <div class="container">
+            <div class="trust-content">
+                <h2>No black boxes. Open by design.</h2>
+                <p>The software that acts as the gateway to your digital life must be transparent. SearchLauncher is completely free and open source. No ads. No analytics. No telemetry. Audit the code yourself on GitHub. Your data never leaves your device.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Aesthetics Section -->
+    <section class="aesthetics">
+        <div class="container">
+            <div class="trust-content"> <!-- Reusing container for width -->
+                <h2>Reclaim your screen real estate.</h2>
+                <p>Because the launcher is only there when you need it, the clutter is gone. When idle, enjoy a clean swipe through your favorite wallpapers with zero UI obstruction.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer Section -->
+    <footer>
+        <div class="container">
+            <h2>Stop scrolling. Start executing.</h2>
+            <div style="margin-top: 40px;">
+                <a href="https://f-droid.org/" class="btn">Download on F-Droid / Play Store</a>
+            </div>
+            <div class="footer-links">
+                <a href="https://github.com/joepio/searchlauncher" class="footer-link">GitHub Repository</a>
+            </div>
+        </div>
+    </footer>
+
+</body>
+</html>

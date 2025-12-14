@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.dp
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -104,21 +103,21 @@ class MainActivity : ComponentActivity() {
     enableEdgeToEdge()
     // Ensure keyboard opens automatically
     @Suppress("DEPRECATION")
-    window.setSoftInputMode(
-      android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
-        android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
-    )
+    window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
     lifecycleScope.launch {
       dataStore.data
         .map { it[PreferencesKeys.HOME_TO_APPLIST] ?: false }
-        .collect { homeToAppList = it }
+        .collect {
+          // homeToAppList = it -- Disabled for now per user request
+          homeToAppList = false
+        }
     }
 
     setContent {
       val themeColor =
-        remember { dataStore.data.map { it[PreferencesKeys.THEME_COLOR] ?: 0xFF00639B.toInt() } }
-          .collectAsState(initial = 0xFF00639B.toInt())
+        remember { dataStore.data.map { it[PreferencesKeys.THEME_COLOR] ?: 0xFF5E6D4E.toInt() } }
+          .collectAsState(initial = 0xFF5E6D4E.toInt())
 
       val themeSaturation =
         remember { dataStore.data.map { it[PreferencesKeys.THEME_SATURATION] ?: 50f } }
@@ -128,10 +127,15 @@ class MainActivity : ComponentActivity() {
         remember { dataStore.data.map { it[PreferencesKeys.DARK_MODE] ?: 0 } }
           .collectAsState(initial = 0)
 
+      val isOled =
+        remember { dataStore.data.map { it[PreferencesKeys.OLED_MODE] ?: false } }
+          .collectAsState(initial = false)
+
       SearchLauncherTheme(
         themeColor = themeColor.value,
         darkThemeMode = darkMode.value,
         chroma = themeSaturation.value,
+        isOled = isOled.value,
       ) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
           MainScreen()
@@ -156,12 +160,22 @@ class MainActivity : ComponentActivity() {
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     // Hoist wallpaper state
+    // Hoist wallpaper state
     val backgroundFolderUriString by
       remember { context.dataStore.data.map { it[PreferencesKeys.BACKGROUND_FOLDER_URI] } }
         .collectAsState(initial = null)
+
+    val backgroundUriString by
+      remember { context.dataStore.data.map { it[PreferencesKeys.BACKGROUND_URI] } }
+        .collectAsState(initial = null)
+
+    val lastImageUriString by
+      remember { context.dataStore.data.map { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] } }
+        .collectAsState(initial = null)
+
     var folderImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
 
-    LaunchedEffect(backgroundFolderUriString) {
+    LaunchedEffect(backgroundFolderUriString, backgroundUriString) {
       if (backgroundFolderUriString != null) {
         withContext(Dispatchers.IO) {
           try {
@@ -180,24 +194,33 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
           }
         }
+      } else if (backgroundUriString != null) {
+        try {
+          folderImages = listOf(Uri.parse(backgroundUriString))
+        } catch (e: Exception) {
+          e.printStackTrace()
+        }
       } else {
-        folderImages = emptyList()
+        // Load default assets
+        withContext(Dispatchers.IO) {
+          try {
+            val assets = context.assets.list("")
+            val defaults =
+              assets
+                ?.filter { it.startsWith("BG") && (it.endsWith(".jpg") || it.endsWith(".png")) }
+                ?.sorted() // Ensure consistent order
+                ?.map { Uri.parse("file:///android_asset/$it") } ?: emptyList()
+            withContext(Dispatchers.Main) { folderImages = defaults }
+          } catch (e: Exception) {
+            e.printStackTrace()
+          }
+        }
       }
     }
 
-    val lastImageUriString by
-      remember { context.dataStore.data.map { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] } }
-        .collectAsState(initial = null)
-
-    val onboardingComplete =
-      remember {
-          context.dataStore.data.map { it[booleanPreferencesKey("onboarding_complete")] ?: false }
-        }
-        .collectAsState(initial = false)
-
     val showHistory =
-      remember { context.dataStore.data.map { it[booleanPreferencesKey("show_history")] ?: true } }
-        .collectAsState(initial = true)
+      remember { context.dataStore.data.map { it[booleanPreferencesKey("show_history")] ?: false } }
+        .collectAsState(initial = false)
 
     // Handle back press
     BackHandler(enabled = currentScreenState != Screen.Search) {
@@ -216,117 +239,100 @@ class MainActivity : ComponentActivity() {
     if (showPractice) {
       PracticeGestureScreen(onBack = { showPractice = false })
     } else {
-      if (!onboardingComplete.value) { // Show onboarding if not complete
-        OnboardingScreen(
-          onComplete = {
-            scope.launch {
-              context.dataStore.edit { preferences ->
-                preferences[PreferencesKeys.ONBOARDING_COMPLETE] = true
-              }
-              // Don't auto-enable swipe gesture on fresh install, let user decide in settings
-              // or maybe enable it by default? User asked for "not auto-enable".
-              // So we do nothing here regarding the service.
-            }
+      // Auto-start service if enabled in settings AND permissions are granted
+      LaunchedEffect(swipeGestureEnabled.value) {
+        if (swipeGestureEnabled.value) {
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)) {
+            startOverlayService()
           }
-        )
-      } else {
-        // Auto-start service if enabled in settings AND permissions are granted
-        LaunchedEffect(swipeGestureEnabled.value) {
-          if (swipeGestureEnabled.value) {
-            if (
-              Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)
-            ) {
-              startOverlayService()
+        } else {
+          stopOverlayService()
+        }
+      }
+
+      // Hide keyboard when opening App List
+      LaunchedEffect(currentScreenState) {
+        if (currentScreenState == Screen.AppList) {
+          keyboardController?.hide()
+          focusManager.clearFocus()
+        }
+      }
+
+      Box(modifier = Modifier.fillMaxSize()) {
+        // Layer 1: Base Content (Search, Settings, etc.)
+        // When AppList is open, we want the base layer to be Search
+        val baseState =
+          if (currentScreenState == Screen.AppList) Screen.Search else currentScreenState
+
+        androidx.compose.animation.AnimatedContent(
+          targetState = baseState,
+          transitionSpec = {
+            androidx.compose.animation.fadeIn() togetherWith androidx.compose.animation.fadeOut()
+          },
+          label = "BaseScreenTransition",
+        ) { targetState ->
+          when (targetState) {
+            Screen.Search -> {
+              val app = application as SearchLauncherApp
+              SearchScreen(
+                query = queryState,
+                onQueryChange = { queryState = it },
+                onDismiss = { queryState = "" },
+                onOpenSettings = {
+                  keyboardController?.hide()
+                  currentScreenState = Screen.Settings
+                },
+                onOpenAppDrawer = { currentScreenState = Screen.AppList },
+                searchRepository = app.searchRepository,
+                focusTrigger = focusTrigger,
+                showHistory = showHistory.value,
+                showBackgroundImage = true,
+                folderImages = folderImages,
+                lastImageUriString = lastImageUriString,
+              )
             }
-          } else {
-            stopOverlayService()
+            Screen.Settings -> {
+              SettingsScreen(
+                onStartService = { startOverlayService() },
+                onStopService = { stopOverlayService() },
+                onOpenPractice = { showPractice = true },
+                onOpenCustomShortcuts = { currentScreenState = Screen.CustomShortcuts },
+                onBack = { currentScreenState = Screen.Search },
+              )
+            }
+            Screen.CustomShortcuts -> {
+              CustomShortcutsScreen(onBack = { currentScreenState = Screen.Settings })
+            }
+            else -> {
+              /* No-op */
+            }
           }
         }
 
-        // Hide keyboard when opening App List
-        LaunchedEffect(currentScreenState) {
-          if (currentScreenState == Screen.AppList) {
-            keyboardController?.hide()
-            focusManager.clearFocus()
-          }
-        }
-
-        Box(modifier = Modifier.fillMaxSize()) {
-          // Layer 1: Base Content (Search, Settings, etc.)
-          // When AppList is open, we want the base layer to be Search
-          val baseState =
-            if (currentScreenState == Screen.AppList) Screen.Search else currentScreenState
-
-          androidx.compose.animation.AnimatedContent(
-            targetState = baseState,
-            transitionSpec = {
-              androidx.compose.animation.fadeIn() togetherWith androidx.compose.animation.fadeOut()
+        // Layer 2: App List Overlay
+        androidx.compose.animation.AnimatedVisibility(
+          visible = currentScreenState == Screen.AppList,
+          enter =
+            androidx.compose.animation.slideInVertically { height -> height } +
+              androidx.compose.animation.fadeIn(),
+          exit =
+            androidx.compose.animation.slideOutVertically { height -> height } +
+              androidx.compose.animation.fadeOut(),
+          modifier = Modifier.fillMaxSize(),
+        ) {
+          val app = application as SearchLauncherApp
+          AppListScreen(
+            searchRepository = app.searchRepository,
+            onAppClick = { result ->
+              launchApp(context, result)
+              currentScreenState = Screen.Search
+              queryState = ""
             },
-            label = "BaseScreenTransition",
-          ) { targetState ->
-            when (targetState) {
-              Screen.Search -> {
-                val app = application as SearchLauncherApp
-                SearchScreen(
-                  query = queryState,
-                  onQueryChange = { queryState = it },
-                  onDismiss = { queryState = "" },
-                  onOpenSettings = {
-                    keyboardController?.hide()
-                    currentScreenState = Screen.Settings
-                  },
-                  onOpenAppDrawer = { currentScreenState = Screen.AppList },
-                  searchRepository = app.searchRepository,
-                  focusTrigger = focusTrigger,
-                  showHistory = showHistory.value,
-                  showBackgroundImage = true,
-                  folderImages = folderImages,
-                  lastImageUriString = lastImageUriString,
-                )
-              }
-              Screen.Settings -> {
-                SettingsScreen(
-                  onStartService = { startOverlayService() },
-                  onStopService = { stopOverlayService() },
-                  onOpenPractice = { showPractice = true },
-                  onOpenCustomShortcuts = { currentScreenState = Screen.CustomShortcuts },
-                  onBack = { currentScreenState = Screen.Search },
-                )
-              }
-              Screen.CustomShortcuts -> {
-                CustomShortcutsScreen(onBack = { currentScreenState = Screen.Settings })
-              }
-              else -> {
-                /* No-op */
-              }
-            }
-          }
-
-          // Layer 2: App List Overlay
-          androidx.compose.animation.AnimatedVisibility(
-            visible = currentScreenState == Screen.AppList,
-            enter =
-              androidx.compose.animation.slideInVertically { height -> height } +
-                androidx.compose.animation.fadeIn(),
-            exit =
-              androidx.compose.animation.slideOutVertically { height -> height } +
-                androidx.compose.animation.fadeOut(),
-            modifier = Modifier.fillMaxSize(),
-          ) {
-            val app = application as SearchLauncherApp
-            AppListScreen(
-              searchRepository = app.searchRepository,
-              onAppClick = { result ->
-                launchApp(context, result)
-                currentScreenState = Screen.Search
-                queryState = ""
-              },
-              onBack = {
-                currentScreenState = Screen.Search
-                focusTrigger = System.currentTimeMillis()
-              },
-            )
-          }
+            onBack = {
+              currentScreenState = Screen.Search
+              focusTrigger = System.currentTimeMillis()
+            },
+          )
         }
       }
     }
@@ -367,10 +373,10 @@ class MainActivity : ComponentActivity() {
   }
 
   object PreferencesKeys {
-    val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
     val THEME_COLOR = intPreferencesKey("theme_color")
     val THEME_SATURATION = floatPreferencesKey("theme_saturation")
     val DARK_MODE = intPreferencesKey("dark_mode")
+    val OLED_MODE = booleanPreferencesKey("oled_mode")
     val BACKGROUND_URI =
       androidx.datastore.preferences.core.stringPreferencesKey(
         "background_uri"

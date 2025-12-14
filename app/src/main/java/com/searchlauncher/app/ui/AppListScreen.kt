@@ -7,11 +7,16 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -58,6 +63,7 @@ fun AppListScreen(
 
   val listState = rememberLazyListState()
   val scope = rememberCoroutineScope()
+  val view = androidx.compose.ui.platform.LocalView.current
   val letters = groupedApps.keys.toList()
   var scrollerHeight by remember { mutableStateOf(0) }
 
@@ -128,13 +134,17 @@ fun AppListScreen(
             }
           }
         }
-        .padding(top = 24.dp)
+        .windowInsetsPadding(WindowInsets.statusBars)
   ) {
     if (apps.isEmpty()) {
       CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
     } else {
       LazyColumn(
         state = listState,
+        contentPadding =
+          androidx.compose.foundation.layout.PaddingValues(
+            bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 100.dp
+          ),
         modifier = Modifier.fillMaxSize().padding(end = 24.dp), // Leave space for scroller
       ) {
         groupedApps.forEach { (letter, appList) ->
@@ -176,13 +186,21 @@ fun AppListScreen(
               // Let's use a robust implementation.
               .pointerInput(Unit) {
                 awaitPointerEventScope {
+                  var lastIndex = -1
                   while (true) {
                     val event = awaitPointerEvent()
                     val down = event.changes.firstOrNull { it.pressed }
                     if (down != null) {
                       // On any touch down or move that is pressed
                       val index = getIndexFromOffset(down.position.y, letters.size, scrollerHeight)
-                      scope.launch { scrollToLetter(index, letters, groupedApps, listState) }
+
+                      if (index != lastIndex) {
+                        scope.launch { scrollToLetter(index, letters, groupedApps, listState) }
+                        view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                        lastIndex = index
+                      }
+                    } else {
+                      lastIndex = -1
                     }
                   }
                 }
