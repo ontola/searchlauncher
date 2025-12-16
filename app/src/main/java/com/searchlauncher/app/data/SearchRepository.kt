@@ -545,12 +545,12 @@ class SearchRepository(private val context: Context) {
     withContext(Dispatchers.IO) {
       searchCache.clear() // Invalidate cache
       val session = appSearchSession ?: return@withContext
-      if (
-        context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
-          android.content.pm.PackageManager.PERMISSION_GRANTED
-      ) {
+      val permission = context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS)
+      if (permission != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        android.util.Log.w("SearchRepository", "READ_CONTACTS permission denied")
         return@withContext
       }
+      android.util.Log.d("SearchRepository", "Indexing contacts...")
 
       val contacts = mutableListOf<AppSearchDocument>()
       // 1. Fetch search data (Phone numbers and Emails)
@@ -583,15 +583,15 @@ class SearchRepository(private val context: Context) {
 
           if (data != null) {
             val sb = searchDataMap.getOrPut(contactId) { StringBuilder() }
-            // Use semicolon as separator to distinct formatted values
-            sb.append(";").append(data)
+            // Use space as separator for better tokenization
+            sb.append(" ").append(data)
 
             // Normalize phone numbers and add variants (e.g. 06... for +31...)
             if (
               mimeType == android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE
             ) {
               com.searchlauncher.app.util.ContactUtils.getIndexableVariants(data).forEach {
-                sb.append(";").append(it)
+                sb.append(" ").append(it)
               }
             }
           }
@@ -647,12 +647,15 @@ class SearchRepository(private val context: Context) {
       }
 
       if (contacts.isNotEmpty()) {
+        android.util.Log.d("SearchRepository", "Indexed ${contacts.size} contacts")
         val putRequest = PutDocumentsRequest.Builder().addDocuments(contacts).build()
         session.putAsync(putRequest).get()
         synchronized(documentCache) {
           documentCache.removeAll { it.namespace == "contacts" }
           documentCache.addAll(contacts)
         }
+      } else {
+        android.util.Log.d("SearchRepository", "No contacts found to index")
       }
     }
 
@@ -926,7 +929,17 @@ class SearchRepository(private val context: Context) {
       }
 
       val searchSpec = searchSpecBuilder.build()
-      val searchResults = session.search(query, searchSpec)
+
+      // Enhance query to include normalized phone number variant
+      val normalizedQuery = com.searchlauncher.app.util.ContactUtils.normalizePhoneNumber(query)
+      val finalQuery =
+        if (normalizedQuery != null && normalizedQuery != query && normalizedQuery.length >= 3) {
+          "$query OR $normalizedQuery"
+        } else {
+          query
+        }
+
+      val searchResults = session.search(finalQuery, searchSpec)
       var nextPage = searchResults.nextPageAsync.get()
 
       while (nextPage.isNotEmpty()) {
@@ -1214,8 +1227,8 @@ class SearchRepository(private val context: Context) {
             if (query != null && !doc.name.contains(query, ignoreCase = true)) {
               val parts = rawDescription?.split("|")
               val extraData = parts?.getOrNull(1) ?: ""
-              // Tokens separated by ;
-              val tokens = extraData.split(";")
+              // Tokens separated by space
+              val tokens = extraData.split(" ")
               val match = tokens.find { it.contains(query, ignoreCase = true) }
               match?.trim() ?: "Contact"
             } else {
