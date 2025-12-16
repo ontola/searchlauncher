@@ -69,7 +69,10 @@ class SearchRepository(private val context: Context) {
           val launcherApps =
             context.getSystemService(Context.LAUNCHER_APPS_SERVICE)
               as android.content.pm.LauncherApps
-          launcherApps.registerCallback(launcherCallback)
+          launcherApps.registerCallback(
+            launcherCallback,
+            android.os.Handler(android.os.Looper.getMainLooper()),
+          )
         } catch (e: Exception) {
           e.printStackTrace()
         }
@@ -83,13 +86,14 @@ class SearchRepository(private val context: Context) {
         indexStaticShortcuts()
         indexContacts()
         _isInitialized.value = true
-      } catch (e: Exception) {
+      } catch (e: Throwable) {
         e.printStackTrace()
       }
     }
 
   private suspend fun indexApps() =
     withContext(Dispatchers.IO) {
+      android.util.Log.d("SearchRepository", "Indexing apps...")
       searchCache.clear() // Invalidate cache
       val session = appSearchSession ?: return@withContext
       val packageManager = context.packageManager
@@ -146,7 +150,10 @@ class SearchRepository(private val context: Context) {
           android.util.Log.e("SearchRepository", "Failed to index apps", e)
         }
       }
-      documentCache.addAll(apps)
+      synchronized(documentCache) {
+        documentCache.clear()
+        documentCache.addAll(apps)
+      }
 
       try {
         indexShortcuts()
@@ -466,10 +473,12 @@ class SearchRepository(private val context: Context) {
   private val launcherCallback =
     object : android.content.pm.LauncherApps.Callback() {
       override fun onPackageRemoved(packageName: String, user: android.os.UserHandle) {
+        android.util.Log.d("SearchRepository", "onPackageRemoved: $packageName")
         scope.launch { indexApps() }
       }
 
       override fun onPackageAdded(packageName: String, user: android.os.UserHandle) {
+        android.util.Log.d("SearchRepository", "onPackageAdded: $packageName")
         scope.launch { indexApps() }
       }
 
@@ -533,6 +542,52 @@ class SearchRepository(private val context: Context) {
       }
 
       val contacts = mutableListOf<AppSearchDocument>()
+      // 1. Fetch search data (Phone numbers and Emails)
+      val searchDataMap = mutableMapOf<Long, StringBuilder>()
+      val dataCursor =
+        context.contentResolver.query(
+          android.provider.ContactsContract.Data.CONTENT_URI,
+          arrayOf(
+            android.provider.ContactsContract.Data.CONTACT_ID,
+            android.provider.ContactsContract.Data.MIMETYPE,
+            android.provider.ContactsContract.Data.DATA1,
+          ),
+          "${android.provider.ContactsContract.Data.MIMETYPE} IN (?, ?)",
+          arrayOf(
+            android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
+            android.provider.ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE,
+          ),
+          null,
+        )
+
+      dataCursor?.use {
+        val contactIdIndex = it.getColumnIndex(android.provider.ContactsContract.Data.CONTACT_ID)
+        val mimeTypeIndex = it.getColumnIndex(android.provider.ContactsContract.Data.MIMETYPE)
+        val dataIndex = it.getColumnIndex(android.provider.ContactsContract.Data.DATA1)
+
+        while (it.moveToNext()) {
+          val contactId = it.getLong(contactIdIndex)
+          val mimeType = it.getString(mimeTypeIndex)
+          val data = it.getString(dataIndex)
+
+          if (data != null) {
+            val sb = searchDataMap.getOrPut(contactId) { StringBuilder() }
+            // Use semicolon as separator to distinct formatted values
+            sb.append(";").append(data)
+
+            // Normalize phone numbers and add variants (e.g. 06... for +31...)
+            if (
+              mimeType == android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE
+            ) {
+              com.searchlauncher.app.util.ContactUtils.getIndexableVariants(data).forEach {
+                sb.append(";").append(it)
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Fetch Contacts and merge
       val cursor =
         context.contentResolver.query(
           android.provider.ContactsContract.Contacts.CONTENT_URI,
@@ -562,17 +617,17 @@ class SearchRepository(private val context: Context) {
           val photoUri = it.getString(photoIndex)
 
           if (name != null) {
+            val extraData = searchDataMap[id]?.toString() ?: ""
+            // Store photoUri + delimiter + searchable text
+            val description = "${photoUri ?: ""}|$extraData"
+
             contacts.add(
               AppSearchDocument(
                 namespace = "contacts",
                 id = "$lookupKey/$id",
                 name = name,
-                description = photoUri, // Storing photo
-                // URI in
-                // description for
-                // simplicity
-                score = 4, // Higher priority than
-                // apps
+                description = description,
+                score = 4,
                 intentUri = "content://com.android.contacts/contacts/lookup/$lookupKey/$id",
               )
             )
@@ -882,7 +937,7 @@ class SearchRepository(private val context: Context) {
             matchBoost = 20 // Partial match
           }
 
-          val result = convertDocumentToResult(doc, baseScore + boost + matchBoost)
+          val result = convertDocumentToResult(doc, baseScore + boost + matchBoost, query)
 
           // Deduplication: If this is a search shortcut and its alias matches an active one, skip
           // it.
@@ -911,10 +966,12 @@ class SearchRepository(private val context: Context) {
         val existingIds = appSearchResults.map { it.id }.toSet()
         val fuzzyMatches = getFuzzyMatches(query)
 
+        val addedIds = mutableSetOf<String>()
         for ((doc, _) in fuzzyMatches) {
-          if (doc.id !in existingIds) {
+          if (doc.id !in existingIds && doc.id !in addedIds) {
             val boost = if (doc.namespace == "apps") 5 else 0
-            appSearchResults.add(convertDocumentToResult(doc, boost))
+            appSearchResults.add(convertDocumentToResult(doc, boost, query))
+            addedIds.add(doc.id)
           }
         }
       }
@@ -979,7 +1036,11 @@ class SearchRepository(private val context: Context) {
     return iconGenerator.getColoredSearchIcon(color, text)
   }
 
-  private fun convertDocumentToResult(doc: AppSearchDocument, rankingScore: Int): SearchResult {
+  private fun convertDocumentToResult(
+    doc: AppSearchDocument,
+    rankingScore: Int,
+    query: String? = null,
+  ): SearchResult {
     return when (doc.namespace) {
       "shortcuts" -> {
         var icon: Drawable? = null
@@ -1109,7 +1170,9 @@ class SearchRepository(private val context: Context) {
       "contacts" -> {
         val lookupKey = doc.id.substringBefore("/")
         val contactId = doc.id.substringAfter("/").toLongOrNull() ?: 0L
-        val photoUri = doc.description // We stored photo URI in description
+        val rawDescription = doc.description
+        // We stored photo URI + | + extra search data in description
+        val photoUri = rawDescription?.substringBefore("|")?.takeIf { it.isNotEmpty() }
 
         var icon: Drawable? = null
         if (photoUri != null) {
@@ -1133,7 +1196,17 @@ class SearchRepository(private val context: Context) {
           id = doc.id,
           namespace = "contacts",
           title = doc.name,
-          subtitle = "Contact",
+          subtitle =
+            if (query != null && !doc.name.contains(query, ignoreCase = true)) {
+              val parts = rawDescription?.split("|")
+              val extraData = parts?.getOrNull(1) ?: ""
+              // Tokens separated by ;
+              val tokens = extraData.split(";")
+              val match = tokens.find { it.contains(query, ignoreCase = true) }
+              match?.trim() ?: "Contact"
+            } else {
+              "Contact"
+            },
           icon = icon,
           rankingScore = rankingScore,
           lookupKey = lookupKey,
