@@ -151,7 +151,7 @@ class SearchRepository(private val context: Context) {
         }
       }
       synchronized(documentCache) {
-        documentCache.clear()
+        documentCache.removeAll { it.namespace == "apps" }
         documentCache.addAll(apps)
       }
 
@@ -224,7 +224,10 @@ class SearchRepository(private val context: Context) {
         if (shortcuts.isNotEmpty()) {
           val putRequest = PutDocumentsRequest.Builder().addDocuments(shortcuts).build()
           session.putAsync(putRequest).get()
-          documentCache.addAll(shortcuts)
+          synchronized(documentCache) {
+            documentCache.removeAll { it.namespace == "shortcuts" }
+            documentCache.addAll(shortcuts)
+          }
         }
       } catch (e: Exception) {
         e.printStackTrace()
@@ -281,7 +284,12 @@ class SearchRepository(private val context: Context) {
       if (allDocs.isNotEmpty()) {
         val putRequest = PutDocumentsRequest.Builder().addDocuments(allDocs).build()
         session.putAsync(putRequest).get()
-        documentCache.addAll(allDocs)
+        synchronized(documentCache) {
+          documentCache.removeAll {
+            it.namespace == "search_shortcuts" || it.namespace == "app_shortcuts"
+          }
+          documentCache.addAll(allDocs)
+        }
       }
     }
 
@@ -314,7 +322,10 @@ class SearchRepository(private val context: Context) {
       if (docs.isNotEmpty()) {
         val putRequest = PutDocumentsRequest.Builder().addDocuments(docs).build()
         session.putAsync(putRequest).get()
-        documentCache.addAll(docs)
+        synchronized(documentCache) {
+          documentCache.removeAll { it.namespace == "static_shortcuts" }
+          documentCache.addAll(docs)
+        }
       }
     }
 
@@ -638,7 +649,10 @@ class SearchRepository(private val context: Context) {
       if (contacts.isNotEmpty()) {
         val putRequest = PutDocumentsRequest.Builder().addDocuments(contacts).build()
         session.putAsync(putRequest).get()
-        documentCache.addAll(contacts)
+        synchronized(documentCache) {
+          documentCache.removeAll { it.namespace == "contacts" }
+          documentCache.addAll(contacts)
+        }
       }
     }
 
