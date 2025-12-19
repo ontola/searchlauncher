@@ -87,5 +87,28 @@ class GestureAccessibilityService : AccessibilityService() {
       val service = instance?.get() ?: return false
       return service.performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
     }
+
+    fun lockScreen(): Boolean {
+      val service = instance?.get() ?: return false
+      return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+        service.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+      } else {
+        false
+      }
+    }
+
+    fun showPowerDialog(): Boolean {
+      val service = instance?.get() ?: return false
+      return service.performGlobalAction(GLOBAL_ACTION_POWER_DIALOG)
+    }
+
+    fun takeScreenshot(): Boolean {
+      val service = instance?.get() ?: return false
+      return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+        service.performGlobalAction(GLOBAL_ACTION_TAKE_SCREENSHOT)
+      } else {
+        false
+      }
+    }
   }
 }

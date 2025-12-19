@@ -167,8 +167,44 @@ object DefaultShortcuts {
       AppShortcut.Action(
         id = "settings",
         intentUri = "intent:#Intent;action=android.settings.SETTINGS;end",
-        description = "Settings",
+        description = "System Settings",
         packageName = "com.android.settings",
+      ),
+      AppShortcut.Action(
+        id = "restart_launcher",
+        intentUri = "intent:#Intent;action=com.searchlauncher.action.RESTART;end",
+        description = "Restart SearchLauncher",
+      ),
+      AppShortcut.Action(
+        id = "reboot",
+        intentUri = "intent:#Intent;action=com.searchlauncher.action.REBOOT;end",
+        description = "Reboot Phone",
+      ),
+      AppShortcut.Action(
+        id = "lock_screen",
+        intentUri = "intent:#Intent;action=com.searchlauncher.action.LOCK_SCREEN;end",
+        description = "Lock Screen",
+      ),
+      AppShortcut.Action(
+        id = "power_menu",
+        intentUri = "intent:#Intent;action=com.searchlauncher.action.POWER_MENU;end",
+        description = "Power Menu",
+      ),
+      AppShortcut.Action(
+        id = "screenshot",
+        intentUri = "intent:#Intent;action=com.searchlauncher.action.SCREENSHOT;end",
+        description = "Take Screenshot",
+      ),
+      AppShortcut.Action(
+        id = "toggle_dark_mode",
+        intentUri = "intent:#Intent;action=com.searchlauncher.action.TOGGLE_DARK_MODE;end",
+        description = "Toggle Dark Mode",
+      ),
+      AppShortcut.Action(
+        id = "launcher_settings",
+        intentUri =
+          "intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;component=com.searchlauncher.app/.ui.MainActivity;B.open_settings=true;end",
+        description = "SearchLauncher Settings",
       ),
     ) + generateSettingsShortcuts()
 

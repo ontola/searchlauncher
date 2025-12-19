@@ -20,6 +20,30 @@ object CustomActionHandler {
         toggleRotation(context)
         true
       }
+      "com.searchlauncher.action.RESTART" -> {
+        restartLauncher(context)
+        true
+      }
+      "com.searchlauncher.action.REBOOT" -> {
+        rebootPhone(context)
+        true
+      }
+      "com.searchlauncher.action.LOCK_SCREEN" -> {
+        lockScreen(context)
+        true
+      }
+      "com.searchlauncher.action.POWER_MENU" -> {
+        openPowerMenu(context)
+        true
+      }
+      "com.searchlauncher.action.SCREENSHOT" -> {
+        takeScreenshot(context)
+        true
+      }
+      "com.searchlauncher.action.TOGGLE_DARK_MODE" -> {
+        toggleDarkMode(context)
+        true
+      }
       "com.searchlauncher.RESET_APP_DATA" -> {
         resetAppData(context)
         true
@@ -86,6 +110,90 @@ object CustomActionHandler {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
       }
+    }
+  }
+
+  private fun restartLauncher(context: Context) {
+    try {
+      val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+      val componentName = intent?.component
+      val mainIntent = Intent.makeRestartActivityTask(componentName)
+      context.startActivity(mainIntent)
+      Runtime.getRuntime().exit(0)
+    } catch (e: Exception) {
+      e.printStackTrace()
+      Toast.makeText(context, "Cloud not restart: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
+  }
+
+  private fun rebootPhone(context: Context) {
+    if (!com.searchlauncher.app.service.GestureAccessibilityService.showPowerDialog()) {
+      requestAccessibilityService(context)
+    } else {
+      Toast.makeText(context, "Select 'Restart' in the Power Menu", Toast.LENGTH_LONG).show()
+    }
+  }
+
+  private fun openPowerMenu(context: Context) {
+    if (!com.searchlauncher.app.service.GestureAccessibilityService.showPowerDialog()) {
+      requestAccessibilityService(context)
+    }
+  }
+
+  private fun lockScreen(context: Context) {
+    if (!com.searchlauncher.app.service.GestureAccessibilityService.lockScreen()) {
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+        Toast.makeText(context, "Lock Screen requires Android 9+", Toast.LENGTH_SHORT).show()
+      } else {
+        requestAccessibilityService(context)
+      }
+    }
+  }
+
+  private fun takeScreenshot(context: Context) {
+    if (!com.searchlauncher.app.service.GestureAccessibilityService.takeScreenshot()) {
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+        Toast.makeText(context, "Screenshot requires Android 9+", Toast.LENGTH_SHORT).show()
+      } else {
+        requestAccessibilityService(context)
+      }
+    }
+  }
+
+  private fun requestAccessibilityService(context: Context) {
+    Toast.makeText(
+        context,
+        "Enable 'SearchLauncher Gesture Service' in Accessibility settings",
+        Toast.LENGTH_LONG,
+      )
+      .show()
+    try {
+      val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      context.startActivity(intent)
+    } catch (e: Exception) {
+      val intent = Intent(Settings.ACTION_SETTINGS)
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      context.startActivity(intent)
+    }
+  }
+
+  private fun toggleDarkMode(context: Context) {
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        // Toggling night mode system-wide usually requires system permission
+        // We can at least try to toggle the app's or launch the setting
+        val intent = Intent(Settings.ACTION_DISPLAY_SETTINGS)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+        Toast.makeText(context, "Toggle Dark Mode in Display Settings", Toast.LENGTH_SHORT).show()
+      } else {
+        val intent = Intent(Settings.ACTION_DISPLAY_SETTINGS)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+      }
+    } catch (e: Exception) {
+      e.printStackTrace()
     }
   }
 
