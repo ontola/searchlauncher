@@ -2,7 +2,11 @@ package com.searchlauncher.app.data
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.util.Log
 import android.util.LruCache
@@ -14,6 +18,8 @@ import androidx.appsearch.localstorage.LocalStorage
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.util.FuzzyMatch
 import com.searchlauncher.app.util.StaticShortcutScanner
+import java.io.File
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Collections
@@ -21,11 +27,14 @@ import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONObject
 
 class SearchRepository(private val context: Context) {
   private val documentCache = Collections.synchronizedList(mutableListOf<AppSearchDocument>())
@@ -68,11 +77,17 @@ class SearchRepository(private val context: Context) {
   private val _indexUpdated = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(replay = 1)
   val indexUpdated: kotlinx.coroutines.flow.SharedFlow<Unit> = _indexUpdated
 
+  private val _favorites = kotlinx.coroutines.flow.MutableStateFlow<List<SearchResult>>(emptyList())
+  val favorites: kotlinx.coroutines.flow.StateFlow<List<SearchResult>> = _favorites
+
   suspend fun initialize() =
     withContext(Dispatchers.IO) {
       val startTime = System.currentTimeMillis()
       try {
         _isIndexing.value = true
+        // Load cached favorites immediately for instant UI
+        _favorites.value = loadFavoritesFromCache()
+
         val sessionFuture =
           LocalStorage.createSearchSessionAsync(
             LocalStorage.SearchContext.Builder(context, "searchlauncher_db").build()
@@ -104,13 +119,15 @@ class SearchRepository(private val context: Context) {
 
         // Signal ready after loading cache (very quick)
         _isInitialized.value = true
+        _isIndexing.value = false
         android.util.Log.d(
           "SearchRepository",
           "Early Initialization (ready for UI) took ${System.currentTimeMillis() - startTime}ms",
         )
 
-        // Perform full re-indexing in background to refresh any changes
+        // Perform full re-indexing in background to refresh any changes after a quiet window
         scope.launch {
+          delay(2000) // Give the UI 2 seconds to load icons and settle
           _isIndexing.value = true
           val backgroundStart = System.currentTimeMillis()
 
@@ -465,17 +482,18 @@ class SearchRepository(private val context: Context) {
         val page = searchResults.nextPageAsync.get()
 
         // Only return items that have been used (ranking signal > 0)
-        return@withContext page
-          .filter { result -> result.rankingSignal > 0 }
-          .map { result ->
-            async {
-              val doc = result.genericDocument.toDocumentClass(AppSearchDocument::class.java)
-              convertDocumentToResult(doc, result.rankingSignal.toInt())
+        val results = coroutineScope {
+          page
+            .filter { result -> result.rankingSignal > 0 }
+            .map { result ->
+              async {
+                val doc = result.genericDocument.toDocumentClass(AppSearchDocument::class.java)
+                convertDocumentToResult(doc, result.rankingSignal.toInt())
+              }
             }
-          }
-          .awaitAll()
-          .filter { !excludedIds.contains(it.id) }
-          .take(limit)
+            .awaitAll()
+        }
+        return@withContext results.filter { !excludedIds.contains(it.id) }.take(limit)
       } catch (e: Exception) {
         e.printStackTrace()
         return@withContext emptyList()
@@ -512,23 +530,27 @@ class SearchRepository(private val context: Context) {
               page.associate { result -> result.genericDocument.id to result.rankingSignal }
 
             // Sort by usage, with unused items at the end
-            return@withContext searchShortcuts
-              .sortedByDescending { doc -> usageMap[doc.id] ?: 0.0 }
-              .take(limit)
-              .map { doc -> async { convertDocumentToResult(doc, 100) } }
-              .awaitAll()
-              .filterIsInstance<SearchResult.SearchIntent>()
+            return@withContext coroutineScope {
+              searchShortcuts
+                .sortedByDescending { doc -> usageMap[doc.id] ?: 0.0 }
+                .take(limit)
+                .map { doc -> async { convertDocumentToResult(doc, 100) } }
+                .awaitAll()
+                .filterIsInstance<SearchResult.SearchIntent>()
+            }
           } catch (e: Exception) {
             android.util.Log.e("SearchRepository", "Error querying usage", e)
           }
         }
 
         // Fallback: return all shortcuts without usage sorting
-        return@withContext searchShortcuts
-          .take(limit)
-          .map { doc -> async { convertDocumentToResult(doc, 100) } }
-          .awaitAll()
-          .filterIsInstance<SearchResult.SearchIntent>()
+        return@withContext coroutineScope {
+          searchShortcuts
+            .take(limit)
+            .map { doc -> async { convertDocumentToResult(doc, 100) } }
+            .awaitAll()
+            .filterIsInstance<SearchResult.SearchIntent>()
+        }
       } catch (e: Exception) {
         e.printStackTrace()
         android.util.Log.e("SearchRepository", "Error getting search shortcuts", e)
@@ -541,7 +563,13 @@ class SearchRepository(private val context: Context) {
       try {
         val docs =
           synchronized(documentCache) { documentCache.filter { favoriteIds.contains(it.id) } }
-        docs.map { doc -> async { convertDocumentToResult(doc, 100) } }.awaitAll()
+        val freshResults = coroutineScope {
+          docs.map { doc -> async { convertDocumentToResult(doc, 100) } }.awaitAll()
+        }
+        // Update flow and cache with fresh data (including potential new icons or labels)
+        _favorites.value = freshResults
+        saveFavoritesToCache(freshResults)
+        freshResults
       } catch (e: Exception) {
         e.printStackTrace()
         emptyList()
@@ -761,11 +789,13 @@ class SearchRepository(private val context: Context) {
   private suspend fun updateAppsCache() {
     val apps =
       withContext(Dispatchers.IO) {
-        synchronized(documentCache) {
-            documentCache.filter { it.namespace == "apps" }.sortedBy { it.name.lowercase() }
-          }
-          .map { doc -> async { convertDocumentToResult(doc, 0) } }
-          .awaitAll()
+        coroutineScope {
+          val docs =
+            synchronized(documentCache) {
+              documentCache.filter { it.namespace == "apps" }.sortedBy { it.name.lowercase() }
+            }
+          docs.map { doc -> async { convertDocumentToResult(doc, 0) } }.awaitAll()
+        }
       }
     _allApps.emit(apps)
   }
@@ -1405,6 +1435,188 @@ class SearchRepository(private val context: Context) {
           rankingScore = rankingScore,
         )
       }
+    }
+  }
+
+  // --- Persistence for Instant Favorites ---
+
+  private fun getFavoritesCacheFile() = File(context.filesDir, "favorites_metadata.json")
+
+  private fun getIconDir() = File(context.filesDir, "favorite_icons").apply { mkdirs() }
+
+  private fun sanitizeId(id: String) = id.replace("/", "_").replace(":", "_")
+
+  private fun saveIconToDisk(id: String, drawable: Drawable?) {
+    if (drawable == null) return
+    val file = File(getIconDir(), "${sanitizeId(id)}.png")
+    try {
+      val bitmap =
+        if (drawable is BitmapDrawable) {
+          drawable.bitmap
+        } else {
+          val b =
+            Bitmap.createBitmap(
+              drawable.intrinsicWidth.coerceAtLeast(1),
+              drawable.intrinsicHeight.coerceAtLeast(1),
+              Bitmap.Config.ARGB_8888,
+            )
+          val canvas = Canvas(b)
+          drawable.setBounds(0, 0, canvas.width, canvas.height)
+          drawable.draw(canvas)
+          b
+        }
+      FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
+    } catch (e: Exception) {
+      e.printStackTrace()
+    }
+  }
+
+  private fun loadIconFromDisk(id: String): Drawable? {
+    val file = File(getIconDir(), "${sanitizeId(id)}.png")
+    if (!file.exists()) return null
+    return try {
+      val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+      BitmapDrawable(context.resources, bitmap)
+    } catch (e: Exception) {
+      null
+    }
+  }
+
+  private fun saveFavoritesToCache(results: List<SearchResult>) {
+    android.util.Log.d("SearchRepository", "Saving ${results.size} favorites to cache...")
+    scope.launch(Dispatchers.IO) {
+      try {
+        val array = JSONArray()
+        results.forEach { res ->
+          val obj = JSONObject()
+          obj.put("id", res.id)
+          obj.put("namespace", res.namespace)
+          obj.put("title", res.title)
+          obj.put("subtitle", res.subtitle ?: "")
+          obj.put("type", res::class.java.simpleName)
+
+          when (res) {
+            is SearchResult.App -> {
+              obj.put("packageName", res.packageName)
+            }
+            is SearchResult.Content -> {
+              obj.put("packageName", res.packageName)
+              obj.put("deepLink", res.deepLink ?: "")
+            }
+            is SearchResult.Shortcut -> {
+              obj.put("packageName", res.packageName)
+              obj.put("intentUri", res.intentUri)
+            }
+            is SearchResult.SearchIntent -> {
+              obj.put("trigger", res.trigger)
+            }
+            is SearchResult.Contact -> {
+              obj.put("lookupKey", res.lookupKey)
+              obj.put("contactId", res.contactId)
+              obj.put("photoUri", res.photoUri ?: "")
+            }
+            is SearchResult.Snippet -> {
+              obj.put("alias", res.alias)
+              obj.put("content", res.content)
+            }
+          }
+          array.put(obj as Any)
+          // Also persist the icon if it's not already on disk or if we want to ensure it's fresh
+          saveIconToDisk(res.id, res.icon)
+        }
+        getFavoritesCacheFile().writeText(array.toString())
+      } catch (e: Exception) {
+        e.printStackTrace()
+      }
+    }
+  }
+
+  private fun loadFavoritesFromCache(): List<SearchResult> {
+    val file = getFavoritesCacheFile()
+    if (!file.exists()) return emptyList()
+    android.util.Log.d("SearchRepository", "Loading favorites from cache...")
+    return try {
+      val array = JSONArray(file.readText())
+      val results = mutableListOf<SearchResult>()
+      for (i in 0 until array.length()) {
+        val obj = array.getJSONObject(i)
+        val id = obj.getString("id")
+        val namespace = obj.getString("namespace")
+        val title = obj.getString("title")
+        val subtitle = obj.optString("subtitle", "").takeIf { it.isNotEmpty() }
+        val type = obj.getString("type")
+        val icon = loadIconFromDisk(id)
+
+        val res =
+          when (type) {
+            "App" ->
+              SearchResult.App(
+                id = id,
+                namespace = namespace,
+                title = title,
+                subtitle = subtitle,
+                icon = icon,
+                packageName = obj.getString("packageName"),
+              )
+            "Content" ->
+              SearchResult.Content(
+                id = id,
+                namespace = namespace,
+                title = title,
+                subtitle = subtitle,
+                icon = icon,
+                packageName = obj.getString("packageName"),
+                deepLink = obj.optString("deepLink", "").takeIf { it.isNotEmpty() },
+              )
+            "Shortcut" ->
+              SearchResult.Shortcut(
+                id = id,
+                namespace = namespace,
+                title = title,
+                subtitle = subtitle,
+                icon = icon,
+                packageName = obj.getString("packageName"),
+                intentUri = obj.getString("intentUri"),
+              )
+            "SearchIntent" ->
+              SearchResult.SearchIntent(
+                id = id,
+                namespace = namespace,
+                title = title,
+                subtitle = subtitle,
+                icon = icon,
+                trigger = obj.getString("trigger"),
+              )
+            "Contact" ->
+              SearchResult.Contact(
+                id = id,
+                namespace = namespace,
+                title = title,
+                subtitle = subtitle,
+                icon = icon,
+                lookupKey = obj.getString("lookupKey"),
+                contactId = obj.getLong("contactId"),
+                photoUri = obj.optString("photoUri", "").takeIf { it.isNotEmpty() },
+              )
+            "Snippet" ->
+              SearchResult.Snippet(
+                id = id,
+                namespace = namespace,
+                title = title,
+                subtitle = subtitle,
+                icon = icon,
+                alias = obj.getString("alias"),
+                content = obj.getString("content"),
+              )
+            else -> null
+          }
+        if (res != null) results.add(res)
+      }
+      android.util.Log.d("SearchRepository", "Loaded ${results.size} favorites from cache")
+      results
+    } catch (e: Exception) {
+      e.printStackTrace()
+      emptyList()
     }
   }
 

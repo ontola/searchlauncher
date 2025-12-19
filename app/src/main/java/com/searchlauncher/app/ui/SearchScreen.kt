@@ -8,10 +8,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -94,7 +91,7 @@ fun SearchScreen(
       }
       .collectAsState(initial = null)
 
-  var favorites by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
+  val favorites by searchRepository.favorites.collectAsState()
   var showSnippetDialog by remember { mutableStateOf(false) }
   var snippetEditMode by remember { mutableStateOf(false) }
   var snippetItemToEdit by remember { mutableStateOf<SearchResult.Snippet?>(null) }
@@ -125,13 +122,11 @@ fun SearchScreen(
       keyboardController?.show()
     }
   }
-  // Wait for the search repository to be initialized before loading favorites.
-  // This prevents a race condition where we try to query the index before it's ready.
+  // Refresh favorites from the actual index once it's ready.
+  // The UI will already show cached favorites from the StateFlow immediately.
   LaunchedEffect(favoriteIds, isSearchInitialized) {
     if (isSearchInitialized && favoriteIds.isNotEmpty()) {
-      favorites = searchRepository.getFavorites(favoriteIds)
-    } else {
-      favorites = emptyList()
+      searchRepository.getFavorites(favoriteIds)
     }
   }
 
@@ -587,14 +582,18 @@ fun SearchScreen(
           tonalElevation = 3.dp,
         ) {
           Box {
-            if (isIndexing) {
+            androidx.compose.animation.AnimatedVisibility(
+              visible = isIndexing,
+              enter = fadeIn(),
+              exit = fadeOut(),
+              modifier = Modifier.align(Alignment.TopCenter),
+            ) {
               LinearProgressIndicator(
                 modifier =
                   Modifier.fillMaxWidth()
                     .height(2.dp)
-                    .align(Alignment.TopCenter)
                     .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.primary,
                 trackColor = androidx.compose.ui.graphics.Color.Transparent,
               )
             }
