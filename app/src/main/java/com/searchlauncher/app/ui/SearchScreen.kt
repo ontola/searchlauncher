@@ -45,6 +45,7 @@ import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.service.GestureAccessibilityService
 import com.searchlauncher.app.ui.components.FavoritesRow
 import com.searchlauncher.app.ui.components.SearchResultItem
+import com.searchlauncher.app.ui.components.ShortcutDialog
 import com.searchlauncher.app.ui.components.SnippetDialog
 import com.searchlauncher.app.ui.components.WallpaperBackground
 import com.searchlauncher.app.ui.onboarding.OnboardingManager
@@ -96,6 +97,11 @@ fun SearchScreen(
   var showSnippetDialog by remember { mutableStateOf(false) }
   var snippetEditMode by remember { mutableStateOf(false) }
   var snippetItemToEdit by remember { mutableStateOf<SearchResult.Snippet?>(null) }
+  val searchShortcuts by app.searchShortcutRepository.items.collectAsState()
+  var showShortcutDialog by remember { mutableStateOf(false) }
+  var editingShortcut by remember {
+    mutableStateOf<com.searchlauncher.app.data.SearchShortcut?>(null)
+  }
   val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
   // Onboarding Logic
@@ -525,6 +531,68 @@ fun SearchScreen(
                           showSnippetDialog = true
                         }
                       } else null,
+                    onEditShortcut =
+                      if (result is SearchResult.Shortcut) {
+                        {
+                          val shortcut = searchShortcuts.find { it.id == result.id }
+                          if (shortcut != null) {
+                            editingShortcut = shortcut
+                            showShortcutDialog = true
+                          }
+                        }
+                      } else if (result is SearchResult.SearchIntent) {
+                        {
+                          val shortcut = searchShortcuts.find { it.alias == result.trigger }
+                          if (shortcut != null) {
+                            editingShortcut = shortcut
+                            showShortcutDialog = true
+                          }
+                        }
+                      } else if (
+                        result is SearchResult.Content && result.namespace == "search_shortcuts"
+                      ) {
+                        {
+                          val alias = result.id.removePrefix("shortcut_")
+                          val shortcut = searchShortcuts.find { it.alias == alias }
+                          if (shortcut != null) {
+                            editingShortcut = shortcut
+                            showShortcutDialog = true
+                          }
+                        }
+                      } else null,
+                    onDeleteShortcut =
+                      if (result is SearchResult.Shortcut) {
+                        {
+                          scope.launch {
+                            app.searchShortcutRepository.removeShortcut(result.id)
+                            Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT).show()
+                          }
+                        }
+                      } else if (result is SearchResult.SearchIntent) {
+                        {
+                          scope.launch {
+                            // Find the shortcut first to get its ID
+                            val shortcut = searchShortcuts.find { it.alias == result.trigger }
+                            if (shortcut != null) {
+                              app.searchShortcutRepository.removeShortcut(shortcut.id)
+                              Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT).show()
+                            }
+                          }
+                        }
+                      } else if (
+                        result is SearchResult.Content && result.namespace == "search_shortcuts"
+                      ) {
+                        {
+                          scope.launch {
+                            val alias = result.id.removePrefix("shortcut_")
+                            val shortcut = searchShortcuts.find { it.alias == alias }
+                            if (shortcut != null) {
+                              app.searchShortcutRepository.removeShortcut(shortcut.id)
+                              Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT).show()
+                            }
+                          }
+                        }
+                      } else null,
                     onCreateSnippet = {
                       snippetEditMode = false
                       showSnippetDialog = true
@@ -931,8 +999,30 @@ fun SearchScreen(
           } else {
             app.snippetsRepository.addItem(alias, content)
           }
+          app.searchRepository.indexSnippets()
         }
         showSnippetDialog = false
+      },
+    )
+  }
+
+  if (showShortcutDialog) {
+    ShortcutDialog(
+      shortcut = editingShortcut,
+      existingAliases =
+        searchShortcuts.map { it.alias } +
+          com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.map { it.alias },
+      onDismiss = { showShortcutDialog = false },
+      onSave = { newShortcut ->
+        scope.launch {
+          if (editingShortcut != null) {
+            app.searchShortcutRepository.updateShortcut(newShortcut)
+          } else {
+            app.searchShortcutRepository.addShortcut(newShortcut)
+          }
+          showShortcutDialog = false
+          app.searchRepository.indexCustomShortcuts()
+        }
       },
     )
   }

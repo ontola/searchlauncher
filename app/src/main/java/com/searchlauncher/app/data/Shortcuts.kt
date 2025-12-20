@@ -226,6 +226,14 @@ object DefaultShortcuts {
         shortLabel = "Google",
       ),
       SearchShortcut(
+        id = "gemini",
+        alias = "gem",
+        urlTemplate = "https://gemini.google.com/app?q=%s",
+        description = "Gemini AI",
+        color = 0xFF8E24AA, // Purple-ish
+        shortLabel = "Gemini",
+      ),
+      SearchShortcut(
         id = "duckduckgo",
         alias = "dd",
         urlTemplate = "https://duckduckgo.com/?q=%s",

@@ -42,6 +42,8 @@ fun SearchResultItem(
   onToggleFavorite: (() -> Unit)? = null,
   onEditSnippet: (() -> Unit)? = null,
   onCreateSnippet: (() -> Unit)? = null,
+  onEditShortcut: (() -> Unit)? = null,
+  onDeleteShortcut: (() -> Unit)? = null,
   onClick: () -> Unit,
 ) {
   var showMenu by remember { mutableStateOf(false) }
@@ -53,7 +55,12 @@ fun SearchResultItem(
           .then(
             if (onToggleFavorite != null) {
               Modifier.combinedClickable(onClick = onClick, onLongClick = { showMenu = true })
-            } else if (result is SearchResult.Snippet || result is SearchResult.App) {
+            } else if (
+              result is SearchResult.Snippet ||
+                result is SearchResult.App ||
+                onEditShortcut != null ||
+                onDeleteShortcut != null
+            ) {
               Modifier.combinedClickable(onClick = onClick, onLongClick = { showMenu = true })
             } else {
               Modifier.clickable(onClick = onClick)
@@ -148,6 +155,28 @@ fun SearchResultItem(
               showMenu = false
             },
             leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+          )
+        }
+
+        if (onEditShortcut != null) {
+          DropdownMenuItem(
+            text = { Text("Edit Shortcut") },
+            onClick = {
+              onEditShortcut.invoke()
+              showMenu = false
+            },
+            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+          )
+        }
+
+        if (onDeleteShortcut != null) {
+          DropdownMenuItem(
+            text = { Text("Remove Shortcut") },
+            onClick = {
+              onDeleteShortcut.invoke()
+              showMenu = false
+            },
+            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
           )
         }
 

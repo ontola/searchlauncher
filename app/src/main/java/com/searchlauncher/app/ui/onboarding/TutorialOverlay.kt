@@ -102,7 +102,7 @@ fun TutorialOverlay(
         }
         OnboardingStep.LongPressBackground -> {
           HoldGestureIndicator(
-            text = "Hold to add Widgets",
+            text = "Hold to change background oradd Widgets",
             modifier = Modifier.align(Alignment.Center),
           )
         }

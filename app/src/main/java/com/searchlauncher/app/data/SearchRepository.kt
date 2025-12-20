@@ -160,6 +160,13 @@ class SearchRepository(private val context: Context) {
               "indexContacts took ${System.currentTimeMillis() - contactsStart}ms",
             )
 
+            val snippetsStart = System.currentTimeMillis()
+            indexSnippets()
+            android.util.Log.d(
+              "SearchRepository",
+              "indexSnippets took ${System.currentTimeMillis() - snippetsStart}ms",
+            )
+
             android.util.Log.d(
               "SearchRepository",
               "Background Re-indexing took ${System.currentTimeMillis() - backgroundStart}ms",
@@ -783,6 +790,42 @@ class SearchRepository(private val context: Context) {
         replaceCollection("contacts", contacts)
       } else {
         android.util.Log.d("SearchRepository", "No contacts found to index")
+      }
+    }
+
+  suspend fun indexSnippets() =
+    withContext(Dispatchers.IO) {
+      val session = appSearchSession ?: return@withContext
+      val app = context.applicationContext as? SearchLauncherApp ?: return@withContext
+
+      try {
+        val snippets = app.snippetsRepository.items.value
+        val docs =
+          snippets.map { snippet ->
+            AppSearchDocument(
+              namespace = "snippets",
+              id = snippet.alias,
+              name = snippet.alias,
+              description = snippet.content,
+              score = 5,
+              // Snippets don't really use intentUri for launching/Action,
+              // but we might need a dummy one or update schema if required.
+              // Assuming optional or strict checking is handled.
+              // Logic in SearchResultItem handles it via clipboard.
+              intentUri = "snippet://${snippet.alias}",
+              isAction = true,
+            )
+          }
+
+        if (docs.isNotEmpty()) {
+          val putRequest = PutDocumentsRequest.Builder().addDocuments(docs).build()
+          session.putAsync(putRequest).get()
+          replaceCollection("snippets", docs)
+          android.util.Log.d("SearchRepository", "Indexed ${docs.size} snippets")
+        }
+      } catch (e: Exception) {
+        e.printStackTrace()
+        android.util.Log.e("SearchRepository", "Failed to index snippets", e)
       }
     }
 
