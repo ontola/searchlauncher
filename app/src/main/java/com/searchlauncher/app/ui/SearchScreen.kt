@@ -7,6 +7,9 @@ import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
+import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.SpeechRecognizer
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.clickable
@@ -22,6 +25,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -352,6 +356,73 @@ fun SearchScreen(
             }
           },
         )
+
+      var isListening by remember { mutableStateOf(false) }
+      val speechRecognizer: android.speech.SpeechRecognizer = remember {
+        SpeechRecognizer.createSpeechRecognizer(context)
+      }
+
+      val permissionLauncher =
+        androidx.activity.compose.rememberLauncherForActivityResult(
+          androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+        ) { isGranted ->
+          if (isGranted) {
+            try {
+              val intent =
+                Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                  putExtra(
+                    android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                  )
+                  putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                }
+              speechRecognizer.startListening(intent)
+              isListening = true
+            } catch (e: Exception) {
+              Toast.makeText(context, "Voice search error", Toast.LENGTH_SHORT).show()
+              isListening = false
+            }
+          } else {
+            Toast.makeText(context, "Permission needed for voice search", Toast.LENGTH_SHORT).show()
+          }
+        }
+
+      DisposableEffect(Unit) {
+        val listener: android.speech.RecognitionListener =
+          object : android.speech.RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) {}
+
+            override fun onBeginningOfSpeech() {}
+
+            override fun onRmsChanged(rmsdB: Float) {}
+
+            override fun onBufferReceived(buffer: ByteArray?) {}
+
+            override fun onEndOfSpeech() {
+              isListening = false
+            }
+
+            override fun onError(error: Int) {
+              isListening = false
+            }
+
+            override fun onResults(results: Bundle?) {
+              val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+              if (!matches.isNullOrEmpty()) {
+                onQueryChange(matches[0])
+              }
+              isListening = false
+            }
+
+            override fun onPartialResults(partialResults: Bundle?) {
+              // Optional: update query in real-time
+            }
+
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+          }
+        speechRecognizer.setRecognitionListener(listener)
+        onDispose { speechRecognizer.destroy() }
+      }
 
       var showBackgroundMenu by remember { mutableStateOf(false) }
       var menuOffset by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
@@ -934,18 +1005,28 @@ fun SearchScreen(
                 decorationBox = { innerTextField ->
                   Box(contentAlignment = Alignment.CenterStart) {
                     if (displayQuery.isEmpty() && activeShortcut == null) {
-                      AnimatedContent(
-                        targetState = currentHint,
-                        transitionSpec = { fadeIn() togetherWith fadeOut() },
-                        label = "HintAnimation",
-                      ) { targetHint ->
+                      if (isListening) {
                         Text(
-                          text = targetHint,
-                          color = MaterialTheme.colorScheme.onSurfaceVariant,
+                          text = "Listening...",
+                          color = MaterialTheme.colorScheme.primary,
                           fontSize = 16.sp,
                           maxLines = 1,
                           overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         )
+                      } else {
+                        AnimatedContent(
+                          targetState = currentHint,
+                          transitionSpec = { fadeIn() togetherWith fadeOut() },
+                          label = "HintAnimation",
+                        ) { targetHint ->
+                          Text(
+                            text = targetHint,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                          )
+                        }
                       }
                     }
                     innerTextField()
@@ -966,6 +1047,47 @@ fun SearchScreen(
                   )
                 }
               } else {
+                IconButton(
+                  onClick = {
+                    if (isListening) {
+                      speechRecognizer.stopListening()
+                      isListening = false
+                    } else {
+                      if (
+                        context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+                          android.content.pm.PackageManager.PERMISSION_GRANTED
+                      ) {
+                        try {
+                          val intent =
+                            Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                              putExtra(
+                                android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                                android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                              )
+                              putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                            }
+                          speechRecognizer.startListening(intent)
+                          isListening = true
+                        } catch (e: Exception) {
+                          Toast.makeText(context, "Voice search error", Toast.LENGTH_SHORT).show()
+                          isListening = false
+                        }
+                      } else {
+                        permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                      }
+                    }
+                  },
+                  modifier = Modifier.size(32.dp).padding(4.dp),
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.Mic,
+                    contentDescription = "Voice Search",
+                    tint =
+                      if (isListening) MaterialTheme.colorScheme.primary
+                      else MaterialTheme.colorScheme.onSurface,
+                  )
+                }
+
                 IconButton(
                   onClick = onOpenSettings,
                   modifier = Modifier.size(32.dp).padding(4.dp),
