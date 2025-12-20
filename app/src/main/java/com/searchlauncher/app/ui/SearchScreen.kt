@@ -109,6 +109,25 @@ fun SearchScreen(
   }
   val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
+  val themeColor by
+    remember {
+        context.dataStore.data.map {
+          it[MainActivity.PreferencesKeys.THEME_COLOR] ?: 0xFF5E6D4E.toInt()
+        }
+      }
+      .collectAsState(initial = 0xFF5E6D4E.toInt())
+  val themeSaturation by
+    remember {
+        context.dataStore.data.map { it[MainActivity.PreferencesKeys.THEME_SATURATION] ?: 50f }
+      }
+      .collectAsState(initial = 50f)
+  val darkMode by
+    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.DARK_MODE] ?: 0 } }
+      .collectAsState(initial = 0)
+  val isOled by
+    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.OLED_MODE] ?: false } }
+      .collectAsState(initial = false)
+
   // Onboarding Logic
   val onboardingManager = remember { OnboardingManager(context) }
   val completedSteps by onboardingManager.completedSteps.collectAsState(initial = emptySet())
@@ -227,7 +246,7 @@ fun SearchScreen(
               namespace = "calculator",
               title = formattedResult,
               subtitle = "Calculation result (Tap to copy)",
-              icon = null,
+              icon = searchRepository.getColoredSearchIcon(themeColor.toLong(), "="),
               packageName = "android",
               deepLink = "calculator://copy?text=$formattedResult",
             )
@@ -269,36 +288,26 @@ fun SearchScreen(
   }
 
   val hintManager =
-    remember(folderImages, snippetItems, isDefaultLauncher, hasContactsPermission) {
+    remember(
+      folderImages,
+      snippetItems,
+      isDefaultLauncher,
+      hasContactsPermission,
+      searchShortcuts,
+    ) {
+      val shortcutHints =
+        searchShortcuts.map { "Type '${it.alias} ' to ${it.description.lowercase()}" }
       HintManager(
         isWallpaperFolderSet = { folderImages.isNotEmpty() },
         isSnippetsSet = { snippetItems.isNotEmpty() },
         isDefaultLauncher = { isDefaultLauncher },
         isContactsAccessGranted = { hasContactsPermission },
+        shortcutHints = shortcutHints,
       )
     }
   var currentHint by remember { mutableStateOf("Search apps and content…") }
 
   LaunchedEffect(hintManager) { hintManager.getHintsFlow().collect { hint -> currentHint = hint } }
-
-  val themeColor by
-    remember {
-        context.dataStore.data.map {
-          it[MainActivity.PreferencesKeys.THEME_COLOR] ?: 0xFF5E6D4E.toInt()
-        }
-      }
-      .collectAsState(initial = 0xFF5E6D4E.toInt())
-  val themeSaturation by
-    remember {
-        context.dataStore.data.map { it[MainActivity.PreferencesKeys.THEME_SATURATION] ?: 50f }
-      }
-      .collectAsState(initial = 50f)
-  val darkMode by
-    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.DARK_MODE] ?: 0 } }
-      .collectAsState(initial = 0)
-  val isOled by
-    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.OLED_MODE] ?: false } }
-      .collectAsState(initial = false)
 
   // Use SharedPreferences for synchronous read to avoid initial jump
   val sharedPrefs = remember { context.getSharedPreferences("window_prefs", Context.MODE_PRIVATE) }

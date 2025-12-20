@@ -11,6 +11,7 @@ class HintManager(
   private val isSnippetsSet: () -> Boolean,
   private val isDefaultLauncher: () -> Boolean,
   private val isContactsAccessGranted: () -> Boolean,
+  private val shortcutHints: List<String> = emptyList(),
 ) {
   private val hints =
     listOf(
@@ -20,14 +21,13 @@ class HintManager(
       Hint("Give access to contacts to search them") { !isContactsAccessGranted() },
       Hint("Type a phone number and call"),
       Hint("Type a website URL to open"),
+      Hint("Try some maths: 1+1, 2^2, 2*2, 2/2, 2%2"),
       Hint("Swipe up to open the app drawer"),
       Hint("Swipe down left to open notifications"),
       Hint("Swipe down right to open quick settings"),
-      Hint("Set custom snippets") { !isSnippetsSet() },
-      Hint("Type 'y ' to search youtube"),
-      Hint("Type 'm ' to search maps"),
-      Hint("Type 'c ' to ask ChatGPT"),
-    )
+      Hint("Hold search results for more options"),
+      Hint("Set custom snippets in settings") { !isSnippetsSet() },
+    ) + shortcutHints.map { Hint(it) }
 
   fun getHintsFlow(): Flow<String> = flow {
     var index = 0
