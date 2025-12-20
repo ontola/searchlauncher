@@ -64,6 +64,14 @@ object CustomActionHandler {
         openInternalSetting(context, "wallpaper")
         true
       }
+      "com.searchlauncher.action.ADD_WALLPAPER" -> {
+        openInternalSetting(context, "add_wallpaper")
+        true
+      }
+      "com.searchlauncher.action.REMOVE_CURRENT_WALLPAPER" -> {
+        openInternalSetting(context, "remove_current_wallpaper")
+        true
+      }
       else -> false
     }
   }

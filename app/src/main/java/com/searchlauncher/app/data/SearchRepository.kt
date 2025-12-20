@@ -300,6 +300,8 @@ class SearchRepository(private val context: Context) {
         // 1. Get all profiles (to support work profiles)
         val profiles = launcherApps.profiles
 
+        val appNameCache = mutableMapOf<String, String>()
+
         for (profile in profiles) {
           try {
             // 2. Query for ALL shortcuts in the profile
@@ -322,6 +324,15 @@ class SearchRepository(private val context: Context) {
                   }
 
                 val name = shortcut.shortLabel?.toString() ?: shortcut.longLabel?.toString() ?: ""
+                val appName =
+                  appNameCache.getOrPut(shortcut.`package`) {
+                    try {
+                      val appInfo = context.packageManager.getApplicationInfo(shortcut.`package`, 0)
+                      context.packageManager.getApplicationLabel(appInfo).toString()
+                    } catch (e: Exception) {
+                      shortcut.`package`
+                    }
+                  }
 
                 shortcuts.add(
                   AppSearchDocument(
@@ -330,7 +341,7 @@ class SearchRepository(private val context: Context) {
                     name = name,
                     score = 1,
                     intentUri = intent,
-                    description = "Shortcut",
+                    description = "Shortcut - $appName",
                   )
                 )
               } catch (e: Exception) {
@@ -381,8 +392,8 @@ class SearchRepository(private val context: Context) {
             id = "app_${shortcut.id}",
             name = shortcut.description,
             score = 3,
-            description = null,
-            intentUri = shortcut.intentUri,
+            description = (shortcut as? AppShortcut.Action)?.aliases,
+            intentUri = (shortcut as? AppShortcut.Action)?.intentUri,
             isAction = true,
           )
         }
@@ -435,7 +446,7 @@ class SearchRepository(private val context: Context) {
             namespace = "static_shortcuts",
             id = "${s.packageName}/${s.id}",
             name = "$appName: ${s.shortLabel}",
-            description = s.longLabel ?: "Shortcut",
+            description = "Shortcut - $appName",
             score = 1,
             intentUri = s.intent.toUri(0),
             iconResId = s.iconResId.toLong(),

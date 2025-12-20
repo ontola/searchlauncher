@@ -8,11 +8,23 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -20,11 +32,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -48,6 +64,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +76,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import coil.compose.AsyncImage
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.ui.MainActivity.PreferencesKeys
 import kotlinx.coroutines.flow.map
@@ -80,9 +100,9 @@ fun SettingsScreen(
     if (initialHighlightSection != null) {
       val index =
         when (initialHighlightSection) {
-          "wallpaper" -> 1 // ThemeSettingsCard
-          "history" -> 3 // Search Settings
-          "snippets" -> 5 // SnippetsCard
+          "wallpaper" -> 2 // WallpaperManagementCard
+          "history" -> 5 // Search Settings
+          "snippets" -> 7 // SnippetsCard
           else -> -1
         }
       if (index >= 0) {
@@ -127,6 +147,8 @@ fun SettingsScreen(
     }
 
     item { ThemeSettingsCard(onNavigateToHome = onBack) }
+
+    item { WallpaperManagementCard() }
 
     item {
       Card(modifier = Modifier.fillMaxWidth()) {
@@ -602,6 +624,128 @@ private fun SnippetDialog(
     },
     dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
   )
+}
+
+@Composable
+private fun WallpaperManagementCard() {
+  val context = LocalContext.current
+  val app = context.applicationContext as SearchLauncherApp
+  val wallpapers by app.wallpaperRepository.wallpapers.collectAsState()
+  val scope = rememberCoroutineScope()
+
+  val launcher =
+    rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+      if (uris.isNotEmpty()) {
+        scope.launch { uris.forEach { uri -> app.wallpaperRepository.addWallpaper(uri) } }
+      }
+    }
+
+  var isExpanded by remember { mutableStateOf(false) }
+
+  Card(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Row(
+          modifier = Modifier.weight(1f).clickable { isExpanded = !isExpanded },
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Icon(
+            imageVector =
+              if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+            contentDescription = null,
+            modifier = Modifier.size(24.dp),
+          )
+          Spacer(Modifier.width(8.dp))
+          Column {
+            Text(text = "Wallpapers", style = MaterialTheme.typography.titleMedium)
+            Text(
+              text = "Manage your launcher background collection",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+        }
+        Button(
+          onClick = {
+            launcher.launch(
+              PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+            )
+          }
+        ) {
+          Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+          Spacer(Modifier.width(8.dp))
+          Text("Add Wallpapers")
+        }
+      }
+
+      AnimatedVisibility(
+        visible = isExpanded,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
+      ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+          if (wallpapers.isNotEmpty()) {
+            wallpapers.chunked(3).forEach { rowWallpapers: List<Uri> ->
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+              ) {
+                rowWallpapers.forEach { wallpaperUri: Uri ->
+                  Box(
+                    modifier =
+                      Modifier.weight(1f)
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                  ) {
+                    AsyncImage(
+                      model = wallpaperUri,
+                      contentDescription = null,
+                      contentScale = ContentScale.Crop,
+                      modifier = Modifier.fillMaxSize(),
+                    )
+
+                    IconButton(
+                      onClick = {
+                        scope.launch { app.wallpaperRepository.removeWallpaper(wallpaperUri) }
+                      },
+                      modifier =
+                        Modifier.align(Alignment.TopEnd)
+                          .padding(4.dp)
+                          .size(24.dp)
+                          .background(
+                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f),
+                            RoundedCornerShape(12.dp),
+                          ),
+                    ) {
+                      Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Remove",
+                        tint = androidx.compose.ui.graphics.Color.White,
+                        modifier = Modifier.size(16.dp),
+                      )
+                    }
+                  }
+                }
+                repeat(3 - rowWallpapers.size) { Spacer(modifier = Modifier.weight(1f)) }
+              }
+            }
+          } else {
+            Text(
+              text = "No custom wallpapers added. Using defaults.",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.padding(vertical = 8.dp),
+            )
+          }
+        }
+      }
+    }
+  }
 }
 
 @Composable

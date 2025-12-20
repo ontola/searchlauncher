@@ -9,6 +9,7 @@ import com.searchlauncher.app.data.FavoritesRepository
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchShortcutRepository
 import com.searchlauncher.app.data.SnippetsRepository
+import com.searchlauncher.app.data.WallpaperRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -30,6 +31,9 @@ class SearchLauncherApp : Application() {
   lateinit var widgetRepository: com.searchlauncher.app.data.WidgetRepository
     private set
 
+  lateinit var wallpaperRepository: WallpaperRepository
+    private set
+
   override fun onCreate() {
     super.onCreate()
     searchRepository = SearchRepository(this)
@@ -37,6 +41,7 @@ class SearchLauncherApp : Application() {
     favoritesRepository = FavoritesRepository(this)
     searchShortcutRepository = com.searchlauncher.app.data.SearchShortcutRepository(this)
     widgetRepository = com.searchlauncher.app.data.WidgetRepository(this)
+    wallpaperRepository = WallpaperRepository(this)
     CoroutineScope(Dispatchers.IO).launch { searchRepository.initialize() }
     createNotificationChannel()
   }

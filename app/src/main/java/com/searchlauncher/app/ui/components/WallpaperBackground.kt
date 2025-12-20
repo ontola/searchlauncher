@@ -75,7 +75,7 @@ fun WallpaperBackground(
   onOpenAppDrawer: () -> Unit = {},
   onLongPress: (Offset) -> Unit = {},
   onTap: () -> Unit = {},
-  onPageChanged: () -> Unit = {},
+  onPageChanged: (Uri) -> Unit = {},
   onSwipeDownLeft: () -> Unit = {},
   onSwipeDownRight: () -> Unit = {},
 ) {
@@ -114,16 +114,16 @@ fun WallpaperBackground(
       .collect { page ->
         if (folderImages.isNotEmpty()) {
           val actualIndex = page % folderImages.size
-          val currentUri = folderImages[actualIndex].toString()
+          val currentUri = folderImages[actualIndex]
 
           // Only trigger if we are "settled" or it's a genuine change?
           // snapshotFlow emits whenever currentPage updates (which is usually on snap).
           // We invoke the callback.
-          currentOnPageChanged()
+          currentOnPageChanged(currentUri)
 
-          if (currentUri != lastImageUriString) {
+          if (currentUri.toString() != lastImageUriString) {
             context.dataStore.edit { prefs ->
-              prefs[MainActivity.PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] = currentUri
+              prefs[MainActivity.PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] = currentUri.toString()
             }
           }
         }

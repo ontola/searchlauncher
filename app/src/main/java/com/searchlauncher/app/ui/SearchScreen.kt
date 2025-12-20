@@ -11,6 +11,9 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.SpeechRecognizer
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -23,6 +26,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
@@ -89,14 +93,6 @@ fun SearchScreen(
   val favoriteIds by app.favoritesRepository.favoriteIds.collectAsState()
   val isSearchInitialized by searchRepository.isInitialized.collectAsState(initial = false)
   val isIndexing by searchRepository.isIndexing.collectAsState(initial = false)
-  val backgroundUriString by
-    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.BACKGROUND_URI] } }
-      .collectAsState(initial = null)
-  val backgroundFolderUriString by
-    remember {
-        context.dataStore.data.map { it[MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI] }
-      }
-      .collectAsState(initial = null)
 
   val favorites by searchRepository.favorites.collectAsState()
   var showSnippetDialog by remember { mutableStateOf(false) }
@@ -348,40 +344,6 @@ fun SearchScreen(
     isOled = isOled,
   ) {
     Box(modifier = Modifier.fillMaxSize()) {
-      val launcher =
-        androidx.activity.compose.rememberLauncherForActivityResult(
-          contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
-          onResult = { uri: Uri? ->
-            uri?.let {
-              val flag = Intent.FLAG_GRANT_READ_URI_PERMISSION
-              context.contentResolver.takePersistableUriPermission(it, flag)
-              scope.launch {
-                context.dataStore.edit { preferences ->
-                  preferences[MainActivity.PreferencesKeys.BACKGROUND_URI] = it.toString()
-                  preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI)
-                }
-              }
-            }
-          },
-        )
-
-      val folderLauncher =
-        androidx.activity.compose.rememberLauncherForActivityResult(
-          contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree(),
-          onResult = { uri: Uri? ->
-            uri?.let {
-              val flag = Intent.FLAG_GRANT_READ_URI_PERMISSION
-              context.contentResolver.takePersistableUriPermission(it, flag)
-              scope.launch {
-                context.dataStore.edit { preferences ->
-                  preferences[MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI] = it.toString()
-                  preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_URI)
-                }
-              }
-            }
-          },
-        )
-
       var isListening by remember { mutableStateOf(false) }
       val speechRecognizer: android.speech.SpeechRecognizer = remember {
         SpeechRecognizer.createSpeechRecognizer(context)
@@ -449,8 +411,17 @@ fun SearchScreen(
         onDispose { speechRecognizer.destroy() }
       }
 
+      var currentWallpaperUri by remember { mutableStateOf<Uri?>(null) }
       var showBackgroundMenu by remember { mutableStateOf(false) }
       var menuOffset by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+
+      val launcher =
+        rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris
+          ->
+          if (uris.isNotEmpty()) {
+            scope.launch { uris.forEach { uri -> app.wallpaperRepository.addWallpaper(uri) } }
+          }
+        }
 
       Box(modifier = Modifier.fillMaxSize()) {
         WallpaperBackground(
@@ -474,7 +445,8 @@ fun SearchScreen(
             // But if we want to complete "Swipe Background", we need to detect the swipe in
             // WallpaperBackground
           },
-          onPageChanged = {
+          onPageChanged = { uri ->
+            currentWallpaperUri = uri
             scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeBackground) }
           },
           onSwipeDownLeft = {
@@ -509,19 +481,27 @@ fun SearchScreen(
             ),
         ) {
           DropdownMenuItem(
-            text = { Text("Set Image") },
+            text = { Text("Add Wallpapers") },
             onClick = {
               showBackgroundMenu = false
-              launcher.launch(arrayOf("image/*"))
+              launcher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+              )
             },
+            leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
           )
-          DropdownMenuItem(
-            text = { Text("Set Folder") },
-            onClick = {
-              showBackgroundMenu = false
-              folderLauncher.launch(null)
-            },
-          )
+          if (currentWallpaperUri != null) {
+            DropdownMenuItem(
+              text = { Text("Remove Current Wallpaper") },
+              onClick = {
+                showBackgroundMenu = false
+                currentWallpaperUri?.let { uri ->
+                  scope.launch { app.wallpaperRepository.removeWallpaper(uri) }
+                }
+              },
+              leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+            )
+          }
           DropdownMenuItem(
             text = { Text("Add Widget") },
             onClick = {
@@ -549,21 +529,6 @@ fun SearchScreen(
                 }
               },
               leadingIcon = { Icon(imageVector = Icons.Default.Delete, contentDescription = null) },
-            )
-          }
-          if (backgroundUriString != null || backgroundFolderUriString != null) {
-            DropdownMenuItem(
-              text = { Text("Use default backgrounds") },
-              onClick = {
-                showBackgroundMenu = false
-                scope.launch {
-                  context.dataStore.edit { preferences ->
-                    preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_URI)
-                    preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI)
-                    preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_LAST_IMAGE_URI)
-                  }
-                }
-              },
             )
           }
         }

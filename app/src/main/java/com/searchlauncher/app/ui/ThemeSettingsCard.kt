@@ -1,9 +1,6 @@
 package com.searchlauncher.app.ui
 
-import android.content.Intent
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,6 +28,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.datastore.preferences.core.edit
 import coil.compose.AsyncImage
 import com.google.android.material.color.utilities.Hct
+import com.searchlauncher.app.SearchLauncherApp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -60,82 +58,31 @@ fun ThemeSettingsCard(onNavigateToHome: () -> Unit) {
   val isOled by
     remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.OLED_MODE] ?: false } }
       .collectAsState(initial = false)
-  val backgroundUriString by
-    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.BACKGROUND_URI] } }
-      .collectAsState(initial = null)
-  val backgroundFolderUriString by
+
+  val lastBackgroundUriString by
     remember {
-        context.dataStore.data.map { it[MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI] }
+        context.dataStore.data.map { it[MainActivity.PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] }
       }
       .collectAsState(initial = null)
+
+  val app = context.applicationContext as SearchLauncherApp
+  val managedWallpapers by app.wallpaperRepository.wallpapers.collectAsState()
+
+  val currentWallpaperUri =
+    remember(lastBackgroundUriString, managedWallpapers) {
+      val wallpapers: List<Uri> = managedWallpapers
+      wallpapers.find { uri -> uri.toString() == lastBackgroundUriString }
+        ?: wallpapers.firstOrNull()
+    }
 
   var showColorPickerDialog by remember { mutableStateOf(false) }
   var showImageColorPickerDialog by remember { mutableStateOf(false) }
 
-  val launcher =
-    rememberLauncherForActivityResult(
-      contract = ActivityResultContracts.OpenDocument(),
-      onResult = { uri: Uri? ->
-        uri?.let {
-          val flag = Intent.FLAG_GRANT_READ_URI_PERMISSION
-          context.contentResolver.takePersistableUriPermission(it, flag)
-          scope.launch {
-            context.dataStore.edit { preferences ->
-              preferences[MainActivity.PreferencesKeys.BACKGROUND_URI] = it.toString()
-              preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI)
-            }
-
-            // Navigate after save completes (apply is async but fast enough usually, or commit)
-            withContext(Dispatchers.Main) { onNavigateToHome() }
-          }
-        }
-      },
-    )
-
-  val folderLauncher =
-    rememberLauncherForActivityResult(
-      contract = ActivityResultContracts.OpenDocumentTree(),
-      onResult = { uri: Uri? ->
-        uri?.let {
-          val flag = Intent.FLAG_GRANT_READ_URI_PERMISSION
-          context.contentResolver.takePersistableUriPermission(it, flag)
-          scope.launch {
-            context.dataStore.edit { preferences ->
-              preferences[MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI] = it.toString()
-              preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_URI)
-            }
-
-            // Navigate after save completes
-            withContext(Dispatchers.Main) { onNavigateToHome() }
-          }
-        }
-      },
-    )
-
   Card(modifier = Modifier.fillMaxWidth()) {
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      // Background Image section (moved to top)
-      Text(
-        text = "Background Image",
-        style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier.fillMaxWidth(),
-      )
-      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(
-          onClick = { launcher.launch(arrayOf("image/*")) },
-          modifier = Modifier.weight(1f),
-        ) {
-          Text("Pick Image")
-        }
-        OutlinedButton(onClick = { folderLauncher.launch(null) }, modifier = Modifier.weight(1f)) {
-          Text("Pick Folder")
-        }
-      }
-
       // OLED Toggle (only if dark mode is enabled or system is dark)
-      // Simplified: Just show it always, let user control it.
       Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
       ) {
@@ -156,41 +103,6 @@ fun ThemeSettingsCard(onNavigateToHome: () -> Unit) {
               }
             }
           },
-        )
-      }
-
-      if (backgroundUriString != null || backgroundFolderUriString != null) {
-        OutlinedButton(
-          onClick = {
-            scope.launch {
-              context.dataStore.edit { preferences ->
-                preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_URI)
-                preferences.remove(MainActivity.PreferencesKeys.BACKGROUND_FOLDER_URI)
-              }
-              // Navigate after clear completes
-              withContext(Dispatchers.Main) { onNavigateToHome() }
-            }
-          },
-          modifier = Modifier.fillMaxWidth(),
-        ) {
-          Text("Use Default Background")
-        }
-      }
-
-      // Preview of selected image
-      if (backgroundUriString != null) {
-        AsyncImage(
-          model = android.net.Uri.parse(backgroundUriString),
-          contentDescription = "Background preview",
-          contentScale = ContentScale.Crop,
-          modifier = Modifier.fillMaxWidth().height(120.dp).clip(MaterialTheme.shapes.medium),
-        )
-      }
-      if (backgroundFolderUriString != null) {
-        Text(
-          text = "Folder selected. Images will rotate.",
-          style = MaterialTheme.typography.bodyMedium,
-          modifier = Modifier.fillMaxWidth(),
         )
       }
 
@@ -228,7 +140,7 @@ fun ThemeSettingsCard(onNavigateToHome: () -> Unit) {
         )
 
         // Pick from image button
-        if (backgroundUriString != null) {
+        if (managedWallpapers.isNotEmpty()) {
           OutlinedButton(
             onClick = { showImageColorPickerDialog = true },
             modifier = Modifier.weight(1f),
@@ -294,10 +206,10 @@ fun ThemeSettingsCard(onNavigateToHome: () -> Unit) {
   }
 
   // Fullscreen image color picker dialog
-  backgroundUriString?.let { uri ->
+  currentWallpaperUri?.let { uri: Uri ->
     if (showImageColorPickerDialog) {
       ImageColorPickerDialog(
-        imageUri = uri,
+        imageUri = uri.toString(),
         onDismiss = { showImageColorPickerDialog = false },
         onColorSelected = { color, saturation ->
           scope.launch {

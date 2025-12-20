@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -78,6 +79,18 @@ class MainActivity : ComponentActivity() {
           extras?.getInt(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
         if (appWidgetId != -1) {
           appWidgetHost.deleteAppWidgetId(appWidgetId)
+        }
+      }
+    }
+
+  private val pickWallpapersLauncher =
+    registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+      if (uris.isNotEmpty()) {
+        val app = application as SearchLauncherApp
+        lifecycleScope.launch {
+          uris.forEach { uri -> app.wallpaperRepository.addWallpaper(uri) }
+          Toast.makeText(this@MainActivity, "Added ${uris.size} wallpapers", Toast.LENGTH_SHORT)
+            .show()
         }
       }
     }
@@ -247,6 +260,22 @@ class MainActivity : ComponentActivity() {
           currentScreenState = Screen.Settings
           pendingSettingsSection = settingPage
         }
+        "add_wallpaper" -> {
+          pickWallpapersLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+          )
+        }
+        "remove_current_wallpaper" -> {
+          lifecycleScope.launch {
+            val lastUri =
+              dataStore.data.map { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] }.first()
+            if (lastUri != null) {
+              val appInstance = application as SearchLauncherApp
+              appInstance.wallpaperRepository.removeWallpaper(Uri.parse(lastUri))
+              Toast.makeText(this@MainActivity, "Wallpaper removed", Toast.LENGTH_SHORT).show()
+            }
+          }
+        }
       }
       return
     }
@@ -336,69 +365,22 @@ class MainActivity : ComponentActivity() {
   @Composable
   private fun MainScreen() {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var showPractice by remember { mutableStateOf(false) }
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     // Hoist wallpaper state
     // Hoist wallpaper state
-    val backgroundFolderUriString by
-      remember { context.dataStore.data.map { it[PreferencesKeys.BACKGROUND_FOLDER_URI] } }
-        .collectAsState(initial = null)
-
-    val backgroundUriString by
-      remember { context.dataStore.data.map { it[PreferencesKeys.BACKGROUND_URI] } }
-        .collectAsState(initial = null)
-
     val lastImageUriString by
       remember { context.dataStore.data.map { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] } }
         .collectAsState(initial = null)
 
+    val app = context.applicationContext as SearchLauncherApp
+    val managedWallpapers by app.wallpaperRepository.wallpapers.collectAsState()
+
     var folderImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
 
-    LaunchedEffect(backgroundFolderUriString, backgroundUriString) {
-      if (backgroundFolderUriString != null) {
-        withContext(Dispatchers.IO) {
-          try {
-            val folderUri = Uri.parse(backgroundFolderUriString)
-            val documentFile =
-              androidx.documentfile.provider.DocumentFile.fromTreeUri(context, folderUri)
-            val files = documentFile?.listFiles()
-            val images =
-              files?.filter { file ->
-                val mimeType = file.type
-                mimeType != null && mimeType.startsWith("image/")
-              }
-            val uris = images?.sortedBy { it.name }?.map { it.uri } ?: emptyList()
-            withContext(Dispatchers.Main) { folderImages = uris }
-          } catch (e: Exception) {
-            e.printStackTrace()
-          }
-        }
-      } else if (backgroundUriString != null) {
-        try {
-          folderImages = listOf(Uri.parse(backgroundUriString))
-        } catch (e: Exception) {
-          e.printStackTrace()
-        }
-      } else {
-        // Load default assets
-        withContext(Dispatchers.IO) {
-          try {
-            val assets = context.assets.list("")
-            val defaults =
-              assets
-                ?.filter { it.startsWith("BG") && (it.endsWith(".jpg") || it.endsWith(".png")) }
-                ?.sorted() // Ensure consistent order
-                ?.map { Uri.parse("file:///android_asset/$it") } ?: emptyList()
-            withContext(Dispatchers.Main) { folderImages = defaults }
-          } catch (e: Exception) {
-            e.printStackTrace()
-          }
-        }
-      }
-    }
+    LaunchedEffect(managedWallpapers) { folderImages = managedWallpapers }
 
     val showHistory =
       remember { context.dataStore.data.map { it[booleanPreferencesKey("show_history")] ?: false } }
@@ -455,7 +437,6 @@ class MainActivity : ComponentActivity() {
         ) { targetState ->
           when (targetState) {
             Screen.Search -> {
-              val app = application as SearchLauncherApp
               SearchScreen(
                 query = queryState,
                 onQueryChange = { queryState = it },
@@ -505,7 +486,6 @@ class MainActivity : ComponentActivity() {
               androidx.compose.animation.fadeOut(),
           modifier = Modifier.fillMaxSize(),
         ) {
-          val app = application as SearchLauncherApp
           AppListScreen(
             searchRepository = app.searchRepository,
             onAppClick = { result ->
@@ -607,12 +587,6 @@ class MainActivity : ComponentActivity() {
     val THEME_SATURATION = floatPreferencesKey("theme_saturation")
     val DARK_MODE = intPreferencesKey("dark_mode")
     val OLED_MODE = booleanPreferencesKey("oled_mode")
-    val BACKGROUND_URI =
-      androidx.datastore.preferences.core.stringPreferencesKey(
-        "background_uri"
-      ) // 0: System, 1: Light, 2: Dark
-    val BACKGROUND_FOLDER_URI =
-      androidx.datastore.preferences.core.stringPreferencesKey("background_folder_uri")
     val BACKGROUND_LAST_IMAGE_URI =
       androidx.datastore.preferences.core.stringPreferencesKey("background_last_image_uri")
     val SWIPE_GESTURE_ENABLED = booleanPreferencesKey("swipe_gesture_enabled")
@@ -625,9 +599,6 @@ private suspend fun MainActivity.performExport(uri: android.net.Uri) {
   withContext(Dispatchers.IO) {
     try {
       val app = applicationContext as SearchLauncherApp
-      val backgroundUri =
-        dataStore.data.map { it[MainActivity.PreferencesKeys.BACKGROUND_URI] }.first()
-
       val backupManager =
         com.searchlauncher.app.data.BackupManager(
           context = this@performExport,
@@ -637,7 +608,7 @@ private suspend fun MainActivity.performExport(uri: android.net.Uri) {
         )
 
       contentResolver.openOutputStream(uri)?.use { outputStream ->
-        val result = backupManager.exportBackup(outputStream, backgroundUri)
+        val result = backupManager.exportBackup(outputStream)
         withContext(Dispatchers.Main) {
           if (result.isSuccess) {
             android.widget.Toast.makeText(
