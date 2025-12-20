@@ -57,6 +57,7 @@ import com.searchlauncher.app.ui.onboarding.OnboardingStep
 import com.searchlauncher.app.ui.onboarding.TutorialOverlay
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import com.searchlauncher.app.util.CustomActionHandler
+import com.searchlauncher.app.util.MathEvaluator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -209,19 +210,33 @@ fun SearchScreen(
       // Use a higher limit to show all options as requested
       val shortcuts = searchRepository.getSearchShortcuts(limit = 50)
 
-      if (results.isEmpty()) {
-        // Only shortcuts
-        searchResults = shortcuts
-        isFallbackMode = true
-      } else {
-        // Apps + Shortcuts
-        // Filter out shortcuts that are already in results (by id)
-        // to avoid duplicate keys in LazyColumn
-        val resultIds = results.map { it.id }.toSet()
-        val uniqueShortcuts = shortcuts.filter { !resultIds.contains(it.id) }
+      val resultIds = results.map { it.id }.toSet()
+      val uniqueShortcuts = shortcuts.filter { !resultIds.contains(it.id) }
+      val baseResults = results + uniqueShortcuts
+      isFallbackMode = results.isEmpty()
 
-        searchResults = results + uniqueShortcuts
-        isFallbackMode = false
+      // Calculator injection
+      if (MathEvaluator.isExpression(query)) {
+        val eval = MathEvaluator.evaluate(query)
+        if (eval != null) {
+          // Round to avoid long decimals if possible, or show as is
+          val formattedResult = if (eval % 1.0 == 0.0) eval.toLong().toString() else eval.toString()
+          val calcResult =
+            SearchResult.Content(
+              id = "calculator_result",
+              namespace = "calculator",
+              title = formattedResult,
+              subtitle = "Calculation result (Tap to copy)",
+              icon = null,
+              packageName = "android",
+              deepLink = "calculator://copy?text=$formattedResult",
+            )
+          searchResults = listOf(calcResult) + baseResults
+        } else {
+          searchResults = baseResults
+        }
+      } else {
+        searchResults = baseResults
       }
     }
   }
@@ -1168,6 +1183,15 @@ private fun launchResult(
       }
     }
     is SearchResult.Content -> {
+      if (result.deepLink?.startsWith("calculator://copy") == true) {
+        val textToCopy = Uri.parse(result.deepLink).getQueryParameter("text") ?: result.title
+        val clipboard =
+          context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = android.content.ClipData.newPlainText("Calculator Result", textToCopy)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+        return
+      }
       result.deepLink?.let { deepLink ->
         try {
           val intent =

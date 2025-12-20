@@ -13,6 +13,7 @@ Android app that lets you search everything on your phone, and more.
 - **Widgets** - Add widgets through the search bar, resize them, and toggle visibility by tapping the background
 - **Guided onboarding** - Step-by-step permission setup
 - **Voice search** - Tap the mic to speak your query
+- **Calculator** - Quick maths!
 - **Background image & Theme** - Customize color theme (including system dark mode) and use your own background image
 - **Quick Access to notification bar & quick settings** - With a swipe gesture from middle to the bottom, open the notification bar & quick settings.
 
