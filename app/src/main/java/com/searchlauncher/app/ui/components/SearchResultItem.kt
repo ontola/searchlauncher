@@ -221,12 +221,16 @@ fun SearchResultItem(
             text = { Text("Uninstall") },
             onClick = {
               try {
-                val intent = Intent(Intent.ACTION_DELETE)
-                intent.data = Uri.parse("package:${result.packageName}")
+                // Use Uri.fromParts for cleaner URI construction
+                val packageUri = Uri.fromParts("package", result.packageName, null)
+                val intent = Intent(Intent.ACTION_DELETE, packageUri)
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(intent)
+                // Optional: Feedback to user, in case the system dialog is slow
+                // Toast.makeText(context, "Requesting uninstall...", Toast.LENGTH_SHORT).show()
               } catch (e: Exception) {
-                Toast.makeText(context, "Cannot start uninstall", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Cannot start uninstall: ${e.message}", Toast.LENGTH_SHORT)
+                  .show()
               }
               showMenu = false
             },
