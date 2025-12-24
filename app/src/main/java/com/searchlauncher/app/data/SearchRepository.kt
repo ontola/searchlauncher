@@ -80,10 +80,13 @@ class SearchRepository(private val context: Context) {
   private val _favorites = kotlinx.coroutines.flow.MutableStateFlow<List<SearchResult>>(emptyList())
   val favorites: kotlinx.coroutines.flow.StateFlow<List<SearchResult>> = _favorites
 
+  private val usageStats = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
   suspend fun initialize() =
     withContext(Dispatchers.IO) {
       val startTime = System.currentTimeMillis()
       try {
+        loadUsageStats()
         _isIndexing.value = true
         // Load cached favorites immediately for instant UI
         _favorites.value = loadFavoritesFromCache()
@@ -612,6 +615,11 @@ class SearchRepository(private val context: Context) {
             .build()
         session.reportUsageAsync(request).get()
 
+        // Manual usage persistence
+        val count = usageStats[id] ?: 0
+        usageStats[id] = count + 1
+        saveUsageStats()
+
         // Only invalidate the cache if we picked a result that wasn't first
         // (meaning the order might change next time)
         if (!wasFirstResult && query != null && query.isNotEmpty()) {
@@ -1135,7 +1143,8 @@ class SearchRepository(private val context: Context) {
       while (nextPage.isNotEmpty()) {
         for (result in nextPage) {
           val doc = result.genericDocument.toDocumentClass(AppSearchDocument::class.java)
-          val baseScore = result.rankingSignal.toInt()
+          val manualUsage = usageStats[doc.id] ?: 0
+          val baseScore = result.rankingSignal.toInt() + (manualUsage * 2)
           val isSettings =
             doc.id == "com.android.settings" ||
               doc.intentUri?.contains("android.settings.SETTINGS") == true
@@ -1499,6 +1508,35 @@ class SearchRepository(private val context: Context) {
   }
 
   // --- Persistence for Instant Favorites ---
+
+  private fun getUsageStatsFile() = File(context.filesDir, "usage_stats.json")
+
+  private fun saveUsageStats() {
+    scope.launch(Dispatchers.IO) {
+      try {
+        val obj = JSONObject()
+        usageStats.forEach { (key, value) -> obj.put(key, value) }
+        getUsageStatsFile().writeText(obj.toString())
+      } catch (e: Exception) {
+        e.printStackTrace()
+      }
+    }
+  }
+
+  private fun loadUsageStats() {
+    val file = getUsageStatsFile()
+    if (!file.exists()) return
+    try {
+      val json = JSONObject(file.readText())
+      val keys = json.keys()
+      while (keys.hasNext()) {
+        val key = keys.next()
+        usageStats[key] = json.getInt(key)
+      }
+    } catch (e: Exception) {
+      e.printStackTrace()
+    }
+  }
 
   private fun getFavoritesCacheFile() = File(context.filesDir, "favorites_metadata.json")
 
