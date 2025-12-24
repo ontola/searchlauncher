@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      SIGNING_KEY_STORE_BASE64: ${{ secrets.SIGNING_KEY_STORE_BASE64 }}
 
     steps:
       - uses: actions/checkout@v3
@@ -24,9 +26,7 @@ jobs:
       - name: Check code formatting
         run: ./gradlew spotlessCheck
       - name: Decode Keystore
-        if: secrets.SIGNING_KEY_STORE_BASE64 != ''
-        env:
-          SIGNING_KEY_STORE_BASE64: ${{ secrets.SIGNING_KEY_STORE_BASE64 }}
+        if: ${{ env.SIGNING_KEY_STORE_BASE64 != '' }}
         run: |
           echo $SIGNING_KEY_STORE_BASE64 | base64 -d > app/upload.jks
 
