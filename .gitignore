@@ -79,5 +79,9 @@ lint-results.xml
 # Android Profiling
 *.hprof
 
+
 # Kotlin incremental compiler sessions
 .kotlin/
+
+# F-Droid submission generated files
+fdroid_submission/

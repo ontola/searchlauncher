@@ -1,0 +1,36 @@
+Categories:
+  - System
+  - Productivity
+License: Apache-2.0
+SourceCode: https://github.com/joepio/searchlauncher
+IssueTracker: https://github.com/joepio/searchlauncher/issues
+Changelog: https://github.com/joepio/searchlauncher/releases
+
+AutoName: Search Launcher
+Summary: Search everything—apps, web, and shortcuts—instantly.
+Description: |
+  SearchLauncher transforms how you navigate your device. It replaces browsing with instant, keyboard-centric searching.
+
+  **Key Features:**
+  * **Search Everything:** Instantly find apps, shortcuts, contacts, and device settings.
+  * **Web Integration:** Search directly on YouTube, Google, Maps, Spotify, and more.
+  * **Productivity Tools:** Built-in calculator, text snippets for quick pasting, and custom intent shortcuts (e.g., toggle flashlight).
+  * **Smart & Fast:** Apps are sorted by usage for quick access. The interface is lightweight and designed for speed.
+  * **Flexible Usage:** Use it as your primary **Launcher**, a powerful **Home Screen Widget**, or an **Overlay** accessible with a swipe from any app.
+  * **Customization:** Set your personal background, add widgets, and enjoy full dark mode support.
+
+RepoType: git
+Repo: https://github.com/joepio/searchlauncher.git
+
+Builds:
+  - versionName: 0.0.1-beta
+    versionCode: 1
+    commit: v0.0.1-beta
+    subdir: app
+    gradle:
+      - yes
+
+AutoUpdateMode: Version v%v
+UpdateCheckMode: Tags
+CurrentVersion: 0.0.1-beta
+CurrentVersionCode: 1
