@@ -8,7 +8,7 @@ object ContactUtils {
    */
   fun getIndexableVariants(original: String?): List<String> {
     val normalized = normalizePhoneNumber(original) ?: return emptyList()
-    val variants = mutableListOf<String>()
+    val variants = mutableSetOf<String>()
     variants.add(normalized)
 
     // Handle 00 prefix (e.g. 0031...) by stripping 00
@@ -27,7 +27,7 @@ object ContactUtils {
       variants.add("0" + normalized.substring(2))
     }
 
-    return variants
+    return variants.toList()
   }
 
   /**

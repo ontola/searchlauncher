@@ -29,9 +29,9 @@ class ContactUtilsTest {
   }
 
   @Test
-  fun normalizePhoneNumber_returnsNullIfAlreadyNormalized() {
-    assertNull(ContactUtils.normalizePhoneNumber("0612345678"))
-    assertNull(ContactUtils.normalizePhoneNumber("1234"))
+  fun normalizePhoneNumber_returnsInputIfAlreadyNormalized() {
+    assertEquals("0612345678", ContactUtils.normalizePhoneNumber("0612345678"))
+    assertEquals("1234", ContactUtils.normalizePhoneNumber("1234"))
   }
 
   @Test
