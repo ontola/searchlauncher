@@ -258,7 +258,7 @@ object DefaultShortcuts {
       SearchShortcut(
         id = "gemini",
         alias = "gem",
-        urlTemplate = "https://gemini.google.com/app?q=%s",
+        urlTemplate = "https://www.google.com/search?udm=50&source=searchlabs&q=%s",
         description = "Gemini AI",
         color = 0xFF8E24AA, // Purple-ish
         shortLabel = "Gemini",
