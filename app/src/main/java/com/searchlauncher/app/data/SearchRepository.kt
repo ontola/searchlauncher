@@ -559,56 +559,24 @@ class SearchRepository(private val context: Context) {
   suspend fun getSearchShortcuts(limit: Int = 10): List<SearchResult> =
     withContext(Dispatchers.IO) {
       try {
-        // Get all search shortcuts from cache
-        val searchShortcuts =
+        // Get all search shortcuts from synchronized documentCache
+        val shortcuts =
           synchronized(documentCache) {
             documentCache.filter { it.namespace == "search_shortcuts" }
           }
 
-        // Try to get usage data from AppSearch to sort them
-        val session = appSearchSession
-        if (session != null) {
-          try {
-            val searchSpec =
-              SearchSpec.Builder()
-                .setRankingStrategy(SearchSpec.RANKING_STRATEGY_USAGE_COUNT)
-                .addFilterNamespaces("search_shortcuts")
-                .setResultCountPerPage(50)
-                .build()
+        // Sort by manual usage persistence (usageStats) which is the source of truth for sorting
+        // among shortcuts
+        val sortedShortcuts = shortcuts.sortedByDescending { doc -> usageStats[doc.id] ?: 0 }
 
-            // Try searching for everything in the namespace to
-            // get usage stats for all shortcuts
-            val searchResults = session.search("", searchSpec)
-            val page = searchResults.nextPageAsync.get()
-
-            // Build a map of document ID to usage count
-            val usageMap =
-              page.associate { result -> result.genericDocument.id to result.rankingSignal }
-
-            // Sort by usage, with unused items at the end
-            return@withContext coroutineScope {
-              searchShortcuts
-                .sortedByDescending { doc -> usageMap[doc.id] ?: 0.0 }
-                .take(limit)
-                .map { doc -> async { convertDocumentToResult(doc, 100) } }
-                .awaitAll()
-                .filterIsInstance<SearchResult.SearchIntent>()
-            }
-          } catch (e: Exception) {
-            android.util.Log.e("SearchRepository", "Error querying usage", e)
-          }
-        }
-
-        // Fallback: return all shortcuts without usage sorting
         return@withContext coroutineScope {
-          searchShortcuts
+          sortedShortcuts
             .take(limit)
             .map { doc -> async { convertDocumentToResult(doc, 100) } }
             .awaitAll()
             .filterIsInstance<SearchResult.SearchIntent>()
         }
       } catch (e: Exception) {
-        e.printStackTrace()
         android.util.Log.e("SearchRepository", "Error getting search shortcuts", e)
         return@withContext emptyList()
       }
