@@ -556,7 +556,7 @@ class SearchRepository(private val context: Context) {
       }
     }
 
-  suspend fun getSearchShortcuts(limit: Int = 10): List<SearchResult> =
+  suspend fun getSearchShortcuts(limit: Int = 100): List<SearchResult> =
     withContext(Dispatchers.IO) {
       try {
         // Get all search shortcuts from synchronized documentCache
@@ -571,10 +571,10 @@ class SearchRepository(private val context: Context) {
 
         return@withContext coroutineScope {
           sortedShortcuts
-            .take(limit)
             .map { doc -> async { convertDocumentToResult(doc, 100) } }
             .awaitAll()
             .filterIsInstance<SearchResult.SearchIntent>()
+            .take(limit)
         }
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error getting search shortcuts", e)
@@ -1151,7 +1151,13 @@ class SearchRepository(private val context: Context) {
           val isSettings =
             doc.id == "com.android.settings" ||
               doc.intentUri?.contains("android.settings.SETTINGS") == true
-          val boost = if (isSettings) 15 else if (doc.namespace == "apps") 5 else 0
+          val isShortcut = doc.namespace == "shortcuts" || doc.namespace == "static_shortcuts"
+          val boost =
+            when {
+              isSettings -> 15
+              doc.namespace == "apps" -> 100
+              else -> 0
+            }
 
           val name = doc.name
           val queryLower = query.lowercase()
@@ -1211,7 +1217,7 @@ class SearchRepository(private val context: Context) {
         val addedIds = mutableSetOf<String>()
         for ((doc, _) in fuzzyMatches) {
           if (doc.id !in existingIds && doc.id !in addedIds) {
-            val boost = if (doc.namespace == "apps") 5 else 0
+            val boost = if (doc.namespace == "apps") 100 else 0
             val result = convertDocumentToResult(doc, boost, query)
             appSearchResults.add(result)
             addedIds.add(doc.id)

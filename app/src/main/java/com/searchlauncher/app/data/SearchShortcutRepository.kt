@@ -32,7 +32,7 @@ class SearchShortcutRepository(context: Context) {
       return
     }
 
-    val items =
+    val persistedItems =
       try {
         val jsonArray = JSONArray(json)
         List(jsonArray.length()) { i ->
@@ -51,7 +51,17 @@ class SearchShortcutRepository(context: Context) {
       } catch (e: Exception) {
         DefaultShortcuts.searchShortcuts // Fallback to defaults
       }
-    _items.value = items
+
+    // Merge in any new default shortcuts that are missing from persisted items
+    val defaults = DefaultShortcuts.searchShortcuts
+    val missingDefaults = defaults.filter { default -> persistedItems.none { it.id == default.id } }
+
+    if (missingDefaults.isNotEmpty()) {
+      val mergedItems = persistedItems + missingDefaults
+      saveItems(mergedItems)
+    } else {
+      _items.value = persistedItems
+    }
   }
 
   fun resetToDefaults() {
