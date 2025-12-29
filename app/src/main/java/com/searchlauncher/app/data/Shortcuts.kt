@@ -116,22 +116,22 @@ object DefaultShortcuts {
   val appShortcuts =
     listOf(
       AppShortcut.Action(
-        id = "reset_index",
+        id = "launcher_reset_index",
         intentUri = "intent:#Intent;action=com.searchlauncher.RESET_INDEX;end",
         description = "Reset Search Index",
       ),
       AppShortcut.Action(
-        id = "reset_app_data",
+        id = "launcher_reset_app_data",
         intentUri = "intent:#Intent;action=com.searchlauncher.RESET_APP_DATA;end",
         description = "Reset App Data",
       ),
       AppShortcut.Action(
-        id = "add_widget",
+        id = "launcher_add_widget",
         intentUri = "intent:#Intent;action=com.searchlauncher.action.ADD_WIDGET;end",
         description = "Add Widget",
       ),
       AppShortcut.Action(
-        id = "toggle_flashlight",
+        id = "launcher_toggle_flashlight",
         intentUri = "intent:#Intent;action=com.searchlauncher.action.TOGGLE_FLASHLIGHT;end",
         description = "Toggle Flashlight",
       ),
@@ -152,7 +152,7 @@ object DefaultShortcuts {
         description = "Video Camera",
       ),
       AppShortcut.Action(
-        id = "toggle_rotation",
+        id = "launcher_toggle_rotation",
         intentUri = "intent:#Intent;action=com.searchlauncher.action.TOGGLE_ROTATION;end",
         description = "Toggle Rotation Lock",
       ),
@@ -162,7 +162,7 @@ object DefaultShortcuts {
         description = "Set as Launcher",
       ),
       AppShortcut.Action(
-        id = "create_snippet",
+        id = "launcher_create_snippet",
         intentUri = "intent:#Intent;action=com.searchlauncher.action.CREATE_SNIPPET;end",
         description = "Create snippet",
       ),
@@ -173,32 +173,32 @@ object DefaultShortcuts {
         packageName = "com.android.settings",
       ),
       AppShortcut.Action(
-        id = "restart_launcher",
+        id = "launcher_restart",
         intentUri = "intent:#Intent;action=com.searchlauncher.action.RESTART;end",
         description = "Restart SearchLauncher",
       ),
       AppShortcut.Action(
-        id = "reboot",
+        id = "launcher_reboot",
         intentUri = "intent:#Intent;action=com.searchlauncher.action.REBOOT;end",
         description = "Reboot Phone",
       ),
       AppShortcut.Action(
-        id = "lock_screen",
+        id = "launcher_lock_screen",
         intentUri = "intent:#Intent;action=com.searchlauncher.action.LOCK_SCREEN;end",
         description = "Lock Screen",
       ),
       AppShortcut.Action(
-        id = "power_menu",
+        id = "launcher_power_menu",
         intentUri = "intent:#Intent;action=com.searchlauncher.action.POWER_MENU;end",
         description = "Power Menu",
       ),
       AppShortcut.Action(
-        id = "screenshot",
+        id = "launcher_screenshot",
         intentUri = "intent:#Intent;action=com.searchlauncher.action.SCREENSHOT;end",
         description = "Take Screenshot",
       ),
       AppShortcut.Action(
-        id = "toggle_dark_mode",
+        id = "launcher_toggle_dark_mode",
         intentUri = "intent:#Intent;action=com.searchlauncher.action.TOGGLE_DARK_MODE;end",
         description = "Toggle Dark Mode",
       ),
@@ -356,6 +356,14 @@ object DefaultShortcuts {
         packageName = "com.spotify.music",
         color = 0xFF1DB954,
         shortLabel = "Spotify",
+      ),
+      SearchShortcut(
+        id = "linkedin",
+        alias = "li",
+        urlTemplate = "https://www.linkedin.com/search/results/all/?keywords=%s",
+        description = "LinkedIn Search",
+        color = 0xFF0077B5,
+        shortLabel = "LinkedIn",
       ),
       SearchShortcut(
         id = "widget_search",

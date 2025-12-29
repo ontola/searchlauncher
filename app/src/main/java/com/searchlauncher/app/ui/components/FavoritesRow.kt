@@ -70,8 +70,9 @@ fun FavoritesRow(
     val totalWidthPx = constraints.maxWidth.toFloat()
 
     // Calculate layout metrics assuming CENTER alignment
-    val calculatedSizePx = (totalWidthPx - (spacingPx * (count - 1))) / count
-    val finalIconSizePx = minOf(with(density) { 48.dp.toPx() }, calculatedSizePx)
+    val calculatedSizePx = if (count > 0) (totalWidthPx - (spacingPx * (count - 1))) / count else 0f
+    val finalIconSizePx =
+      minOf(with(density) { 48.dp.toPx() }, if (calculatedSizePx > 0) calculatedSizePx else 1f)
     val finalIconSize = with(density) { finalIconSizePx.toDp() }
 
     val itemWidthPx = finalIconSizePx + spacingPx

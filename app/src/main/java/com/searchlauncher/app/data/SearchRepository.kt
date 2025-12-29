@@ -81,6 +81,9 @@ class SearchRepository(private val context: Context) {
   private val _indexUpdated = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(replay = 1)
   val indexUpdated: kotlinx.coroutines.flow.SharedFlow<Unit> = _indexUpdated
 
+  private val _packageUpdated = kotlinx.coroutines.flow.MutableSharedFlow<String?>(replay = 0)
+  val packageUpdated: kotlinx.coroutines.flow.SharedFlow<String?> = _packageUpdated
+
   private val _favorites = kotlinx.coroutines.flow.MutableStateFlow<List<SearchResult>>(emptyList())
   val favorites: kotlinx.coroutines.flow.StateFlow<List<SearchResult>> = _favorites
 
@@ -246,6 +249,16 @@ class SearchRepository(private val context: Context) {
         context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
 
       val apps = mutableListOf<AppSearchDocument>()
+
+      // Clear old app entries to prevent uninstalled apps from appearing
+      try {
+        val removeSpec = SearchSpec.Builder().addFilterNamespaces("apps").build()
+        session.removeAsync("", removeSpec).get()
+        android.util.Log.d("SearchRepository", "Cleared 'apps' namespace for re-indexing")
+      } catch (e: Exception) {
+        android.util.Log.e("SearchRepository", "Failed to clear 'apps' namespace", e)
+      }
+
       val profiles = launcherApps.profiles
 
       for (profile in profiles) {
@@ -289,9 +302,6 @@ class SearchRepository(private val context: Context) {
       }
 
       if (apps.isNotEmpty()) {
-        // Batch the put requests to avoid hitting limits there too (though AppSearch handles this
-        // better)
-        // But for safety, let's just put them all. AppSearch buffer is larger.
         val putRequest = PutDocumentsRequest.Builder().addDocuments(apps).build()
         try {
           session.putAsync(putRequest).get()
@@ -303,8 +313,9 @@ class SearchRepository(private val context: Context) {
 
       try {
         indexShortcuts()
+        indexStaticShortcuts() // Static shortcuts also change when apps are removed/added
       } catch (e: Exception) {
-        e.printStackTrace()
+        android.util.Log.e("SearchRepository", "Error updating shortcuts after indexApps", e)
       }
       updateAppsCache()
     }
@@ -316,6 +327,15 @@ class SearchRepository(private val context: Context) {
         context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
 
       val shortcuts = mutableListOf<AppSearchDocument>()
+
+      // Clear old shortcuts entries to prevent zombies
+      try {
+        val removeSpec = SearchSpec.Builder().addFilterNamespaces("shortcuts").build()
+        session.removeAsync("", removeSpec).get()
+        android.util.Log.d("SearchRepository", "Cleared 'shortcuts' namespace for re-indexing")
+      } catch (e: Exception) {
+        android.util.Log.e("SearchRepository", "Failed to clear 'shortcuts' namespace", e)
+      }
 
       try {
         // 1. Get all profiles (to support work profiles)
@@ -381,8 +401,8 @@ class SearchRepository(private val context: Context) {
         if (shortcuts.isNotEmpty()) {
           val putRequest = PutDocumentsRequest.Builder().addDocuments(shortcuts).build()
           session.putAsync(putRequest).get()
-          replaceCollection("shortcuts", shortcuts)
         }
+        replaceCollection("shortcuts", shortcuts)
       } catch (e: Exception) {
         e.printStackTrace()
       }
@@ -474,11 +494,19 @@ class SearchRepository(private val context: Context) {
           )
         }
 
+      // Clear old entries
+      try {
+        val removeSpec = SearchSpec.Builder().addFilterNamespaces("static_shortcuts").build()
+        session.removeAsync("", removeSpec).get()
+      } catch (e: Exception) {
+        android.util.Log.e("SearchRepository", "Failed to clear static_shortcuts namespace", e)
+      }
+
       if (docs.isNotEmpty()) {
         val putRequest = PutDocumentsRequest.Builder().addDocuments(docs).build()
         session.putAsync(putRequest).get()
-        replaceCollection("static_shortcuts", docs)
       }
+      replaceCollection("static_shortcuts", docs)
     }
 
   suspend fun resetIndex() =
@@ -490,23 +518,36 @@ class SearchRepository(private val context: Context) {
         // Clear manual usage persistence
         resetUsageStats()
         getFavoritesCacheFile().delete()
+        _favorites.value = emptyList() // Explicitly clear favorites
 
-        documentCache.clear()
+        // Clear document cache (except bookmarks if possible, or just reload)
+        synchronized(documentCache) { documentCache.removeAll { it.namespace != "web_bookmarks" } }
 
-        // Wipe AppSearch Data
-        val setSchemaRequest = SetSchemaRequest.Builder().setForceOverride(true).build()
-        session.setSchemaAsync(setSchemaRequest).get()
-
-        val initSchemaRequest =
-          SetSchemaRequest.Builder().addDocumentClasses(AppSearchDocument::class.java).build()
-        session.setSchemaAsync(initSchemaRequest).get()
+        // Selective wipe: everything EXCEPT web_bookmarks
+        try {
+          val removeSpec =
+            SearchSpec.Builder()
+              .addFilterNamespaces(
+                "apps",
+                "shortcuts",
+                "static_shortcuts",
+                "search_shortcuts",
+                "app_shortcuts",
+                "contacts",
+                "snippets",
+              )
+              .build()
+          session.removeAsync("", removeSpec).get()
+          android.util.Log.d("SearchRepository", "Selectively cleared index (excluding bookmarks)")
+        } catch (e: Exception) {
+          android.util.Log.e("SearchRepository", "Failed to selectively clear index", e)
+        }
 
         // Clear timestamp to ensure future "fresh" checks fail until we are done
         val prefs = context.getSharedPreferences("search_launcher_prefs", Context.MODE_PRIVATE)
         prefs.edit().remove("last_reindex_timestamp").apply()
 
-        // Re-index everything
-
+        // Re-index everything (indexApps etc. will re-populate documentCache)
         indexApps()
         indexCustomShortcuts()
         indexStaticShortcuts()
@@ -517,7 +558,43 @@ class SearchRepository(private val context: Context) {
 
         prefs.edit().putLong("last_reindex_timestamp", System.currentTimeMillis()).apply()
       } catch (e: Exception) {
-        e.printStackTrace()
+        android.util.Log.e("SearchRepository", "Error during resetIndex", e)
+      } finally {
+        withContext(Dispatchers.Main) { _isIndexing.value = false }
+      }
+    }
+
+  suspend fun resetAppData() =
+    withContext(Dispatchers.IO) {
+      val session = appSearchSession ?: return@withContext
+      try {
+        withContext(Dispatchers.Main) { _isIndexing.value = true }
+
+        // Clear all local state
+        resetUsageStats()
+        getFavoritesCacheFile().delete()
+        _favorites.value = emptyList() // Explicitly clear favorites
+        synchronized(documentCache) { documentCache.clear() }
+
+        // Full AppSearch wipe
+        val setSchemaRequest = SetSchemaRequest.Builder().setForceOverride(true).build()
+        session.setSchemaAsync(setSchemaRequest).get()
+
+        val initSchemaRequest =
+          SetSchemaRequest.Builder().addDocumentClasses(AppSearchDocument::class.java).build()
+        session.setSchemaAsync(initSchemaRequest).get()
+
+        // Re-index core only
+        indexApps()
+        indexCustomShortcuts()
+        indexStaticShortcuts()
+
+        // Signal update
+        _indexUpdated.emit(Unit)
+
+        android.util.Log.d("SearchRepository", "Full app data reset completed")
+      } catch (e: Exception) {
+        android.util.Log.e("SearchRepository", "Error during resetAppData", e)
       } finally {
         withContext(Dispatchers.Main) { _isIndexing.value = false }
       }
@@ -755,16 +832,25 @@ class SearchRepository(private val context: Context) {
     object : android.content.pm.LauncherApps.Callback() {
       override fun onPackageRemoved(packageName: String, user: android.os.UserHandle) {
         android.util.Log.d("SearchRepository", "onPackageRemoved: $packageName")
-        scope.launch { indexApps() }
+        scope.launch {
+          indexApps()
+          _packageUpdated.emit(packageName)
+        }
       }
 
       override fun onPackageAdded(packageName: String, user: android.os.UserHandle) {
         android.util.Log.d("SearchRepository", "onPackageAdded: $packageName")
-        scope.launch { indexApps() }
+        scope.launch {
+          indexApps()
+          _packageUpdated.emit(null) // null means generic update
+        }
       }
 
       override fun onPackageChanged(packageName: String, user: android.os.UserHandle) {
-        scope.launch { indexApps() }
+        scope.launch {
+          indexApps()
+          _packageUpdated.emit(null)
+        }
       }
 
       override fun onPackagesAvailable(
@@ -772,7 +858,10 @@ class SearchRepository(private val context: Context) {
         user: android.os.UserHandle,
         replacing: Boolean,
       ) {
-        scope.launch { indexApps() }
+        scope.launch {
+          indexApps()
+          _packageUpdated.emit(null)
+        }
       }
 
       override fun onPackagesUnavailable(
@@ -780,7 +869,10 @@ class SearchRepository(private val context: Context) {
         user: android.os.UserHandle,
         replacing: Boolean,
       ) {
-        scope.launch { indexApps() }
+        scope.launch {
+          indexApps()
+          _packageUpdated.emit(null)
+        }
       }
 
       override fun onShortcutsChanged(
@@ -1276,6 +1368,7 @@ class SearchRepository(private val context: Context) {
             when {
               isSettings -> 15
               doc.namespace == "apps" -> 100
+              doc.namespace == "app_shortcuts" -> 90 // Rank below apps but above bookmarks
               doc.namespace == "web_bookmarks" -> 80 // Strong boost for bookmarks
               else -> 0
             }
@@ -1491,15 +1584,22 @@ class SearchRepository(private val context: Context) {
           }
         }
 
+        val isLauncherItem = doc.id.contains("launcher_")
+        val launcherIcon =
+          if (isLauncherItem) {
+            try {
+              context.packageManager.getApplicationIcon(context.packageName)
+            } catch (e: Exception) {
+              null
+            }
+          } else null
+
         SearchResult.Content(
           id = doc.id,
           namespace = "app_shortcuts",
           title = doc.name,
-          subtitle = if (doc.id.contains("launcher_")) "SearchLauncher" else "Action",
-          icon =
-            if (doc.id.contains("launcher_")) {
-              getColoredSearchIcon(0xFF5E6D4E, "⚙")
-            } else icon,
+          subtitle = if (isLauncherItem) "SearchLauncher" else "Action",
+          icon = launcherIcon ?: icon,
           packageName = "android",
           deepLink = doc.intentUri,
           rankingScore = rankingScore,

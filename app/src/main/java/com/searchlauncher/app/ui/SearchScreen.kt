@@ -98,6 +98,7 @@ fun SearchScreen(
   var showSnippetDialog by remember { mutableStateOf(false) }
   var snippetEditMode by remember { mutableStateOf(false) }
   var snippetItemToEdit by remember { mutableStateOf<SearchResult.Snippet?>(null) }
+  var showResetConfirmation by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
   val searchShortcuts by app.searchShortcutRepository.items.collectAsState()
   var showShortcutDialog by remember { mutableStateOf(false) }
   var editingShortcut by remember {
@@ -420,6 +421,9 @@ fun SearchScreen(
         speechRecognizer.setRecognitionListener(listener)
         onDispose { speechRecognizer.destroy() }
       }
+
+      // Clear search query when a package is uninstalled or Updated
+      LaunchedEffect(Unit) { searchRepository.packageUpdated.collect { onDismiss() } }
 
       var currentWallpaperUri by remember { mutableStateOf<Uri?>(null) }
       var showBackgroundMenu by remember { mutableStateOf(false) }
@@ -751,23 +755,48 @@ fun SearchScreen(
                             onDismiss()
                           }
                         } else {
-                          launchResult(
-                            context,
-                            result,
-                            searchRepository,
-                            scope,
-                            query,
-                            index == 0,
-                            onQueryChange,
-                          )
-                          if (
-                            result is SearchResult.Content &&
-                              result.deepLink ==
-                                "intent:#Intent;action=com.searchlauncher.action.APPEND_SPACE;end"
-                          ) {
-                            // Do nothing (keep search open)
+                          val resetAppDataIntent =
+                            "intent:#Intent;action=com.searchlauncher.RESET_APP_DATA;end"
+                          val resetIndexIntent =
+                            "intent:#Intent;action=com.searchlauncher.RESET_INDEX;end"
+
+                          val deepLink =
+                            (result as? SearchResult.Content)?.deepLink
+                              ?: (result as? SearchResult.Shortcut)?.intentUri
+
+                          if (deepLink == resetAppDataIntent) {
+                            showResetConfirmation =
+                              "This will permanently delete ALL app data, including your search history, bookmarks, and snippets. This cannot be undone." to
+                                {
+                                  onDismiss()
+                                  scope.launch { searchRepository.resetAppData() }
+                                }
+                          } else if (deepLink == resetIndexIntent) {
+                            showResetConfirmation =
+                              "This will rebuild the search index and clear your usage statistics. Your bookmarks and snippets will be preserved." to
+                                {
+                                  onDismiss()
+                                  scope.launch { searchRepository.resetIndex() }
+                                }
                           } else {
-                            onDismiss()
+                            launchResult(
+                              context,
+                              result,
+                              searchRepository,
+                              scope,
+                              query,
+                              index == 0,
+                              onQueryChange,
+                            )
+                            if (
+                              result is SearchResult.Content &&
+                                result.deepLink ==
+                                  "intent:#Intent;action=com.searchlauncher.action.APPEND_SPACE;end"
+                            ) {
+                              // Do nothing (keep search open)
+                            } else {
+                              onDismiss()
+                            }
                           }
                         }
                       }
@@ -1148,6 +1177,25 @@ fun SearchScreen(
       },
     )
   }
+
+  if (showResetConfirmation != null) {
+    AlertDialog(
+      onDismissRequest = { showResetConfirmation = null },
+      title = { Text("Are you sure?") },
+      text = { Text(showResetConfirmation?.first ?: "") },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            showResetConfirmation?.second?.invoke()
+            showResetConfirmation = null
+          }
+        ) {
+          Text("Confirm", color = MaterialTheme.colorScheme.error)
+        }
+      },
+      dismissButton = { TextButton(onClick = { showResetConfirmation = null }) { Text("Cancel") } },
+    )
+  }
 }
 
 private fun launchResult(
@@ -1203,6 +1251,13 @@ private fun launchResult(
               searchRepository.resetIndex()
               withContext(Dispatchers.Main) {
                 Toast.makeText(context, "Search Index Reset", Toast.LENGTH_SHORT).show()
+              }
+            }
+          } else if (intent.action == "com.searchlauncher.RESET_APP_DATA") {
+            scope.launch {
+              searchRepository.resetAppData()
+              withContext(Dispatchers.Main) {
+                Toast.makeText(context, "App Data Reset", Toast.LENGTH_SHORT).show()
               }
             }
           } else if (CustomActionHandler.handleAction(context, intent)) {
