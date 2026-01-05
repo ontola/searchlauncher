@@ -383,10 +383,6 @@ class MainActivity : ComponentActivity() {
 
     LaunchedEffect(managedWallpapers) { folderImages = managedWallpapers }
 
-    val showHistory =
-      remember { context.dataStore.data.map { it[booleanPreferencesKey("show_history")] ?: false } }
-        .collectAsState(initial = false)
-
     // Handle back press
     BackHandler(enabled = currentScreenState != Screen.Search) {
       if (currentScreenState == Screen.Settings || currentScreenState == Screen.AppList) {
@@ -460,7 +456,6 @@ class MainActivity : ComponentActivity() {
                 onOpenAppDrawer = { currentScreenState = Screen.AppList },
                 searchRepository = app.searchRepository,
                 focusTrigger = focusTrigger,
-                showHistory = showHistory.value,
                 showBackgroundImage = true,
                 folderImages = folderImages,
                 lastImageUriString = lastImageUriString,
@@ -602,6 +597,8 @@ class MainActivity : ComponentActivity() {
     val SHOW_WIDGETS = booleanPreferencesKey("show_widgets")
     val IS_FIRST_RUN = booleanPreferencesKey("is_first_run")
     val STORE_WEB_HISTORY = booleanPreferencesKey("store_web_history")
+    val HISTORY_LIMIT = intPreferencesKey("history_limit")
+    val MIN_ICON_SIZE = intPreferencesKey("min_icon_size")
   }
 }
 

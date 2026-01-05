@@ -16,6 +16,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -69,15 +71,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
+import com.searchlauncher.app.R
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.ui.MainActivity.PreferencesKeys
 import kotlinx.coroutines.flow.map
@@ -151,7 +154,7 @@ fun SettingsScreen(
     item { CustomShortcutsCard() }
     item { SnippetsCard() }
 
-    item { ThemeSettingsCard(onNavigateToHome = onBack) }
+    item { ThemeSettingsCard() }
 
     item {
       Card(modifier = Modifier.fillMaxWidth()) {
@@ -159,15 +162,9 @@ fun SettingsScreen(
           modifier = Modifier.padding(16.dp),
           verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-          Text(text = "Search Settings", style = MaterialTheme.typography.titleMedium)
+          Text(text = "History", style = MaterialTheme.typography.titleMedium)
 
           val scope = rememberCoroutineScope()
-          val showHistory =
-            remember {
-                context.dataStore.data.map { it[booleanPreferencesKey("show_history")] ?: true }
-              }
-              .collectAsState(initial = true)
-
           val storeWebHistory =
             remember {
                 context.dataStore.data.map {
@@ -175,31 +172,6 @@ fun SettingsScreen(
                 }
               }
               .collectAsState(initial = true)
-
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Column(modifier = Modifier.weight(1f)) {
-              Text(text = "Show History", style = MaterialTheme.typography.bodyMedium)
-              Text(
-                text = "Display recently used items when search is empty",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-            Switch(
-              checked = showHistory.value,
-              onCheckedChange = { enabled ->
-                scope.launch {
-                  context.dataStore.edit { preferences ->
-                    preferences[booleanPreferencesKey("show_history")] = enabled
-                  }
-                }
-              },
-            )
-          }
 
           Row(
             modifier = Modifier.fillMaxWidth(),
@@ -224,6 +196,161 @@ fun SettingsScreen(
                 }
               },
             )
+          }
+
+          val historyLimit =
+            remember {
+                context.dataStore.data.map { it[MainActivity.PreferencesKeys.HISTORY_LIMIT] ?: -1 }
+              }
+              .collectAsState(initial = -1)
+
+          Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(text = "Show App History Icons", style = MaterialTheme.typography.bodyMedium)
+
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              listOf("None", "Auto", "Fixed").forEach { mode ->
+                val isSelected =
+                  when (mode) {
+                    "None" -> historyLimit.value == 0
+                    "Auto" -> historyLimit.value == -1
+                    "Fixed" -> historyLimit.value > 0
+                    else -> false
+                  }
+
+                if (isSelected) {
+                  Button(
+                    onClick = { /* Already selected */ },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                  ) {
+                    Text(mode, style = MaterialTheme.typography.labelMedium)
+                  }
+                } else {
+                  OutlinedButton(
+                    onClick = {
+                      scope.launch {
+                        val newValue =
+                          when (mode) {
+                            "None" -> 0
+                            "Auto" -> -1
+                            "Fixed" -> 5
+                            else -> -1
+                          }
+                        context.dataStore.edit {
+                          it[MainActivity.PreferencesKeys.HISTORY_LIMIT] = newValue
+                        }
+                      }
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                  ) {
+                    Text(mode, style = MaterialTheme.typography.labelMedium)
+                  }
+                }
+              }
+            }
+
+            AnimatedVisibility(visible = historyLimit.value == -1) {
+              val minIconSize =
+                remember {
+                    context.dataStore.data.map {
+                      it[MainActivity.PreferencesKeys.MIN_ICON_SIZE] ?: 36
+                    }
+                  }
+                  .collectAsState(initial = 36)
+
+              val appIcon = remember {
+                try {
+                  context.packageManager.getApplicationIcon(context.packageName).toImageBitmap()
+                } catch (e: Exception) {
+                  null
+                }
+              }
+
+              Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.SpaceBetween,
+                  verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  Text(
+                    text = "Minimum Icon Size: ${minIconSize.value}dp",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+
+                  // Live Preview Icon (Matches FavoritesRow style)
+                  Box(
+                    modifier = Modifier.size(minIconSize.value.dp),
+                    contentAlignment = Alignment.Center,
+                  ) {
+                    if (appIcon != null) {
+                      Image(
+                        bitmap = appIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(minIconSize.value.dp * 0.8f),
+                      )
+                    } else {
+                      // Fallback if icon can't be loaded
+                      Icon(
+                        painter = painterResource(id = R.drawable.ic_search),
+                        contentDescription = null,
+                        modifier = Modifier.size(minIconSize.value.dp * 0.6f),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                      )
+                    }
+                  }
+                }
+                androidx.compose.material3.Slider(
+                  value = minIconSize.value.toFloat(),
+                  onValueChange = { value ->
+                    scope.launch {
+                      context.dataStore.edit {
+                        it[MainActivity.PreferencesKeys.MIN_ICON_SIZE] =
+                          value.toInt().coerceIn(16, 48)
+                      }
+                    }
+                  },
+                  valueRange = 16f..48f,
+                  steps = 15,
+                  modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                  text = "Smaller icons allow more history items to fit.",
+                  style = MaterialTheme.typography.labelSmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                )
+              }
+            }
+
+            AnimatedVisibility(visible = historyLimit.value > 0) {
+              Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Spacer(modifier = Modifier.height(8.dp))
+                androidx.compose.material3.Slider(
+                  value = historyLimit.value.toFloat(),
+                  onValueChange = { value ->
+                    scope.launch {
+                      context.dataStore.edit {
+                        it[MainActivity.PreferencesKeys.HISTORY_LIMIT] =
+                          value.toInt().coerceIn(1, 15)
+                      }
+                    }
+                  },
+                  valueRange = 1f..15f,
+                  steps = 14,
+                  modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                  text = "Icons will shrink if necessary to fit this many items.",
+                  style = MaterialTheme.typography.labelSmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                )
+              }
+            }
           }
         }
       }

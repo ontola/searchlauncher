@@ -4,17 +4,16 @@ Android app that lets you search everything on your phone, and more.
 
 ## Features
 
-- **Search everything on your phone** - Apps, their shortcuts, device settings
+- **Direct keyboard access** - Your homescreen now has a keyboard!
+- **Search everything on your phone** - Apps, their shortcuts, device settings, sorted smartly by usage.
 - **Search everything on the web** - Youtube, google, bing, maps, spotify... Or add your own custom shortcuts!
-- **Snippets** - Fast access to frequently used text snippets
-- **Custom shortcuts** - Directly call actions from android using Intents (flashlight, rotation)
 - **Speed** - Lightweight, fast!
-- **Smart sorting** - Apps sorted by recent usage (with optional usage stats permission)
+- **Swipe Wallpapers** - Your background is an interactive picture album.
+- **Smart input** - Recognizes phone numbers, emails, calculator queries, and web addresses. It even stores visited websites as bookmarks.
+- **App icons history & favorites** - Recently used & favorited apps are shown above the search bar
 - **Widgets** - Add widgets through the search bar, resize them, and toggle visibility by tapping the background
-- **Guided onboarding** - Step-by-step permission setup
 - **Voice search** - Tap the mic to speak your query
-- **Calculator** - Quick maths!
-- **Background image & Theme** - Customize color theme (including system dark mode) and use your own background image
+- **Snippets** - Fast access to frequently used text snippets
 - **Quick Access to notification bar & quick settings** - With a swipe gesture from middle to the bottom, open the notification bar & quick settings.
 
 ## Screenshots

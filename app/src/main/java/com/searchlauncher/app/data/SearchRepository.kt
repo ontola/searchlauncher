@@ -12,6 +12,7 @@ import android.util.Log
 import android.util.LruCache
 import androidx.appsearch.app.AppSearchSession
 import androidx.appsearch.app.PutDocumentsRequest
+import androidx.appsearch.app.RemoveByDocumentIdRequest
 import androidx.appsearch.app.SearchSpec
 import androidx.appsearch.app.SetSchemaRequest
 import androidx.appsearch.localstorage.LocalStorage
@@ -250,14 +251,10 @@ class SearchRepository(private val context: Context) {
 
       val apps = mutableListOf<AppSearchDocument>()
 
-      // Clear old app entries to prevent uninstalled apps from appearing
-      try {
-        val removeSpec = SearchSpec.Builder().addFilterNamespaces("apps").build()
-        session.removeAsync("", removeSpec).get()
-        android.util.Log.d("SearchRepository", "Cleared 'apps' namespace for re-indexing")
-      } catch (e: Exception) {
-        android.util.Log.e("SearchRepository", "Failed to clear 'apps' namespace", e)
-      }
+      // Note: We NO LONGER clear the entire 'apps' namespace here.
+      // Clearing the namespace also wipes usage stats (history).
+      // Instead, we put new documents (updates existing ones) and later
+      // we could implement a cleanup for apps that were uninstalled.
 
       val profiles = launcherApps.profiles
 
@@ -306,10 +303,46 @@ class SearchRepository(private val context: Context) {
         try {
           session.putAsync(putRequest).get()
         } catch (e: Exception) {
-          android.util.Log.e("SearchRepository", "Failed to index apps", e)
+          android.util.Log.e("SearchRepository", "Failed to put indexed apps", e)
         }
+
+        // Cleanup: Remove apps from AppSearch that are no longer in our current 'apps' list.
+        try {
+          val currentPackageNames = apps.map { it.id }.toSet()
+          val searchSpec =
+            SearchSpec.Builder().addFilterNamespaces("apps").setResultCountPerPage(1000).build()
+          val searchResults = session.search("", searchSpec)
+          var page = searchResults.nextPageAsync.get()
+          val idsToRemove = mutableListOf<String>()
+          while (page.isNotEmpty()) {
+            page.forEach {
+              val id = it.genericDocument.id
+              if (!currentPackageNames.contains(id)) {
+                idsToRemove.add(id)
+              }
+            }
+            page = searchResults.nextPageAsync.get()
+          }
+          if (idsToRemove.isNotEmpty()) {
+            val removeRequest =
+              RemoveByDocumentIdRequest.Builder("apps").addIds(idsToRemove).build()
+            session.removeAsync(removeRequest).get()
+            android.util.Log.d(
+              "SearchRepository",
+              "Removed ${idsToRemove.size} zombie apps from index",
+            )
+          }
+        } catch (e: Exception) {
+          android.util.Log.e("SearchRepository", "Failed to cleanup zombie apps", e)
+        }
+
+        replaceCollection("apps", apps)
+      } else {
+        android.util.Log.w(
+          "SearchRepository",
+          "indexApps: No apps found. Skipping update to prevent accidental wipe.",
+        )
       }
-      replaceCollection("apps", apps)
 
       try {
         indexShortcuts()
@@ -605,36 +638,24 @@ class SearchRepository(private val context: Context) {
     excludedIds: Set<String> = emptySet(),
   ): List<SearchResult> =
     withContext(Dispatchers.IO) {
-      val session = appSearchSession
-      if (session == null) return@withContext emptyList()
+      val historyIds =
+        (context.applicationContext as SearchLauncherApp).historyRepository.historyIds.value
 
-      try {
-        val searchSpec =
-          SearchSpec.Builder()
-            .setRankingStrategy(SearchSpec.RANKING_STRATEGY_USAGE_LAST_USED_TIMESTAMP)
-            .setResultCountPerPage(100) // Get more to filter
-            .build()
+      if (historyIds.isEmpty()) return@withContext emptyList()
 
-        val searchResults = session.search("", searchSpec)
-        val page = searchResults.nextPageAsync.get()
+      // Filter out already favorited apps and take limit
+      val filteredIds = historyIds.filter { !excludedIds.contains(it) }.take(limit)
+      if (filteredIds.isEmpty()) return@withContext emptyList()
 
-        // Only return items that have been used (ranking signal > 0)
-        val results = coroutineScope {
-          page
-            .filter { result -> result.rankingSignal > 0 }
-            .map { result ->
-              async {
-                val doc = result.genericDocument.toDocumentClass(AppSearchDocument::class.java)
-                convertDocumentToResult(doc, result.rankingSignal.toInt())
-              }
-            }
-            .awaitAll()
+      val matchingDocs =
+        synchronized(documentCache) {
+          filteredIds.mapNotNull { id ->
+            documentCache.find { it.id == id && it.namespace == "apps" }
+          }
         }
-        return@withContext results.filter { !excludedIds.contains(it.id) }.take(limit)
-      } catch (e: Exception) {
-        e.printStackTrace()
-        return@withContext emptyList()
-      }
+
+      val results = matchingDocs.map { doc -> convertDocumentToResult(doc, 100) }
+      return@withContext results
     }
 
   suspend fun getSearchShortcuts(limit: Int = 100): List<SearchResult> =
@@ -714,6 +735,12 @@ class SearchRepository(private val context: Context) {
               "AppSearch reportUsage failed for $namespace:$id",
             )
           }
+        }
+
+        // Persistent history for apps
+        if (namespace == "apps") {
+          (context.applicationContext as SearchLauncherApp).historyRepository.addHistoryItem(id)
+          _indexUpdated.emit(Unit)
         }
 
         // Manual usage persistence
@@ -1026,14 +1053,26 @@ class SearchRepository(private val context: Context) {
           androidx.appsearch.app.RemoveByDocumentIdRequest.Builder("web_bookmarks")
             .addIds(id)
             .build()
-        session.removeAsync(request).get()
-        android.util.Log.d("SearchRepository", "Removed bookmark: $id")
-
-        // Clear document cache entry if it exists
-        synchronized(documentCache) {
-          documentCache.removeAll { it.id == id && it.namespace == "web_bookmarks" }
+        val result = session.removeAsync(request).get()
+        if (result.isSuccess) {
+          android.util.Log.d(
+            "SearchRepository",
+            "Successfully removed bookmark from AppSearch: $id",
+          )
+        } else {
+          android.util.Log.e(
+            "SearchRepository",
+            "AppSearch failed to remove bookmark $id: ${result.failures}",
+          )
         }
 
+        synchronized(documentCache) {
+          val removed = documentCache.removeAll { it.id == id && it.namespace == "web_bookmarks" }
+          android.util.Log.d(
+            "SearchRepository",
+            "Removed $removed items from documentCache for ID: $id",
+          )
+        }
         _indexUpdated.emit(Unit)
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Failed to remove bookmark: $id", e)
@@ -1334,23 +1373,15 @@ class SearchRepository(private val context: Context) {
   ): List<SearchResult> {
     val startTime = System.currentTimeMillis()
     val session = appSearchSession ?: return emptyList()
-    val appSearchResults = mutableListOf<SearchResult>()
-    var conversionTime = 0L
+    val candidates = mutableListOf<Pair<AppSearchDocument, Int>>()
 
     try {
       val searchSpecBuilder =
         SearchSpec.Builder()
-          .setRankingStrategy(SearchSpec.RANKING_STRATEGY_USAGE_COUNT)
+          .setRankingStrategy(SearchSpec.RANKING_STRATEGY_DOCUMENT_SCORE)
           .setTermMatch(SearchSpec.TERM_MATCH_PREFIX)
 
-      // We no longer strictly exclude namespace, because we want fallbacks.
-      // We will filter by alias ID later.
-
-      // Optimization: For short queries, limit scope to apps only
       if (query.length < 3) {
-        // Include search_shortcuts so we can show them even for short queries if needed,
-        // or if we want fallbacks. But standard logic allows search_shortcuts.
-        // Just list namespaces explicitly to avoid expensive contacts if short.
         searchSpecBuilder.addFilterNamespaces(
           "apps",
           "app_shortcuts",
@@ -1360,8 +1391,6 @@ class SearchRepository(private val context: Context) {
       }
 
       val searchSpec = searchSpecBuilder.build()
-
-      // Enhance query to include normalized phone number variant
       val normalizedQuery = com.searchlauncher.app.util.ContactUtils.normalizePhoneNumber(query)
       val finalQuery =
         if (normalizedQuery != null && normalizedQuery != query && normalizedQuery.length >= 3) {
@@ -1372,11 +1401,8 @@ class SearchRepository(private val context: Context) {
 
       val searchResults = session.search(finalQuery, searchSpec)
       var nextPage = searchResults.nextPageAsync.get()
-      android.util.Log.d(
-        "SearchRepository",
-        "AppSearch query: '$finalQuery', found first page size: ${nextPage.size}",
-      )
 
+      // 1. Collect documents and calculate scores (Lightweight)
       while (nextPage.isNotEmpty()) {
         for (result in nextPage) {
           val doc = result.genericDocument.toDocumentClass(AppSearchDocument::class.java)
@@ -1390,59 +1416,51 @@ class SearchRepository(private val context: Context) {
             when {
               isSettings -> 15
               doc.namespace == "apps" -> 100
-              doc.namespace == "app_shortcuts" -> 90 // Rank below apps but above bookmarks
-              doc.namespace == "web_bookmarks" -> 80 // Strong boost for bookmarks
+              doc.namespace == "app_shortcuts" -> 90
+              doc.namespace == "web_bookmarks" -> 80
               else -> 0
             }
 
-          val name = doc.name
+          val nameLower = doc.name.lowercase()
           val queryLower = query.lowercase()
-          val nameLower = name.lowercase()
-
           var matchBoost = 0
-          if (nameLower == queryLower) {
-            matchBoost = 100 // Exact match
-          } else if (nameLower.startsWith(queryLower)) {
-            matchBoost = 50 // Prefix match
-          } else if (nameLower.contains(queryLower)) {
-            matchBoost = 20 // Partial match
-          }
+          if (nameLower == queryLower) matchBoost = 100
+          else if (nameLower.startsWith(queryLower)) matchBoost = 50
+          else if (nameLower.contains(queryLower)) matchBoost = 20
 
-          val conversionStart = System.currentTimeMillis()
-          val searchResult = convertDocumentToResult(doc, baseScore + boost + matchBoost, query)
-          conversionTime += System.currentTimeMillis() - conversionStart
-
-          // Deduplication: If this is a search shortcut and its alias matches an active one, skip
-          // it.
-          if (
-            searchResult is SearchResult.SearchIntent && searchResult.trigger in excludedAliases
-          ) {
-            continue
-          }
-
-          // Title Formatting: If it's a search shortcut fallback, append the query
-          if (searchResult is SearchResult.SearchIntent && query.isNotBlank()) {
-            // Create a copy with updated title
-            // We need SearchResult structure to support copy, or just cast and copy.
-            // SearchIntent is a data class.
-            appSearchResults.add(
-              searchResult.copy(
-                title =
-                  if (query.isNotBlank()) "${searchResult.title}: $query" else searchResult.title
-              )
-            )
-          } else {
-            appSearchResults.add(searchResult)
-          }
+          candidates.add(doc to (baseScore + boost + matchBoost))
         }
-        if (limit > 0 && appSearchResults.size >= limit * 2) break
+        // If we have 200 candidates, that's more than enough for display
+        if (candidates.size >= 200) break
         nextPage = searchResults.nextPageAsync.get()
       }
 
-      val indexDuration = System.currentTimeMillis() - startTime
+      // 2. Sort by our custom refined score
+      candidates.sortByDescending { it.second }
+
+      // 3. Convert ONLY the top candidates into SearchResults (Expensive icon loading here)
+      val appSearchResults = mutableListOf<SearchResult>()
+      val conversionLimit = if (limit > 0) limit * 2 else 50
+
+      for ((doc, score) in candidates.take(conversionLimit)) {
+        val searchResult = convertDocumentToResult(doc, score, query)
+
+        if (searchResult is SearchResult.SearchIntent && searchResult.trigger in excludedAliases) {
+          continue
+        }
+
+        if (searchResult is SearchResult.SearchIntent && query.isNotBlank()) {
+          appSearchResults.add(searchResult.copy(title = "${searchResult.title}: $query"))
+        } else {
+          appSearchResults.add(searchResult)
+        }
+
+        if (limit > 0 && appSearchResults.size >= limit) break
+      }
+
       android.util.Log.d(
         "SearchRepository",
-        "searchAppIndex for '$query' took ${indexDuration}ms (conversion: ${conversionTime}ms), processed: ${appSearchResults.size}",
+        "searchAppIndex for '$query' took ${System.currentTimeMillis() - startTime}ms, candidates: ${candidates.size}, results: ${appSearchResults.size}",
       )
 
       // Fuzzy Search
@@ -1470,15 +1488,18 @@ class SearchRepository(private val context: Context) {
   }
 
   private fun getFuzzyMatches(query: String): List<Pair<AppSearchDocument, Int>> {
-    val fuzzyDocs = synchronized(documentCache) { documentCache.toList() }
-    return fuzzyDocs
-      .map { doc ->
+    val results = mutableListOf<Pair<AppSearchDocument, Int>>()
+    synchronized(documentCache) {
+      for (doc in documentCache) {
         val score = FuzzyMatch.calculateScore(query, doc.name)
-        doc to score
+        if (score > 40) {
+          results.add(doc to score)
+        }
+        // Safety break if cache is somehow malformed/infinite
+        if (results.size > 500) break
       }
-      .filter { it.second > 40 }
-      .sortedByDescending { it.second }
-      .take(10)
+    }
+    return results.sortedByDescending { it.second }.take(50)
   }
 
   suspend fun searchContent(): List<SearchResult.Content> =

@@ -76,7 +76,6 @@ fun SearchScreen(
   onOpenAppDrawer: () -> Unit,
   searchRepository: SearchRepository,
   focusTrigger: Long = 0L,
-  showHistory: Boolean = true,
   showBackgroundImage: Boolean = false,
   folderImages: List<Uri> = emptyList(),
   lastImageUriString: String? = null,
@@ -105,6 +104,13 @@ fun SearchScreen(
     mutableStateOf<com.searchlauncher.app.data.SearchShortcut?>(null)
   }
   val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+  var historyItems by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
+  val historyLimit by
+    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
+      .collectAsState(initial = -1)
+  val minIconSizeSetting by
+    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.MIN_ICON_SIZE] ?: 36 } }
+      .collectAsState(initial = 36)
 
   val themeColor by
     remember {
@@ -202,7 +208,7 @@ fun SearchScreen(
   // Refresh favorites from the actual index once it's ready.
   // The UI will already show cached favorites from the StateFlow immediately.
   LaunchedEffect(favoriteIds, isSearchInitialized) {
-    if (isSearchInitialized && favoriteIds.isNotEmpty()) {
+    if (isSearchInitialized) {
       searchRepository.getFavorites(favoriteIds)
     }
   }
@@ -211,20 +217,27 @@ fun SearchScreen(
   LaunchedEffect(searchRepository) {
     searchRepository.indexUpdated.collect {
       val ids = app.favoritesRepository.favoriteIds.value
-      if (ids.isNotEmpty()) {
-        searchRepository.getFavorites(ids)
+      searchRepository.getFavorites(ids)
+      // Also refresh history on index updates
+      if (query.isEmpty() && historyLimit != 0) {
+        val limit = if (historyLimit >= 0) historyLimit else 20
+        historyItems = searchRepository.getRecentItems(limit = limit, excludedIds = ids.toSet())
       }
     }
   }
 
-  LaunchedEffect(query, showHistory, favoriteIds) {
+  LaunchedEffect(query, historyLimit, favoriteIds) {
     if (query.isEmpty()) {
-      searchResults =
-        if (showHistory) {
-          searchRepository.getRecentItems(limit = 10, excludedIds = favoriteIds.toSet())
-        } else {
-          emptyList()
+      if (historyLimit != 0) {
+        scope.launch {
+          val limit = if (historyLimit >= 0) historyLimit else 20
+          historyItems =
+            searchRepository.getRecentItems(limit = limit, excludedIds = favoriteIds.toSet())
         }
+      } else {
+        historyItems = emptyList()
+      }
+      searchResults = emptyList()
       isFallbackMode = false
     } else {
       // Small debounce to avoid thrashing AppSearch on fast typing
@@ -480,7 +493,7 @@ fun SearchScreen(
         TutorialOverlay(
           currentStep = currentOnboardingStep,
           bottomPadding = bottomPadding,
-          onDismissStep = { /* optional manual dismiss */},
+          onDismissStep = { /* optional manual dismiss */ },
         )
       }
 
@@ -816,14 +829,17 @@ fun SearchScreen(
           Spacer(modifier = Modifier.height(8.dp))
         }
 
-        if (query.isEmpty() && favorites.isNotEmpty()) {
+        if (query.isEmpty() && (favorites.isNotEmpty() || historyItems.isNotEmpty())) {
           FavoritesRow(
             favorites = favorites,
+            history = historyItems,
+            historyLimit = historyLimit,
+            minIconSizeSetting = minIconSizeSetting,
             onLaunch = { result ->
               launchResult(context, result, searchRepository, scope, onQueryChange = onQueryChange)
               onDismiss()
             },
-            onRemoveFavorite = { result -> app.favoritesRepository.toggleFavorite(result.id) },
+            onToggleFavorite = { result -> app.favoritesRepository.toggleFavorite(result.id) },
             onReorder = { newOrder ->
               app.favoritesRepository.updateOrder(newOrder)
               scope.launch { onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites) }

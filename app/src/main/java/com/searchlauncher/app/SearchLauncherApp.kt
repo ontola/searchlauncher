@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
 import com.searchlauncher.app.data.FavoritesRepository
+import com.searchlauncher.app.data.HistoryRepository
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchShortcutRepository
 import com.searchlauncher.app.data.SnippetsRepository
@@ -34,6 +35,9 @@ class SearchLauncherApp : Application() {
   lateinit var wallpaperRepository: WallpaperRepository
     private set
 
+  lateinit var historyRepository: HistoryRepository
+    private set
+
   override fun onCreate() {
     super.onCreate()
     searchRepository = SearchRepository(this)
@@ -42,6 +46,7 @@ class SearchLauncherApp : Application() {
     searchShortcutRepository = com.searchlauncher.app.data.SearchShortcutRepository(this)
     widgetRepository = com.searchlauncher.app.data.WidgetRepository(this)
     wallpaperRepository = WallpaperRepository(this)
+    historyRepository = HistoryRepository(this)
     CoroutineScope(Dispatchers.IO).launch { searchRepository.initialize() }
     createNotificationChannel()
   }
