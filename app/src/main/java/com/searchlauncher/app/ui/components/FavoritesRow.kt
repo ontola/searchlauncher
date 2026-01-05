@@ -44,6 +44,7 @@ fun FavoritesRow(
   onLaunch: (SearchResult) -> Unit,
   onToggleFavorite: (SearchResult) -> Unit,
   onReorder: (List<String>) -> Unit,
+  onCapacityChanged: (Int) -> Unit,
 ) {
   if (favorites.isEmpty() && history.isEmpty()) return
 
@@ -56,10 +57,10 @@ fun FavoritesRow(
 
   BoxWithConstraints(
     modifier =
-      Modifier.fillMaxWidth().wrapContentHeight().padding(horizontal = 16.dp, vertical = 8.dp),
+      Modifier.fillMaxWidth().wrapContentHeight().padding(horizontal = 16.dp, vertical = 2.dp),
     contentAlignment = Alignment.Center,
   ) {
-    val minSpacingDp = 8.dp
+    val minSpacingDp = 6.dp
     val spacingPx = with(density) { minSpacingDp.toPx() }
     val minIconSizePx = with(density) { minIconSizeDp.toPx() }
     val dividerGapPx = with(density) { dividerGapDp.toPx() }
@@ -67,7 +68,7 @@ fun FavoritesRow(
 
     // Dynamically calculate how many history items we can actually fit
     val visibleHistory =
-      remember(favorites, history, totalWidthPx, historyLimit) {
+      remember(favorites, history, totalWidthPx, historyLimit, minIconSizeSetting) {
         val effectiveLimit =
           if (historyLimit >= 0) {
             historyLimit
@@ -76,12 +77,16 @@ fun FavoritesRow(
             val gapToReserve = if (showDividerInitial) dividerGapPx else 0f
 
             // Calculate max items that fit at min size
+            // Use +0.5 to be slightly more generous (floor vs round) to avoid 'too few' icons
             val maxTotalItems =
-              ((totalWidthPx + spacingPx - gapToReserve) / (minIconSizePx + spacingPx)).toInt()
+              ((totalWidthPx + spacingPx - gapToReserve + (spacingPx / 2f)) /
+                  (minIconSizePx + spacingPx))
+                .toInt()
             (maxTotalItems - favorites.size).coerceAtLeast(0)
           }
 
-        history.take(effectiveLimit)
+        onCapacityChanged(effectiveLimit)
+        history.take(effectiveLimit).reversed()
       }
 
     val allItems = favorites + visibleHistory
@@ -95,6 +100,7 @@ fun FavoritesRow(
     var currentOrder by remember(allItems) { mutableStateOf(allItems.map { it.id }) }
     var showMenuForIndex by remember { mutableStateOf<Int?>(null) }
     var dragBoundaryIndex by remember(boundaryIndex) { mutableStateOf(boundaryIndex) }
+    var initialDragIndex by remember { mutableStateOf(-1) }
 
     val totalCount = allItems.size
 
@@ -126,8 +132,9 @@ fun FavoritesRow(
 
     val calculatedSizePx =
       if (totalCount > 0) (totalWidthPx - baseReservedSpace) / totalCount else 0f
+    val preferredIconSizePx = with(density) { minIconSizeSetting.dp.toPx() }
     val finalIconSizePx =
-      minOf(with(density) { 48.dp.toPx() }, if (calculatedSizePx > 0) calculatedSizePx else 1f)
+      minOf(preferredIconSizePx, if (calculatedSizePx > 0) calculatedSizePx else 1f)
     val finalIconSize = with(density) { finalIconSizePx.toDp() }
 
     val itemWidthPx = finalIconSizePx + spacingPx
@@ -167,7 +174,7 @@ fun FavoritesRow(
               .width(1.5.dp)
               .height(finalIconSize * 0.7f)
               .align(Alignment.CenterStart)
-              .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
+              .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
         )
       }
 
@@ -178,7 +185,9 @@ fun FavoritesRow(
             currentOrder.indexOf(id).takeIf { it != -1 } ?: allItems.indexOf(result)
           val isGhost = id == draggedItemId
 
-          val relativeX = getRelativeXForIndex(currentIndex)
+          // Use static position for the Box receiving gestures to avoid fighting the animation
+          val displayIndex = if (isGhost) initialDragIndex else currentIndex
+          val relativeX = getRelativeXForIndex(displayIndex)
           val relativeXDp = with(density) { relativeX.toDp() }
 
           // Animate ONLY the relative position, not the startX group shift
@@ -197,10 +206,13 @@ fun FavoritesRow(
                   detectDragGesturesAfterLongPress(
                     onDragStart = { offset ->
                       val freshIndex = currentOrder.indexOf(id).takeIf { it != -1 } ?: 0
-                      val freshTargetX = getXPositionForIndex(freshIndex)
+                      initialDragIndex = freshIndex
+
+                      // Calculate CURRENT visual position for smooth handoff
+                      val currentVisualXPx = startX + with(density) { animatedRelativeXDp.toPx() }
 
                       draggedItemId = id
-                      dragPosition = Offset(freshTargetX + offset.x, offset.y)
+                      dragPosition = Offset(currentVisualXPx + offset.x, offset.y)
                       totalDragX = 0f
                       haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     },
@@ -259,10 +271,12 @@ fun FavoritesRow(
                       }
 
                       draggedItemId = null
+                      initialDragIndex = -1
                       totalDragX = 0f
                     },
                     onDragCancel = {
                       draggedItemId = null
+                      initialDragIndex = -1
                       totalDragX = 0f
                     },
                   )
@@ -276,6 +290,23 @@ fun FavoritesRow(
                 contentDescription = result.title,
                 modifier = Modifier.size(finalIconSize * 0.8f),
               )
+            } else {
+              // Fallback placeholder for missing icons
+              Box(
+                modifier =
+                  Modifier.size(finalIconSize * 0.7f)
+                    .background(
+                      MaterialTheme.colorScheme.surfaceVariant,
+                      shape = RoundedCornerShape(12.dp),
+                    ),
+                contentAlignment = Alignment.Center,
+              ) {
+                Text(
+                  text = result.title.firstOrNull()?.toString() ?: "?",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+              }
             }
 
             // Context Menu

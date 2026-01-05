@@ -90,7 +90,6 @@ fun SearchScreen(
   val scope = rememberCoroutineScope()
   val focusRequester = remember { FocusRequester() }
   val favoriteIds by app.favoritesRepository.favoriteIds.collectAsState()
-  val isSearchInitialized by searchRepository.isInitialized.collectAsState(initial = false)
   val isIndexing by searchRepository.isIndexing.collectAsState(initial = false)
 
   val favorites by searchRepository.favorites.collectAsState()
@@ -104,13 +103,36 @@ fun SearchScreen(
     mutableStateOf<com.searchlauncher.app.data.SearchShortcut?>(null)
   }
   val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-  var historyItems by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
+  val rawHistoryItems by searchRepository.recentItems.collectAsState()
   val historyLimit by
     remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
       .collectAsState(initial = -1)
   val minIconSizeSetting by
     remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.MIN_ICON_SIZE] ?: 36 } }
-      .collectAsState(initial = 36)
+      .collectAsState(
+        initial =
+          context
+            .getSharedPreferences("search_launcher_prefs", Context.MODE_PRIVATE)
+            .getInt("min_icon_size", 36)
+      )
+
+  // Sync back to SharedPreferences for faster boot next time
+  LaunchedEffect(minIconSizeSetting) {
+    context
+      .getSharedPreferences("search_launcher_prefs", Context.MODE_PRIVATE)
+      .edit()
+      .putInt("min_icon_size", minIconSizeSetting)
+      .apply()
+  }
+
+  val historyItems =
+    remember(rawHistoryItems, favoriteIds, historyLimit) {
+      if (historyLimit == 0) emptyList()
+      else {
+        val filtered = rawHistoryItems.filter { !favoriteIds.contains(it.id) }
+        if (historyLimit >= 0) filtered.take(historyLimit) else filtered
+      }
+    }
 
   val themeColor by
     remember {
@@ -205,38 +227,9 @@ fun SearchScreen(
       keyboardController?.show()
     }
   }
-  // Refresh favorites from the actual index once it's ready.
-  // The UI will already show cached favorites from the StateFlow immediately.
-  LaunchedEffect(favoriteIds, isSearchInitialized) {
-    if (isSearchInitialized) {
-      searchRepository.getFavorites(favoriteIds)
-    }
-  }
 
-  // Refresh favorites when index is updated (e.g. after background re-indexing)
-  LaunchedEffect(searchRepository) {
-    searchRepository.indexUpdated.collect {
-      val ids = app.favoritesRepository.favoriteIds.value
-      searchRepository.getFavorites(ids)
-      // Also refresh history on index updates
-      if (query.isEmpty() && historyLimit != 0) {
-        val limit = if (historyLimit >= 0) historyLimit else 20
-        historyItems = searchRepository.getRecentItems(limit = limit, excludedIds = ids.toSet())
-      }
-    }
-  }
-
-  LaunchedEffect(query, historyLimit, favoriteIds) {
+  LaunchedEffect(query) {
     if (query.isEmpty()) {
-      if (historyLimit != 0) {
-        scope.launch {
-          val limit = if (historyLimit >= 0) historyLimit else 20
-          historyItems =
-            searchRepository.getRecentItems(limit = limit, excludedIds = favoriteIds.toSet())
-        }
-      } else {
-        historyItems = emptyList()
-      }
       searchResults = emptyList()
       isFallbackMode = false
     } else {
@@ -826,7 +819,7 @@ fun SearchScreen(
             }
           }
 
-          Spacer(modifier = Modifier.height(8.dp))
+          Spacer(modifier = Modifier.height(4.dp))
         }
 
         if (query.isEmpty() && (favorites.isNotEmpty() || historyItems.isNotEmpty())) {
@@ -844,8 +837,9 @@ fun SearchScreen(
               app.favoritesRepository.updateOrder(newOrder)
               scope.launch { onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites) }
             },
+            onCapacityChanged = { limit -> searchRepository.updateObservedHistoryLimit(limit) },
           )
-          Spacer(modifier = Modifier.height(4.dp))
+          Spacer(modifier = Modifier.height(2.dp))
         }
 
         Surface(

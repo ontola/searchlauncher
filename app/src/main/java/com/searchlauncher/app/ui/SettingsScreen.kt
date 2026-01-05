@@ -253,7 +253,7 @@ fun SettingsScreen(
               }
             }
 
-            AnimatedVisibility(visible = historyLimit.value == -1) {
+            AnimatedVisibility(visible = historyLimit.value != 0) {
               val minIconSize =
                 remember {
                     context.dataStore.data.map {
@@ -278,7 +278,7 @@ fun SettingsScreen(
                   verticalAlignment = Alignment.CenterVertically,
                 ) {
                   Text(
-                    text = "Minimum Icon Size: ${minIconSize.value}dp",
+                    text = "Icon Size: ${minIconSize.value}dp",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                   )
@@ -311,16 +311,18 @@ fun SettingsScreen(
                     scope.launch {
                       context.dataStore.edit {
                         it[MainActivity.PreferencesKeys.MIN_ICON_SIZE] =
-                          value.toInt().coerceIn(16, 48)
+                          value.toInt().coerceIn(16, 64)
                       }
                     }
                   },
-                  valueRange = 16f..48f,
+                  valueRange = 16f..64f,
                   steps = 15,
                   modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                  text = "Smaller icons allow more history items to fit.",
+                  text =
+                    if (historyLimit.value == -1) "Smaller icons allow more history items to fit."
+                    else "Adjust the maximum size for your favorite and history icons.",
                   style = MaterialTheme.typography.labelSmall,
                   color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
