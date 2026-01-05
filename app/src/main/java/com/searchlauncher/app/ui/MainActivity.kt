@@ -21,12 +21,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.floatPreferencesKey
-import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.lifecycleScope
 import com.searchlauncher.app.SearchLauncherApp
@@ -236,6 +234,12 @@ class MainActivity : ComponentActivity() {
   private var currentScreenState by mutableStateOf(Screen.Search)
   private var pendingSettingsSection by mutableStateOf<String?>(null)
   private var focusTrigger by mutableStateOf(0L)
+  private var showImportConfirmation by mutableStateOf(false)
+  private var pendingImportUri by mutableStateOf<Uri?>(null)
+
+  internal var showExportDialog by mutableStateOf(false)
+  internal var exportIncludeWallpapers by mutableStateOf(true)
+  private var exportWallpaperSize by mutableStateOf(0L)
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
@@ -283,6 +287,25 @@ class MainActivity : ComponentActivity() {
       return
     }
 
+    if (intent.action == "com.searchlauncher.action.EXPORT_BACKUP") {
+      initiateExportBackup()
+      return
+    }
+
+    if (intent.action == "com.searchlauncher.action.IMPORT_BACKUP") {
+      importBackupLauncher.launch(arrayOf("*/*")) // Allow user to pick file
+      return
+    }
+
+    if (intent.action == Intent.ACTION_VIEW) {
+      val uri = intent.data
+      if (uri != null) {
+        pendingImportUri = uri
+        showImportConfirmation = true
+        return
+      }
+    }
+
     if (intent.hasCategory(Intent.CATEGORY_HOME) && intent.action == Intent.ACTION_MAIN) {
       queryState = ""
       currentScreenState = Screen.Search
@@ -291,7 +314,19 @@ class MainActivity : ComponentActivity() {
     }
   }
 
-  fun exportBackup() {
+  fun initiateExportBackup() {
+    val app = application as SearchLauncherApp
+    lifecycleScope.launch(Dispatchers.IO) {
+      val size = app.wallpaperRepository.getWallpapersTotalSize()
+      withContext(Dispatchers.Main) {
+        exportWallpaperSize = size
+        exportIncludeWallpapers = true // Default to true
+        showExportDialog = true
+      }
+    }
+  }
+
+  fun performExportAction() {
     val timestamp =
       java.text
         .SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
@@ -402,7 +437,12 @@ class MainActivity : ComponentActivity() {
     LaunchedEffect(isFirstRun) {
       if (isFirstRun) {
         if (managedWallpapers.isEmpty()) {
-          withContext(Dispatchers.IO) { app.wallpaperRepository.addSystemWallpaper() }
+          withContext(Dispatchers.IO) {
+            val added = app.wallpaperRepository.addSystemWallpaper()
+            added?.let { uri ->
+              dataStore.edit { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] = uri.toString() }
+            }
+          }
         }
         context.dataStore.edit { it[PreferencesKeys.IS_FIRST_RUN] = false }
       }
@@ -428,6 +468,74 @@ class MainActivity : ComponentActivity() {
           keyboardController?.hide()
           focusManager.clearFocus()
         }
+      }
+
+      if (showImportConfirmation) {
+        AlertDialog(
+          onDismissRequest = {
+            showImportConfirmation = false
+            pendingImportUri = null
+          },
+          title = { Text("Import Backup?") },
+          text = {
+            Text(
+              "This will overwrite your existing shortcuts, favorites, history, and settings. Are you sure?"
+            )
+          },
+          confirmButton = {
+            TextButton(
+              onClick = {
+                showImportConfirmation = false
+                pendingImportUri?.let { uri -> lifecycleScope.launch { performImport(uri) } }
+                pendingImportUri = null
+              }
+            ) {
+              Text("Import")
+            }
+          },
+          dismissButton = {
+            TextButton(
+              onClick = {
+                showImportConfirmation = false
+                pendingImportUri = null
+              }
+            ) {
+              Text("Cancel")
+            }
+          },
+        )
+      }
+
+      if (showExportDialog) {
+        AlertDialog(
+          onDismissRequest = { showExportDialog = false },
+          title = { Text("Export Backup") },
+          text = {
+            Column {
+              Text("Create a backup of your data.")
+              Spacer(modifier = Modifier.height(16.dp))
+              Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Checkbox(
+                  checked = exportIncludeWallpapers,
+                  onCheckedChange = { exportIncludeWallpapers = it },
+                )
+                val sizeMb = exportWallpaperSize / (1024.0 * 1024.0)
+                Text("Include wallpapers (%.2f MB)".format(sizeMb))
+              }
+            }
+          },
+          confirmButton = {
+            TextButton(
+              onClick = {
+                showExportDialog = false
+                performExportAction()
+              }
+            ) {
+              Text("Export")
+            }
+          },
+          dismissButton = { TextButton(onClick = { showExportDialog = false }) { Text("Cancel") } },
+        )
       }
 
       Box(modifier = Modifier.fillMaxSize()) {
@@ -470,6 +578,7 @@ class MainActivity : ComponentActivity() {
                 onOpenPractice = { showPractice = true },
                 onBack = { currentScreenState = Screen.Search },
                 initialHighlightSection = pendingSettingsSection,
+                onExportBackup = { initiateExportBackup() },
               )
             }
             else -> {
@@ -584,25 +693,12 @@ class MainActivity : ComponentActivity() {
       }
     }
   }
-
-  object PreferencesKeys {
-    val THEME_COLOR = intPreferencesKey("theme_color")
-    val THEME_SATURATION = floatPreferencesKey("theme_saturation")
-    val DARK_MODE = intPreferencesKey("dark_mode")
-    val OLED_MODE = booleanPreferencesKey("oled_mode")
-    val BACKGROUND_LAST_IMAGE_URI =
-      androidx.datastore.preferences.core.stringPreferencesKey("background_last_image_uri")
-    val SWIPE_GESTURE_ENABLED = booleanPreferencesKey("swipe_gesture_enabled")
-
-    val SHOW_WIDGETS = booleanPreferencesKey("show_widgets")
-    val IS_FIRST_RUN = booleanPreferencesKey("is_first_run")
-    val STORE_WEB_HISTORY = booleanPreferencesKey("store_web_history")
-    val HISTORY_LIMIT = intPreferencesKey("history_limit")
-    val MIN_ICON_SIZE = intPreferencesKey("min_icon_size")
-  }
 }
 
 private suspend fun MainActivity.performExport(uri: android.net.Uri) {
+  withContext(Dispatchers.Main) {
+    Toast.makeText(this@performExport, "Exporting backup...", Toast.LENGTH_SHORT).show()
+  }
   withContext(Dispatchers.IO) {
     try {
       val app = applicationContext as SearchLauncherApp
@@ -612,15 +708,44 @@ private suspend fun MainActivity.performExport(uri: android.net.Uri) {
           snippetsRepository = app.snippetsRepository,
           searchShortcutRepository = app.searchShortcutRepository,
           favoritesRepository = app.favoritesRepository,
+          historyRepository = app.historyRepository,
+          wallpaperRepository = app.wallpaperRepository,
+          widgetRepository = app.widgetRepository,
         )
 
       contentResolver.openOutputStream(uri)?.use { outputStream ->
-        val result = backupManager.exportBackup(outputStream)
+        val result = backupManager.exportBackup(outputStream, exportIncludeWallpapers)
+
+        // Calculate file size
+        var sizeString = ""
+        if (result.isSuccess) {
+          try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+              if (cursor.moveToFirst()) {
+                val sizeIndex = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                if (sizeIndex != -1) {
+                  val size = cursor.getLong(sizeIndex)
+                  val units = arrayOf("B", "KB", "MB", "GB")
+                  var fileSize = size.toDouble()
+                  var i = 0
+                  while (fileSize > 1024 && i < units.size - 1) {
+                    fileSize /= 1024
+                    i++
+                  }
+                  sizeString = String.format("%.1f %s", fileSize, units[i])
+                }
+              }
+            }
+          } catch (e: Exception) {
+            e.printStackTrace()
+          }
+        }
+
         withContext(Dispatchers.Main) {
           if (result.isSuccess) {
             android.widget.Toast.makeText(
                 this@performExport,
-                "Backup exported successfully (${result.getOrNull()} items)",
+                "Backup exported successfully (${result.getOrNull()} items, $sizeString)",
                 android.widget.Toast.LENGTH_LONG,
               )
               .show()
@@ -648,6 +773,9 @@ private suspend fun MainActivity.performExport(uri: android.net.Uri) {
 }
 
 private suspend fun MainActivity.performImport(uri: android.net.Uri) {
+  withContext(Dispatchers.Main) {
+    Toast.makeText(this@performImport, "Restoring backup...", Toast.LENGTH_SHORT).show()
+  }
   withContext(Dispatchers.IO) {
     try {
       val app = applicationContext as SearchLauncherApp
@@ -658,25 +786,18 @@ private suspend fun MainActivity.performImport(uri: android.net.Uri) {
           snippetsRepository = app.snippetsRepository,
           searchShortcutRepository = app.searchShortcutRepository,
           favoritesRepository = app.favoritesRepository,
+          historyRepository = app.historyRepository,
+          wallpaperRepository = app.wallpaperRepository,
+          widgetRepository = app.widgetRepository,
         )
 
       contentResolver.openInputStream(uri)?.use { inputStream ->
         val result = backupManager.importBackup(inputStream)
         withContext(Dispatchers.Main) {
           if (result.isSuccess) {
-            val stats = result.getOrNull()!!
-            val message = buildString {
-              append("Import successful:\n")
-              append("- ${stats.snippetsCount} Snippets\n")
-              append("- ${stats.shortcutsCount} Custom Shortcuts\n")
-              append("- ${stats.favoritesCount} Favorites")
-              if (stats.backgroundRestored) {
-                append("\n- Background image restored")
-              }
-            }
             android.widget.Toast.makeText(
                 this@performImport,
-                message,
+                "Import successful!",
                 android.widget.Toast.LENGTH_LONG,
               )
               .show()

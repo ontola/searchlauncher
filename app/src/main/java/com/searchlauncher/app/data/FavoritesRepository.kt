@@ -75,4 +75,9 @@ class FavoritesRepository(context: Context) {
     _favoriteIds.value = favorites
     saveFavorites(favorites)
   }
+
+  fun clear() {
+    _favoriteIds.value = emptyList()
+    prefs.edit().remove("favorite_ids_ordered").remove("favorite_ids").apply()
+  }
 }

@@ -41,28 +41,22 @@ fun ThemeSettingsCard() {
   val scope = rememberCoroutineScope()
   val themeColor by
     remember {
-        context.dataStore.data.map {
-          it[MainActivity.PreferencesKeys.THEME_COLOR] ?: 0xFF5E6D4E.toInt()
-        }
+        context.dataStore.data.map { it[PreferencesKeys.THEME_COLOR] ?: 0xFF5E6D4E.toInt() }
       }
       .collectAsState(initial = 0xFF5E6D4E.toInt())
 
   val themeSaturation by
-    remember {
-        context.dataStore.data.map { it[MainActivity.PreferencesKeys.THEME_SATURATION] ?: 50f }
-      }
+    remember { context.dataStore.data.map { it[PreferencesKeys.THEME_SATURATION] ?: 50f } }
       .collectAsState(initial = 50f)
   val darkMode by
-    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.DARK_MODE] ?: 0 } }
+    remember { context.dataStore.data.map { it[PreferencesKeys.DARK_MODE] ?: 0 } }
       .collectAsState(initial = 0)
   val isOled by
-    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.OLED_MODE] ?: false } }
+    remember { context.dataStore.data.map { it[PreferencesKeys.OLED_MODE] ?: false } }
       .collectAsState(initial = false)
 
   val lastBackgroundUriString by
-    remember {
-        context.dataStore.data.map { it[MainActivity.PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] }
-      }
+    remember { context.dataStore.data.map { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] } }
       .collectAsState(initial = null)
 
   val app = context.applicationContext as SearchLauncherApp
@@ -99,7 +93,7 @@ fun ThemeSettingsCard() {
           onCheckedChange = { checked ->
             scope.launch {
               context.dataStore.edit { preferences ->
-                preferences[MainActivity.PreferencesKeys.OLED_MODE] = checked
+                preferences[PreferencesKeys.OLED_MODE] = checked
               }
             }
           },
@@ -165,7 +159,7 @@ fun ThemeSettingsCard() {
             onClick = {
               scope.launch {
                 context.dataStore.edit { preferences ->
-                  preferences[MainActivity.PreferencesKeys.DARK_MODE] = index
+                  preferences[PreferencesKeys.DARK_MODE] = index
                 }
               }
             },
@@ -196,8 +190,8 @@ fun ThemeSettingsCard() {
       onColorSelected = { color, saturation ->
         scope.launch {
           context.dataStore.edit { preferences ->
-            preferences[MainActivity.PreferencesKeys.THEME_COLOR] = color
-            preferences[MainActivity.PreferencesKeys.THEME_SATURATION] = saturation
+            preferences[PreferencesKeys.THEME_COLOR] = color
+            preferences[PreferencesKeys.THEME_SATURATION] = saturation
           }
         }
         showColorPickerDialog = false
@@ -214,8 +208,8 @@ fun ThemeSettingsCard() {
         onColorSelected = { color, saturation ->
           scope.launch {
             context.dataStore.edit { preferences ->
-              preferences[MainActivity.PreferencesKeys.THEME_COLOR] = color
-              preferences[MainActivity.PreferencesKeys.THEME_SATURATION] = saturation
+              preferences[PreferencesKeys.THEME_COLOR] = color
+              preferences[PreferencesKeys.THEME_SATURATION] = saturation
             }
           }
           showImageColorPickerDialog = false

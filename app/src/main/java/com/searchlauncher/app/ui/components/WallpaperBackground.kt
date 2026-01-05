@@ -58,6 +58,7 @@ import androidx.compose.ui.zIndex
 import androidx.datastore.preferences.core.edit
 import coil.compose.AsyncImage
 import com.searchlauncher.app.ui.MainActivity
+import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.WidgetHostViewFactory
 import com.searchlauncher.app.ui.dataStore
 import kotlinx.coroutines.CoroutineScope
@@ -86,8 +87,11 @@ fun WallpaperBackground(
     rememberPagerState(pageCount = { if (folderImages.isNotEmpty()) Int.MAX_VALUE else 0 })
 
   // Scroll to saved page or random page initially when images are loaded
-  LaunchedEffect(folderImages) {
+  LaunchedEffect(folderImages, lastImageUriString) {
     if (folderImages.isNotEmpty()) {
+      val startIndex = Int.MAX_VALUE / 2
+      val startOffset = startIndex % folderImages.size
+
       val targetIndex =
         if (lastImageUriString != null) {
           val uri = Uri.parse(lastImageUriString)
@@ -97,12 +101,9 @@ fun WallpaperBackground(
           0
         }
 
-      // Calculate a page in the middle of MAX_VALUE that maps to targetIndex
-      val startIndex = Int.MAX_VALUE / 2
-      val startOffset = startIndex % folderImages.size
-      val initialPage = startIndex - startOffset + targetIndex
-
-      pagerState.scrollToPage(initialPage)
+      // Map global infinite index to our desired loop position
+      val targetPage = startIndex - startOffset + targetIndex
+      pagerState.scrollToPage(targetPage)
     }
   }
 
@@ -123,7 +124,7 @@ fun WallpaperBackground(
 
           if (currentUri.toString() != lastImageUriString) {
             context.dataStore.edit { prefs ->
-              prefs[MainActivity.PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] = currentUri.toString()
+              prefs[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] = currentUri.toString()
             }
           }
         }
@@ -134,7 +135,7 @@ fun WallpaperBackground(
   val showWidgetsFlow =
     remember(context) {
       context.dataStore.data.map { preferences ->
-        preferences[MainActivity.PreferencesKeys.SHOW_WIDGETS] ?: true
+        preferences[PreferencesKeys.SHOW_WIDGETS] ?: true
       }
     }
   val showWidgets by showWidgetsFlow.collectAsState(initial = true)
@@ -164,7 +165,7 @@ fun WallpaperBackground(
               val scope = CoroutineScope(Dispatchers.IO)
               scope.launch {
                 context.dataStore.edit { preferences ->
-                  preferences[MainActivity.PreferencesKeys.SHOW_WIDGETS] = newState
+                  preferences[PreferencesKeys.SHOW_WIDGETS] = newState
                 }
               }
               onTap()

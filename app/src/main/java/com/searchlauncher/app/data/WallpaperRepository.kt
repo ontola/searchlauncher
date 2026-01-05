@@ -19,10 +19,10 @@ class WallpaperRepository(private val context: Context) {
   val wallpapers: StateFlow<List<Uri>> = _wallpapers.asStateFlow()
 
   init {
-    loadWallpapers()
+    reload()
   }
 
-  private fun loadWallpapers() {
+  fun reload() {
     val files = wallpaperDir.listFiles()?.filter { it.isFile && isImage(it) } ?: emptyList()
     _wallpapers.value = files.map { Uri.fromFile(it) }.sortedBy { it.path }
   }
@@ -35,10 +35,10 @@ class WallpaperRepository(private val context: Context) {
       name.endsWith(".webp")
   }
 
-  fun addWallpaper(uri: Uri): Boolean {
+  fun addWallpaper(uri: Uri): Uri? {
     return try {
       val contentResolver = context.contentResolver
-      val inputStream = contentResolver.openInputStream(uri) ?: return false
+      val inputStream = contentResolver.openInputStream(uri) ?: return null
 
       // Generate a unique filename
       val extension =
@@ -53,11 +53,11 @@ class WallpaperRepository(private val context: Context) {
       inputStream.use { input ->
         FileOutputStream(targetFile).use { output -> input.copyTo(output) }
       }
-      loadWallpapers()
-      true
+      reload()
+      Uri.fromFile(targetFile)
     } catch (e: Exception) {
       e.printStackTrace()
-      false
+      null
     }
   }
 
@@ -67,7 +67,7 @@ class WallpaperRepository(private val context: Context) {
       if (file.exists() && file.parentFile == wallpaperDir) {
         val deleted = file.delete()
         if (deleted) {
-          loadWallpapers()
+          reload()
         }
         deleted
       } else {
@@ -80,11 +80,11 @@ class WallpaperRepository(private val context: Context) {
   }
 
   @SuppressLint("MissingPermission")
-  fun addSystemWallpaper(): Boolean {
+  fun addSystemWallpaper(): Uri? {
     return try {
       val wallpaperManager = WallpaperManager.getInstance(context)
-      val drawable = wallpaperManager.drawable ?: return false
-      val bitmap = (drawable as? BitmapDrawable)?.bitmap ?: return false
+      val drawable = wallpaperManager.drawable ?: return null
+      val bitmap = (drawable as? BitmapDrawable)?.bitmap ?: return null
 
       val filename = "wp_system_${System.currentTimeMillis()}.jpg"
       val targetFile = File(wallpaperDir, filename)
@@ -92,14 +92,23 @@ class WallpaperRepository(private val context: Context) {
       FileOutputStream(targetFile).use { output ->
         bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
       }
-      loadWallpapers()
-      true
+      reload()
+      Uri.fromFile(targetFile)
     } catch (e: SecurityException) {
       android.util.Log.w("WallpaperRepository", "Permission denied for system wallpaper", e)
-      false
+      null
     } catch (e: Exception) {
-      e.printStackTrace()
-      false
+      null
     }
+  }
+
+  fun clearAll() {
+    wallpaperDir.listFiles()?.forEach { it.delete() }
+    _wallpapers.value = emptyList()
+  }
+
+  fun getWallpapersTotalSize(): Long {
+    return wallpaperDir.listFiles()?.filter { it.isFile && isImage(it) }?.sumOf { it.length() }
+      ?: 0L
   }
 }

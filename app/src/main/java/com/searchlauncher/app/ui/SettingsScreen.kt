@@ -82,7 +82,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import com.searchlauncher.app.R
 import com.searchlauncher.app.SearchLauncherApp
-import com.searchlauncher.app.ui.MainActivity.PreferencesKeys
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -93,6 +92,7 @@ fun SettingsScreen(
   onOpenPractice: () -> Unit,
   onBack: () -> Unit,
   initialHighlightSection: String? = null,
+  onExportBackup: () -> Unit,
 ) {
   val context = LocalContext.current
   var showPermissionDialog by remember { mutableStateOf(false) }
@@ -167,9 +167,7 @@ fun SettingsScreen(
           val scope = rememberCoroutineScope()
           val storeWebHistory =
             remember {
-                context.dataStore.data.map {
-                  it[MainActivity.PreferencesKeys.STORE_WEB_HISTORY] ?: true
-                }
+                context.dataStore.data.map { it[PreferencesKeys.STORE_WEB_HISTORY] ?: true }
               }
               .collectAsState(initial = true)
 
@@ -191,7 +189,7 @@ fun SettingsScreen(
               onCheckedChange = { enabled ->
                 scope.launch {
                   context.dataStore.edit { preferences ->
-                    preferences[MainActivity.PreferencesKeys.STORE_WEB_HISTORY] = enabled
+                    preferences[PreferencesKeys.STORE_WEB_HISTORY] = enabled
                   }
                 }
               },
@@ -199,9 +197,7 @@ fun SettingsScreen(
           }
 
           val historyLimit =
-            remember {
-                context.dataStore.data.map { it[MainActivity.PreferencesKeys.HISTORY_LIMIT] ?: -1 }
-              }
+            remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
               .collectAsState(initial = -1)
 
           Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -239,9 +235,7 @@ fun SettingsScreen(
                             "Fixed" -> 5
                             else -> -1
                           }
-                        context.dataStore.edit {
-                          it[MainActivity.PreferencesKeys.HISTORY_LIMIT] = newValue
-                        }
+                        context.dataStore.edit { it[PreferencesKeys.HISTORY_LIMIT] = newValue }
                       }
                     },
                     modifier = Modifier.weight(1f),
@@ -255,11 +249,7 @@ fun SettingsScreen(
 
             AnimatedVisibility(visible = historyLimit.value != 0) {
               val minIconSize =
-                remember {
-                    context.dataStore.data.map {
-                      it[MainActivity.PreferencesKeys.MIN_ICON_SIZE] ?: 36
-                    }
-                  }
+                remember { context.dataStore.data.map { it[PreferencesKeys.MIN_ICON_SIZE] ?: 36 } }
                   .collectAsState(initial = 36)
 
               val appIcon = remember {
@@ -310,8 +300,7 @@ fun SettingsScreen(
                   onValueChange = { value ->
                     scope.launch {
                       context.dataStore.edit {
-                        it[MainActivity.PreferencesKeys.MIN_ICON_SIZE] =
-                          value.toInt().coerceIn(16, 64)
+                        it[PreferencesKeys.MIN_ICON_SIZE] = value.toInt().coerceIn(16, 64)
                       }
                     }
                   },
@@ -337,8 +326,7 @@ fun SettingsScreen(
                   onValueChange = { value ->
                     scope.launch {
                       context.dataStore.edit {
-                        it[MainActivity.PreferencesKeys.HISTORY_LIMIT] =
-                          value.toInt().coerceIn(1, 15)
+                        it[PreferencesKeys.HISTORY_LIMIT] = value.toInt().coerceIn(1, 15)
                       }
                     }
                   },
@@ -521,7 +509,7 @@ fun SettingsScreen(
       }
     }
 
-    item { BackupRestoreCard() }
+    item { BackupRestoreCard(onExportBackup) }
     item { AboutCard() }
   }
 
@@ -948,7 +936,18 @@ private fun WallpaperManagementCard() {
   val launcher =
     rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
       if (uris.isNotEmpty()) {
-        scope.launch { uris.forEach { uri -> app.wallpaperRepository.addWallpaper(uri) } }
+        scope.launch {
+          var lastAddedUri: Uri? = null
+          uris.forEach { uri ->
+            val added = app.wallpaperRepository.addWallpaper(uri)
+            if (added != null) lastAddedUri = added
+          }
+          lastAddedUri?.let { newUri ->
+            context.dataStore.edit { prefs ->
+              prefs[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] = newUri.toString()
+            }
+          }
+        }
       }
     }
 
@@ -1061,7 +1060,7 @@ private fun WallpaperManagementCard() {
 }
 
 @Composable
-private fun BackupRestoreCard() {
+private fun BackupRestoreCard(onExportBackup: () -> Unit) {
   val context = LocalContext.current
   val activity = context as? MainActivity
 
@@ -1076,9 +1075,7 @@ private fun BackupRestoreCard() {
       )
 
       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = { activity?.exportBackup() }, modifier = Modifier.weight(1f)) {
-          Text("Export")
-        }
+        Button(onClick = onExportBackup, modifier = Modifier.weight(1f)) { Text("Export") }
 
         OutlinedButton(onClick = { activity?.importBackup() }, modifier = Modifier.weight(1f)) {
           Text("Import")

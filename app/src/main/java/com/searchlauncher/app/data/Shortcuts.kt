@@ -237,8 +237,21 @@ object DefaultShortcuts {
         intentUri = "com.searchlauncher.action.REMOVE_CURRENT_WALLPAPER",
       ),
       AppShortcut.Action(
+        id = "launcher_export_backup",
+        intentUri =
+          "intent:#Intent;action=com.searchlauncher.action.EXPORT_BACKUP;component=com.searchlauncher.app/.ui.MainActivity;end",
+        description = "Export Backup",
+      ),
+      AppShortcut.Action(
+        id = "launcher_import_backup",
+        intentUri =
+          "intent:#Intent;action=com.searchlauncher.action.IMPORT_BACKUP;component=com.searchlauncher.app/.ui.MainActivity;end",
+        description = "Import Backup",
+      ),
+      AppShortcut.Action(
         id = "launcher_onboarding",
-        intentUri = "intent:#Intent;action=com.searchlauncher.action.RESET_ONBOARDING;end",
+        intentUri =
+          "intent:#Intent;action=com.searchlauncher.action.RESET_ONBOARDING;component=com.searchlauncher.app/.ui.MainActivity;end",
         description = "Start Onboarding",
       ),
     ) + generateSettingsShortcuts()

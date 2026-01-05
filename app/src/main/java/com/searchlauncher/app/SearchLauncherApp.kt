@@ -47,7 +47,13 @@ class SearchLauncherApp : Application() {
     widgetRepository = com.searchlauncher.app.data.WidgetRepository(this)
     wallpaperRepository = WallpaperRepository(this)
     historyRepository = HistoryRepository(this)
-    CoroutineScope(Dispatchers.IO).launch { searchRepository.initialize() }
+    CoroutineScope(Dispatchers.IO).launch {
+      try {
+        searchRepository.initialize()
+      } catch (e: Exception) {
+        android.util.Log.e("SearchLauncherApp", "Initialization failed", e)
+      }
+    }
     createNotificationChannel()
   }
 

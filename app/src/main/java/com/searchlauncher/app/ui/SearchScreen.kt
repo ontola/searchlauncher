@@ -105,10 +105,10 @@ fun SearchScreen(
   val listState = androidx.compose.foundation.lazy.rememberLazyListState()
   val rawHistoryItems by searchRepository.recentItems.collectAsState()
   val historyLimit by
-    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
+    remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
       .collectAsState(initial = -1)
   val minIconSizeSetting by
-    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.MIN_ICON_SIZE] ?: 36 } }
+    remember { context.dataStore.data.map { it[PreferencesKeys.MIN_ICON_SIZE] ?: 36 } }
       .collectAsState(
         initial =
           context
@@ -136,22 +136,21 @@ fun SearchScreen(
 
   val themeColor by
     remember {
-        context.dataStore.data.map {
-          it[MainActivity.PreferencesKeys.THEME_COLOR] ?: 0xFF5E6D4E.toInt()
-        }
+        context.dataStore.data.map { it[PreferencesKeys.THEME_COLOR] ?: 0xFF5E6D4E.toInt() }
       }
       .collectAsState(initial = 0xFF5E6D4E.toInt())
   val themeSaturation by
-    remember {
-        context.dataStore.data.map { it[MainActivity.PreferencesKeys.THEME_SATURATION] ?: 50f }
-      }
+    remember { context.dataStore.data.map { it[PreferencesKeys.THEME_SATURATION] ?: 50f } }
       .collectAsState(initial = 50f)
   val darkMode by
-    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.DARK_MODE] ?: 0 } }
+    remember { context.dataStore.data.map { it[PreferencesKeys.DARK_MODE] ?: 0 } }
       .collectAsState(initial = 0)
   val isOled by
-    remember { context.dataStore.data.map { it[MainActivity.PreferencesKeys.OLED_MODE] ?: false } }
+    remember { context.dataStore.data.map { it[PreferencesKeys.OLED_MODE] ?: false } }
       .collectAsState(initial = false)
+  val showWidgetsSetting by
+    remember { context.dataStore.data.map { it[PreferencesKeys.SHOW_WIDGETS] ?: true } }
+      .collectAsState(initial = true)
 
   // Onboarding Logic
   val onboardingManager = remember { OnboardingManager(context) }
@@ -439,7 +438,18 @@ fun SearchScreen(
         rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris
           ->
           if (uris.isNotEmpty()) {
-            scope.launch { uris.forEach { uri -> app.wallpaperRepository.addWallpaper(uri) } }
+            scope.launch {
+              var lastAddedUri: Uri? = null
+              uris.forEach { uri ->
+                val added = app.wallpaperRepository.addWallpaper(uri)
+                if (added != null) lastAddedUri = added
+              }
+              lastAddedUri?.let { newUri ->
+                context.dataStore.edit { prefs ->
+                  prefs[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] = newUri.toString()
+                }
+              }
+            }
           }
         }
 
@@ -530,7 +540,7 @@ fun SearchScreen(
             },
           )
           val widgets by app.widgetRepository.widgets.collectAsState(initial = emptyList())
-          if (widgets.isNotEmpty()) {
+          if (showWidgetsSetting && widgets.isNotEmpty()) {
             DropdownMenuItem(
               text = { Text("Clear Widgets") },
               onClick = {

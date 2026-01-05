@@ -17,7 +17,7 @@ import androidx.appsearch.app.SearchSpec
 import androidx.appsearch.app.SetSchemaRequest
 import androidx.appsearch.localstorage.LocalStorage
 import com.searchlauncher.app.SearchLauncherApp
-import com.searchlauncher.app.ui.MainActivity
+import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.util.FuzzyMatch
 import com.searchlauncher.app.util.StaticShortcutScanner
@@ -665,8 +665,20 @@ class SearchRepository(private val context: Context) {
 
         // Clear all local state
         resetUsageStats()
+        val app = context.applicationContext as SearchLauncherApp
+
+        // Wipe all repositories
+        app.favoritesRepository.clear()
+        app.historyRepository.clearHistory()
+        app.wallpaperRepository.clearAll()
+        app.snippetsRepository.clearAll()
+        app.widgetRepository.clearAllWidgets()
+
+        // Clear caches and memory
         getFavoritesCacheFile().delete()
-        _favorites.value = emptyList() // Explicitly clear favorites
+        getHistoryCacheFile().delete()
+        _favorites.value = emptyList()
+        _recentItems.value = emptyList()
         synchronized(documentCache) { documentCache.clear() }
 
         // Full AppSearch wipe
@@ -890,9 +902,7 @@ class SearchRepository(private val context: Context) {
       // Use DataStore for preference
       val shouldStore =
         try {
-          context.dataStore.data
-            .map { it[MainActivity.PreferencesKeys.STORE_WEB_HISTORY] ?: true }
-            .first()
+          context.dataStore.data.map { it[PreferencesKeys.STORE_WEB_HISTORY] ?: true }.first()
         } catch (e: Exception) {
           android.util.Log.e("SearchRepository", "Error reading store_web_history pref", e)
           true // Proceed if DataStore fails

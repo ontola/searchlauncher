@@ -84,4 +84,9 @@ class SnippetsRepository(context: Context) {
       item.alias.lowercase().contains(lowerQuery) || item.content.lowercase().contains(lowerQuery)
     }
   }
+
+  fun clearAll() {
+    _items.value = emptyList()
+    prefs.edit().remove("items").apply()
+  }
 }
