@@ -40,8 +40,13 @@ jobs:
       - name: Run unit tests
         run: ./gradlew test
 
+      - name: Prepare Artifacts
+        run: |
+          mkdir -p artifacts
+          find app/build/outputs/apk -name "*.apk" -exec cp {} artifacts/ \;
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-apks
-          path: app/build/outputs/apk/**/*.apk
+          name: searchlauncher-apks
+          path: artifacts/*.apk
