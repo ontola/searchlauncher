@@ -1886,33 +1886,12 @@ class SearchRepository(private val context: Context) {
             icon = diskIcon
             iconCache.put("app_$packageName", icon)
           } else {
-            // Use LauncherApps to get the proper badged icon (better than plain PackageManager)
+            // Fallback to PackageManager (slow IPC)
             try {
-              val launcherApps =
-                context.getSystemService(Context.LAUNCHER_APPS_SERVICE)
-                  as android.content.pm.LauncherApps
-              val user = android.os.Process.myUserHandle()
-              val activities = launcherApps.getActivityList(packageName, user)
-              if (activities.isNotEmpty()) {
-                val info = activities[0]
-                // 0 means use default density. This returns a "full" icon potentially, but properly
-                // badged.
-                // However, LauncherActivityInfo.getIcon(density) returns a Drawable.
-                // It usually handles AdaptiveIcons correctly by returning a Drawable that renders
-                // correctly.
-                icon = info.getIcon(context.resources.displayMetrics.densityDpi)
-              }
-
-              if (icon == null) {
-                // Fallback
-                icon = context.packageManager.getApplicationIcon(packageName)
-              }
-
-              if (icon != null) {
-                iconCache.put("app_$packageName", icon)
-                // Save to disk for next time
-                saveIconToDisk(packageName, icon)
-              }
+              icon = context.packageManager.getApplicationIcon(packageName)
+              iconCache.put("app_$packageName", icon)
+              // Save to disk for next time
+              saveIconToDisk(packageName, icon)
             } catch (e: Exception) {
               // Ignore
             }
