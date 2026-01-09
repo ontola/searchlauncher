@@ -500,7 +500,7 @@ fun SearchScreen(
         TutorialOverlay(
           currentStep = currentOnboardingStep,
           bottomPadding = bottomPadding,
-          onDismissStep = { /* optional manual dismiss */},
+          onDismissStep = { /* optional manual dismiss */ },
         )
       }
 
@@ -1377,8 +1377,19 @@ internal fun Drawable.toImageBitmap(): ImageBitmap? {
 
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        setBounds(0, 0, canvas.width, canvas.height)
-        draw(canvas)
+
+        // Use a defensive copy of the drawable to avoid modifying the shared instance from cache
+        val drawableToDraw = constantState?.newDrawable()?.mutate() ?: this
+
+        val oldBounds = if (drawableToDraw === this) bounds else null
+
+        drawableToDraw.setBounds(0, 0, canvas.width, canvas.height)
+        drawableToDraw.draw(canvas)
+
+        if (oldBounds != null) {
+          drawableToDraw.bounds = oldBounds
+        }
+
         bitmap
       }
     return bitmap?.asImageBitmap()
