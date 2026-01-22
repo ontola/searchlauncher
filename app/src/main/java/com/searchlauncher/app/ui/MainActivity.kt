@@ -321,8 +321,12 @@ class MainActivity : ComponentActivity() {
 
     if (intent.action == "com.searchlauncher.action.REFRESH_ICONS") {
       val app = application as SearchLauncherApp
-      app.searchRepository.clearIconCache()
-      Toast.makeText(this, "Icons Refreshed", Toast.LENGTH_SHORT).show()
+      lifecycleScope.launch {
+        app.searchRepository.clearIconCache()
+        withContext(Dispatchers.Main) {
+          Toast.makeText(this@MainActivity, "Icons Refreshed", Toast.LENGTH_SHORT).show()
+        }
+      }
       // Force UI refresh if needed, but clearing cache + eventual reload should suffice
       return
     }
