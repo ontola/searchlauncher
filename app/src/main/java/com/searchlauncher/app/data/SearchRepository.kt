@@ -16,6 +16,7 @@ import androidx.appsearch.app.RemoveByDocumentIdRequest
 import androidx.appsearch.app.SearchSpec
 import androidx.appsearch.app.SetSchemaRequest
 import androidx.appsearch.localstorage.LocalStorage
+import androidx.datastore.preferences.core.edit
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.dataStore
@@ -758,6 +759,12 @@ class SearchRepository(private val context: Context) {
         indexApps()
         indexCustomShortcuts()
         indexStaticShortcuts()
+
+        // Reset first run flag and clear wallpaper URI to reveal system wallpaper
+        context.dataStore.edit { preferences ->
+          preferences[com.searchlauncher.app.ui.PreferencesKeys.IS_FIRST_RUN] = true
+          preferences.remove(com.searchlauncher.app.ui.PreferencesKeys.BACKGROUND_LAST_IMAGE_URI)
+        }
 
         // Signal update
         _indexUpdated.emit(Unit)

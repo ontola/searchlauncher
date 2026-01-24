@@ -191,11 +191,8 @@ fun WallpaperBackground(
         }
       }
     } else {
-      // Solid background when no image - semi-transparent so app underneath shows through
-      Box(
-        modifier =
-          contentModifier.background(MaterialTheme.colorScheme.background.copy(alpha = 0.7f))
-      )
+      // Show system wallpaper through a transparent background when no custom images are selected
+      Box(modifier = contentModifier.background(androidx.compose.ui.graphics.Color.Transparent))
     }
 
     // Widget Layer

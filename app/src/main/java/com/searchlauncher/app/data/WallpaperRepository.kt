@@ -81,25 +81,188 @@ class WallpaperRepository(private val context: Context) {
 
   @SuppressLint("MissingPermission")
   fun addSystemWallpaper(): Uri? {
+    android.util.Log.d("WallpaperRepository", "addSystemWallpaper() called")
     return try {
       val wallpaperManager = WallpaperManager.getInstance(context)
-      val drawable = wallpaperManager.drawable ?: return null
-      val bitmap = (drawable as? BitmapDrawable)?.bitmap ?: return null
+      android.util.Log.d("WallpaperRepository", "WallpaperManager instance obtained")
 
-      val filename = "wp_system_${System.currentTimeMillis()}.jpg"
-      val targetFile = File(wallpaperDir, filename)
+      // First, try getWallpaperFile() API (API 24+) which uses a different permission path
+      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+        try {
+          // Try system wallpaper
+          var pfd = wallpaperManager.getWallpaperFile(WallpaperManager.FLAG_SYSTEM)
+          if (pfd != null) {
+            android.util.Log.d(
+              "WallpaperRepository",
+              "Got ParcelFileDescriptor from getWallpaperFile (FLAG_SYSTEM)",
+            )
+            val bitmap = android.graphics.BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor)
+            pfd.close()
+            if (bitmap != null) {
+              android.util.Log.d(
+                "WallpaperRepository",
+                "Decoded bitmap from PFD (FLAG_SYSTEM): ${bitmap.width}x${bitmap.height}",
+              )
+              return saveBitmapAsWallpaper(bitmap)
+            }
+          } else {
+            android.util.Log.w(
+              "WallpaperRepository",
+              "getWallpaperFile (FLAG_SYSTEM) returned null, trying FLAG_LOCK",
+            )
+          }
 
-      FileOutputStream(targetFile).use { output ->
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
+          // Fallback to lock screen wallpaper
+          pfd = wallpaperManager.getWallpaperFile(WallpaperManager.FLAG_LOCK)
+          if (pfd != null) {
+            android.util.Log.d(
+              "WallpaperRepository",
+              "Got ParcelFileDescriptor from getWallpaperFile (FLAG_LOCK)",
+            )
+            val bitmap = android.graphics.BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor)
+            pfd.close()
+            if (bitmap != null) {
+              android.util.Log.d(
+                "WallpaperRepository",
+                "Decoded bitmap from PFD (FLAG_LOCK): ${bitmap.width}x${bitmap.height}",
+              )
+              return saveBitmapAsWallpaper(bitmap)
+            }
+          } else {
+            android.util.Log.w(
+              "WallpaperRepository",
+              "getWallpaperFile (FLAG_LOCK) returned null, trying drawable fallback",
+            )
+          }
+        } catch (e: Exception) {
+          android.util.Log.w(
+            "WallpaperRepository",
+            "getWallpaperFile failed: ${e.message}, trying drawable fallback",
+          )
+        }
       }
-      reload()
-      Uri.fromFile(targetFile)
+
+      // Fallback: Try drawable first, then peekDrawable
+      var drawable = wallpaperManager.drawable
+      if (drawable == null) {
+        android.util.Log.w(
+          "WallpaperRepository",
+          "wallpaperManager.drawable is null, trying peekDrawable",
+        )
+        drawable = wallpaperManager.peekDrawable()
+      }
+
+      if (drawable == null) {
+        android.util.Log.e("WallpaperRepository", "Both drawable and peekDrawable returned null")
+        return null
+      }
+
+      android.util.Log.d(
+        "WallpaperRepository",
+        "Drawable obtained, class: ${drawable.javaClass.name}",
+      )
+
+      // Try to get bitmap - handle different drawable types
+      val bitmap: Bitmap? =
+        when (drawable) {
+          is BitmapDrawable -> {
+            android.util.Log.d("WallpaperRepository", "Drawable is BitmapDrawable")
+            drawable.bitmap
+          }
+          else -> {
+            android.util.Log.d(
+              "WallpaperRepository",
+              "Drawable is ${drawable.javaClass.name}, converting to Bitmap",
+            )
+            // Convert any drawable to bitmap
+            val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: 1080
+            val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: 1920
+            android.util.Log.d(
+              "WallpaperRepository",
+              "Creating bitmap with size ${width}x${height}",
+            )
+            val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bmp)
+            drawable.setBounds(0, 0, width, height)
+            drawable.draw(canvas)
+            bmp
+          }
+        }
+
+      if (bitmap == null) {
+        android.util.Log.e("WallpaperRepository", "Failed to get/create bitmap from drawable")
+        return null
+      }
+
+      saveBitmapAsWallpaper(bitmap)
     } catch (e: SecurityException) {
-      android.util.Log.w("WallpaperRepository", "Permission denied for system wallpaper", e)
-      null
+      android.util.Log.e(
+        "WallpaperRepository",
+        "Permission denied for system wallpaper, trying built-in fallback",
+        e,
+      )
+      // Xiaomi MIUI blocks WallpaperManager APIs with READ_EXTERNAL_STORAGE check
+      // Try getBuiltInDrawable() which doesn't require permissions
+      tryGetBuiltInWallpaper()
     } catch (e: Exception) {
+      android.util.Log.e("WallpaperRepository", "Failed to add system wallpaper", e)
       null
     }
+  }
+
+  /**
+   * Try to get the built-in device wallpaper, which doesn't require storage permissions. This is a
+   * fallback for Xiaomi/MIUI devices that block WallpaperManager.getDrawable().
+   */
+  private fun tryGetBuiltInWallpaper(): Uri? {
+    return try {
+      val wallpaperManager = WallpaperManager.getInstance(context)
+      android.util.Log.d("WallpaperRepository", "Trying getBuiltInDrawable() fallback")
+
+      // Get the built-in (factory default) wallpaper - doesn't require permissions
+      val drawable = wallpaperManager.builtInDrawable
+      if (drawable == null) {
+        android.util.Log.w("WallpaperRepository", "builtInDrawable returned null")
+        return null
+      }
+
+      android.util.Log.d("WallpaperRepository", "Got builtInDrawable: ${drawable.javaClass.name}")
+
+      val bitmap: Bitmap =
+        when (drawable) {
+          is BitmapDrawable -> drawable.bitmap
+          else -> {
+            val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: 1080
+            val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: 1920
+            val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bmp)
+            drawable.setBounds(0, 0, width, height)
+            drawable.draw(canvas)
+            bmp
+          }
+        }
+
+      saveBitmapAsWallpaper(bitmap)
+    } catch (e: Exception) {
+      android.util.Log.e("WallpaperRepository", "Built-in wallpaper fallback also failed", e)
+      null
+    }
+  }
+
+  private fun saveBitmapAsWallpaper(bitmap: Bitmap): Uri? {
+    android.util.Log.d("WallpaperRepository", "Bitmap obtained: ${bitmap.width}x${bitmap.height}")
+    val filename = "wp_system_${System.currentTimeMillis()}.jpg"
+    val targetFile = File(wallpaperDir, filename)
+
+    FileOutputStream(targetFile).use { output ->
+      bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
+    }
+    android.util.Log.d(
+      "WallpaperRepository",
+      "System wallpaper saved to ${targetFile.absolutePath}, size: ${targetFile.length()} bytes",
+    )
+    reload()
+    return Uri.fromFile(targetFile)
   }
 
   fun clearAll() {

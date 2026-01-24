@@ -22,12 +22,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.lifecycleScope
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.service.OverlayService
@@ -37,8 +35,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 class MainActivity : ComponentActivity() {
 
@@ -50,7 +46,8 @@ class MainActivity : ComponentActivity() {
   var pendingImportUri: Uri? = null
 
   private val exportBackupLauncher =
-    registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+    registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) {
+      uri ->
       if (uri != null) {
         lifecycleScope.launch { performExport(uri) }
       }
@@ -100,6 +97,24 @@ class MainActivity : ComponentActivity() {
           uris.forEach { uri -> app.wallpaperRepository.addWallpaper(uri) }
           Toast.makeText(this@MainActivity, "Added ${uris.size} wallpapers", Toast.LENGTH_SHORT)
             .show()
+        }
+      }
+    }
+
+  private val requestReadMediaImagesLauncher =
+    registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+      android.util.Log.d("MainActivity", "READ_MEDIA_IMAGES permission granted: $isGranted")
+      if (isGranted) {
+        val app = application as SearchLauncherApp
+        lifecycleScope.launch {
+          val result = app.wallpaperRepository.addSystemWallpaper()
+          if (result != null) {
+            android.util.Log.d("MainActivity", "System wallpaper imported: $result")
+            Toast.makeText(this@MainActivity, "Imported system wallpaper", Toast.LENGTH_SHORT)
+              .show()
+          } else {
+            android.util.Log.w("MainActivity", "Failed to import system wallpaper")
+          }
         }
       }
     }
@@ -188,10 +203,10 @@ class MainActivity : ComponentActivity() {
       android.util.Log.e("MainActivity", "SecurityException adding widget", e)
       if (appWidgetId != -1) {
         Toast.makeText(
-          this,
-          "Restricted Settings detected. Attempting manual bind...",
-          Toast.LENGTH_SHORT,
-        )
+            this,
+            "Restricted Settings detected. Attempting manual bind...",
+            Toast.LENGTH_SHORT,
+          )
           .show()
 
         // Fallback: Try to launch the system bind dialog
@@ -207,10 +222,10 @@ class MainActivity : ComponentActivity() {
         } catch (innerE: Exception) {
           android.util.Log.e("MainActivity", "Fallback failed", innerE)
           Toast.makeText(
-            this,
-            "Permission denied. Enable 'Restricted Settings' in App Info, then FORCE STOP the app.",
-            Toast.LENGTH_LONG,
-          )
+              this,
+              "Permission denied. Enable 'Restricted Settings' in App Info, then FORCE STOP the app.",
+              Toast.LENGTH_LONG,
+            )
             .show()
         }
       } else {
@@ -246,16 +261,17 @@ class MainActivity : ComponentActivity() {
   private var pendingSettingsSection by mutableStateOf<String?>(null)
   private var focusTrigger by mutableStateOf(0L)
 
-  private val screenOnReceiver = object : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-      if (currentScreenState == Screen.Search) {
-        lifecycleScope.launch {
-          kotlinx.coroutines.delay(100)
-          focusTrigger = System.currentTimeMillis()
+  private val screenOnReceiver =
+    object : BroadcastReceiver() {
+      override fun onReceive(context: Context, intent: Intent) {
+        if (currentScreenState == Screen.Search) {
+          lifecycleScope.launch {
+            kotlinx.coroutines.delay(100)
+            focusTrigger = System.currentTimeMillis()
+          }
         }
       }
     }
-  }
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
@@ -402,9 +418,27 @@ class MainActivity : ComponentActivity() {
         chroma = themeSaturation.value,
         isOled = isOled.value,
       ) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-          MainScreen()
-        }
+        val context = LocalContext.current
+        val lastImageUriString by
+          remember { context.dataStore.data.map { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] } }
+            .collectAsState(initial = null)
+
+        val app = context.applicationContext as SearchLauncherApp
+        val managedWallpapers by app.wallpaperRepository.wallpapers.collectAsState()
+
+        val backgroundColor =
+          if (lastImageUriString.isNullOrEmpty() && managedWallpapers.isEmpty()) {
+            android.util.Log.d("MainActivity", "Setting background to Transparent")
+            Color.Transparent
+          } else {
+            android.util.Log.d(
+              "MainActivity",
+              "Setting background to Theme background (lastUri=$lastImageUriString)",
+            )
+            MaterialTheme.colorScheme.background
+          }
+
+        Surface(modifier = Modifier.fillMaxSize(), color = backgroundColor) { MainScreen() }
       }
     }
   }
@@ -418,8 +452,7 @@ class MainActivity : ComponentActivity() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       registerReceiver(screenOnReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
     } else {
-      @Suppress("UnspecifiedRegisterReceiverFlag")
-      registerReceiver(screenOnReceiver, filter)
+      @Suppress("UnspecifiedRegisterReceiverFlag") registerReceiver(screenOnReceiver, filter)
     }
   }
 
@@ -473,8 +506,8 @@ class MainActivity : ComponentActivity() {
 
     // Hoist wallpaper state
     val lastImageUriString by
-    remember { context.dataStore.data.map { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] } }
-      .collectAsState(initial = null)
+      remember { context.dataStore.data.map { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] } }
+        .collectAsState(initial = null)
 
     val app = context.applicationContext as SearchLauncherApp
     val managedWallpapers by app.wallpaperRepository.wallpapers.collectAsState()
@@ -496,20 +529,38 @@ class MainActivity : ComponentActivity() {
         .collectAsState(initial = false)
 
     val isFirstRun by
-    remember { context.dataStore.data.map { it[PreferencesKeys.IS_FIRST_RUN] ?: true } }
-      .collectAsState(initial = false)
+      remember { context.dataStore.data.map { it[PreferencesKeys.IS_FIRST_RUN] ?: true } }
+        .collectAsState(initial = false)
 
-    LaunchedEffect(isFirstRun) {
+    LaunchedEffect(isFirstRun, managedWallpapers.isEmpty()) {
       if (isFirstRun) {
-        if (managedWallpapers.isEmpty()) {
-          withContext(Dispatchers.IO) {
-            val added = app.wallpaperRepository.addSystemWallpaper()
-            added?.let { uri ->
-              dataStore.edit { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] = uri.toString() }
-            }
-          }
-        }
         context.dataStore.edit { it[PreferencesKeys.IS_FIRST_RUN] = false }
+      }
+      // Import system wallpaper if none are loaded (e.g., on first run or after reset)
+      if (managedWallpapers.isEmpty()) {
+        android.util.Log.d(
+          "MainActivity",
+          "No wallpapers loaded, requesting permission or importing system wallpaper",
+        )
+        // On Android 13+ (API 33), we need to request READ_MEDIA_IMAGES at runtime
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+          val permission = android.Manifest.permission.READ_MEDIA_IMAGES
+          if (
+            context.checkSelfPermission(permission) ==
+              android.content.pm.PackageManager.PERMISSION_GRANTED
+          ) {
+            android.util.Log.d("MainActivity", "Permission already granted, importing wallpaper")
+            val result = app.wallpaperRepository.addSystemWallpaper()
+            android.util.Log.d("MainActivity", "System wallpaper import result: $result")
+          } else {
+            android.util.Log.d("MainActivity", "Requesting READ_MEDIA_IMAGES permission")
+            (context as? MainActivity)?.requestReadMediaImagesLauncher?.launch(permission)
+          }
+        } else {
+          // On older versions, try directly
+          val result = app.wallpaperRepository.addSystemWallpaper()
+          android.util.Log.d("MainActivity", "System wallpaper import result (legacy): $result")
+        }
       }
     }
 
@@ -659,10 +710,10 @@ class MainActivity : ComponentActivity() {
           visible = currentScreenState == Screen.AppList,
           enter =
             androidx.compose.animation.slideInVertically { height -> height } +
-                    androidx.compose.animation.fadeIn(),
+              androidx.compose.animation.fadeIn(),
           exit =
             androidx.compose.animation.slideOutVertically { height -> height } +
-                    androidx.compose.animation.fadeOut(),
+              androidx.compose.animation.fadeOut(),
           modifier = Modifier.fillMaxSize(),
         ) {
           AppListScreen(
@@ -811,17 +862,17 @@ private suspend fun MainActivity.performExport(uri: android.net.Uri) {
         withContext(Dispatchers.Main) {
           if (result.isSuccess) {
             android.widget.Toast.makeText(
-              this@performExport,
-              "Backup exported successfully (${result.getOrNull()} items, $sizeString)",
-              android.widget.Toast.LENGTH_LONG,
-            )
+                this@performExport,
+                "Backup exported successfully (${result.getOrNull()} items, $sizeString)",
+                android.widget.Toast.LENGTH_LONG,
+              )
               .show()
           } else {
             android.widget.Toast.makeText(
-              this@performExport,
-              "Export failed: ${result.exceptionOrNull()?.message}",
-              android.widget.Toast.LENGTH_LONG,
-            )
+                this@performExport,
+                "Export failed: ${result.exceptionOrNull()?.message}",
+                android.widget.Toast.LENGTH_LONG,
+              )
               .show()
           }
         }
@@ -829,10 +880,10 @@ private suspend fun MainActivity.performExport(uri: android.net.Uri) {
     } catch (e: Exception) {
       withContext(Dispatchers.Main) {
         android.widget.Toast.makeText(
-          this@performExport,
-          "Export failed: ${e.message}",
-          android.widget.Toast.LENGTH_LONG,
-        )
+            this@performExport,
+            "Export failed: ${e.message}",
+            android.widget.Toast.LENGTH_LONG,
+          )
           .show()
       }
     }
@@ -863,17 +914,17 @@ private suspend fun MainActivity.performImport(uri: android.net.Uri) {
         withContext(Dispatchers.Main) {
           if (result.isSuccess) {
             android.widget.Toast.makeText(
-              this@performImport,
-              "Import successful!",
-              android.widget.Toast.LENGTH_LONG,
-            )
+                this@performImport,
+                "Import successful!",
+                android.widget.Toast.LENGTH_LONG,
+              )
               .show()
           } else {
             android.widget.Toast.makeText(
-              this@performImport,
-              "Import failed: ${result.exceptionOrNull()?.message}",
-              android.widget.Toast.LENGTH_LONG,
-            )
+                this@performImport,
+                "Import failed: ${result.exceptionOrNull()?.message}",
+                android.widget.Toast.LENGTH_LONG,
+              )
               .show()
           }
         }
@@ -881,10 +932,10 @@ private suspend fun MainActivity.performImport(uri: android.net.Uri) {
     } catch (e: Exception) {
       withContext(Dispatchers.Main) {
         android.widget.Toast.makeText(
-          this@performImport,
-          "Import failed: ${e.message}",
-          android.widget.Toast.LENGTH_LONG,
-        )
+            this@performImport,
+            "Import failed: ${e.message}",
+            android.widget.Toast.LENGTH_LONG,
+          )
           .show()
       }
     }
