@@ -294,19 +294,16 @@ class MainActivity : ComponentActivity() {
           currentScreenState = Screen.Settings
           pendingSettingsSection = "shortcuts"
         }
-
         "history",
         "wallpaper" -> {
           currentScreenState = Screen.Settings
           pendingSettingsSection = settingPage
         }
-
         "add_wallpaper" -> {
           pickWallpapersLauncher.launch(
             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
           )
         }
-
         "remove_current_wallpaper" -> {
           lifecycleScope.launch {
             val lastUri =
@@ -723,7 +720,6 @@ class MainActivity : ComponentActivity() {
                 isActive = currentScreenState == Screen.Search,
               )
             }
-
             Screen.Settings -> {
               SettingsScreen(
                 onStartService = { startOverlayService() },
@@ -734,7 +730,6 @@ class MainActivity : ComponentActivity() {
                 onExportBackup = { initiateExportBackup() },
               )
             }
-
             else -> {
               /* No-op */
             }

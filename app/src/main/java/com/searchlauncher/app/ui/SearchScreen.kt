@@ -106,20 +106,20 @@ fun SearchScreen(
   val listState = androidx.compose.foundation.lazy.rememberLazyListState()
   val rawHistoryItems by searchRepository.recentItems.collectAsState()
   val historyLimit by
-  remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
-    .collectAsState(initial = -1)
+    remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
+      .collectAsState(initial = -1)
   val minIconSizeSetting by
-  remember {
-    context.dataStore.data.map {
-      it[PreferencesKeys.MIN_ICON_SIZE] ?: PreferencesKeys.getDefaultIconSize(context)
-    }
-  }
-    .collectAsState(
-      initial =
-        context
-          .getSharedPreferences("search_launcher_prefs", Context.MODE_PRIVATE)
-          .getInt("min_icon_size", PreferencesKeys.getDefaultIconSize(context))
-    )
+    remember {
+        context.dataStore.data.map {
+          it[PreferencesKeys.MIN_ICON_SIZE] ?: PreferencesKeys.getDefaultIconSize(context)
+        }
+      }
+      .collectAsState(
+        initial =
+          context
+            .getSharedPreferences("search_launcher_prefs", Context.MODE_PRIVATE)
+            .getInt("min_icon_size", PreferencesKeys.getDefaultIconSize(context))
+      )
 
   // Sync back to SharedPreferences for faster boot next time
   LaunchedEffect(minIconSizeSetting) {
@@ -140,22 +140,22 @@ fun SearchScreen(
     }
 
   val themeColor by
-  remember {
-    context.dataStore.data.map { it[PreferencesKeys.THEME_COLOR] ?: 0xFF5E6D4E.toInt() }
-  }
-    .collectAsState(initial = 0xFF5E6D4E.toInt())
+    remember {
+        context.dataStore.data.map { it[PreferencesKeys.THEME_COLOR] ?: 0xFF5E6D4E.toInt() }
+      }
+      .collectAsState(initial = 0xFF5E6D4E.toInt())
   val themeSaturation by
-  remember { context.dataStore.data.map { it[PreferencesKeys.THEME_SATURATION] ?: 50f } }
-    .collectAsState(initial = 50f)
+    remember { context.dataStore.data.map { it[PreferencesKeys.THEME_SATURATION] ?: 50f } }
+      .collectAsState(initial = 50f)
   val darkMode by
-  remember { context.dataStore.data.map { it[PreferencesKeys.DARK_MODE] ?: 0 } }
-    .collectAsState(initial = 0)
+    remember { context.dataStore.data.map { it[PreferencesKeys.DARK_MODE] ?: 0 } }
+      .collectAsState(initial = 0)
   val isOled by
-  remember { context.dataStore.data.map { it[PreferencesKeys.OLED_MODE] ?: false } }
-    .collectAsState(initial = false)
+    remember { context.dataStore.data.map { it[PreferencesKeys.OLED_MODE] ?: false } }
+      .collectAsState(initial = false)
   val showWidgetsSetting by
-  remember { context.dataStore.data.map { it[PreferencesKeys.SHOW_WIDGETS] ?: true } }
-    .collectAsState(initial = true)
+    remember { context.dataStore.data.map { it[PreferencesKeys.SHOW_WIDGETS] ?: true } }
+      .collectAsState(initial = true)
 
   // Onboarding Logic
   val onboardingManager = remember { OnboardingManager(context) }
@@ -193,14 +193,14 @@ fun SearchScreen(
   LaunchedEffect(query, completedSteps) {
     if (
       !completedSteps.contains(OnboardingStep.SearchYoutube) &&
-      query.trimStart().startsWith("y ", ignoreCase = true)
+        query.trimStart().startsWith("y ", ignoreCase = true)
     ) {
       onboardingManager.markStepComplete(OnboardingStep.SearchYoutube)
     }
 
     if (
       !completedSteps.contains(OnboardingStep.SearchGoogle) &&
-      query.trimStart().startsWith("g ", ignoreCase = true)
+        query.trimStart().startsWith("g ", ignoreCase = true)
     ) {
       onboardingManager.markStepComplete(OnboardingStep.SearchGoogle)
     }
@@ -217,24 +217,27 @@ fun SearchScreen(
   val view = LocalView.current
 
   // Use InputMethodManager for more reliable keyboard control
-  val imm =
-    remember { context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager }
+  val imm = remember {
+    context.getSystemService(Context.INPUT_METHOD_SERVICE)
+      as android.view.inputmethod.InputMethodManager
+  }
 
   // Continuously monitor and force keyboard to stay visible using IMM
   DisposableEffect(isActive) {
-    val job = scope.launch {
-      while (isActive) {
-        if (!isImeVisible) {
-          focusRequester.requestFocus()
-          kotlinx.coroutines.delay(50)
-          // Use SHOW_FORCED to aggressively show keyboard
-          view.post {
-            imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
+    val job =
+      scope.launch {
+        while (isActive) {
+          if (!isImeVisible) {
+            focusRequester.requestFocus()
+            kotlinx.coroutines.delay(50)
+            // Use SHOW_FORCED to aggressively show keyboard
+            view.post {
+              imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
+            }
           }
+          kotlinx.coroutines.delay(200) // Check every 200ms
         }
-        kotlinx.coroutines.delay(200) // Check every 200ms
       }
-    }
 
     onDispose { job.cancel() }
   }
@@ -244,9 +247,7 @@ fun SearchScreen(
     if (isActive) {
       focusRequester.requestFocus()
       kotlinx.coroutines.delay(100)
-      view.post {
-        imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
-      }
+      view.post { imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_FORCED) }
     }
   }
 
@@ -259,8 +260,7 @@ fun SearchScreen(
 
       // Always append search shortcuts to the end of the results
       // Use a higher limit to show all options as requested
-      val shortcuts =
-        searchRepository.getSearchShortcuts(limit = 50)
+      val shortcuts = searchRepository.getSearchShortcuts(limit = 50)
 
       val resultIds = results.map { it.id }.toSet()
       val uniqueShortcuts = shortcuts.filter { !resultIds.contains(it.id) }
@@ -318,7 +318,7 @@ fun SearchScreen(
   // Check if contacts permission is granted
   val hasContactsPermission = remember {
     context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
+      android.content.pm.PackageManager.PERMISSION_GRANTED
   }
 
   val hintManager =
@@ -517,7 +517,7 @@ fun SearchScreen(
         TutorialOverlay(
           currentStep = currentOnboardingStep,
           bottomPadding = bottomPadding,
-          onDismissStep = { /* optional manual dismiss */ },
+          onDismissStep = { /* optional manual dismiss */},
         )
       }
 
@@ -619,8 +619,9 @@ fun SearchScreen(
                 reverseLayout = true,
                 contentPadding = PaddingValues(vertical = 8.dp),
               ) {
-                itemsIndexed(searchResults, key = { _, item -> "${item.namespace}/${item.id}" }) { index,
-                                                                                                   result ->
+                itemsIndexed(searchResults, key = { _, item -> "${item.namespace}/${item.id}" }) {
+                  index,
+                  result ->
                   SearchResultItem(
                     result = result,
                     isFavorite = favoriteIds.contains(result.id),
@@ -729,8 +730,8 @@ fun SearchScreen(
                         // from query context)
                         if (
                           query.isNotEmpty() &&
-                          !result.trigger.equals(query.trim(), ignoreCase = true) &&
-                          !result.title.contains(query.trim(), ignoreCase = true)
+                            !result.trigger.equals(query.trim(), ignoreCase = true) &&
+                            !result.title.contains(query.trim(), ignoreCase = true)
                         ) {
                           // Perform Search
                           val shortcut =
@@ -759,10 +760,10 @@ fun SearchScreen(
                               onDismiss()
                             } catch (e: Exception) {
                               Toast.makeText(
-                                context,
-                                "Cannot open: ${result.title}",
-                                Toast.LENGTH_SHORT,
-                              )
+                                  context,
+                                  "Cannot open: ${result.title}",
+                                  Toast.LENGTH_SHORT,
+                                )
                                 .show()
                             }
                           }
@@ -773,24 +774,24 @@ fun SearchScreen(
                       } else {
                         if (
                           result is SearchResult.Content &&
-                          result.deepLink ==
-                          "intent:#Intent;action=com.searchlauncher.action.CREATE_SNIPPET;end"
+                            result.deepLink ==
+                              "intent:#Intent;action=com.searchlauncher.action.CREATE_SNIPPET;end"
                         ) {
                           snippetEditMode = false
                           showSnippetDialog = true
                         } else if (
                           result is SearchResult.Content &&
-                          result.deepLink ==
-                          "intent:#Intent;action=com.searchlauncher.action.ADD_WIDGET;end"
+                            result.deepLink ==
+                              "intent:#Intent;action=com.searchlauncher.action.ADD_WIDGET;end"
                         ) {
                           onAddWidget()
                         } else if (
                           (result is SearchResult.Content &&
-                                  result.deepLink ==
-                                  "intent:#Intent;action=com.searchlauncher.action.RESET_ONBOARDING;end") ||
-                          (result is SearchResult.Shortcut &&
-                                  result.intentUri ==
-                                  "intent:#Intent;action=com.searchlauncher.action.RESET_ONBOARDING;end")
+                            result.deepLink ==
+                              "intent:#Intent;action=com.searchlauncher.action.RESET_ONBOARDING;end") ||
+                            (result is SearchResult.Shortcut &&
+                              result.intentUri ==
+                                "intent:#Intent;action=com.searchlauncher.action.RESET_ONBOARDING;end")
                         ) {
                           scope.launch {
                             onboardingManager.resetOnboarding()
@@ -809,17 +810,17 @@ fun SearchScreen(
                           if (deepLink == resetAppDataIntent) {
                             showResetConfirmation =
                               "This will permanently delete ALL app data, including your search history, bookmarks, and snippets. This cannot be undone." to
-                                      {
-                                        onDismiss()
-                                        scope.launch { searchRepository.resetAppData() }
-                                      }
+                                {
+                                  onDismiss()
+                                  scope.launch { searchRepository.resetAppData() }
+                                }
                           } else if (deepLink == resetIndexIntent) {
                             showResetConfirmation =
                               "This will rebuild the search index and clear your usage statistics. Your bookmarks and snippets will be preserved." to
-                                      {
-                                        onDismiss()
-                                        scope.launch { searchRepository.resetIndex() }
-                                      }
+                                {
+                                  onDismiss()
+                                  scope.launch { searchRepository.resetIndex() }
+                                }
                           } else {
                             launchResult(
                               context,
@@ -832,8 +833,8 @@ fun SearchScreen(
                             )
                             if (
                               result is SearchResult.Content &&
-                              result.deepLink ==
-                              "intent:#Intent;action=com.searchlauncher.action.APPEND_SPACE;end"
+                                result.deepLink ==
+                                  "intent:#Intent;action=com.searchlauncher.action.APPEND_SPACE;end"
                             ) {
                               // Do nothing (keep search open)
                             } else {
@@ -936,8 +937,8 @@ fun SearchScreen(
                       }
                     val label =
                       (activeShortcut.shortLabel
-                        ?: defaultShortcut?.shortLabel
-                        ?: activeShortcut.description)
+                          ?: defaultShortcut?.shortLabel
+                          ?: activeShortcut.description)
                         .replace("Search ", "", ignoreCase = true)
                         .replace("Ask ", "", ignoreCase = true)
                         .trim()
@@ -993,8 +994,8 @@ fun SearchScreen(
                   Modifier.weight(1f).focusRequester(focusRequester).onKeyEvent { event ->
                     if (
                       event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
-                      displayQuery.isEmpty() &&
-                      activeShortcut != null
+                        displayQuery.isEmpty() &&
+                        activeShortcut != null
                     ) {
                       onQueryChange("")
                       true
@@ -1046,10 +1047,10 @@ fun SearchScreen(
                                 onDismiss()
                               } catch (e: Exception) {
                                 Toast.makeText(
-                                  context,
-                                  "Cannot open: ${topResult.title}",
-                                  Toast.LENGTH_SHORT,
-                                )
+                                    context,
+                                    "Cannot open: ${topResult.title}",
+                                    Toast.LENGTH_SHORT,
+                                  )
                                   .show()
                               }
                             } else {
@@ -1130,7 +1131,7 @@ fun SearchScreen(
                     } else {
                       if (
                         context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
-                        android.content.pm.PackageManager.PERMISSION_GRANTED
+                          android.content.pm.PackageManager.PERMISSION_GRANTED
                       ) {
                         try {
                           val intent =
@@ -1208,7 +1209,7 @@ fun SearchScreen(
       shortcut = editingShortcut,
       existingAliases =
         searchShortcuts.map { it.alias } +
-                com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.map { it.alias },
+          com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.map { it.alias },
       onDismiss = { showShortcutDialog = false },
       onSave = { newShortcut ->
         scope.launch {
@@ -1261,7 +1262,6 @@ private fun launchResult(
         context.startActivity(it)
       }
     }
-
     is SearchResult.Content -> {
       if (result.deepLink?.startsWith("calculator://copy") == true) {
         val textToCopy = Uri.parse(result.deepLink).getQueryParameter("text") ?: result.title
@@ -1285,10 +1285,10 @@ private fun launchResult(
             (context as? MainActivity)?.handleWidgetIntent(intent)
               ?: run {
                 Toast.makeText(
-                  context,
-                  "Cannot bind widget: Activity not found",
-                  Toast.LENGTH_SHORT,
-                )
+                    context,
+                    "Cannot bind widget: Activity not found",
+                    Toast.LENGTH_SHORT,
+                  )
                   .show()
               }
           } else if (intent.action == "com.searchlauncher.action.APPEND_SPACE") {
@@ -1319,7 +1319,6 @@ private fun launchResult(
         }
       }
     }
-
     is SearchResult.Shortcut -> {
       try {
         val uri = result.intentUri
@@ -1330,7 +1329,7 @@ private fun launchResult(
             val id = parts[1]
             val launcherApps =
               context.getSystemService(Context.LAUNCHER_APPS_SERVICE)
-                      as android.content.pm.LauncherApps
+                as android.content.pm.LauncherApps
             launcherApps.startShortcut(pkg, id, null, null, android.os.Process.myUserHandle())
           }
         } else {
@@ -1343,11 +1342,9 @@ private fun launchResult(
         Toast.makeText(context, "Error launching shortcut", Toast.LENGTH_SHORT).show()
       }
     }
-
     is SearchResult.SearchIntent -> {
       // Handled in UI
     }
-
     is SearchResult.Contact -> {
       try {
         val intent = Intent(Intent.ACTION_VIEW)
@@ -1364,7 +1361,6 @@ private fun launchResult(
         Toast.makeText(context, "Error opening contact", Toast.LENGTH_SHORT).show()
       }
     }
-
     is SearchResult.Snippet -> {
       val clipboard =
         context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager

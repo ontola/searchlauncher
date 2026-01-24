@@ -1864,7 +1864,6 @@ class SearchRepository(private val context: Context) {
           rankingScore = rankingScore,
         )
       }
-
       "app_shortcuts" -> {
         // Check cache first (settings icons, camera icons, etc.)
         var icon: Drawable? = iconCache.get("app_shortcut_${doc.id}")
@@ -1883,15 +1882,12 @@ class SearchRepository(private val context: Context) {
                     null
                   }
                 }
-
                 doc.intentUri?.contains("STILL_IMAGE_CAMERA") == true -> {
                   context.getDrawable(android.R.drawable.ic_menu_camera)
                 }
-
                 doc.intentUri?.contains("VIDEO_CAMERA") == true -> {
                   context.getDrawable(android.R.drawable.ic_menu_camera)
                 }
-
                 else -> null
               }
             if (icon != null) {
@@ -1939,7 +1935,6 @@ class SearchRepository(private val context: Context) {
           rankingScore = rankingScore,
         )
       }
-
       "search_shortcuts" -> {
         val alias = doc.description ?: ""
         val cacheKey = "search_shortcut_${doc.id}"
@@ -1964,7 +1959,6 @@ class SearchRepository(private val context: Context) {
           rankingScore = rankingScore,
         )
       }
-
       "web_bookmarks" -> {
         val browserIcon =
           context.getDrawable(android.R.drawable.ic_menu_compass)
@@ -1980,7 +1974,6 @@ class SearchRepository(private val context: Context) {
           rankingScore = rankingScore,
         )
       }
-
       "static_shortcuts" -> {
         // Static shortcut icons pre-cached during indexing
         var icon: Drawable? = iconCache.get("static_shortcut_${doc.id}")
@@ -2026,7 +2019,6 @@ class SearchRepository(private val context: Context) {
           rankingScore = rankingScore,
         )
       }
-
       "contacts" -> {
         val lookupKey = doc.id.substringBefore("/")
         val contactId = doc.id.substringAfter("/").toLongOrNull() ?: 0L
@@ -2080,7 +2072,6 @@ class SearchRepository(private val context: Context) {
           photoUri = photoUri,
         )
       }
-
       else -> { // apps
         val packageName = doc.id
         // App icons pre-cached during indexing/refresh
@@ -2149,19 +2140,16 @@ class SearchRepository(private val context: Context) {
               obj.put("intentUri", res.intentUri)
               obj.put("packageName", res.packageName)
             }
-
             is SearchResult.Content -> {
               obj.put("deepLink", res.deepLink)
               obj.put("packageName", res.packageName)
             }
-
             is SearchResult.SearchIntent -> obj.put("trigger", res.trigger)
             is SearchResult.Contact -> {
               obj.put("lookupKey", res.lookupKey)
               obj.put("contactId", res.contactId)
               obj.put("photoUri", res.photoUri ?: "")
             }
-
             is SearchResult.Snippet -> {
               obj.put("alias", res.alias)
               obj.put("content", res.content)
@@ -2214,7 +2202,6 @@ class SearchRepository(private val context: Context) {
                 icon,
                 packageName = obj.optString("packageName", id),
               )
-
             "Shortcut" ->
               SearchResult.Shortcut(
                 id,
@@ -2225,7 +2212,6 @@ class SearchRepository(private val context: Context) {
                 packageName = obj.optString("packageName", ""),
                 intentUri = obj.getString("intentUri"),
               )
-
             "Content" ->
               SearchResult.Content(
                 id,
@@ -2236,7 +2222,6 @@ class SearchRepository(private val context: Context) {
                 packageName = obj.optString("packageName", ""),
                 deepLink = obj.getString("deepLink"),
               )
-
             "SearchIntent" ->
               SearchResult.SearchIntent(
                 id,
@@ -2246,7 +2231,6 @@ class SearchRepository(private val context: Context) {
                 icon,
                 trigger = obj.getString("trigger"),
               )
-
             "Contact" ->
               SearchResult.Contact(
                 id,
@@ -2258,7 +2242,6 @@ class SearchRepository(private val context: Context) {
                 contactId = obj.getLong("contactId"),
                 photoUri = obj.optString("photoUri", "").takeIf { it.isNotEmpty() },
               )
-
             "Snippet" ->
               SearchResult.Snippet(
                 id,
@@ -2269,7 +2252,6 @@ class SearchRepository(private val context: Context) {
                 alias = obj.getString("alias"),
                 content = obj.getString("content"),
               )
-
             else -> null
           }
         if (res != null) results.add(res)
