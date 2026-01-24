@@ -109,37 +109,65 @@ fun ThemeSettingsCard() {
         modifier = Modifier.fillMaxWidth(),
       )
 
+      // Auto from wallpaper toggle
+      val autoThemeFromWallpaper by
+        remember {
+            context.dataStore.data.map { it[PreferencesKeys.AUTO_THEME_FROM_WALLPAPER] ?: true }
+          }
+          .collectAsState(initial = true)
+
       Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        // Current color circle
-        Box(
-          modifier =
-            Modifier.size(48.dp)
-              .clip(CircleShape)
-              .background(
-                Color(
-                  Hct.from(
-                      Hct.fromInt(themeColor).hue,
-                      themeSaturation.toDouble(),
-                      Hct.fromInt(themeColor).tone,
-                    )
-                    .toInt()
-                )
-              )
-              .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
-              .clickable { showColorPickerDialog = true }
+        Text(text = "Auto from wallpaper", style = MaterialTheme.typography.bodyMedium)
+        Switch(
+          checked = autoThemeFromWallpaper,
+          onCheckedChange = { checked ->
+            scope.launch {
+              context.dataStore.edit { preferences ->
+                preferences[PreferencesKeys.AUTO_THEME_FROM_WALLPAPER] = checked
+              }
+            }
+          },
         )
+      }
 
-        // Pick from image button
-        if (managedWallpapers.isNotEmpty()) {
-          OutlinedButton(
-            onClick = { showImageColorPickerDialog = true },
-            modifier = Modifier.weight(1f),
-          ) {
-            Text("Pick from Image")
+      // Manual color picker (only show when auto is disabled)
+      if (!autoThemeFromWallpaper) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          // Current color circle
+          Box(
+            modifier =
+              Modifier.size(48.dp)
+                .clip(CircleShape)
+                .background(
+                  Color(
+                    Hct.from(
+                        Hct.fromInt(themeColor).hue,
+                        themeSaturation.toDouble(),
+                        Hct.fromInt(themeColor).tone,
+                      )
+                      .toInt()
+                  )
+                )
+                .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                .clickable { showColorPickerDialog = true }
+          )
+
+          // Pick from image button
+          if (managedWallpapers.isNotEmpty()) {
+            OutlinedButton(
+              onClick = { showImageColorPickerDialog = true },
+              modifier = Modifier.weight(1f),
+            ) {
+              Text("Pick from Image")
+            }
           }
         }
       }

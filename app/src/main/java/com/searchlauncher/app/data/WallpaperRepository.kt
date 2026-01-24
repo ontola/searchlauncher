@@ -274,4 +274,42 @@ class WallpaperRepository(private val context: Context) {
     return wallpaperDir.listFiles()?.filter { it.isFile && isImage(it) }?.sumOf { it.length() }
       ?: 0L
   }
+
+  /**
+   * Extract dominant color from a wallpaper URI using Android Palette. Returns the dominant color
+   * as an ARGB Int, or null if extraction fails.
+   */
+  fun extractDominantColor(uri: Uri): Int? {
+    return try {
+      android.util.Log.d("WallpaperRepository", "Extracting color from: $uri")
+      val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+      val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+      inputStream.close()
+
+      if (bitmap == null) {
+        android.util.Log.w("WallpaperRepository", "Failed to decode bitmap from $uri")
+        return null
+      }
+
+      // Use Palette to extract dominant color
+      val palette = androidx.palette.graphics.Palette.from(bitmap).generate()
+
+      // Try dominant swatch first, then vibrant, then muted
+      val swatch = palette.dominantSwatch ?: palette.vibrantSwatch ?: palette.mutedSwatch
+
+      if (swatch != null) {
+        android.util.Log.d(
+          "WallpaperRepository",
+          "Extracted color: ${Integer.toHexString(swatch.rgb)}",
+        )
+        swatch.rgb
+      } else {
+        android.util.Log.w("WallpaperRepository", "No color swatch found")
+        null
+      }
+    } catch (e: Exception) {
+      android.util.Log.e("WallpaperRepository", "Error extracting color from $uri", e)
+      null
+    }
+  }
 }

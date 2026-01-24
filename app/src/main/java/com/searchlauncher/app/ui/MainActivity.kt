@@ -564,6 +564,42 @@ class MainActivity : ComponentActivity() {
       }
     }
 
+    // Auto-extract theme color from wallpaper when enabled
+    val autoThemeFromWallpaper by
+      remember {
+          context.dataStore.data.map { it[PreferencesKeys.AUTO_THEME_FROM_WALLPAPER] ?: true }
+        }
+        .collectAsState(initial = true)
+
+    // Get current wallpaper URI (either last viewed or first in list)
+    val currentWallpaperUri =
+      remember(lastImageUriString, managedWallpapers) {
+        managedWallpapers.find { it.toString() == lastImageUriString }
+          ?: managedWallpapers.firstOrNull()
+      }
+
+    // Auto-update theme color when wallpaper changes and auto mode is enabled
+    LaunchedEffect(currentWallpaperUri, autoThemeFromWallpaper) {
+      if (autoThemeFromWallpaper && currentWallpaperUri != null) {
+        android.util.Log.d("MainActivity", "Auto-extracting theme color from: $currentWallpaperUri")
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+          val dominantColor = app.wallpaperRepository.extractDominantColor(currentWallpaperUri)
+          if (dominantColor != null) {
+            android.util.Log.d(
+              "MainActivity",
+              "Extracted color: ${Integer.toHexString(dominantColor)}, updating theme",
+            )
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+              context.dataStore.edit { preferences ->
+                preferences[PreferencesKeys.THEME_COLOR] = dominantColor
+                preferences[PreferencesKeys.THEME_SATURATION] = 50f // Default saturation
+              }
+            }
+          }
+        }
+      }
+    }
+
     if (showPractice) {
       PracticeGestureScreen(onBack = { showPractice = false })
     } else {
