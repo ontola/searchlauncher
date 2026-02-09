@@ -8,6 +8,8 @@ object MathEvaluator {
 
   fun isExpression(input: String): Boolean {
     if (input.isBlank()) return false
+    // If it starts with +, it's likely a phone number, not a math expression (user request)
+    if (input.trimStart().startsWith("+")) return false
     // Must contain at least one operator and some numbers
     val hasOperator = input.any { it in OPERATORS }
     val hasDigit = input.any { it.isDigit() }

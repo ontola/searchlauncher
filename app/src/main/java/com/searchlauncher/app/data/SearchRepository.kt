@@ -17,6 +17,7 @@ import androidx.appsearch.app.SearchSpec
 import androidx.appsearch.app.SetSchemaRequest
 import androidx.appsearch.localstorage.LocalStorage
 import androidx.datastore.preferences.core.edit
+import com.google.common.util.concurrent.ListenableFuture
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.dataStore
@@ -28,6 +29,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Collections
 import java.util.concurrent.Executors
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -40,6 +43,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -136,7 +140,7 @@ class SearchRepository(private val context: Context) {
           LocalStorage.createSearchSessionAsync(
             LocalStorage.SearchContext.Builder(context, "searchlauncher_db").build()
           )
-        appSearchSession = sessionFuture.get()
+        appSearchSession = sessionFuture.await()
 
         try {
           val launcherApps =
@@ -161,7 +165,7 @@ class SearchRepository(private val context: Context) {
 
         val setSchemaRequest =
           SetSchemaRequest.Builder().addDocumentClasses(AppSearchDocument::class.java).build()
-        appSearchSession?.setSchemaAsync(setSchemaRequest)?.get()
+        appSearchSession?.setSchemaAsync(setSchemaRequest)?.await()
 
         // Trigger history metadata refresh IMMEDIATELY.
         // getRecentItems will fetch by ID directly from DB, skipping the full scan.
@@ -292,12 +296,12 @@ class SearchRepository(private val context: Context) {
         val searchResults = session.search("", searchSpec)
         val allDocs = mutableListOf<AppSearchDocument>()
 
-        var page = searchResults.nextPageAsync.get()
+        var page = searchResults.nextPageAsync.await()
         while (page.isNotEmpty()) {
           allDocs.addAll(
             page.mapNotNull { it.genericDocument.toDocumentClass(AppSearchDocument::class.java) }
           )
-          page = searchResults.nextPageAsync.get()
+          page = searchResults.nextPageAsync.await()
         }
 
         synchronized(documentCache) {
@@ -372,7 +376,7 @@ class SearchRepository(private val context: Context) {
       if (apps.isNotEmpty()) {
         val putRequest = PutDocumentsRequest.Builder().addDocuments(apps).build()
         try {
-          session.putAsync(putRequest).get()
+          session.putAsync(putRequest).await()
         } catch (e: Exception) {
           android.util.Log.e("SearchRepository", "Failed to put indexed apps", e)
         }
@@ -383,7 +387,7 @@ class SearchRepository(private val context: Context) {
           val searchSpec =
             SearchSpec.Builder().addFilterNamespaces("apps").setResultCountPerPage(1000).build()
           val searchResults = session.search("", searchSpec)
-          var page = searchResults.nextPageAsync.get()
+          var page = searchResults.nextPageAsync.await()
           val idsToRemove = mutableListOf<String>()
           while (page.isNotEmpty()) {
             page.forEach {
@@ -392,12 +396,12 @@ class SearchRepository(private val context: Context) {
                 idsToRemove.add(id)
               }
             }
-            page = searchResults.nextPageAsync.get()
+            page = searchResults.nextPageAsync.await()
           }
           if (idsToRemove.isNotEmpty()) {
             val removeRequest =
               RemoveByDocumentIdRequest.Builder("apps").addIds(idsToRemove).build()
-            session.removeAsync(removeRequest).get()
+            session.removeAsync(removeRequest).await()
             android.util.Log.d(
               "SearchRepository",
               "Removed ${idsToRemove.size} zombie apps from index",
@@ -436,7 +440,7 @@ class SearchRepository(private val context: Context) {
       // Clear old shortcuts entries to prevent zombies
       try {
         val removeSpec = SearchSpec.Builder().addFilterNamespaces("shortcuts").build()
-        session.removeAsync("", removeSpec).get()
+        session.removeAsync("", removeSpec).await()
         android.util.Log.d("SearchRepository", "Cleared 'shortcuts' namespace for re-indexing")
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Failed to clear 'shortcuts' namespace", e)
@@ -533,7 +537,7 @@ class SearchRepository(private val context: Context) {
 
         if (shortcuts.isNotEmpty()) {
           val putRequest = PutDocumentsRequest.Builder().addDocuments(shortcuts).build()
-          session.putAsync(putRequest).get()
+          session.putAsync(putRequest).await()
         }
         replaceCollection("shortcuts", shortcuts)
       } catch (e: Exception) {
@@ -553,7 +557,7 @@ class SearchRepository(private val context: Context) {
       try {
         val removeSpec =
           SearchSpec.Builder().addFilterNamespaces("search_shortcuts", "app_shortcuts").build()
-        session.removeAsync("", removeSpec).get()
+        session.removeAsync("", removeSpec).await()
       } catch (e: Exception) {
         e.printStackTrace()
       }
@@ -590,7 +594,7 @@ class SearchRepository(private val context: Context) {
       val allDocs = appShortcutDocs + searchShortcutDocs
       if (allDocs.isNotEmpty()) {
         val putRequest = PutDocumentsRequest.Builder().addDocuments(allDocs).build()
-        session.putAsync(putRequest).get()
+        session.putAsync(putRequest).await()
         // Special case for custom shortcuts: they have two namespaces
         synchronized(documentCache) {
           documentCache.removeAll {
@@ -656,14 +660,14 @@ class SearchRepository(private val context: Context) {
       // Clear old entries
       try {
         val removeSpec = SearchSpec.Builder().addFilterNamespaces("static_shortcuts").build()
-        session.removeAsync("", removeSpec).get()
+        session.removeAsync("", removeSpec).await()
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Failed to clear static_shortcuts namespace", e)
       }
 
       if (docs.isNotEmpty()) {
         val putRequest = PutDocumentsRequest.Builder().addDocuments(docs).build()
-        session.putAsync(putRequest).get()
+        session.putAsync(putRequest).await()
       }
       replaceCollection("static_shortcuts", docs)
     }
@@ -696,7 +700,7 @@ class SearchRepository(private val context: Context) {
                 "snippets",
               )
               .build()
-          session.removeAsync("", removeSpec).get()
+          session.removeAsync("", removeSpec).await()
           android.util.Log.d("SearchRepository", "Selectively cleared index (excluding bookmarks)")
         } catch (e: Exception) {
           android.util.Log.e("SearchRepository", "Failed to selectively clear index", e)
@@ -749,11 +753,11 @@ class SearchRepository(private val context: Context) {
 
         // Full AppSearch wipe
         val setSchemaRequest = SetSchemaRequest.Builder().setForceOverride(true).build()
-        session.setSchemaAsync(setSchemaRequest).get()
+        session.setSchemaAsync(setSchemaRequest).await()
 
         val initSchemaRequest =
           SetSchemaRequest.Builder().addDocumentClasses(AppSearchDocument::class.java).build()
-        session.setSchemaAsync(initSchemaRequest).get()
+        session.setSchemaAsync(initSchemaRequest).await()
 
         // Re-index core only
         indexApps()
@@ -813,7 +817,7 @@ class SearchRepository(private val context: Context) {
             try {
               val req =
                 androidx.appsearch.app.GetByDocumentIdRequest.Builder(ns).addIds(missingIds).build()
-              val resp = appSearchSession?.getByDocumentIdAsync(req)?.get()
+              val resp = appSearchSession?.getByDocumentIdAsync(req)?.await()
               resp?.successes?.values?.forEach { gDoc ->
                 gDoc.toDocumentClass(AppSearchDocument::class.java)?.let { resolved.add(it) }
               }
@@ -941,7 +945,7 @@ class SearchRepository(private val context: Context) {
               androidx.appsearch.app.ReportUsageRequest.Builder(namespace, id)
                 .setUsageTimestampMillis(System.currentTimeMillis())
                 .build()
-            session.reportUsageAsync(request).get()
+            session.reportUsageAsync(request).await()
           } catch (e: Exception) {
             // Not in index or other issue, ignore
             android.util.Log.w(
@@ -1031,7 +1035,7 @@ class SearchRepository(private val context: Context) {
           "Actually putting web doc into AppSearch: ${doc.id} ($trimmedUrl)",
         )
         val request = PutDocumentsRequest.Builder().addDocuments(doc).build()
-        val result = session.putAsync(request).get()
+        val result = session.putAsync(request).await()
 
         if (result.isSuccess) {
           android.util.Log.d("SearchRepository", "Successfully indexed $trimmedUrl")
@@ -1055,7 +1059,7 @@ class SearchRepository(private val context: Context) {
       try {
         val request =
           androidx.appsearch.app.RemoveByDocumentIdRequest.Builder(namespace).addIds(id).build()
-        session.removeAsync(request).get()
+        session.removeAsync(request).await()
         synchronized(documentCache) {
           documentCache.removeAll { it.namespace == namespace && it.id == id }
         }
@@ -1252,7 +1256,7 @@ class SearchRepository(private val context: Context) {
       if (contacts.isNotEmpty()) {
         android.util.Log.d("SearchRepository", "Indexed ${contacts.size} contacts")
         val putRequest = PutDocumentsRequest.Builder().addDocuments(contacts).build()
-        session.putAsync(putRequest).get()
+        session.putAsync(putRequest).await()
         replaceCollection("contacts", contacts)
       } else {
         android.util.Log.d("SearchRepository", "No contacts found to index")
@@ -1267,7 +1271,7 @@ class SearchRepository(private val context: Context) {
           androidx.appsearch.app.RemoveByDocumentIdRequest.Builder("web_bookmarks")
             .addIds(id)
             .build()
-        val result = session.removeAsync(request).get()
+        val result = session.removeAsync(request).await()
         if (result.isSuccess) {
           android.util.Log.d(
             "SearchRepository",
@@ -1319,7 +1323,7 @@ class SearchRepository(private val context: Context) {
 
         if (docs.isNotEmpty()) {
           val putRequest = PutDocumentsRequest.Builder().addDocuments(docs).build()
-          session.putAsync(putRequest).get()
+          session.putAsync(putRequest).await()
           replaceCollection("snippets", docs)
           android.util.Log.d("SearchRepository", "Indexed ${docs.size} snippets")
         }
@@ -1355,6 +1359,17 @@ class SearchRepository(private val context: Context) {
     return _allApps.value
   }
 
+  /**
+   * Searches for apps, shortcuts, and other items.
+   *
+   * @param query The search query.
+   * @param limit Max number of results to return. -1 for no limit.
+   * @param allowIpc Whether to allow Inter-Process Communication (IPC) to fetch icons/info. Set to
+   *   FALSE during rapid typing to prevent UI lag/jank. When false, only cached icons or disk icons
+   *   are used.
+   * @param allowDisk Whether to allow reading from disk. Set to FALSE for ultra-fast, memory-only
+   *   searches (e.g. for suggestions).
+   */
   suspend fun searchApps(
     query: String,
     limit: Int = -1,
@@ -1362,71 +1377,148 @@ class SearchRepository(private val context: Context) {
     allowDisk: Boolean = true,
   ): List<SearchResult> =
     withContext(Dispatchers.IO) {
-      val startTime = System.currentTimeMillis()
-      val session = appSearchSession
-      if (session == null) return@withContext emptyList()
+      try {
+        val startTime = System.currentTimeMillis()
+        val session = appSearchSession
+        if (session == null) return@withContext emptyList()
 
-      // Check cache for single-letter queries
-      if (query.matches(SINGLE_LETTER_PATTERN)) {
-        val cached = searchCache[query.lowercase()]
-        if (cached != null) {
-          return@withContext cached
+        // Check cache for single-letter queries
+        if (query.matches(SINGLE_LETTER_PATTERN)) {
+          val cached = searchCache[query.lowercase()]
+          if (cached != null) {
+            return@withContext cached
+          }
         }
-      }
 
-      val results = mutableListOf<SearchResult>()
+        val results = mutableListOf<SearchResult>()
 
-      // 1. Custom Shortcuts (Triggers)
-      val customShortcutResults = findMatchingCustomShortcut(query)
-      results.addAll(customShortcutResults)
+        coroutineScope {
+          // 1. Custom Shortcuts (Triggers)
+          val customShortcutsAsync = async { findMatchingCustomShortcut(query) }
 
-      // 2. Snippets
-      results.addAll(getSnippetResults(query))
+          // 2. Snippets
+          val snippetsAsync = async { getSnippetResults(query) }
 
-      // 3. Smart Actions
-      if (query.isNotEmpty()) {
-        results.addAll(smartActionManager.checkSmartActions(query))
-      }
+          // 3. Smart Actions
+          val smartActionsAsync =
+            if (query.isNotEmpty()) {
+              async { smartActionManager.checkSmartActions(query) }
+            } else null
 
-      // 4. AppSearch Index
-      // Identify active shortcut aliases to exclude them from index results (deduplication)
-      val excludedAliases =
-        customShortcutResults
-          .filterIsInstance<SearchResult.SearchIntent>()
-          .mapNotNull { it.trigger }
-          .toSet()
+          val customShortcutMatches = customShortcutsAsync.await()
+          val customShortcutResults = customShortcutMatches.first
+          val matchedShortcut = customShortcutMatches.second
 
-      results.addAll(
-        searchAppIndex(query, excludedAliases, limit, allowIpc = allowIpc, allowDisk = allowDisk)
-      )
+          // 4. AppSearch Index
+          val excludedAliases =
+            customShortcutResults
+              .filterIsInstance<SearchResult.SearchIntent>()
+              .mapNotNull { it.trigger }
+              .toSet()
 
-      results.sortByDescending { it.rankingScore }
+          val indexSearchAsync = async {
+            searchAppIndex(
+              query,
+              excludedAliases,
+              limit,
+              allowIpc = allowIpc,
+              allowDisk = allowDisk,
+            )
+          }
 
-      // Cache single-letter queries (icons are now pre-cached, so safe to cache)
-      if (query.matches(SINGLE_LETTER_PATTERN)) {
-        val timeSinceLastUsage = System.currentTimeMillis() - lastUsageReportTime
-        if (timeSinceLastUsage > CACHE_COOLDOWN_MS) {
-          searchCache[query.lowercase()] = results
+          // 5. Suggestions
+          val suggestionsAsync =
+            if (matchedShortcut?.suggestionUrl != null && query.contains(" ")) {
+              val searchTerm = query.substringAfter(" ")
+              if (searchTerm.isNotEmpty()) {
+                async { fetchSuggestions(matchedShortcut.suggestionUrl!!, searchTerm) }
+              } else null
+            } else null
+
+          // Collect all results
+          results.addAll(customShortcutResults)
+          results.addAll(snippetsAsync.await())
+          if (smartActionsAsync != null) {
+            try {
+              results.addAll(smartActionsAsync.await())
+            } catch (e: Exception) {
+              if (e is kotlinx.coroutines.CancellationException) throw e
+              android.util.Log.e("SearchRepository", "Error awaiting smart actions", e)
+            }
+          }
+          try {
+            results.addAll(indexSearchAsync.await())
+          } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            android.util.Log.e("SearchRepository", "Error awaiting index search", e)
+          }
+
+          // Add suggestions
+          try {
+            suggestionsAsync?.await()?.forEach { suggestion ->
+              if (matchedShortcut != null) {
+                val icon =
+                  iconGenerator.getColoredSearchIcon(matchedShortcut.color, matchedShortcut.alias)
+                val urlFormatted =
+                  String.format(
+                    matchedShortcut.urlTemplate,
+                    java.net.URLEncoder.encode(suggestion, "UTF-8"),
+                  )
+                results.add(
+                  SearchResult.Content(
+                    id = "suggestion_${matchedShortcut.alias}_$suggestion",
+                    namespace = "search_shortcuts",
+                    title = suggestion,
+                    subtitle = "${matchedShortcut.description} Suggestion",
+                    icon = icon,
+                    packageName = matchedShortcut.packageName ?: "android",
+                    deepLink = urlFormatted,
+                    rankingScore = 200,
+                  )
+                )
+              }
+            }
+          } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            android.util.Log.e("SearchRepository", "Error processing suggestions", e)
+          }
         }
+
+        results.sortByDescending { it.rankingScore }
+
+        // Cache single-letter queries (icons are now pre-cached, so safe to cache)
+        if (query.matches(SINGLE_LETTER_PATTERN)) {
+          val timeSinceLastUsage = System.currentTimeMillis() - lastUsageReportTime
+          if (timeSinceLastUsage > CACHE_COOLDOWN_MS) {
+            searchCache[query.lowercase()] = results
+          }
+        }
+
+        val duration = System.currentTimeMillis() - startTime
+        android.util.Log.d(
+          "SearchRepository",
+          "searchApps for '$query' took ${duration}ms, results: ${results.size}",
+        )
+
+        results
+      } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
+        android.util.Log.e("SearchRepository", "Error in searchApps", e)
+        emptyList()
       }
-
-      val duration = System.currentTimeMillis() - startTime
-      android.util.Log.d(
-        "SearchRepository",
-        "searchApps for '$query' took ${duration}ms, results: ${results.size}",
-      )
-
-      results
     }
 
-  private fun findMatchingCustomShortcut(query: String): List<SearchResult> {
-    if (query.isEmpty()) return emptyList()
+  private suspend fun findMatchingCustomShortcut(
+    query: String
+  ): Pair<List<SearchResult>, SearchShortcut?> {
+    if (query.isEmpty()) return emptyList<SearchResult>() to null
 
     val parts = query.split(" ", limit = 2)
     val trigger = parts[0]
     val searchTerm = if (parts.size > 1) parts[1] else ""
 
-    val app = context.applicationContext as? SearchLauncherApp ?: return emptyList()
+    val app =
+      context.applicationContext as? SearchLauncherApp ?: return emptyList<SearchResult>() to null
     var shortcut =
       app.searchShortcutRepository.items.value.find { it.alias.equals(trigger, ignoreCase = true) }
 
@@ -1438,7 +1530,7 @@ class SearchRepository(private val context: Context) {
         }
     }
 
-    if (shortcut == null) return emptyList()
+    if (shortcut == null) return emptyList<SearchResult>() to null
 
     // Ignore reserved triggers that are now handled by smart actions
     if (
@@ -1446,48 +1538,57 @@ class SearchRepository(private val context: Context) {
         trigger.equals("sms", ignoreCase = true) ||
         trigger.equals("mailto", ignoreCase = true)
     ) {
-      return emptyList()
+      return emptyList<SearchResult>() to null
     }
 
     // Special handling for Widget Search
     if (shortcut.id == "widget_search") {
-      val appWidgetManager =
-        context.getSystemService(Context.APPWIDGET_SERVICE) as android.appwidget.AppWidgetManager
-      val installedProviders = appWidgetManager.installedProviders
+      try {
+        val appWidgetManager =
+          context.getSystemService(Context.APPWIDGET_SERVICE) as? android.appwidget.AppWidgetManager
 
-      val matchingWidgets =
-        if (searchTerm.isBlank()) {
-          installedProviders
-        } else {
-          installedProviders.filter {
-            it.loadLabel(context.packageManager).contains(searchTerm, ignoreCase = true) ||
-              it.provider.packageName.contains(searchTerm, ignoreCase = true)
+        if (appWidgetManager == null) return emptyList<SearchResult>() to shortcut
+
+        val installedProviders = appWidgetManager.installedProviders
+
+        val matchingWidgets =
+          if (searchTerm.isBlank()) {
+            installedProviders
+          } else {
+            installedProviders.filter {
+              it.loadLabel(context.packageManager).contains(searchTerm, ignoreCase = true) ||
+                it.provider.packageName.contains(searchTerm, ignoreCase = true)
+            }
           }
-        }
 
-      return matchingWidgets.map { info ->
-        val widgetLabel = info.loadLabel(context.packageManager)
-        val providerName = info.provider.flattenToString()
-        val widgetIcon =
-          info.loadIcon(
-            context,
-            0,
-          ) // Load icon (can be heavy on main thread? This function is suspect)
-        // ideally we should load icon async or cache it, but let's try direct first since this is
-        // background thread (withContext(Dispatchers.IO) calls searchApps)
-        // Actually findMatchingCustomShortcut is called from searchApps which is IO. So it is fine.
+        return matchingWidgets.map { info ->
+          val widgetLabel = info.loadLabel(context.packageManager)
+          val providerName = info.provider.flattenToString()
+          val widgetIcon =
+            info.loadIcon(
+              context,
+              0,
+            ) // Load icon (can be heavy on main thread? This function is suspect)
+          // ideally we should load icon async or cache it, but let's try direct first since this is
+          // background thread (withContext(Dispatchers.IO) calls searchApps)
+          // Actually findMatchingCustomShortcut is called from searchApps which is IO. So it is
+          // fine.
 
-        SearchResult.Content(
-          id = "widget_${providerName}",
-          namespace = "widgets",
-          title = widgetLabel,
-          subtitle = "${info.minWidth}x${info.minHeight} dp",
-          icon = widgetIcon,
-          packageName = info.provider.packageName,
-          deepLink =
-            "intent:#Intent;action=com.searchlauncher.action.BIND_WIDGET;S.component=$providerName;end",
-          rankingScore = 200,
-        )
+          SearchResult.Content(
+            id = "widget_${providerName}",
+            namespace = "widgets",
+            title = widgetLabel,
+            subtitle = "${info.minWidth}x${info.minHeight} dp",
+            icon = widgetIcon,
+            packageName = info.provider.packageName,
+            deepLink =
+              "intent:#Intent;action=com.searchlauncher.action.BIND_WIDGET;S.component=$providerName;end",
+            rankingScore = 200,
+          )
+        } to shortcut
+      } catch (e: Exception) {
+        android.util.Log.e("SearchRepository", "Error looking up widgets", e)
+        return emptyList<SearchResult>() to shortcut
       }
     }
 
@@ -1529,27 +1630,7 @@ class SearchRepository(private val context: Context) {
       )
     )
 
-    val suggestionUrl = shortcut.suggestionUrl
-    if (suggestionUrl != null && searchTerm.isNotEmpty()) {
-      val suggestions = fetchSuggestions(suggestionUrl, searchTerm)
-      suggestions.forEach { suggestion ->
-        val suggestionUrlFormatted =
-          String.format(shortcut.urlTemplate, java.net.URLEncoder.encode(suggestion, "UTF-8"))
-        results.add(
-          SearchResult.Content(
-            id = "suggestion_${shortcut.alias}_$suggestion",
-            namespace = "search_shortcuts",
-            title = suggestion,
-            subtitle = "${shortcut.description} Suggestion",
-            icon = icon,
-            packageName = shortcut.packageName ?: "android",
-            deepLink = suggestionUrlFormatted,
-            rankingScore = 200,
-          )
-        )
-      }
-    }
-    return results
+    return results to shortcut
   }
 
   private fun getSnippetResults(query: String): List<SearchResult> {
@@ -1618,7 +1699,7 @@ class SearchRepository(private val context: Context) {
         }
 
       val searchResults = session.search(finalQuery, searchSpec)
-      var nextPage = searchResults.nextPageAsync.get()
+      var nextPage = searchResults.nextPageAsync.await()
 
       // 1. Collect documents and calculate scores (Lightweight)
       while (nextPage.isNotEmpty()) {
@@ -1650,7 +1731,7 @@ class SearchRepository(private val context: Context) {
         }
         // If we have 200 candidates, that's more than enough for display
         if (candidates.size >= 200) break
-        nextPage = searchResults.nextPageAsync.get()
+        nextPage = searchResults.nextPageAsync.await()
       }
 
       // 2. Sort by our custom refined score
@@ -1718,6 +1799,7 @@ class SearchRepository(private val context: Context) {
       appSearchResults.sortByDescending { it.rankingScore }
       return if (limit > 0) appSearchResults.take(limit) else appSearchResults
     } catch (e: Exception) {
+      if (e is kotlinx.coroutines.CancellationException) throw e
       e.printStackTrace()
       return emptyList()
     }
@@ -1741,32 +1823,34 @@ class SearchRepository(private val context: Context) {
   suspend fun searchContent(): List<SearchResult.Content> =
     withContext(Dispatchers.IO) { emptyList() }
 
-  private fun fetchSuggestions(urlTemplate: String, query: String): List<String> {
-    val suggestions = mutableListOf<String>()
-    try {
-      val urlString = String.format(urlTemplate, java.net.URLEncoder.encode(query, "UTF-8"))
-      val url = URL(urlString)
-      val connection = url.openConnection() as HttpURLConnection
-      connection.requestMethod = "GET"
-      connection.connectTimeout = 1000 // Reduced from 2000
-      connection.readTimeout = 1000 // Reduced from 2000
+  private suspend fun fetchSuggestions(urlTemplate: String, query: String): List<String> =
+    withContext(Dispatchers.IO) {
+      val suggestions = mutableListOf<String>()
+      try {
+        val urlString = String.format(urlTemplate, java.net.URLEncoder.encode(query, "UTF-8"))
+        val url = URL(urlString)
+        val connection = url.openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 500 // Reduced from 1000
+        connection.readTimeout = 500 // Reduced from 1000
 
-      if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-        val response = connection.inputStream.bufferedReader().use { it.readText() }
-        val jsonArray = JSONArray(response)
-        if (jsonArray.length() > 1) {
-          val suggestionsArray = jsonArray.getJSONArray(1)
-          for (i in 0 until suggestionsArray.length()) {
-            suggestions.add(suggestionsArray.getString(i))
-            if (suggestions.size >= 5) break
+        if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+          val response = connection.inputStream.bufferedReader().use { it.readText() }
+          val jsonArray = JSONArray(response)
+          if (jsonArray.length() > 1) {
+            val suggestionsArray = jsonArray.getJSONArray(1)
+            for (i in 0 until suggestionsArray.length()) {
+              suggestions.add(suggestionsArray.getString(i))
+              if (suggestions.size >= 5) break
+            }
           }
         }
+      } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
+        // Log error
       }
-    } catch (e: Exception) {
-      // Log error
+      suggestions
     }
-    return suggestions
-  }
 
   fun close() {
     appSearchSession?.close()
@@ -2414,4 +2498,20 @@ class SearchRepository(private val context: Context) {
   }
 
   // checkSmartActions extracted to SmartActionManager
+}
+
+private suspend fun <T> ListenableFuture<T>.await(): T {
+  return suspendCancellableCoroutine { continuation ->
+    addListener(
+      {
+        try {
+          continuation.resume(get())
+        } catch (e: Exception) {
+          continuation.resumeWithException(e)
+        }
+      },
+      { it.run() },
+    )
+    continuation.invokeOnCancellation { cancel(false) }
+  }
 }

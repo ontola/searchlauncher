@@ -256,11 +256,11 @@ fun SearchScreen(
       searchResults = emptyList()
       isFallbackMode = false
     } else {
-      val results = searchRepository.searchApps(query)
+      val results = searchRepository.searchApps(query, allowIpc = false)
 
       // Always append search shortcuts to the end of the results
       // Use a higher limit to show all options as requested
-      val shortcuts = searchRepository.getSearchShortcuts(limit = 50)
+      val shortcuts = searchRepository.getSearchShortcuts(limit = 50, allowIpc = false)
 
       val resultIds = results.map { it.id }.toSet()
       val uniqueShortcuts = shortcuts.filter { !resultIds.contains(it.id) }

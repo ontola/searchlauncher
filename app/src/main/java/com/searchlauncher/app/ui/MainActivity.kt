@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
   private val APPWIDGET_HOST_ID = 1002
   private val REQUEST_CREATE_APPWIDGET = 5
   private val REQUEST_PICK_APPWIDGET = 9
+  private val REQUEST_CONFIGURE_APPWIDGET = 10
 
   private val createWidgetLauncher =
     registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -152,13 +153,44 @@ class MainActivity : ComponentActivity() {
             android.os.Handler(android.os.Looper.getMainLooper()).post {
               try {
                 configureWidget(appWidgetId)
-              } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Config failed, force adding", e)
+              } catch (e: android.content.ActivityNotFoundException) {
+                android.util.Log.e("MainActivity", "Configuration activity not found", e)
+                // Widget's configure activity doesn't exist - just add the widget without config
                 lifecycleScope.launch {
                   (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
                   dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
                 }
-                Toast.makeText(this, "Configuration skipped.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    this,
+                    "Widget added (no configuration available)",
+                    Toast.LENGTH_SHORT,
+                  )
+                  .show()
+              } catch (e: SecurityException) {
+                android.util.Log.e("MainActivity", "Security exception launching config", e)
+                // Permission issue - just add the widget
+                lifecycleScope.launch {
+                  (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
+                  dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
+                }
+                Toast.makeText(this, "Widget added (configuration not allowed)", Toast.LENGTH_SHORT)
+                  .show()
+              } catch (e: Exception) {
+                android.util.Log.e(
+                  "MainActivity",
+                  "Config failed: ${e.javaClass.simpleName}: ${e.message}",
+                  e,
+                )
+                lifecycleScope.launch {
+                  (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
+                  dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
+                }
+                Toast.makeText(
+                    this,
+                    "Widget added (config error: ${e.message})",
+                    Toast.LENGTH_SHORT,
+                  )
+                  .show()
               }
             }
           } else {
@@ -241,14 +273,41 @@ class MainActivity : ComponentActivity() {
   // State to control custom picker visibility
   private val showWidgetPicker = androidx.compose.runtime.mutableStateOf(false)
 
+  // Track widget ID being configured for onActivityResult handling
+  private var pendingConfigAppWidgetId = -1
+
   private fun configureWidget(appWidgetId: Int) {
     val appWidgetInfo = appWidgetManager.getAppWidgetInfo(appWidgetId)
     if (appWidgetInfo?.configure != null) {
-      val intent = Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_CONFIGURE)
-      intent.component = appWidgetInfo.configure
-      intent.putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-      createWidgetLauncher.launch(intent)
+      android.util.Log.d(
+        "MainActivity",
+        "Launching widget config for $appWidgetId: ${appWidgetInfo.configure}",
+      )
+      pendingConfigAppWidgetId = appWidgetId
+      // Use AppWidgetHost's method which has proper permissions for widget configuration
+      try {
+        appWidgetHost.startAppWidgetConfigureActivityForResult(
+          this,
+          appWidgetId,
+          0, // intentFlags
+          REQUEST_CONFIGURE_APPWIDGET,
+          null, // options bundle
+        )
+      } catch (e: Exception) {
+        android.util.Log.e("MainActivity", "Failed to start widget config activity", e)
+        // Fallback: add widget without configuration
+        pendingConfigAppWidgetId = -1
+        lifecycleScope.launch {
+          (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
+          dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
+        }
+        Toast.makeText(this, "Widget added (config error: ${e.message})", Toast.LENGTH_SHORT).show()
+      }
     } else {
+      android.util.Log.d(
+        "MainActivity",
+        "Widget $appWidgetId has no configuration, adding directly",
+      )
       lifecycleScope.launch {
         (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
         dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
@@ -442,7 +501,13 @@ class MainActivity : ComponentActivity() {
 
   override fun onStart() {
     super.onStart()
-    appWidgetHost.startListening()
+    try {
+      appWidgetHost.startListening()
+    } catch (e: Exception) {
+      // Widget host service might be unavailable after system kills our process
+      // (e.g., Xiaomi's camera boost). Log but don't crash - widgets will recover on next restart.
+      android.util.Log.e("MainActivity", "Failed to start widget host listening: ${e.message}")
+    }
 
     // Register for screen on events
     val filter = IntentFilter(Intent.ACTION_SCREEN_ON)
@@ -485,6 +550,38 @@ class MainActivity : ComponentActivity() {
       unregisterReceiver(screenOnReceiver)
     } catch (e: Exception) {
       // Receiver might not be registered
+    }
+  }
+
+  @Deprecated("Deprecated in Java")
+  override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    super.onActivityResult(requestCode, resultCode, data)
+
+    if (requestCode == REQUEST_CONFIGURE_APPWIDGET) {
+      val appWidgetId = pendingConfigAppWidgetId
+      pendingConfigAppWidgetId = -1
+
+      android.util.Log.d(
+        "MainActivity",
+        "Widget config result: requestCode=$requestCode, resultCode=$resultCode, widgetId=$appWidgetId",
+      )
+
+      if (resultCode == RESULT_OK && appWidgetId != -1) {
+        android.util.Log.d(
+          "MainActivity",
+          "Widget $appWidgetId configured successfully, adding to repository",
+        )
+        lifecycleScope.launch {
+          (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
+          dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
+        }
+      } else if (appWidgetId != -1) {
+        android.util.Log.d(
+          "MainActivity",
+          "Widget $appWidgetId configuration cancelled, deleting ID",
+        )
+        appWidgetHost.deleteAppWidgetId(appWidgetId)
+      }
     }
   }
 
