@@ -101,6 +101,7 @@ fun SearchScreen(
   var snippetItemToEdit by remember { mutableStateOf<SearchResult.Snippet?>(null) }
   var showResetConfirmation by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
   var showConsentDialog by remember { mutableStateOf(!app.hasAskedForConsent()) }
+  var showDefaultLauncherDialog by remember { mutableStateOf(false) }
   var showPrivacyPolicy by remember { mutableStateOf(false) }
   val searchShortcuts by app.searchShortcutRepository.items.collectAsState()
   var showShortcutDialog by remember { mutableStateOf(false) }
@@ -161,6 +162,14 @@ fun SearchScreen(
   remember { context.dataStore.data.map { it[PreferencesKeys.SHOW_WIDGETS] ?: true } }
     .collectAsState(initial = true)
 
+  // Check if this app is the default launcher (needed by onboarding logic below)
+  val isDefaultLauncher = remember {
+    val intent = Intent(Intent.ACTION_MAIN)
+    intent.addCategory(Intent.CATEGORY_HOME)
+    val resolveInfo = context.packageManager.resolveActivity(intent, 0)
+    resolveInfo?.activityInfo?.packageName == context.packageName
+  }
+
   // Onboarding Logic
   val onboardingManager = remember { OnboardingManager(context) }
   val completedSteps by onboardingManager.completedSteps.collectAsState(initial = null)
@@ -196,6 +205,8 @@ fun SearchScreen(
         else if (!steps.contains(OnboardingStep.ReorderFavorites) && favorites.size >= 2)
           OnboardingStep.ReorderFavorites
         else if (!steps.contains(OnboardingStep.OpenSettings)) OnboardingStep.OpenSettings
+        else if (!steps.contains(OnboardingStep.SetDefaultLauncher) && !isDefaultLauncher)
+          OnboardingStep.SetDefaultLauncher
         // AddFavorite is situational, shown when search results exist
         else null
       }
@@ -228,6 +239,9 @@ fun SearchScreen(
     }
     if (favorites.size >= 2 && !steps.contains(OnboardingStep.ReorderFavorites)) {
       onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites)
+    }
+    if (isDefaultLauncher && !steps.contains(OnboardingStep.SetDefaultLauncher)) {
+      onboardingManager.markStepComplete(OnboardingStep.SetDefaultLauncher)
     }
   }
 
@@ -334,12 +348,11 @@ fun SearchScreen(
   // Hint Logic
   val snippetItems by app.snippetsRepository.items.collectAsState()
 
-  // Check if this app is the default launcher
-  val isDefaultLauncher = remember {
-    val intent = Intent(Intent.ACTION_MAIN)
-    intent.addCategory(Intent.CATEGORY_HOME)
-    val resolveInfo = context.packageManager.resolveActivity(intent, 0)
-    resolveInfo?.activityInfo?.packageName == context.packageName
+  // Show default launcher dialog on first run if not already the default
+  LaunchedEffect(Unit) {
+    if (!isDefaultLauncher && !app.hasAskedDefaultLauncher()) {
+      showDefaultLauncherDialog = true
+    }
   }
 
   // Check if contacts permission is granted
@@ -543,7 +556,33 @@ fun SearchScreen(
 
         TutorialOverlay(currentStep = currentOnboardingStep, bottomPadding = bottomPadding)
 
-        if (showConsentDialog) {
+        if (showDefaultLauncherDialog) {
+          AlertDialog(
+            onDismissRequest = {
+              app.setAskedDefaultLauncher()
+              showDefaultLauncherDialog = false
+            },
+            title = { Text("Set as Default Launcher?") },
+            text = {
+              Text("Would you like to use SearchLauncher as your home screen?")
+            },
+            confirmButton = {
+              Button(onClick = {
+                app.setAskedDefaultLauncher()
+                showDefaultLauncherDialog = false
+                scope.launch { onboardingManager.markStepComplete(OnboardingStep.SetDefaultLauncher) }
+                val intent = Intent(android.provider.Settings.ACTION_HOME_SETTINGS)
+                context.startActivity(intent)
+              }) { Text("Yes") }
+            },
+            dismissButton = {
+              TextButton(onClick = {
+                app.setAskedDefaultLauncher()
+                showDefaultLauncherDialog = false
+              }) { Text("Not now") }
+            },
+          )
+        } else if (showConsentDialog) {
           ConsentDialog(
             onConsentGiven = { granted ->
               app.setConsent(granted)

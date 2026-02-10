@@ -145,6 +145,13 @@ fun TutorialOverlay(
           )
         }
 
+        OnboardingStep.SetDefaultLauncher -> {
+          TextHintIndicator(
+            text = "Type 'set launcher' to change\nyour default launcher",
+            modifier = Modifier.align(Alignment.Center),
+          )
+        }
+
         else -> {}
       }
     }

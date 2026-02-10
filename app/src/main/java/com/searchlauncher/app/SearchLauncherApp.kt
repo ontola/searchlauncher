@@ -77,6 +77,18 @@ class SearchLauncherApp : Application() {
     return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).contains(KEY_CONSENT_GRANTED)
   }
 
+  fun hasAskedDefaultLauncher(): Boolean {
+    return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+      .getBoolean(KEY_ASKED_DEFAULT_LAUNCHER, false)
+  }
+
+  fun setAskedDefaultLauncher() {
+    getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+      .edit()
+      .putBoolean(KEY_ASKED_DEFAULT_LAUNCHER, true)
+      .apply()
+  }
+
   private fun initSentry() {
     if (!io.sentry.Sentry.isEnabled()) {
       io.sentry.android.core.SentryAndroid.init(this) { options ->
@@ -89,10 +101,10 @@ class SearchLauncherApp : Application() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       val channel =
         NotificationChannel(
-            NOTIFICATION_CHANNEL_ID,
-            "SearchLauncher Service",
-            NotificationManager.IMPORTANCE_LOW,
-          )
+          NOTIFICATION_CHANNEL_ID,
+          "SearchLauncher Service",
+          NotificationManager.IMPORTANCE_LOW,
+        )
           .apply {
             description = "Keeps SearchLauncher running in the background"
             setShowBadge(false)
@@ -109,5 +121,6 @@ class SearchLauncherApp : Application() {
     const val NOTIFICATION_ID = 1001
     private const val PREFS_NAME = "privacy_prefs"
     private const val KEY_CONSENT_GRANTED = "consent_granted"
+    private const val KEY_ASKED_DEFAULT_LAUNCHER = "asked_default_launcher"
   }
 }

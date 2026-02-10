@@ -26,6 +26,7 @@ class OnboardingManager(private val context: Context) {
     val KEY_ADD_FAVORITE = booleanPreferencesKey("onboarding_add_favorite")
     val KEY_REORDER_FAVORITES = booleanPreferencesKey("onboarding_reorder_favorites")
     val KEY_OPEN_SETTINGS = booleanPreferencesKey("onboarding_open_settings")
+    val KEY_SET_DEFAULT_LAUNCHER = booleanPreferencesKey("onboarding_set_default_launcher")
   }
 
   val completedSteps: Flow<Set<OnboardingStep>> =
@@ -41,6 +42,7 @@ class OnboardingManager(private val context: Context) {
       if (prefs[KEY_ADD_FAVORITE] == true) steps.add(OnboardingStep.AddFavorite)
       if (prefs[KEY_REORDER_FAVORITES] == true) steps.add(OnboardingStep.ReorderFavorites)
       if (prefs[KEY_OPEN_SETTINGS] == true) steps.add(OnboardingStep.OpenSettings)
+      if (prefs[KEY_SET_DEFAULT_LAUNCHER] == true) steps.add(OnboardingStep.SetDefaultLauncher)
       steps
     }
 
@@ -57,6 +59,7 @@ class OnboardingManager(private val context: Context) {
         OnboardingStep.AddFavorite -> prefs[KEY_ADD_FAVORITE] = true
         OnboardingStep.ReorderFavorites -> prefs[KEY_REORDER_FAVORITES] = true
         OnboardingStep.OpenSettings -> prefs[KEY_OPEN_SETTINGS] = true
+        OnboardingStep.SetDefaultLauncher -> prefs[KEY_SET_DEFAULT_LAUNCHER] = true
       }
     }
   }
@@ -77,4 +80,5 @@ enum class OnboardingStep {
   AddFavorite,
   ReorderFavorites,
   OpenSettings,
+  SetDefaultLauncher,
 }
