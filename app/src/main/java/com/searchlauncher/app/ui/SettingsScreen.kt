@@ -1071,6 +1071,7 @@ private fun PrivacyCard() {
   val context = LocalContext.current
   val app = context.applicationContext as SearchLauncherApp
   val scope = rememberCoroutineScope()
+  var showPrivacyPolicy by remember { mutableStateOf(false) }
 
   val searchShortcutsEnabled =
     remember {
@@ -1133,7 +1134,28 @@ private fun PrivacyCard() {
           },
         )
       }
+
+      TextButton(
+        onClick = { showPrivacyPolicy = true },
+        modifier = Modifier.fillMaxWidth(),
+      ) {
+        Text("View Privacy Policy")
+      }
     }
+  }
+
+  if (showPrivacyPolicy) {
+    val policyText = remember {
+      try {
+        context.assets.open("PRIVACY.md").bufferedReader().use { it.readText() }
+      } catch (e: Exception) {
+        "Privacy policy not found."
+      }
+    }
+    com.searchlauncher.app.ui.components.PrivacyPolicyDialog(
+      onDismiss = { showPrivacyPolicy = false },
+      policyText = policyText,
+    )
   }
 }
 
