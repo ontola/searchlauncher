@@ -7,6 +7,22 @@ plugins {
   id("com.diffplug.spotless") version "6.25.0"
 }
 
+fun runGit(vararg args: String): String =
+  providers
+    .exec {
+      commandLine("git", *args)
+      workingDir = projectDir
+    }
+    .standardOutput
+    .asText
+    .get()
+    .trim()
+
+val gitCommitCount = runGit("rev-list", "--count", "HEAD").toIntOrNull() ?: 1
+val gitHash = runGit("rev-parse", "--short", "HEAD")
+val gitDescribe = runGit("describe", "--tags", "--always")
+val buildDate: String = runGit("log", "-1", "--format=%cs")
+
 android {
   namespace = "com.searchlauncher.app"
   compileSdk = 36
@@ -15,8 +31,11 @@ android {
     applicationId = "com.searchlauncher.app"
     minSdk = 29
     targetSdk = 36
-    versionCode = 1
-    versionName = "0.0.1-beta"
+    versionCode = gitCommitCount
+    versionName = gitDescribe
+
+    buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
+    buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     vectorDrawables { useSupportLibrary = true }
@@ -47,7 +66,10 @@ android {
     targetCompatibility = JavaVersion.VERSION_17
   }
   kotlinOptions { jvmTarget = "17" }
-  buildFeatures { compose = true }
+  buildFeatures {
+    compose = true
+    buildConfig = true
+  }
 
   packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
 }

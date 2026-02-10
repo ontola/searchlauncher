@@ -141,7 +141,7 @@ fun TutorialOverlay(
         OnboardingStep.OpenSettings -> {
           TextHintIndicator(
             text = "Press the ⚙ to open Settings",
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = 80.dp),
+            modifier = Modifier.align(Alignment.Center).padding(bottom = 150.dp),
           )
         }
 
