@@ -11,7 +11,6 @@ import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchShortcutRepository
 import com.searchlauncher.app.data.SnippetsRepository
 import com.searchlauncher.app.data.WallpaperRepository
-import io.sentry.Sentry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -52,8 +51,9 @@ class SearchLauncherApp : Application() {
       try {
         searchRepository.initialize()
       } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         android.util.Log.e("SearchLauncherApp", "Initialization failed", e)
-        Sentry.captureException(e)
+        io.sentry.Sentry.captureException(e)
       }
     }
     createNotificationChannel()

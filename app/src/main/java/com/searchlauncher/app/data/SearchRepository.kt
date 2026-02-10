@@ -60,6 +60,12 @@ class SearchRepository(private val context: Context) {
     }
   }
 
+  private fun logError(message: String, e: Throwable) {
+    if (e is kotlinx.coroutines.CancellationException) throw e
+    android.util.Log.e("SearchRepository", message, e)
+    Sentry.captureException(e)
+  }
+
   private val executor = Executors.newSingleThreadExecutor()
   private val smartActionManager = SmartActionManager(context)
   private val iconGenerator = SearchIconGenerator(context)
@@ -1468,20 +1474,19 @@ class SearchRepository(private val context: Context) {
           // Collect all results
           results.addAll(customShortcutResults)
           results.addAll(snippetsAsync.await())
+
           if (smartActionsAsync != null) {
             try {
               results.addAll(smartActionsAsync.await())
             } catch (e: Exception) {
-              if (e is kotlinx.coroutines.CancellationException) throw e
-              android.util.Log.e("SearchRepository", "Error awaiting smart actions", e)
-              Sentry.captureException(e)
+              logError("Error awaiting smart actions", e)
             }
           }
+
           try {
             results.addAll(indexSearchAsync.await())
           } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            android.util.Log.e("SearchRepository", "Error awaiting index search", e)
+            logError("Error awaiting index search", e)
           }
 
           // Add suggestions
@@ -1510,8 +1515,7 @@ class SearchRepository(private val context: Context) {
               }
             }
           } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            android.util.Log.e("SearchRepository", "Error processing suggestions", e)
+            logError("Error processing suggestions", e)
           }
         }
 
@@ -1534,9 +1538,7 @@ class SearchRepository(private val context: Context) {
         results
       } catch (e: Exception) {
         if (e is kotlinx.coroutines.CancellationException) throw e
-        android.util.Log.e("SearchRepository", "Error in searchApps", e)
-        Sentry.captureException(e)
-        emptyList()
+        results
       }
     }
 
@@ -1575,7 +1577,7 @@ class SearchRepository(private val context: Context) {
 
     // Special handling for Widget Search
     if (shortcut.id == "widget_search") {
-      try {
+      return try {
         val appWidgetManager =
           context.getSystemService(Context.APPWIDGET_SERVICE) as? android.appwidget.AppWidgetManager
 
@@ -1593,18 +1595,10 @@ class SearchRepository(private val context: Context) {
             }
           }
 
-        return matchingWidgets.map { info ->
+        matchingWidgets.map { info ->
           val widgetLabel = info.loadLabel(context.packageManager)
           val providerName = info.provider.flattenToString()
-          val widgetIcon =
-            info.loadIcon(
-              context,
-              0,
-            ) // Load icon (can be heavy on main thread? This function is suspect)
-          // ideally we should load icon async or cache it, but let's try direct first since this is
-          // background thread (withContext(Dispatchers.IO) calls searchApps)
-          // Actually findMatchingCustomShortcut is called from searchApps which is IO. So it is
-          // fine.
+          val widgetIcon = info.loadIcon(context, 0)
 
           SearchResult.Content(
             id = "widget_${providerName}",
@@ -1619,9 +1613,8 @@ class SearchRepository(private val context: Context) {
           )
         } to shortcut
       } catch (e: Exception) {
-        android.util.Log.e("SearchRepository", "Error looking up widgets", e)
-        Sentry.captureException(e)
-        return emptyList<SearchResult>() to shortcut
+        logError("Error looking up widgets", e)
+        emptyList<SearchResult>() to shortcut
       }
     }
 
