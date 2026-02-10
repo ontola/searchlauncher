@@ -105,4 +105,5 @@ dependencies {
   implementation("io.coil-kt:coil-compose:2.5.0")
   testImplementation("org.robolectric:robolectric:4.16")
   testImplementation("io.mockk:mockk:1.14.6")
+  implementation("io.sentry:sentry-android:7.16.0")
 }

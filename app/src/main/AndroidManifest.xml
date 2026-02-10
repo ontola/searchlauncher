@@ -39,6 +39,8 @@
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
 
+        <meta-data android:name="io.sentry.dsn" android:value="https://dbf3428d2c6942e4816c063d289fa95d@app.glitchtip.com/20343" />
+
         <!-- Main Activity -->
         <activity
             android:name=".ui.MainActivity"

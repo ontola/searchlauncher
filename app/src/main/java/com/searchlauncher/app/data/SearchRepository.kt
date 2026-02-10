@@ -23,6 +23,7 @@ import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.util.FuzzyMatch
 import com.searchlauncher.app.util.StaticShortcutScanner
+import io.sentry.Sentry
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -280,6 +281,7 @@ class SearchRepository(private val context: Context) {
         }
       } catch (e: Throwable) {
         e.printStackTrace()
+        Sentry.captureException(e)
       }
     }
 
@@ -313,6 +315,7 @@ class SearchRepository(private val context: Context) {
         android.util.Log.d("SearchRepository", "Loaded ${allDocs.size} documents from index")
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Failed to load from index", e)
+        Sentry.captureException(e)
       }
     }
 
@@ -366,10 +369,12 @@ class SearchRepository(private val context: Context) {
               )
             } catch (e: Exception) {
               // Ignore individual app failures
+              Sentry.captureException(e)
             }
           }
         } catch (e: Exception) {
           android.util.Log.e("SearchRepository", "Error querying apps for profile $profile", e)
+          Sentry.captureException(e)
         }
       }
 
@@ -379,6 +384,7 @@ class SearchRepository(private val context: Context) {
           session.putAsync(putRequest).await()
         } catch (e: Exception) {
           android.util.Log.e("SearchRepository", "Failed to put indexed apps", e)
+          Sentry.captureException(e)
         }
 
         // Cleanup: Remove apps from AppSearch that are no longer in our current 'apps' list.
@@ -409,6 +415,7 @@ class SearchRepository(private val context: Context) {
           }
         } catch (e: Exception) {
           android.util.Log.e("SearchRepository", "Failed to cleanup zombie apps", e)
+          Sentry.captureException(e)
         }
 
         replaceCollection("apps", apps)
@@ -424,6 +431,7 @@ class SearchRepository(private val context: Context) {
         indexStaticShortcuts() // Static shortcuts also change when apps are removed/added
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error updating shortcuts after indexApps", e)
+        Sentry.captureException(e)
       }
       updateAppsCache()
       _indexUpdated.emit(Unit)
@@ -444,6 +452,7 @@ class SearchRepository(private val context: Context) {
         android.util.Log.d("SearchRepository", "Cleared 'shortcuts' namespace for re-indexing")
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Failed to clear 'shortcuts' namespace", e)
+        Sentry.captureException(e)
       }
 
       try {
@@ -498,6 +507,7 @@ class SearchRepository(private val context: Context) {
                   }
                 } catch (e: Exception) {
                   // Ignore icon loading failures
+                  Sentry.captureException(e)
                 }
 
                 // Pre-load and cache app icon
@@ -509,6 +519,7 @@ class SearchRepository(private val context: Context) {
                     saveIconToDisk("appicon_$pkg", appIcon, force = true)
                   } catch (e: Exception) {
                     // Ignore app icon loading failures
+                    Sentry.captureException(e)
                   }
                 }
 
@@ -524,6 +535,7 @@ class SearchRepository(private val context: Context) {
                 )
               } catch (e: Exception) {
                 // Ignore individual shortcut failures
+                Sentry.captureException(e)
               }
             }
           } catch (e: Exception) {
@@ -532,6 +544,7 @@ class SearchRepository(private val context: Context) {
               "Error querying shortcuts for profile $profile",
               e,
             )
+            Sentry.captureException(e)
           }
         }
 
@@ -542,6 +555,7 @@ class SearchRepository(private val context: Context) {
         replaceCollection("shortcuts", shortcuts)
       } catch (e: Exception) {
         e.printStackTrace()
+        Sentry.captureException(e)
       }
       _indexUpdated.emit(Unit)
     }
@@ -560,6 +574,7 @@ class SearchRepository(private val context: Context) {
         session.removeAsync("", removeSpec).await()
       } catch (e: Exception) {
         e.printStackTrace()
+        Sentry.captureException(e)
       }
 
       // Index app-defined shortcuts (settings, actions)
@@ -633,6 +648,7 @@ class SearchRepository(private val context: Context) {
             }
           } catch (e: Exception) {
             // Ignore icon loading failures
+            Sentry.captureException(e)
           }
 
           // Pre-load and cache app icon
@@ -643,6 +659,7 @@ class SearchRepository(private val context: Context) {
               saveIconToDisk("appicon_${s.packageName}", appIcon, force = true)
             } catch (e: Exception) {
               // Ignore app icon loading failures
+              Sentry.captureException(e)
             }
           }
 
@@ -663,6 +680,7 @@ class SearchRepository(private val context: Context) {
         session.removeAsync("", removeSpec).await()
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Failed to clear static_shortcuts namespace", e)
+        Sentry.captureException(e)
       }
 
       if (docs.isNotEmpty()) {
@@ -704,6 +722,7 @@ class SearchRepository(private val context: Context) {
           android.util.Log.d("SearchRepository", "Selectively cleared index (excluding bookmarks)")
         } catch (e: Exception) {
           android.util.Log.e("SearchRepository", "Failed to selectively clear index", e)
+          Sentry.captureException(e)
         }
 
         // Clear timestamp to ensure future "fresh" checks fail until we are done
@@ -722,6 +741,7 @@ class SearchRepository(private val context: Context) {
         prefs.edit().putLong("last_reindex_timestamp", System.currentTimeMillis()).apply()
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error during resetIndex", e)
+        Sentry.captureException(e)
       } finally {
         withContext(Dispatchers.Main) { _isIndexing.value = false }
       }
@@ -776,6 +796,7 @@ class SearchRepository(private val context: Context) {
         android.util.Log.d("SearchRepository", "Full app data reset completed")
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error during resetAppData", e)
+        Sentry.captureException(e)
       } finally {
         withContext(Dispatchers.Main) { _isIndexing.value = false }
       }
@@ -824,6 +845,7 @@ class SearchRepository(private val context: Context) {
               if (resolved.size >= missingIds.size) break
             } catch (e: Exception) {
               // Ignore failures for specific namespaces
+              Sentry.captureException(e)
             }
           }
           targetIds.mapNotNull { id ->
@@ -904,6 +926,7 @@ class SearchRepository(private val context: Context) {
         }
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error getting search shortcuts", e)
+        Sentry.captureException(e)
         return@withContext emptyList()
       }
     }
@@ -952,6 +975,7 @@ class SearchRepository(private val context: Context) {
               "SearchRepository",
               "AppSearch reportUsage failed for $namespace:$id",
             )
+            Sentry.captureException(e)
           }
         }
 
@@ -987,6 +1011,7 @@ class SearchRepository(private val context: Context) {
         }
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error reporting usage", e)
+        Sentry.captureException(e)
       }
     }
 
@@ -1008,6 +1033,7 @@ class SearchRepository(private val context: Context) {
           context.dataStore.data.map { it[PreferencesKeys.STORE_WEB_HISTORY] ?: true }.first()
         } catch (e: Exception) {
           android.util.Log.e("SearchRepository", "Error reading store_web_history pref", e)
+          Sentry.captureException(e)
           true // Proceed if DataStore fails
         }
 
@@ -1050,6 +1076,7 @@ class SearchRepository(private val context: Context) {
         _indexUpdated.emit(Unit)
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Exception in indexWebUrl for $trimmedUrl", e)
+        Sentry.captureException(e)
       }
     }
 
@@ -1066,6 +1093,7 @@ class SearchRepository(private val context: Context) {
         _indexUpdated.emit(Unit)
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error removing from index", e)
+        Sentry.captureException(e)
       }
     }
 
@@ -1294,6 +1322,7 @@ class SearchRepository(private val context: Context) {
         _indexUpdated.emit(Unit)
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Failed to remove bookmark: $id", e)
+        Sentry.captureException(e)
       }
     }
 
@@ -1330,6 +1359,7 @@ class SearchRepository(private val context: Context) {
       } catch (e: Exception) {
         e.printStackTrace()
         android.util.Log.e("SearchRepository", "Failed to index snippets", e)
+        Sentry.captureException(e)
       }
     }
 
@@ -1444,6 +1474,7 @@ class SearchRepository(private val context: Context) {
             } catch (e: Exception) {
               if (e is kotlinx.coroutines.CancellationException) throw e
               android.util.Log.e("SearchRepository", "Error awaiting smart actions", e)
+              Sentry.captureException(e)
             }
           }
           try {
@@ -1504,6 +1535,7 @@ class SearchRepository(private val context: Context) {
       } catch (e: Exception) {
         if (e is kotlinx.coroutines.CancellationException) throw e
         android.util.Log.e("SearchRepository", "Error in searchApps", e)
+        Sentry.captureException(e)
         emptyList()
       }
     }
@@ -1588,6 +1620,7 @@ class SearchRepository(private val context: Context) {
         } to shortcut
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error looking up widgets", e)
+        Sentry.captureException(e)
         return emptyList<SearchResult>() to shortcut
       }
     }
