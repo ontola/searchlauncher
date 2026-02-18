@@ -336,51 +336,40 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
       for (profile in profiles) {
         try {
-          // Querying all activities at once can exceed the 1MB Binder limit
-          // (TransactionTooLargeException).
-          // We fetch the list of packages first, which is a much smaller transaction,
-          // then query activities per-package.
-          val allPackages = context.packageManager.getInstalledPackages(0)
+          // fetch activities directly per profile. This is more efficient and safer
+          // than getInstalledPackages which is prone to DeadObjectException.
+          val activityList = launcherApps.getActivityList(null, profile)
 
-          for (pkg in allPackages) {
+          for (info in activityList) {
             try {
-              val activityList = launcherApps.getActivityList(pkg.packageName, profile)
-              if (activityList.isEmpty()) continue
+              val appName = info.label.toString()
+              val packageName = info.componentName.packageName
 
-              for (info in activityList) {
-                try {
-                  val appName = info.label.toString()
-                  val packageName = info.componentName.packageName
-
-                  val appInfo = info.applicationInfo
-                  val category =
-                    when (appInfo.category) {
-                      ApplicationInfo.CATEGORY_GAME -> "Game"
-                      ApplicationInfo.CATEGORY_AUDIO -> "Audio"
-                      ApplicationInfo.CATEGORY_VIDEO -> "Video"
-                      ApplicationInfo.CATEGORY_IMAGE -> "Image"
-                      ApplicationInfo.CATEGORY_SOCIAL -> "Social"
-                      ApplicationInfo.CATEGORY_NEWS -> "News"
-                      ApplicationInfo.CATEGORY_MAPS -> "Maps"
-                      ApplicationInfo.CATEGORY_PRODUCTIVITY -> "Productivity"
-                      else -> "Application"
-                    }
-
-                  apps.add(
-                    AppSearchDocument(
-                      namespace = "apps",
-                      id = packageName,
-                      name = appName,
-                      score = 2,
-                      description = category,
-                    )
-                  )
-                } catch (e: Exception) {
-                  // Ignore individual app failures
+              val appInfo = info.applicationInfo
+              val category =
+                when (appInfo.category) {
+                  ApplicationInfo.CATEGORY_GAME -> "Game"
+                  ApplicationInfo.CATEGORY_AUDIO -> "Audio"
+                  ApplicationInfo.CATEGORY_VIDEO -> "Video"
+                  ApplicationInfo.CATEGORY_IMAGE -> "Image"
+                  ApplicationInfo.CATEGORY_SOCIAL -> "Social"
+                  ApplicationInfo.CATEGORY_NEWS -> "News"
+                  ApplicationInfo.CATEGORY_MAPS -> "Maps"
+                  ApplicationInfo.CATEGORY_PRODUCTIVITY -> "Productivity"
+                  else -> "Application"
                 }
-              }
+
+              apps.add(
+                AppSearchDocument(
+                  namespace = "apps",
+                  id = packageName,
+                  name = appName,
+                  score = 2,
+                  description = category,
+                )
+              )
             } catch (e: Exception) {
-              // Ignore package-level failures (e.g. uninstalled while iterating)
+              // Ignore individual app failures
             }
           }
         } catch (e: Exception) {
@@ -390,12 +379,15 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
 
       if (apps.isNotEmpty()) {
-        val putRequest = PutDocumentsRequest.Builder().addDocuments(apps).build()
-        try {
-          session.putAsync(putRequest).await()
-        } catch (e: Exception) {
-          android.util.Log.e("SearchRepository", "Failed to put indexed apps", e)
-          Sentry.captureException(e)
+        // Batch AppSearch puts to avoid TransactionTooLargeException
+        apps.chunked(50).forEach { chunk ->
+          val putRequest = PutDocumentsRequest.Builder().addDocuments(chunk).build()
+          try {
+            session.putAsync(putRequest).await()
+          } catch (e: Exception) {
+            android.util.Log.e("SearchRepository", "Failed to put batch of indexed apps", e)
+            Sentry.captureException(e)
+          }
         }
 
         // Cleanup: Remove apps from AppSearch that are no longer in our current 'apps' list.
@@ -474,18 +466,16 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         for (profile in profiles) {
           try {
-            // Fetch list of packages first to avoid Binder transaction limits when querying
-            // activities/shortcuts.
-            val allPackages = context.packageManager.getInstalledPackages(0)
+            // we use getActivityList(null, profile) to discover packages that have launcher
+            // activities, which is consistent with indexApps.
+            val packagesWithActivities =
+              launcherApps
+                .getActivityList(null, profile)
+                .map { it.componentName.packageName }
+                .distinct()
 
-            for (pkg in allPackages) {
-              val packageName = pkg.packageName
+            for (packageName in packagesWithActivities) {
               try {
-                // Ensure the package has at least one launcher activity in this profile before
-                // querying shortcuts
-                val activityList = launcherApps.getActivityList(packageName, profile)
-                if (activityList.isEmpty()) continue
-
                 val query = android.content.pm.LauncherApps.ShortcutQuery()
                 query.setQueryFlags(
                   android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
@@ -588,8 +578,16 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         }
 
         if (shortcuts.isNotEmpty()) {
-          val putRequest = PutDocumentsRequest.Builder().addDocuments(shortcuts).build()
-          session.putAsync(putRequest).await()
+          // Batch AppSearch puts for shortcuts as well
+          shortcuts.chunked(50).forEach { chunk ->
+            val putRequest = PutDocumentsRequest.Builder().addDocuments(chunk).build()
+            try {
+              session.putAsync(putRequest).await()
+            } catch (e: Exception) {
+              android.util.Log.e("SearchRepository", "Failed to put batch of indexed shortcuts", e)
+              Sentry.captureException(e)
+            }
+          }
         }
         replaceCollection("shortcuts", shortcuts)
       } catch (e: Exception) {
