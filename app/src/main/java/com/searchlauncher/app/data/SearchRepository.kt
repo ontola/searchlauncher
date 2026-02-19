@@ -69,7 +69,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private var appSearchSession: AppSearchSession? = null
 
   private val defaultContactIcon: Drawable by lazy {
-    context.getDrawable(android.R.drawable.sym_contact_card)!!.apply { setTint(Color.GRAY) }
+    context.getDrawable(com.searchlauncher.app.R.drawable.ic_contact_default)!!.apply {
+      setTint(Color.GRAY)
+    }
   }
 
   private fun calculateCharMask(text: String): Long {
@@ -2124,7 +2126,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           }
         }
 
-        if (icon == null) {
+        if (icon == null && allowIpc) {
           icon = defaultContactIcon
         }
 

@@ -106,6 +106,16 @@ fun SearchResultItem(
               contentScale = androidx.compose.ui.layout.ContentScale.Fit,
             )
           }
+        } else if (result is SearchResult.Contact) {
+          Image(
+            painter =
+              androidx.compose.ui.res.painterResource(
+                id = com.searchlauncher.app.R.drawable.ic_contact_default
+              ),
+            contentDescription = null,
+            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
+            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+          )
         }
 
         if (result is SearchResult.Shortcut && result.appIcon != null) {
