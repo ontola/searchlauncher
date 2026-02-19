@@ -1,6 +1,7 @@
 package com.searchlauncher.app.ui.components
 
 import android.content.Intent
+import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -28,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
+import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.toImageBitmap
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +51,17 @@ fun SearchResultItem(
   onClick: () -> Unit,
 ) {
   var showMenu by remember { mutableStateOf(false) }
+  val context = LocalContext.current
+  val searchRepository = remember {
+    (context.applicationContext as SearchLauncherApp).searchRepository
+  }
+  var iconState by remember(result.id) { mutableStateOf<Drawable?>(result.icon) }
+
+  LaunchedEffect(result.id) {
+    if (iconState == null) {
+      iconState = searchRepository.loadIcon(result)
+    }
+  }
 
   Box {
     Row(
@@ -73,7 +86,7 @@ fun SearchResultItem(
       verticalAlignment = Alignment.CenterVertically,
     ) {
       Box(modifier = Modifier.size(40.dp)) {
-        if (result.icon != null) {
+        if (iconState != null) {
           val iconModifier =
             if (
               result is SearchResult.Contact ||
@@ -84,7 +97,7 @@ fun SearchResultItem(
             } else {
               Modifier.size(40.dp)
             }
-          val imageBitmap = remember(result.icon) { result.icon?.toImageBitmap() }
+          val imageBitmap = remember(iconState) { iconState?.toImageBitmap() }
           if (imageBitmap != null) {
             Image(
               bitmap = imageBitmap,

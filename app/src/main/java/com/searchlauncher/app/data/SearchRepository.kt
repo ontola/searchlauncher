@@ -50,14 +50,101 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
+data class SearchableDocument(
+  val doc: AppSearchDocument,
+  val nameLower: String,
+  val targetWords: List<String>,
+  val acronym: String,
+  val namespaceInt: Int,
+  val normalizedPhone: String?,
+  val charMask: Long,
+  val contactLookupKey: String? = null,
+  val contactId: Long = 0L,
+  val packageName: String? = null,
+  val photoUri: String? = null,
+  val phoneNumbers: String? = null, // Extra search metadata
+)
+
 class SearchRepository(private val context: Context) : BaseRepository() {
-  private val documentCache = Collections.synchronizedList(mutableListOf<AppSearchDocument>())
+  private val documentCache = Collections.synchronizedList(mutableListOf<SearchableDocument>())
   private var appSearchSession: AppSearchSession? = null
 
+  private val defaultContactIcon: Drawable by lazy {
+    context.getDrawable(android.R.drawable.sym_contact_card)!!.apply { setTint(Color.GRAY) }
+  }
+
+  private fun calculateCharMask(text: String): Long {
+    var mask = 0L
+    for (c in text) {
+      if (c in 'a'..'z') mask = mask or (1L shl (c - 'a'))
+      else if (c in '0'..'9') mask = mask or (1L shl (c - '0' + 26))
+    }
+    return mask
+  }
+
+  private fun wrap(doc: AppSearchDocument): SearchableDocument {
+    val nameLower = doc.name.lowercase()
+    val words = nameLower.split(' ').filter { it.isNotEmpty() }
+    val acronym = words.mapNotNull { it.firstOrNull() }.joinToString("")
+    val charMask = calculateCharMask(nameLower)
+
+    val nsInt =
+      when (doc.namespace) {
+        "apps" -> 1
+        "app_shortcuts" -> 2
+        "web_bookmarks" -> 3
+        "shortcuts" -> 4
+        "contacts" -> 5
+        "static_shortcuts" -> 6
+        "search_shortcuts" -> 7
+        "snippets" -> 8
+        else -> 0
+      }
+
+    var normalizedPhone: String? = null
+    var contactLookupKey: String? = null
+    var contactId: Long = 0L
+    var packageName: String? = null
+    var photoUri: String? = null
+    var phoneNumbers: String? = null
+
+    when (nsInt) {
+      5 -> { // contacts
+        contactLookupKey = doc.id.substringBefore("/")
+        contactId = doc.id.substringAfter("/").toLongOrNull() ?: 0L
+        val rawDesc = doc.description ?: ""
+        photoUri = rawDesc.substringBefore("|").takeIf { it.isNotEmpty() }
+        phoneNumbers = rawDesc.substringAfter("|")
+        normalizedPhone = phoneNumbers?.replace(Regex("[^0-9+]"), "")
+      }
+      1,
+      4,
+      6 -> { // apps, shortcuts, static_shortcuts
+        packageName = doc.id.split("/").firstOrNull() ?: ""
+      }
+    }
+
+    return SearchableDocument(
+      doc,
+      nameLower,
+      words,
+      acronym,
+      nsInt,
+      normalizedPhone,
+      charMask,
+      contactLookupKey,
+      contactId,
+      packageName,
+      photoUri,
+      phoneNumbers,
+    )
+  }
+
   private fun replaceCollection(namespace: String, documents: List<AppSearchDocument>) {
+    val wrapped = documents.map { wrap(it) }
     synchronized(documentCache) {
-      documentCache.removeAll { it.namespace == namespace }
-      documentCache.addAll(documents)
+      documentCache.removeAll { it.doc.namespace == namespace }
+      documentCache.addAll(wrapped)
     }
   }
 
@@ -306,7 +393,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         synchronized(documentCache) {
           documentCache.clear()
-          documentCache.addAll(allDocs)
+          documentCache.addAll(allDocs.map { wrap(it) })
         }
         updateAppsCache()
         _indexUpdated.emit(Unit)
@@ -650,9 +737,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         // Special case for custom shortcuts: they have two namespaces
         synchronized(documentCache) {
           documentCache.removeAll {
-            it.namespace == "search_shortcuts" || it.namespace == "app_shortcuts"
+            it.doc.namespace == "search_shortcuts" || it.doc.namespace == "app_shortcuts"
           }
-          documentCache.addAll(allDocs)
+          documentCache.addAll(allDocs.map { wrap(it) })
         }
       }
     }
@@ -739,7 +826,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         _favorites.value = emptyList() // Explicitly clear favorites
 
         // Clear document cache (except bookmarks if possible, or just reload)
-        synchronized(documentCache) { documentCache.removeAll { it.namespace != "web_bookmarks" } }
+        synchronized(documentCache) {
+          documentCache.removeAll { it.doc.namespace != "web_bookmarks" }
+        }
 
         // Selective wipe: everything EXCEPT web_bookmarks
         try {
@@ -852,7 +941,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       // 1. Try Memory Cache
       val cachedDocs =
         synchronized(documentCache) {
-          targetIds.mapNotNull { id -> documentCache.find { it.id == id } }
+          targetIds.mapNotNull { id -> documentCache.find { it.doc.id == id }?.doc }
         }
 
       // 2. Fetch missing from DB
@@ -892,7 +981,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
       finalDocs.map {
         convertDocumentToResult(
-          it,
+          wrap(it),
           100,
           saveToDisk = true,
           allowIpc = allowIpc,
@@ -937,7 +1026,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         // Get all search shortcuts from synchronized documentCache
         val shortcuts =
           synchronized(documentCache) {
-            documentCache.filter { it.namespace == "search_shortcuts" }
+            documentCache.filter { it.doc.namespace == "search_shortcuts" }.map { it.doc }
           }
 
         // Sort by manual usage persistence (usageStats) which is the source of truth for sorting
@@ -949,7 +1038,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             .map { doc ->
               async {
                 convertDocumentToResult(
-                  doc,
+                  wrap(doc),
                   100,
                   saveToDisk = true,
                   allowIpc = allowIpc,
@@ -1107,8 +1196,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         }
 
         synchronized(documentCache) {
-          documentCache.removeAll { it.id == doc.id }
-          documentCache.add(doc)
+          documentCache.removeAll { it.doc.id == doc.id }
+          documentCache.add(wrap(doc))
         }
         _indexUpdated.emit(Unit)
       } catch (e: Exception) {
@@ -1125,7 +1214,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           androidx.appsearch.app.RemoveByDocumentIdRequest.Builder(namespace).addIds(id).build()
         session.removeAsync(request).await()
         synchronized(documentCache) {
-          documentCache.removeAll { it.namespace == namespace && it.id == id }
+          documentCache.removeAll { it.doc.namespace == namespace && it.doc.id == id }
         }
         _indexUpdated.emit(Unit)
       } catch (e: Exception) {
@@ -1350,7 +1439,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         }
 
         synchronized(documentCache) {
-          val removed = documentCache.removeAll { it.id == id && it.namespace == "web_bookmarks" }
+          val removed =
+            documentCache.removeAll { it.doc.id == id && it.doc.namespace == "web_bookmarks" }
           android.util.Log.d(
             "SearchRepository",
             "Removed $removed items from documentCache for ID: $id",
@@ -1407,13 +1497,18 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     val apps =
       withContext(Dispatchers.IO) {
         coroutineScope {
-          val docs =
+          val sdocs =
             synchronized(documentCache) {
-              documentCache.filter { it.namespace == "apps" }.sortedBy { it.name.lowercase() }
+              documentCache
+                .filter { it.namespaceInt == 1 } // apps
+                .sortedBy { it.nameLower }
+                .toList()
             }
-          docs
-            .map { doc -> async { convertDocumentToResult(doc, 0, saveToDisk = true) } }
-            .awaitAll()
+          val results =
+            sdocs
+              .map { sdoc -> async { convertDocumentToResult(sdoc, 0, allowDisk = true) } }
+              .awaitAll()
+          results
         }
       }
     _allApps.emit(apps)
@@ -1446,8 +1541,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     safeCall("SearchRepository", "Error searching apps") {
       withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
-        val session = appSearchSession
-        if (session == null) return@withContext emptyList()
+        if (query.isEmpty()) return@withContext emptyList()
 
         // Check cache for single-letter queries
         if (query.matches(SINGLE_LETTER_PATTERN)) {
@@ -1459,85 +1553,40 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         val results = mutableListOf<SearchResult>()
 
-        // Check if search shortcuts are enabled
-        val searchShortcutsEnabled =
-          try {
-            context.dataStore.data
-              .map { it[PreferencesKeys.SEARCH_SHORTCUTS_ENABLED] ?: true }
-              .first()
-          } catch (e: Exception) {
-            true // Default to enabled if DataStore fails
-          }
+        // 1. Custom Shortcuts (Triggers) - Priority 1
+        val customShortcutMatches = findMatchingCustomShortcut(query)
+        val customShortcutResults = customShortcutMatches.first
+        val matchedShortcut = customShortcutMatches.second
+        results.addAll(customShortcutResults)
 
-        coroutineScope {
-          // 1. Custom Shortcuts (Triggers)
-          val customShortcutsAsync = async { findMatchingCustomShortcut(query) }
+        // 2. Smart Actions
+        val smartActions = smartActionManager.checkSmartActions(query)
+        results.addAll(smartActions)
 
-          // 2. Snippets
-          val snippetsAsync = async { getSnippetResults(query) }
+        // 3. In-memory Index Search (including Apps, Shortcuts, Contacts, Snippets)
+        val excludedAliases =
+          customShortcutResults
+            .filterIsInstance<SearchResult.SearchIntent>()
+            .mapNotNull { it.trigger }
+            .toSet()
 
-          // 3. Smart Actions
-          val smartActionsAsync =
-            if (query.isNotEmpty()) {
-              async { smartActionManager.checkSmartActions(query) }
-            } else null
+        val indexResults =
+          performInMemorySearch(
+            query,
+            excludedAliases,
+            limit,
+            allowIpc = allowIpc,
+            allowDisk = allowDisk,
+          )
+        results.addAll(indexResults)
 
-          val customShortcutMatches = customShortcutsAsync.await()
-          val customShortcutResults = customShortcutMatches.first
-          val matchedShortcut = customShortcutMatches.second
-
-          // 4. AppSearch Index
-          val excludedAliases =
-            customShortcutResults
-              .filterIsInstance<SearchResult.SearchIntent>()
-              .mapNotNull { it.trigger }
-              .toSet()
-
-          val indexSearchAsync = async {
-            searchAppIndex(
-              query,
-              excludedAliases,
-              limit,
-              allowIpc = allowIpc,
-              allowDisk = allowDisk,
-            )
-          }
-
-          // 5. Suggestions (only when search shortcuts / suggestions are enabled)
-          val suggestionsAsync =
-            if (
-              searchShortcutsEnabled &&
-                matchedShortcut?.suggestionUrl != null &&
-                query.contains(" ")
-            ) {
-              val searchTerm = query.substringAfter(" ")
-              if (searchTerm.isNotEmpty()) {
-                async { fetchSuggestions(matchedShortcut.suggestionUrl!!, searchTerm) }
-              } else null
-            } else null
-
-          // Collect all results
-          results.addAll(customShortcutResults)
-          results.addAll(snippetsAsync.await())
-
-          if (smartActionsAsync != null) {
+        // 4. Suggestions (only when search shortcuts / suggestions are enabled)
+        if (matchedShortcut?.suggestionUrl != null && query.contains(" ")) {
+          val searchTerm = query.substringAfter(" ")
+          if (searchTerm.isNotEmpty()) {
             try {
-              results.addAll(smartActionsAsync.await())
-            } catch (e: Exception) {
-              SystemUtils.logError("SearchRepository", "Error awaiting smart actions", e)
-            }
-          }
-
-          try {
-            results.addAll(indexSearchAsync.await())
-          } catch (e: Exception) {
-            SystemUtils.logError("SearchRepository", "Error awaiting index search", e)
-          }
-
-          // Add suggestions
-          try {
-            suggestionsAsync?.await()?.forEach { suggestion ->
-              if (matchedShortcut != null) {
+              val suggestions = fetchSuggestions(matchedShortcut.suggestionUrl!!, searchTerm)
+              suggestions.forEach { suggestion ->
                 val icon =
                   iconGenerator.getColoredSearchIcon(matchedShortcut.color, matchedShortcut.alias)
                 val urlFormatted =
@@ -1558,15 +1607,15 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                   )
                 )
               }
+            } catch (e: Exception) {
+              SystemUtils.logError("SearchRepository", "Error processing suggestions", e)
             }
-          } catch (e: Exception) {
-            SystemUtils.logError("SearchRepository", "Error processing suggestions", e)
           }
         }
 
         results.sortByDescending { it.rankingScore }
 
-        // Cache single-letter queries (icons are now pre-cached, so safe to cache)
+        // Cache single-letter queries
         if (query.matches(SINGLE_LETTER_PATTERN)) {
           val timeSinceLastUsage = System.currentTimeMillis() - lastUsageReportTime
           if (timeSinceLastUsage > CACHE_COOLDOWN_MS) {
@@ -1731,7 +1780,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     }
   }
 
-  private suspend fun searchAppIndex(
+  private suspend fun performInMemorySearch(
     query: String,
     excludedAliases: Set<String>,
     limit: Int,
@@ -1739,145 +1788,113 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     allowDisk: Boolean = true,
   ): List<SearchResult> {
     val startTime = System.currentTimeMillis()
-    val session = appSearchSession ?: return emptyList()
-    val candidates = mutableListOf<Pair<AppSearchDocument, Int>>()
+    val candidates = mutableListOf<Pair<SearchableDocument, Int>>()
 
-    try {
-      val searchSpecBuilder =
-        SearchSpec.Builder()
-          .setRankingStrategy(SearchSpec.RANKING_STRATEGY_DOCUMENT_SCORE)
-          .setTermMatch(SearchSpec.TERM_MATCH_PREFIX)
+    val queryLower = query.lowercase().trim()
+    val queryMask = calculateCharMask(queryLower)
+    val normalizedQuery = com.searchlauncher.app.util.ContactUtils.normalizePhoneNumber(queryLower)
 
-      if (query.length < 3) {
-        searchSpecBuilder.addFilterNamespaces(
-          "apps",
-          "app_shortcuts",
-          "search_shortcuts",
-          "web_bookmarks",
-        )
-      }
-
-      val searchSpec = searchSpecBuilder.build()
-      val normalizedQuery = com.searchlauncher.app.util.ContactUtils.normalizePhoneNumber(query)
-      val finalQuery =
-        if (normalizedQuery != null && normalizedQuery != query && normalizedQuery.length >= 3) {
-          "$query OR $normalizedQuery"
-        } else {
-          query
-        }
-
-      val searchResults = session.search(finalQuery, searchSpec)
-      var nextPage = searchResults.nextPageAsync.await()
-
-      // 1. Collect documents and calculate scores (Lightweight)
-      while (nextPage.isNotEmpty()) {
-        for (result in nextPage) {
-          val doc = result.genericDocument.toDocumentClass(AppSearchDocument::class.java)
-          val manualUsage = usageStats[doc.id] ?: 0
-          val baseScore = (result.rankingSignal.toInt() + (manualUsage * 10)).coerceAtLeast(0)
-
-          val isSettings =
-            doc.id == "com.android.settings" ||
-              doc.intentUri?.contains("android.settings.SETTINGS") == true
-          val boost =
-            when {
-              isSettings -> 15
-              doc.namespace == "apps" -> 100
-              doc.namespace == "app_shortcuts" -> 90
-              doc.namespace == "web_bookmarks" -> 80
-              else -> 0
-            }
-
-          val nameLower = doc.name.lowercase()
-          val queryLower = query.lowercase()
-          var matchBoost = 0
-          if (nameLower == queryLower) matchBoost = 100
-          else if (nameLower.startsWith(queryLower)) matchBoost = 50
-          else if (nameLower.contains(queryLower)) matchBoost = 20
-
-          candidates.add(doc to (baseScore + boost + matchBoost))
-        }
-        // If we have 200 candidates, that's more than enough for display
-        if (candidates.size >= 200) break
-        nextPage = searchResults.nextPageAsync.await()
-      }
-
-      // 2. Sort by our custom refined score
-      candidates.sortByDescending { it.second }
-
-      // 3. Convert ONLY the top candidates into SearchResults (Expensive icon loading here)
-      val appSearchResults = mutableListOf<SearchResult>()
-      val conversionLimit = if (limit > 0) limit * 2 else 50
-
-      for ((doc, score) in candidates.take(conversionLimit)) {
-        kotlinx.coroutines.currentCoroutineContext().ensureActive()
-        val searchResult =
-          convertDocumentToResult(
-            doc,
-            score,
-            query,
-            saveToDisk = false,
-            allowIpc = allowIpc,
-            allowDisk = allowDisk,
+    synchronized(documentCache) {
+      val syncStart = System.currentTimeMillis()
+      for (sdoc in documentCache) {
+        val score =
+          FuzzyMatch.calculateScore(
+            queryLower,
+            sdoc.nameLower,
+            sdoc.targetWords,
+            sdoc.acronym,
+            queryMask,
+            sdoc.charMask,
           )
 
-        if (searchResult is SearchResult.SearchIntent && searchResult.trigger in excludedAliases) {
-          continue
-        }
-
-        if (searchResult is SearchResult.SearchIntent && query.isNotBlank()) {
-          appSearchResults.add(searchResult.copy(title = "${searchResult.title}: $query"))
-        } else {
-          appSearchResults.add(searchResult)
-        }
-
-        if (limit > 0 && appSearchResults.size >= limit) break
-      }
-
-      android.util.Log.d(
-        "SearchRepository",
-        "searchAppIndex for '$query' took ${System.currentTimeMillis() - startTime}ms, candidates: ${candidates.size}, results: ${appSearchResults.size}",
-      )
-
-      // Fuzzy Search
-      if (query.length >= 2) {
-        val existingIds = appSearchResults.map { it.id }.toSet()
-        val fuzzyMatches = getFuzzyMatches(query)
-
-        val addedIds = mutableSetOf<String>()
-        for ((doc, _) in fuzzyMatches) {
-          kotlinx.coroutines.currentCoroutineContext().ensureActive()
-          if (doc.id !in existingIds && doc.id !in addedIds) {
-            val boost = if (doc.namespace == "apps") 100 else 0
-            val result =
-              convertDocumentToResult(
-                doc,
-                boost,
-                query,
-                saveToDisk = false, // Icons already pre-cached during indexing
-                allowIpc = allowIpc,
-                allowDisk = allowDisk,
-              )
-            appSearchResults.add(result)
-            addedIds.add(doc.id)
+        // Also check normalized phone number for contacts (use pre-computed normalizedPhone)
+        var contactScore = 0
+        if (sdoc.namespaceInt == 5 && normalizedQuery != null && normalizedQuery.length >= 3) {
+          if (sdoc.normalizedPhone?.contains(normalizedQuery) == true) {
+            contactScore = 85
           }
         }
+
+        val finalScore = maxOf(score, contactScore)
+        if (finalScore > 30) {
+          val doc = sdoc.doc
+          val manualUsage = usageStats[doc.id] ?: 0
+          val namespaceBoost =
+            when (sdoc.namespaceInt) {
+              1 -> 100 // apps
+              2 -> 90 // app_shortcuts
+              3 -> 80 // web_bookmarks
+              4 -> 70 // shortcuts
+              5 -> 60 // contacts
+              else -> 0
+            }
+          candidates.add(sdoc to (finalScore + namespaceBoost + (manualUsage * 5)))
+        }
+
+        if (candidates.size > 500) break
+      }
+      android.util.Log.v(
+        "SearchRepository",
+        "  [Timing] synchronized scan of ${documentCache.size} docs took ${System.currentTimeMillis() - syncStart}ms",
+      )
+    }
+
+    val sortStart = System.currentTimeMillis()
+    candidates.sortByDescending { it.second }
+    android.util.Log.v(
+      "SearchRepository",
+      "  [Timing] Sorting ${candidates.size} candidates took ${System.currentTimeMillis() - sortStart}ms",
+    )
+
+    val appSearchResults = mutableListOf<SearchResult>()
+    val conversionLimit = if (limit > 0) limit else 50
+
+    val conversionStart = System.currentTimeMillis()
+    for ((sdoc, score) in candidates.take(conversionLimit * 2)) {
+      kotlinx.coroutines.currentCoroutineContext().ensureActive()
+      val searchResult =
+        convertDocumentToResult(
+          sdoc,
+          score,
+          query,
+          saveToDisk = false,
+          allowIpc = false, // Force fast path
+          allowDisk = false, // Force fast path
+        )
+
+      if (searchResult is SearchResult.SearchIntent && searchResult.trigger in excludedAliases) {
+        continue
       }
 
-      appSearchResults.sortByDescending { it.rankingScore }
-      return if (limit > 0) appSearchResults.take(limit) else appSearchResults
-    } catch (e: Exception) {
-      if (e is kotlinx.coroutines.CancellationException) throw e
-      e.printStackTrace()
-      return emptyList()
+      if (searchResult is SearchResult.SearchIntent && query.isNotBlank()) {
+        appSearchResults.add(searchResult.copy(title = "${searchResult.title}: $query"))
+      } else {
+        appSearchResults.add(searchResult)
+      }
+
+      if (limit > 0 && appSearchResults.size >= limit) break
     }
+    android.util.Log.v(
+      "SearchRepository",
+      "  [Timing] Conversion of ${appSearchResults.size} results took ${System.currentTimeMillis() - conversionStart}ms",
+    )
+
+    android.util.Log.d(
+      "SearchRepository",
+      "performInMemorySearch for '$query' took ${System.currentTimeMillis() - startTime}ms, candidates: ${candidates.size}, results: ${appSearchResults.size}",
+    )
+
+    return appSearchResults
   }
 
   private fun getFuzzyMatches(query: String): List<Pair<AppSearchDocument, Int>> {
     val results = mutableListOf<Pair<AppSearchDocument, Int>>()
+    val queryLower = query.lowercase().trim()
     synchronized(documentCache) {
-      for (doc in documentCache) {
-        val score = FuzzyMatch.calculateScore(query, doc.name)
+      for (sdoc in documentCache) {
+        val doc = sdoc.doc
+        val score =
+          FuzzyMatch.calculateScore(queryLower, sdoc.nameLower, sdoc.targetWords, sdoc.acronym)
         if (score > 40) {
           results.add(doc to score)
         }
@@ -1931,13 +1948,14 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   }
 
   private suspend fun convertDocumentToResult(
-    doc: AppSearchDocument,
+    sdoc: SearchableDocument,
     rankingScore: Int,
     query: String? = null,
     saveToDisk: Boolean = false,
     allowIpc: Boolean = true,
     allowDisk: Boolean = true,
   ): SearchResult {
+    val doc = sdoc.doc
     kotlinx.coroutines.currentCoroutineContext().ensureActive()
     return when (doc.namespace) {
       "shortcuts" -> {
@@ -1955,7 +1973,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                   as android.content.pm.LauncherApps
               val user = android.os.Process.myUserHandle()
               val q = android.content.pm.LauncherApps.ShortcutQuery()
-              val packageName = doc.id.split("/").firstOrNull() ?: ""
+              val packageName = sdoc.packageName ?: ""
               val shortcutId = doc.id.substringAfter("/")
               q.setPackage(packageName)
               q.setShortcutIds(listOf(shortcutId))
@@ -1985,7 +2003,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         }
 
         // App icons pre-cached during indexing
-        val pkg = doc.id.split("/").firstOrNull() ?: ""
+        val pkg = sdoc.packageName ?: ""
         val appIcon =
           iconCache.get("appicon_$pkg")
             ?: (if (allowDisk)
@@ -2127,7 +2145,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         )
       }
       "static_shortcuts" -> {
-        // Static shortcut icons pre-cached during indexing
         var icon: Drawable? = iconCache.get("static_shortcut_${doc.id}")
         if (icon == null && allowDisk) {
           val diskIcon = loadIconFromDisk("static_shortcut_${doc.id}")
@@ -2136,7 +2153,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             iconCache.put("static_shortcut_${doc.id}", icon)
           } else if (allowIpc) {
             try {
-              val pkg = doc.id.substringBefore("/")
+              val pkg = sdoc.packageName ?: ""
               if (doc.iconResId > 0) {
                 val res = context.packageManager.getResourcesForApplication(pkg)
                 icon = res.getDrawable(doc.iconResId.toInt(), null)
@@ -2151,13 +2168,15 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           }
         }
 
-        val pkg = doc.id.split("/").firstOrNull() ?: ""
+        val pkg = sdoc.packageName ?: ""
         val appIcon =
-          try {
-            context.packageManager.getApplicationIcon(pkg)
-          } catch (e: Exception) {
-            null
-          }
+          if (allowIpc) {
+            try {
+              context.packageManager.getApplicationIcon(pkg)
+            } catch (e: Exception) {
+              null
+            }
+          } else null
 
         SearchResult.Shortcut(
           id = doc.id,
@@ -2172,17 +2191,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         )
       }
       "contacts" -> {
-        val lookupKey = doc.id.substringBefore("/")
-        val contactId = doc.id.substringAfter("/").toLongOrNull() ?: 0L
-        val rawDescription = doc.description
-        // We stored photo URI + | + extra search data in description
-        val photoUri = rawDescription?.substringBefore("|")?.takeIf { it.isNotEmpty() }
+        val lookupKey = sdoc.contactLookupKey ?: ""
+        val contactId = sdoc.contactId
+        val photoUri = sdoc.photoUri
 
-        var icon: Drawable? = null
-        val cached = iconCache.get("contact_${doc.id}")
-        if (cached != null) {
-          icon = cached
-        } else if (photoUri != null) {
+        var icon: Drawable? = iconCache.get("contact_${doc.id}")
+
+        if (icon == null && photoUri != null && allowIpc) {
           try {
             val uri = android.net.Uri.parse(photoUri)
             val stream = context.contentResolver.openInputStream(uri)
@@ -2197,9 +2212,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         }
 
         if (icon == null) {
-          // Default contact icon
-          icon = context.getDrawable(android.R.drawable.sym_contact_card)
-          icon?.setTint(Color.GRAY)
+          icon = defaultContactIcon
         }
 
         SearchResult.Contact(
@@ -2208,10 +2221,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           title = doc.name,
           subtitle =
             if (query != null && !doc.name.contains(query, ignoreCase = true)) {
-              val parts = rawDescription?.split("|")
-              val extraData = parts?.getOrNull(1) ?: ""
-              // Tokens separated by space
-              val tokens = extraData.split(" ")
+              val phoneNumbers = sdoc.phoneNumbers ?: ""
+              val tokens = phoneNumbers.split(" ")
               val match = tokens.find { it.contains(query, ignoreCase = true) }
               match?.trim() ?: "Contact"
             } else {
@@ -2566,6 +2577,25 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   }
 
   // checkSmartActions extracted to SmartActionManager
+
+  suspend fun loadIcon(result: SearchResult): Drawable? =
+    withContext(Dispatchers.IO) {
+      val sdoc =
+        synchronized(documentCache) {
+          documentCache.find { it.doc.id == result.id && it.doc.namespace == result.namespace }
+        }
+      if (sdoc == null) return@withContext null
+
+      val res =
+        convertDocumentToResult(
+          sdoc,
+          result.rankingScore,
+          saveToDisk = true,
+          allowIpc = true,
+          allowDisk = true,
+        )
+      res.icon
+    }
 }
 
 private suspend fun <T> ListenableFuture<T>.await(): T {
