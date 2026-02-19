@@ -145,6 +145,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     synchronized(documentCache) {
       documentCache.removeAll { it.doc.namespace == namespace }
       documentCache.addAll(wrapped)
+      // Sort cache by namespace priority to ensure fast scanning of important namespaces
+      documentCache.sortBy { it.namespaceInt }
     }
   }
 
@@ -1819,19 +1821,25 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         if (finalScore > 30) {
           val doc = sdoc.doc
           val manualUsage = usageStats[doc.id] ?: 0
-          val namespaceBoost =
+          var namespaceBoost =
             when (sdoc.namespaceInt) {
-              1 -> 100 // apps
-              2 -> 90 // app_shortcuts
+              1 -> 150 // apps (increased)
+              2 -> 130 // app_shortcuts (increased)
               3 -> 80 // web_bookmarks
               4 -> 70 // shortcuts
-              5 -> 60 // contacts
+              5 -> 40 // contacts (decreased)
               else -> 0
             }
-          candidates.add(sdoc to (finalScore + namespaceBoost + (manualUsage * 5)))
+
+          // Aggressive boost for apps on short queries (1-2 chars)
+          if (queryLower.length <= 2 && sdoc.namespaceInt <= 2) {
+            namespaceBoost += 200
+          }
+
+          candidates.add(sdoc to (finalScore + namespaceBoost + (manualUsage * 10)))
         }
 
-        if (candidates.size > 500) break
+        if (candidates.size > 1000) break
       }
       android.util.Log.v(
         "SearchRepository",
