@@ -32,7 +32,6 @@ object FuzzyMatch {
       // 6. Subsequence (Scattered characters)
       // Fast path: if target doesn't contain all query characters, skip isSubsequence
       queryMask != 0L && (queryMask and targetMask) != queryMask -> 0
-
       isSubsequence(preparedQuery, preparedTarget) ->
         maxOf(10, 60 - (preparedTarget.length - preparedQuery.length))
       else -> 0
