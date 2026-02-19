@@ -296,12 +296,12 @@ fun SearchScreen(
       searchResults = emptyList()
       isFallbackMode = false
     } else {
-      val resultsResult = searchRepository.searchApps(query, allowIpc = false)
+      val resultsResult = searchRepository.searchApps(query)
       val results = resultsResult.getOrElse { emptyList() }
 
       // Always append search shortcuts to the end of the results
       // Use a higher limit to show all options as requested
-      val shortcuts = searchRepository.getSearchShortcuts(limit = 50, allowIpc = false)
+      val shortcuts = searchRepository.getSearchShortcuts(limit = 50)
 
       val resultIds = results.map { it.id }.toSet()
       val uniqueShortcuts = shortcuts.filter { !resultIds.contains(it.id) }
@@ -332,16 +332,6 @@ fun SearchScreen(
       } else {
         searchResults = baseResults
       }
-    }
-  }
-
-  // Pre-emptive cache warming when idle
-  LaunchedEffect(query) {
-    if (query.isEmpty()) {
-      // Wait for 2 seconds of idleness (user just staring at screen)
-      kotlinx.coroutines.delay(2000)
-      // Start warming up the cache
-      searchRepository.warmupCache()
     }
   }
 

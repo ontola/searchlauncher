@@ -43,7 +43,6 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -106,7 +105,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     var contactId: Long = 0L
     var packageName: String? = null
     var photoUri: String? = null
-    var phoneNumbers: String? = null
+    var phoneNumbers: String = ""
 
     when (nsInt) {
       5 -> { // contacts
@@ -115,7 +114,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         val rawDesc = doc.description ?: ""
         photoUri = rawDesc.substringBefore("|").takeIf { it.isNotEmpty() }
         phoneNumbers = rawDesc.substringAfter("|")
-        normalizedPhone = phoneNumbers?.replace(Regex("[^0-9+]"), "")
+        normalizedPhone = phoneNumbers.replace(Regex("[^0-9+]"), "")
       }
       1,
       4,
@@ -154,22 +153,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private val smartActionManager = SmartActionManager(context)
   private val iconGenerator = SearchIconGenerator(context)
   private val iconCache = LruCache<String, Drawable>(10000)
-
-  // LRU cache for single-letter search queries
-  private val searchCache =
-    Collections.synchronizedMap(
-      object : LinkedHashMap<String, List<SearchResult>>(16, 0.75f, true) {
-        override fun removeEldestEntry(
-          eldest: MutableMap.MutableEntry<String, List<SearchResult>>?
-        ): Boolean {
-          return size > CACHE_SIZE
-        }
-      }
-    )
-  private val CACHE_SIZE = 50
-  private val SINGLE_LETTER_PATTERN = Regex("^[a-zA-Z0-9]$")
-  private var lastUsageReportTime = 0L
-  private val CACHE_COOLDOWN_MS = 500L // Wait 500ms after usage report before caching again
 
   private val _isInitialized = kotlinx.coroutines.flow.MutableStateFlow(false)
   val isInitialized: kotlinx.coroutines.flow.StateFlow<Boolean> = _isInitialized
@@ -409,7 +392,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private suspend fun indexApps() =
     withContext(Dispatchers.IO) {
       android.util.Log.d("SearchRepository", "Indexing apps...")
-      searchCache.clear() // Invalidate cache
       val session = appSearchSession ?: return@withContext
       val launcherApps =
         context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
@@ -688,7 +670,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   suspend fun indexCustomShortcuts() =
     withContext(Dispatchers.IO) {
-      searchCache.clear() // Invalidate cache
       val session = appSearchSession ?: return@withContext
 
       val app = context.applicationContext as? SearchLauncherApp ?: return@withContext
@@ -748,7 +729,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   suspend fun indexStaticShortcuts() =
     withContext(Dispatchers.IO) {
-      searchCache.clear() // Invalidate cache
       val session = appSearchSession ?: return@withContext
       val shortcuts = StaticShortcutScanner.scan(context)
       val docs =
@@ -816,6 +796,120 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       replaceCollection("static_shortcuts", docs)
     }
 
+  suspend fun indexContacts() =
+    withContext(Dispatchers.IO) {
+      val session = appSearchSession ?: return@withContext
+      val permission = context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS)
+      if (permission != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        android.util.Log.w("SearchRepository", "READ_CONTACTS permission denied")
+        return@withContext
+      }
+      android.util.Log.d("SearchRepository", "Indexing contacts...")
+
+      val contacts = mutableListOf<AppSearchDocument>()
+      // 1. Fetch search data (Phone numbers and Emails)
+      val searchDataMap = mutableMapOf<Long, StringBuilder>()
+      val dataCursor =
+        context.contentResolver.query(
+          android.provider.ContactsContract.Data.CONTENT_URI,
+          arrayOf(
+            android.provider.ContactsContract.Data.CONTACT_ID,
+            android.provider.ContactsContract.Data.MIMETYPE,
+            android.provider.ContactsContract.Data.DATA1,
+          ),
+          "${android.provider.ContactsContract.Data.MIMETYPE} IN (?, ?)",
+          arrayOf(
+            android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
+            android.provider.ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE,
+          ),
+          null,
+        )
+
+      dataCursor?.use {
+        val contactIdIndex = it.getColumnIndex(android.provider.ContactsContract.Data.CONTACT_ID)
+        val mimeTypeIndex = it.getColumnIndex(android.provider.ContactsContract.Data.MIMETYPE)
+        val dataIndex = it.getColumnIndex(android.provider.ContactsContract.Data.DATA1)
+
+        while (it.moveToNext()) {
+          val contactId = it.getLong(contactIdIndex)
+          val mimeType = it.getString(mimeTypeIndex)
+          val data = it.getString(dataIndex)
+
+          if (data != null) {
+            val sb = searchDataMap.getOrPut(contactId) { StringBuilder() }
+            // Use space as separator for better tokenization
+            sb.append(" ").append(data)
+
+            // Normalize phone numbers and add variants (e.g. 06... for +31...)
+            if (
+              mimeType == android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE
+            ) {
+              com.searchlauncher.app.util.ContactUtils.getIndexableVariants(data).forEach {
+                sb.append(" ").append(it)
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Fetch Contacts and merge
+      val cursor =
+        context.contentResolver.query(
+          android.provider.ContactsContract.Contacts.CONTENT_URI,
+          arrayOf(
+            android.provider.ContactsContract.Contacts._ID,
+            android.provider.ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,
+            android.provider.ContactsContract.Contacts.LOOKUP_KEY,
+            android.provider.ContactsContract.Contacts.PHOTO_THUMBNAIL_URI,
+          ),
+          null,
+          null,
+          null,
+        )
+
+      cursor?.use {
+        val idIndex = it.getColumnIndex(android.provider.ContactsContract.Contacts._ID)
+        val nameIndex =
+          it.getColumnIndex(android.provider.ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)
+        val lookupIndex = it.getColumnIndex(android.provider.ContactsContract.Contacts.LOOKUP_KEY)
+        val photoIndex =
+          it.getColumnIndex(android.provider.ContactsContract.Contacts.PHOTO_THUMBNAIL_URI)
+
+        while (it.moveToNext()) {
+          val id = it.getLong(idIndex)
+          val name = it.getString(nameIndex)
+          val lookupKey = it.getString(lookupIndex)
+          val photoUri = it.getString(photoIndex)
+
+          if (name != null) {
+            val extraData = searchDataMap[id]?.toString() ?: ""
+            // Store photoUri + delimiter + searchable text
+            val description = "${photoUri ?: ""}|$extraData"
+
+            contacts.add(
+              AppSearchDocument(
+                namespace = "contacts",
+                id = "$lookupKey/$id",
+                name = name,
+                description = description,
+                score = 4,
+                intentUri = "content://com.android.contacts/contacts/lookup/$lookupKey/$id",
+              )
+            )
+          }
+        }
+      }
+
+      if (contacts.isNotEmpty()) {
+        android.util.Log.d("SearchRepository", "Indexed ${contacts.size} contacts")
+        val putRequest = PutDocumentsRequest.Builder().addDocuments(contacts).build()
+        session.putAsync(putRequest).await()
+        replaceCollection("contacts", contacts)
+      } else {
+        android.util.Log.d("SearchRepository", "No contacts found to index")
+      }
+    }
+
   suspend fun resetIndex() =
     withContext(Dispatchers.IO) {
       val session = appSearchSession ?: return@withContext
@@ -864,7 +958,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         indexContacts()
         indexSnippets()
 
-        warmupCache()
+        // warmupCache() - Removed
 
         prefs.edit().putLong("last_reindex_timestamp", System.currentTimeMillis()).apply()
       } catch (e: Exception) {
@@ -930,12 +1024,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
     }
 
-  suspend fun getResults(
-    ids: List<String>,
-    limit: Int = 100,
-    allowIpc: Boolean = true,
-    allowDisk: Boolean = true,
-  ): List<SearchResult> =
+  suspend fun getResults(ids: List<String>, limit: Int = 100): List<SearchResult> =
     withContext(Dispatchers.IO) {
       if (ids.isEmpty()) return@withContext emptyList()
       val targetIds = ids.take(limit)
@@ -968,7 +1057,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                 androidx.appsearch.app.GetByDocumentIdRequest.Builder(ns).addIds(missingIds).build()
               val resp = appSearchSession?.getByDocumentIdAsync(req)?.await()
               resp?.successes?.values?.forEach { gDoc ->
-                gDoc.toDocumentClass(AppSearchDocument::class.java)?.let { resolved.add(it) }
+                val doc = gDoc.toDocumentClass(AppSearchDocument::class.java)
+                resolved.add(doc)
               }
               if (resolved.size >= missingIds.size) break
             } catch (e: Exception) {
@@ -981,15 +1071,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           }
         } else cachedDocs
 
-      finalDocs.map {
-        convertDocumentToResult(
-          wrap(it),
-          100,
-          saveToDisk = true,
-          allowIpc = allowIpc,
-          allowDisk = allowDisk,
-        )
-      }
+      finalDocs.map { convertDocumentToResult(wrap(it), 100, saveToDisk = true) }
     }
 
   suspend fun getRecentItems(
@@ -1002,7 +1084,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
       if (historyIds.isEmpty()) {
         _recentItems.value = emptyList()
-        saveResultsToCache(emptyList(), false)
         return@withContext emptyList()
       }
 
@@ -1018,11 +1099,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       return@withContext results
     }
 
-  suspend fun getSearchShortcuts(
-    limit: Int = 100,
-    allowIpc: Boolean = true,
-    allowDisk: Boolean = true,
-  ): List<SearchResult> =
+  suspend fun getSearchShortcuts(limit: Int = 100): List<SearchResult> =
     withContext(Dispatchers.IO) {
       try {
         // Get all search shortcuts from synchronized documentCache
@@ -1037,17 +1114,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         return@withContext coroutineScope {
           sortedShortcuts
-            .map { doc ->
-              async {
-                convertDocumentToResult(
-                  wrap(doc),
-                  100,
-                  saveToDisk = true,
-                  allowIpc = allowIpc,
-                  allowDisk = allowDisk,
-                )
-              }
-            }
+            .map { doc -> async { convertDocumentToResult(wrap(doc), 100, saveToDisk = true) } }
             .awaitAll()
             .filterIsInstance<SearchResult.SearchIntent>()
             .take(limit)
@@ -1121,15 +1188,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         // Only invalidate the cache if we picked a result that wasn't first
         // (meaning the order might change next time)
         if (!wasFirstResult && query != null && query.isNotEmpty()) {
-          val firstLetter = query.substring(0, 1)
-          if (firstLetter.matches(SINGLE_LETTER_PATTERN)) {
-            searchCache.remove(firstLetter.lowercase())
-          }
+          // Cache logic removed
         }
-
-        lastUsageReportTime = System.currentTimeMillis()
-
-        // Auto-bookmark clicked URLs - Use repository scope to ensure it survives UI destruction
         if (id.startsWith("smart_action_url_")) {
           val url = id.removePrefix("smart_action_url_").trim()
           scope.launch {
@@ -1285,140 +1345,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
     }
 
-  suspend fun warmupCache() =
-    withContext(Dispatchers.IO) {
-      if (!_isInitialized.value) return@withContext
-
-      // Pre-warm cache for single letters/digits
-      val chars = "abcdefghijklmnopqrstuvwxyz0123456789".toCharArray()
-      for (char in chars) {
-        if (!isActive) break
-
-        // Skip if already cached
-        val key = char.toString()
-        if (!searchCache.containsKey(key)) {
-          searchApps(key)
-          // Small delay to be unobtrusive
-          kotlinx.coroutines.delay(50)
-        }
-      }
-    }
-
-  suspend fun indexContacts() =
-    withContext(Dispatchers.IO) {
-      searchCache.clear() // Invalidate cache
-      val session = appSearchSession ?: return@withContext
-      val permission = context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS)
-      if (permission != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-        android.util.Log.w("SearchRepository", "READ_CONTACTS permission denied")
-        return@withContext
-      }
-      android.util.Log.d("SearchRepository", "Indexing contacts...")
-
-      val contacts = mutableListOf<AppSearchDocument>()
-      // 1. Fetch search data (Phone numbers and Emails)
-      val searchDataMap = mutableMapOf<Long, StringBuilder>()
-      val dataCursor =
-        context.contentResolver.query(
-          android.provider.ContactsContract.Data.CONTENT_URI,
-          arrayOf(
-            android.provider.ContactsContract.Data.CONTACT_ID,
-            android.provider.ContactsContract.Data.MIMETYPE,
-            android.provider.ContactsContract.Data.DATA1,
-          ),
-          "${android.provider.ContactsContract.Data.MIMETYPE} IN (?, ?)",
-          arrayOf(
-            android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
-            android.provider.ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE,
-          ),
-          null,
-        )
-
-      dataCursor?.use {
-        val contactIdIndex = it.getColumnIndex(android.provider.ContactsContract.Data.CONTACT_ID)
-        val mimeTypeIndex = it.getColumnIndex(android.provider.ContactsContract.Data.MIMETYPE)
-        val dataIndex = it.getColumnIndex(android.provider.ContactsContract.Data.DATA1)
-
-        while (it.moveToNext()) {
-          val contactId = it.getLong(contactIdIndex)
-          val mimeType = it.getString(mimeTypeIndex)
-          val data = it.getString(dataIndex)
-
-          if (data != null) {
-            val sb = searchDataMap.getOrPut(contactId) { StringBuilder() }
-            // Use space as separator for better tokenization
-            sb.append(" ").append(data)
-
-            // Normalize phone numbers and add variants (e.g. 06... for +31...)
-            if (
-              mimeType == android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE
-            ) {
-              com.searchlauncher.app.util.ContactUtils.getIndexableVariants(data).forEach {
-                sb.append(" ").append(it)
-              }
-            }
-          }
-        }
-      }
-
-      // 2. Fetch Contacts and merge
-      val cursor =
-        context.contentResolver.query(
-          android.provider.ContactsContract.Contacts.CONTENT_URI,
-          arrayOf(
-            android.provider.ContactsContract.Contacts._ID,
-            android.provider.ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,
-            android.provider.ContactsContract.Contacts.LOOKUP_KEY,
-            android.provider.ContactsContract.Contacts.PHOTO_THUMBNAIL_URI,
-          ),
-          null,
-          null,
-          null,
-        )
-
-      cursor?.use {
-        val idIndex = it.getColumnIndex(android.provider.ContactsContract.Contacts._ID)
-        val nameIndex =
-          it.getColumnIndex(android.provider.ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)
-        val lookupIndex = it.getColumnIndex(android.provider.ContactsContract.Contacts.LOOKUP_KEY)
-        val photoIndex =
-          it.getColumnIndex(android.provider.ContactsContract.Contacts.PHOTO_THUMBNAIL_URI)
-
-        while (it.moveToNext()) {
-          val id = it.getLong(idIndex)
-          val name = it.getString(nameIndex)
-          val lookupKey = it.getString(lookupIndex)
-          val photoUri = it.getString(photoIndex)
-
-          if (name != null) {
-            val extraData = searchDataMap[id]?.toString() ?: ""
-            // Store photoUri + delimiter + searchable text
-            val description = "${photoUri ?: ""}|$extraData"
-
-            contacts.add(
-              AppSearchDocument(
-                namespace = "contacts",
-                id = "$lookupKey/$id",
-                name = name,
-                description = description,
-                score = 4,
-                intentUri = "content://com.android.contacts/contacts/lookup/$lookupKey/$id",
-              )
-            )
-          }
-        }
-      }
-
-      if (contacts.isNotEmpty()) {
-        android.util.Log.d("SearchRepository", "Indexed ${contacts.size} contacts")
-        val putRequest = PutDocumentsRequest.Builder().addDocuments(contacts).build()
-        session.putAsync(putRequest).await()
-        replaceCollection("contacts", contacts)
-      } else {
-        android.util.Log.d("SearchRepository", "No contacts found to index")
-      }
-    }
-
   suspend fun removeBookmark(id: String) =
     withContext(Dispatchers.IO) {
       val session = appSearchSession ?: return@withContext
@@ -1454,6 +1380,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         Sentry.captureException(e)
       }
     }
+
+  // indexContacts - Removed
 
   suspend fun indexSnippets() =
     withContext(Dispatchers.IO) {
@@ -1534,24 +1462,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
    * @param allowDisk Whether to allow reading from disk. Set to FALSE for ultra-fast, memory-only
    *   searches (e.g. for suggestions).
    */
-  suspend fun searchApps(
-    query: String,
-    limit: Int = -1,
-    allowIpc: Boolean = true,
-    allowDisk: Boolean = true,
-  ): Result<List<SearchResult>> =
+  suspend fun searchApps(query: String, limit: Int = -1): Result<List<SearchResult>> =
     safeCall("SearchRepository", "Error searching apps") {
       withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
         if (query.isEmpty()) return@withContext emptyList()
 
-        // Check cache for single-letter queries
-        if (query.matches(SINGLE_LETTER_PATTERN)) {
-          val cached = searchCache[query.lowercase()]
-          if (cached != null) {
-            return@withContext cached
-          }
-        }
+        // searchCache.clear() - Removed
 
         val results = mutableListOf<SearchResult>()
 
@@ -1572,14 +1489,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             .mapNotNull { it.trigger }
             .toSet()
 
-        val indexResults =
-          performInMemorySearch(
-            query,
-            excludedAliases,
-            limit,
-            allowIpc = allowIpc,
-            allowDisk = allowDisk,
-          )
+        val indexResults = performInMemorySearch(query, excludedAliases, limit)
         results.addAll(indexResults)
 
         // 4. Suggestions (only when search shortcuts / suggestions are enabled)
@@ -1587,7 +1497,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           val searchTerm = query.substringAfter(" ")
           if (searchTerm.isNotEmpty()) {
             try {
-              val suggestions = fetchSuggestions(matchedShortcut.suggestionUrl!!, searchTerm)
+              val suggestions = fetchSuggestions(matchedShortcut.suggestionUrl, searchTerm)
               suggestions.forEach { suggestion ->
                 val icon =
                   iconGenerator.getColoredSearchIcon(matchedShortcut.color, matchedShortcut.alias)
@@ -1596,6 +1506,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                     matchedShortcut.urlTemplate,
                     java.net.URLEncoder.encode(suggestion, "UTF-8"),
                   )
+
                 results.add(
                   SearchResult.Content(
                     id = "suggestion_${matchedShortcut.alias}_$suggestion",
@@ -1617,13 +1528,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         results.sortByDescending { it.rankingScore }
 
-        // Cache single-letter queries
-        if (query.matches(SINGLE_LETTER_PATTERN)) {
-          val timeSinceLastUsage = System.currentTimeMillis() - lastUsageReportTime
-          if (timeSinceLastUsage > CACHE_COOLDOWN_MS) {
-            searchCache[query.lowercase()] = results
-          }
-        }
+        // searchCache write removed
 
         val duration = System.currentTimeMillis() - startTime
         android.util.Log.d(
@@ -1677,6 +1582,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         if (appWidgetManager == null) return emptyList<SearchResult>() to shortcut
 
         val installedProviders = appWidgetManager.installedProviders
+
+        // searchCache check removed
 
         val matchingWidgets =
           if (searchTerm.isBlank()) {
@@ -1786,8 +1693,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     query: String,
     excludedAliases: Set<String>,
     limit: Int,
-    allowIpc: Boolean = true,
-    allowDisk: Boolean = true,
   ): List<SearchResult> {
     val startTime = System.currentTimeMillis()
     val candidates = mutableListOf<Pair<SearchableDocument, Int>>()
