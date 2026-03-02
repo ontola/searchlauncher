@@ -65,7 +65,7 @@ data class SearchableDocument(
 )
 
 class SearchRepository(private val context: Context) : BaseRepository() {
-  private val documentCache = Collections.synchronizedList(mutableListOf<SearchableDocument>())
+  internal val documentCache = Collections.synchronizedList(mutableListOf<SearchableDocument>())
   private var appSearchSession: AppSearchSession? = null
 
   private val defaultContactIcon: Drawable by lazy {
@@ -83,7 +83,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     return mask
   }
 
-  private fun wrap(doc: AppSearchDocument): SearchableDocument {
+  internal fun wrap(doc: AppSearchDocument): SearchableDocument {
     val nameLower = doc.name.lowercase()
     val words = nameLower.split(' ').filter { it.isNotEmpty() }
     val acronym = words.mapNotNull { it.firstOrNull() }.joinToString("")
@@ -248,19 +248,39 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         _indexUpdated.emit(Unit)
 
         val loadStart = System.currentTimeMillis()
-        loadFromIndex()
-        android.util.Log.d(
-          "SearchRepository",
-          "loadFromIndex took ${System.currentTimeMillis() - loadStart}ms",
-        )
+        val fastCacheLoaded = loadFastIndexCache()
 
-        _isInitialized.value = true
-        _isIndexing.value = false
+        if (fastCacheLoaded) {
+          android.util.Log.d(
+            "SearchRepository",
+            "loadFastIndexCache took ${System.currentTimeMillis() - loadStart}ms",
+          )
+          // Unblock UI immediately
+          _isInitialized.value = true
+          _isIndexing.value = false
 
-        android.util.Log.d(
-          "SearchRepository",
-          "Early Initialization (ready for UI) took ${System.currentTimeMillis() - startTime}ms",
-        )
+          android.util.Log.d(
+            "SearchRepository",
+            "Early Initialization (ready for UI) took ${System.currentTimeMillis() - startTime}ms",
+          )
+
+          // Still load genuine AppSearch index async to ensure correctness
+          scope.launch { loadFromIndex() }
+        } else {
+          loadFromIndex()
+          android.util.Log.d(
+            "SearchRepository",
+            "loadFromIndex took ${System.currentTimeMillis() - loadStart}ms",
+          )
+
+          _isInitialized.value = true
+          _isIndexing.value = false
+
+          android.util.Log.d(
+            "SearchRepository",
+            "Early Initialization (ready for UI) took ${System.currentTimeMillis() - startTime}ms",
+          )
+        }
 
         // Eagerly sync favorites and history metadata whenever IDs or the index changes
         scope.launch {
@@ -348,6 +368,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               "SearchRepository",
               "Background Re-indexing took ${System.currentTimeMillis() - backgroundStart}ms",
             )
+            saveFastIndexCache()
             prefs.edit().putLong("last_reindex_timestamp", System.currentTimeMillis()).apply()
             _indexUpdated.emit(Unit)
           } finally {
@@ -383,11 +404,78 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           documentCache.addAll(allDocs.map { wrap(it) })
         }
         updateAppsCache()
+        saveFastIndexCache()
         _indexUpdated.emit(Unit)
         android.util.Log.d("SearchRepository", "Loaded ${allDocs.size} documents from index")
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Failed to load from index", e)
         Sentry.captureException(e)
+      }
+    }
+
+  internal suspend fun loadFastIndexCache(): Boolean =
+    withContext(Dispatchers.IO) {
+      try {
+        val file = File(context.cacheDir, "fast_index_cache.json")
+        if (!file.exists()) return@withContext false
+
+        val jsonString = file.readText()
+        val jsonArray = JSONArray(jsonString)
+        val allDocs = mutableListOf<AppSearchDocument>()
+
+        for (i in 0 until jsonArray.length()) {
+          val obj = jsonArray.getJSONObject(i)
+          allDocs.add(
+            AppSearchDocument(
+              namespace = obj.optString("namespace", "apps"),
+              id = obj.getString("id"),
+              score = obj.optInt("score", 0),
+              name = obj.getString("name"),
+              intentUri = if (obj.has("intentUri")) obj.getString("intentUri") else null,
+              description = if (obj.has("description")) obj.getString("description") else null,
+              isAction = obj.optBoolean("isAction", false),
+              iconResId = obj.optLong("iconResId", 0L),
+            )
+          )
+        }
+
+        synchronized(documentCache) {
+          documentCache.clear()
+          documentCache.addAll(allDocs.map { wrap(it) })
+        }
+        updateAppsCache()
+        true
+      } catch (e: Exception) {
+        android.util.Log.e("SearchRepository", "Failed to load fast index cache", e)
+        false
+      }
+    }
+
+  internal suspend fun saveFastIndexCache() =
+    withContext(Dispatchers.IO) {
+      try {
+        val allDocs = synchronized(documentCache) { documentCache.map { it.doc } }
+        val jsonArray = JSONArray()
+
+        for (doc in allDocs) {
+          val obj = JSONObject()
+          obj.put("namespace", doc.namespace)
+          obj.put("id", doc.id)
+          obj.put("score", doc.score)
+          obj.put("name", doc.name)
+          if (doc.intentUri != null) obj.put("intentUri", doc.intentUri)
+          if (doc.description != null) obj.put("description", doc.description)
+          obj.put("isAction", doc.isAction)
+          obj.put("iconResId", doc.iconResId)
+          jsonArray.put(obj)
+        }
+
+        val tempFile = File(context.cacheDir, "fast_index_cache.tmp")
+        val file = File(context.cacheDir, "fast_index_cache.json")
+        tempFile.writeText(jsonArray.toString())
+        tempFile.renameTo(file)
+      } catch (e: Exception) {
+        android.util.Log.e("SearchRepository", "Failed to save fast index cache", e)
       }
     }
 
@@ -1263,6 +1351,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           documentCache.removeAll { it.doc.id == doc.id }
           documentCache.add(wrap(doc))
         }
+        saveFastIndexCache()
         _indexUpdated.emit(Unit)
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Exception in indexWebUrl for $trimmedUrl", e)
@@ -1280,6 +1369,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         synchronized(documentCache) {
           documentCache.removeAll { it.doc.namespace == namespace && it.doc.id == id }
         }
+        saveFastIndexCache()
         _indexUpdated.emit(Unit)
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error removing from index", e)
@@ -1376,6 +1466,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             "Removed $removed items from documentCache for ID: $id",
           )
         }
+        saveFastIndexCache()
         _indexUpdated.emit(Unit)
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Failed to remove bookmark: $id", e)
@@ -1731,6 +1822,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           var namespaceBoost =
             when (sdoc.namespaceInt) {
               1 -> 150 // apps (increased)
+              8 -> 100 // snippets
               2 -> 130 // app_shortcuts (increased)
               3 -> 80 // web_bookmarks
               4 -> 70 // shortcuts
@@ -2150,6 +2242,19 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           photoUri = photoUri,
         )
       }
+      "snippets" -> {
+        val icon = context.getDrawable(android.R.drawable.ic_menu_save)
+        SearchResult.Snippet(
+          id = doc.id,
+          namespace = "snippets",
+          title = doc.name,
+          subtitle = doc.description ?: "Snippet",
+          icon = icon,
+          alias = doc.id,
+          content = doc.description ?: "",
+          rankingScore = rankingScore,
+        )
+      }
       else -> { // apps
         val packageName = doc.id
         // App icons pre-cached during indexing/refresh
@@ -2176,7 +2281,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                 null
               }
             } else null)
-
         SearchResult.App(
           id = doc.id,
           namespace = "apps",

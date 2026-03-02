@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
@@ -201,7 +202,7 @@ fun WallpaperBackground(
     val widgets by app.widgetRepository.widgets.collectAsState(initial = emptyList())
 
     var activeWidgetId by remember { mutableIntStateOf(-1) }
-    var showResizeDialog by remember { mutableStateOf(false) }
+
     var resizeHeight by remember { mutableStateOf(400f) }
 
     val scope = rememberCoroutineScope()
@@ -306,13 +307,16 @@ fun WallpaperBackground(
                 }
 
                 val isResizing = activeWidgetId == widget.id
+                val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+                val maxWidgetHeight = configuration.screenHeightDp.dp - bottomPadding - 120.dp
+
                 val heightModifier =
                   if (isResizing) {
-                    Modifier.height(resizeHeight.dp)
+                    Modifier.height(resizeHeight.dp.coerceAtMost(maxWidgetHeight))
                   } else if (widget.height != null) {
-                    Modifier.height(widget.height.dp)
+                    Modifier.height(widget.height.dp.coerceAtMost(maxWidgetHeight))
                   } else {
-                    Modifier.wrapContentHeight()
+                    Modifier.heightIn(max = maxWidgetHeight).wrapContentHeight()
                   }
 
                 // If active, lift up. If not active but something else is, fade out.
@@ -400,7 +404,7 @@ fun WallpaperBackground(
                             ) { change, dragAmount ->
                               change.consume()
                               val newHeight = resizeHeight + (dragAmount.y / density.density)
-                              resizeHeight = newHeight.coerceIn(50f, 1000f)
+                              resizeHeight = newHeight.coerceIn(50f, maxWidgetHeight.value)
                             }
                           },
                       contentAlignment = Alignment.Center,
