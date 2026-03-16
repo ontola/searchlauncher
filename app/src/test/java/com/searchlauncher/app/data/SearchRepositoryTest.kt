@@ -60,11 +60,8 @@ class SearchRepositoryTest {
       )
 
     // Inject them into the repository's active cache using the internal wrap method
-    synchronized(repository.documentCache) {
-      repository.documentCache.clear()
-      repository.documentCache.add(repository.wrap(doc1))
-      repository.documentCache.add(repository.wrap(doc2))
-    }
+    repository.documentSnapshot =
+      listOf(repository.wrap(doc1), repository.wrap(doc2)).sortedBy { it.namespaceInt }
 
     // Save to fast cache
     repository.saveFastIndexCache()
@@ -73,8 +70,8 @@ class SearchRepositoryTest {
     assertTrue("Cache file should exist after saving", cacheFile.exists())
 
     // Clear active cache to simulate a fresh app start
-    synchronized(repository.documentCache) { repository.documentCache.clear() }
-    assertTrue("Cache should be empty before loading", repository.documentCache.isEmpty())
+    repository.documentSnapshot = emptyList()
+    assertTrue("Cache should be empty before loading", repository.documentSnapshot.isEmpty())
 
     // Load from fast cache
     val loadResult = repository.loadFastIndexCache()
@@ -82,7 +79,7 @@ class SearchRepositoryTest {
     // Verify load succeeded and populated documentCache
     assertTrue("loadFastIndexCache should return true", loadResult)
 
-    val loadedDocs = synchronized(repository.documentCache) { repository.documentCache.toList() }
+    val loadedDocs = repository.documentSnapshot.toList()
     assertEquals(2, loadedDocs.size)
 
     // Verify doc1 properties
@@ -115,6 +112,6 @@ class SearchRepositoryTest {
 
     val loadResult = repository.loadFastIndexCache()
     assertFalse("loadFastIndexCache should return false if file does not exist", loadResult)
-    assertTrue("documentCache should be empty", repository.documentCache.isEmpty())
+    assertTrue("documentSnapshot should be empty", repository.documentSnapshot.isEmpty())
   }
 }

@@ -29,7 +29,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.Collections
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -65,7 +64,7 @@ data class SearchableDocument(
 )
 
 class SearchRepository(private val context: Context) : BaseRepository() {
-  internal val documentCache = Collections.synchronizedList(mutableListOf<SearchableDocument>())
+  @Volatile internal var documentSnapshot: List<SearchableDocument> = emptyList()
   private var appSearchSession: AppSearchSession? = null
 
   private val defaultContactIcon: Drawable by lazy {
@@ -143,11 +142,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   private fun replaceCollection(namespace: String, documents: List<AppSearchDocument>) {
     val wrapped = documents.map { wrap(it) }
-    synchronized(documentCache) {
-      documentCache.removeAll { it.doc.namespace == namespace }
-      documentCache.addAll(wrapped)
-      // Sort cache by namespace priority to ensure fast scanning of important namespaces
-      documentCache.sortBy { it.namespaceInt }
+    synchronized(this) {
+      val filtered = documentSnapshot.filter { it.doc.namespace != namespace }
+      documentSnapshot = (filtered + wrapped).sortedBy { it.namespaceInt }
     }
   }
 
@@ -314,7 +311,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           val currentTime = System.currentTimeMillis()
           // Re-index only if empty or older than 4 hours
           val isStale = (currentTime - lastReindex) > (12 * 60 * 60 * 1000)
-          val hasDocs = synchronized(documentCache) { documentCache.isNotEmpty() }
+          val hasDocs = documentSnapshot.isNotEmpty()
 
           if (hasDocs && !isStale) {
             android.util.Log.d(
@@ -399,10 +396,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           page = searchResults.nextPageAsync.await()
         }
 
-        synchronized(documentCache) {
-          documentCache.clear()
-          documentCache.addAll(allDocs.map { wrap(it) })
-        }
+        documentSnapshot = allDocs.map { wrap(it) }.sortedBy { it.namespaceInt }
         updateAppsCache()
         saveFastIndexCache()
         _indexUpdated.emit(Unit)
@@ -439,10 +433,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           )
         }
 
-        synchronized(documentCache) {
-          documentCache.clear()
-          documentCache.addAll(allDocs.map { wrap(it) })
-        }
+        documentSnapshot = allDocs.map { wrap(it) }.sortedBy { it.namespaceInt }
         updateAppsCache()
         true
       } catch (e: Exception) {
@@ -454,7 +445,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   internal suspend fun saveFastIndexCache() =
     withContext(Dispatchers.IO) {
       try {
-        val allDocs = synchronized(documentCache) { documentCache.map { it.doc } }
+        val allDocs = documentSnapshot.map { it.doc }
         val jsonArray = JSONArray()
 
         for (doc in allDocs) {
@@ -533,6 +524,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               // Ignore individual app failures
             }
           }
+        } catch (e: android.os.DeadObjectException) {
+          android.util.Log.w("SearchRepository", "System unavailable querying apps for profile $profile, skipping")
         } catch (e: Exception) {
           android.util.Log.e("SearchRepository", "Error querying apps for profile $profile", e)
           Sentry.captureException(e)
@@ -591,7 +584,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
 
       try {
-        indexShortcuts()
+        indexShortcuts(apps.map { it.id }.distinct())
         indexStaticShortcuts() // Static shortcuts also change when apps are removed/added
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error updating shortcuts after indexApps", e)
@@ -601,160 +594,167 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       _indexUpdated.emit(Unit)
     }
 
-  suspend fun indexShortcuts() =
+  // packageNames: if null, full re-index using all known apps; if provided, partial update for
+  // just those packages (used by onShortcutsChanged to avoid re-querying every installed app).
+  suspend fun indexShortcuts(packageNames: List<String>? = null) =
     withContext(Dispatchers.IO) {
       val session = appSearchSession ?: return@withContext
       val launcherApps =
         context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+      val profiles = launcherApps.profiles
 
-      val shortcuts = mutableListOf<AppSearchDocument>()
+      val isFullReindex = packageNames == null
+      val packages =
+        packageNames
+          ?: documentSnapshot.filter { it.namespaceInt == 1 }.map { it.doc.id }.distinct()
 
-      // Clear old shortcuts entries to prevent zombies
-      try {
-        val removeSpec = SearchSpec.Builder().addFilterNamespaces("shortcuts").build()
-        session.removeAsync("", removeSpec).await()
-        android.util.Log.d("SearchRepository", "Cleared 'shortcuts' namespace for re-indexing")
-      } catch (e: Exception) {
-        android.util.Log.e("SearchRepository", "Failed to clear 'shortcuts' namespace", e)
-        Sentry.captureException(e)
-      }
-
-      try {
-        // 1. Get all profiles (to support work profiles)
-        val profiles = launcherApps.profiles
-
-        val appNameCache = mutableMapOf<String, String>()
-
-        for (profile in profiles) {
-          try {
-            // we use getActivityList(null, profile) to discover packages that have launcher
-            // activities, which is consistent with indexApps.
-            val packagesWithActivities =
-              launcherApps
-                .getActivityList(null, profile)
-                .map { it.componentName.packageName }
-                .distinct()
-
-            for (packageName in packagesWithActivities) {
-              try {
-                val query = android.content.pm.LauncherApps.ShortcutQuery()
-                query.setQueryFlags(
-                  android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
-                    android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
-                    android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED
-                )
-                query.setPackage(packageName)
-
-                val shortcutList =
-                  try {
-                    launcherApps.getShortcuts(query, profile) ?: emptyList()
-                  } catch (e: Exception) {
-                    emptyList()
-                  }
-
-                for (shortcut in shortcutList) {
-                  try {
-                    val intent =
-                      try {
-                        "shortcut://${shortcut.`package`}/${shortcut.id}"
-                      } catch (e: Exception) {
-                        continue
-                      }
-
-                    val name =
-                      shortcut.shortLabel?.toString() ?: shortcut.longLabel?.toString() ?: ""
-                    val appName =
-                      appNameCache.getOrPut(shortcut.`package`) {
-                        try {
-                          val appInfo =
-                            context.packageManager.getApplicationInfo(shortcut.`package`, 0)
-                          context.packageManager.getApplicationLabel(appInfo).toString()
-                        } catch (e: Exception) {
-                          shortcut.`package`
-                        }
-                      }
-
-                    // Pre-load and cache shortcut icon
-                    val shortcutId = "${shortcut.`package`}/${shortcut.id}"
-                    try {
-                      val icon =
-                        launcherApps.getShortcutIconDrawable(
-                          shortcut,
-                          context.resources.displayMetrics.densityDpi,
-                        )
-                      if (icon != null) {
-                        iconCache.put("shortcut_$shortcutId", icon)
-                        saveIconToDisk("shortcut_$shortcutId", icon, force = true)
-                      }
-                    } catch (e: Exception) {
-                      // Ignore icon loading failures
-                      Sentry.captureException(e)
-                    }
-
-                    // Pre-load and cache app icon
-                    val pkg = shortcut.`package`
-                    if (!iconCache.get("appicon_$pkg").let { it != null }) {
-                      try {
-                        val appIcon = context.packageManager.getApplicationIcon(pkg)
-                        iconCache.put("appicon_$pkg", appIcon)
-                        saveIconToDisk("appicon_$pkg", appIcon, force = true)
-                      } catch (e: Exception) {
-                        // Ignore app icon loading failures
-                        Sentry.captureException(e)
-                      }
-                    }
-
-                    shortcuts.add(
-                      AppSearchDocument(
-                        namespace = "shortcuts",
-                        id = shortcutId,
-                        name = name,
-                        score = 1,
-                        intentUri = intent,
-                        description = "Shortcut - $appName",
-                      )
-                    )
-                  } catch (e: Exception) {
-                    // Ignore individual shortcut failures
-                    Sentry.captureException(e)
-                  }
-                }
-              } catch (e: Exception) {
-                // Ignore failures for specific packages to keep indexing others
-                android.util.Log.w(
-                  "SearchRepository",
-                  "Failed to query shortcuts for package $packageName",
-                  e,
-                )
-              }
+      if (isFullReindex) {
+        try {
+          val removeSpec = SearchSpec.Builder().addFilterNamespaces("shortcuts").build()
+          session.removeAsync("", removeSpec).await()
+        } catch (e: Exception) {
+          android.util.Log.e("SearchRepository", "Failed to clear shortcuts namespace", e)
+          Sentry.captureException(e)
+        }
+      } else {
+        // Remove only the existing shortcut entries for these packages
+        val staleIds =
+          documentSnapshot
+            .filter { sdoc ->
+              sdoc.doc.namespace == "shortcuts" && packages.any { sdoc.doc.id.startsWith("$it/") }
             }
+            .map { it.doc.id }
+        if (staleIds.isNotEmpty()) {
+          try {
+            val removeRequest =
+              RemoveByDocumentIdRequest.Builder("shortcuts").addIds(staleIds).build()
+            session.removeAsync(removeRequest).await()
           } catch (e: Exception) {
             android.util.Log.e(
               "SearchRepository",
-              "Error querying shortcuts for profile $profile",
+              "Failed to remove stale shortcuts for packages",
               e,
             )
+          }
+        }
+      }
+
+      val newShortcuts = mutableListOf<AppSearchDocument>()
+      val appNameCache = mutableMapOf<String, String>()
+
+      for (profile in profiles) {
+        for (packageName in packages) {
+          try {
+            val query = android.content.pm.LauncherApps.ShortcutQuery()
+            query.setQueryFlags(
+              android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
+                android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
+                android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED
+            )
+            query.setPackage(packageName)
+
+            val shortcutList =
+              try {
+                launcherApps.getShortcuts(query, profile) ?: emptyList()
+              } catch (e: android.os.DeadObjectException) {
+                android.util.Log.w(
+                  "SearchRepository",
+                  "System unavailable querying shortcuts for $packageName, skipping",
+                )
+                return@withContext
+              } catch (e: Exception) {
+                emptyList()
+              }
+
+            for (shortcut in shortcutList) {
+              try {
+                val shortcutId = "${shortcut.`package`}/${shortcut.id}"
+                val name = shortcut.shortLabel?.toString() ?: shortcut.longLabel?.toString() ?: ""
+                val appName =
+                  appNameCache.getOrPut(shortcut.`package`) {
+                    try {
+                      val appInfo =
+                        context.packageManager.getApplicationInfo(shortcut.`package`, 0)
+                      context.packageManager.getApplicationLabel(appInfo).toString()
+                    } catch (e: Exception) {
+                      shortcut.`package`
+                    }
+                  }
+
+                try {
+                  val icon =
+                    launcherApps.getShortcutIconDrawable(
+                      shortcut,
+                      context.resources.displayMetrics.densityDpi,
+                    )
+                  if (icon != null) {
+                    iconCache.put("shortcut_$shortcutId", icon)
+                    saveIconToDisk("shortcut_$shortcutId", icon, force = true)
+                  }
+                } catch (e: Exception) {
+                  // Ignore icon loading failures
+                }
+
+                val pkg = shortcut.`package`
+                if (iconCache.get("appicon_$pkg") == null) {
+                  try {
+                    val appIcon = context.packageManager.getApplicationIcon(pkg)
+                    iconCache.put("appicon_$pkg", appIcon)
+                    saveIconToDisk("appicon_$pkg", appIcon, force = true)
+                  } catch (e: Exception) {
+                    // Ignore icon loading failures
+                  }
+                }
+
+                newShortcuts.add(
+                  AppSearchDocument(
+                    namespace = "shortcuts",
+                    id = shortcutId,
+                    name = name,
+                    score = 1,
+                    intentUri = "shortcut://${shortcut.`package`}/${shortcut.id}",
+                    description = "Shortcut - $appName",
+                  )
+                )
+              } catch (e: Exception) {
+                // Ignore individual shortcut failures
+              }
+            }
+          } catch (e: Exception) {
+            android.util.Log.w(
+              "SearchRepository",
+              "Failed to query shortcuts for package $packageName",
+              e,
+            )
+          }
+        }
+      }
+
+      if (newShortcuts.isNotEmpty()) {
+        newShortcuts.chunked(50).forEach { chunk ->
+          try {
+            session.putAsync(PutDocumentsRequest.Builder().addDocuments(chunk).build()).await()
+          } catch (e: Exception) {
+            android.util.Log.e("SearchRepository", "Failed to put batch of indexed shortcuts", e)
             Sentry.captureException(e)
           }
         }
-
-        if (shortcuts.isNotEmpty()) {
-          // Batch AppSearch puts for shortcuts as well
-          shortcuts.chunked(50).forEach { chunk ->
-            val putRequest = PutDocumentsRequest.Builder().addDocuments(chunk).build()
-            try {
-              session.putAsync(putRequest).await()
-            } catch (e: Exception) {
-              android.util.Log.e("SearchRepository", "Failed to put batch of indexed shortcuts", e)
-              Sentry.captureException(e)
-            }
-          }
-        }
-        replaceCollection("shortcuts", shortcuts)
-      } catch (e: Exception) {
-        e.printStackTrace()
-        Sentry.captureException(e)
       }
+
+      if (isFullReindex) {
+        replaceCollection("shortcuts", newShortcuts)
+      } else {
+        synchronized(this@SearchRepository) {
+          val filtered =
+            documentSnapshot.filter { sdoc ->
+              sdoc.doc.namespace != "shortcuts" ||
+                packages.none { sdoc.doc.id.startsWith("$it/") }
+            }
+          documentSnapshot =
+            (filtered + newShortcuts.map { wrap(it) }).sortedBy { it.namespaceInt }
+        }
+      }
+
       _indexUpdated.emit(Unit)
     }
 
@@ -808,11 +808,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         val putRequest = PutDocumentsRequest.Builder().addDocuments(allDocs).build()
         session.putAsync(putRequest).await()
         // Special case for custom shortcuts: they have two namespaces
-        synchronized(documentCache) {
-          documentCache.removeAll {
-            it.doc.namespace == "search_shortcuts" || it.doc.namespace == "app_shortcuts"
-          }
-          documentCache.addAll(allDocs.map { wrap(it) })
+        synchronized(this@SearchRepository) {
+          val filtered =
+            documentSnapshot.filter {
+              it.doc.namespace != "search_shortcuts" && it.doc.namespace != "app_shortcuts"
+            }
+          documentSnapshot = (filtered + allDocs.map { wrap(it) }).sortedBy { it.namespaceInt }
         }
       }
     }
@@ -1012,8 +1013,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         _favorites.value = emptyList() // Explicitly clear favorites
 
         // Clear document cache (except bookmarks if possible, or just reload)
-        synchronized(documentCache) {
-          documentCache.removeAll { it.doc.namespace != "web_bookmarks" }
+        synchronized(this) {
+          documentSnapshot = documentSnapshot.filter { it.doc.namespace == "web_bookmarks" }
         }
 
         // Selective wipe: everything EXCEPT web_bookmarks
@@ -1081,7 +1082,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         getHistoryCacheFile().delete()
         _favorites.value = emptyList()
         _recentItems.value = emptyList()
-        synchronized(documentCache) { documentCache.clear() }
+        documentSnapshot = emptyList()
 
         // Full AppSearch wipe
         val setSchemaRequest = SetSchemaRequest.Builder().setForceOverride(true).build()
@@ -1120,10 +1121,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       val targetIds = ids.take(limit)
 
       // 1. Try Memory Cache
-      val cachedDocs =
-        synchronized(documentCache) {
-          targetIds.mapNotNull { id -> documentCache.find { it.doc.id == id }?.doc }
-        }
+      val snapshot = documentSnapshot
+      val cachedDocs = targetIds.mapNotNull { id -> snapshot.find { it.doc.id == id }?.doc }
 
       // 2. Fetch missing from DB
       val finalDocs =
@@ -1192,11 +1191,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   suspend fun getSearchShortcuts(limit: Int = 100): List<SearchResult> =
     withContext(Dispatchers.IO) {
       try {
-        // Get all search shortcuts from synchronized documentCache
-        val shortcuts =
-          synchronized(documentCache) {
-            documentCache.filter { it.doc.namespace == "search_shortcuts" }.map { it.doc }
-          }
+        val shortcuts = documentSnapshot.filter { it.doc.namespace == "search_shortcuts" }.map { it.doc }
 
         // Sort by manual usage persistence (usageStats) which is the source of truth for sorting
         // among shortcuts
@@ -1347,9 +1342,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           android.util.Log.e("SearchRepository", "Failed to index $trimmedUrl: ${result.failures}")
         }
 
-        synchronized(documentCache) {
-          documentCache.removeAll { it.doc.id == doc.id }
-          documentCache.add(wrap(doc))
+        synchronized(this) {
+          val filtered = documentSnapshot.filter { it.doc.id != doc.id }
+          documentSnapshot = (filtered + wrap(doc)).sortedBy { it.namespaceInt }
         }
         saveFastIndexCache()
         _indexUpdated.emit(Unit)
@@ -1366,8 +1361,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         val request =
           androidx.appsearch.app.RemoveByDocumentIdRequest.Builder(namespace).addIds(id).build()
         session.removeAsync(request).await()
-        synchronized(documentCache) {
-          documentCache.removeAll { it.doc.namespace == namespace && it.doc.id == id }
+        synchronized(this) {
+          documentSnapshot =
+            documentSnapshot.filter { !(it.doc.namespace == namespace && it.doc.id == id) }
         }
         saveFastIndexCache()
         _indexUpdated.emit(Unit)
@@ -1433,7 +1429,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         shortcuts: List<android.content.pm.ShortcutInfo>,
         user: android.os.UserHandle,
       ) {
-        scope.launch { indexShortcuts() }
+        scope.launch { indexShortcuts(listOf(packageName)) }
       }
     }
 
@@ -1458,13 +1454,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           )
         }
 
-        synchronized(documentCache) {
-          val removed =
-            documentCache.removeAll { it.doc.id == id && it.doc.namespace == "web_bookmarks" }
-          android.util.Log.d(
-            "SearchRepository",
-            "Removed $removed items from documentCache for ID: $id",
-          )
+        synchronized(this) {
+          documentSnapshot =
+            documentSnapshot.filter { !(it.doc.id == id && it.doc.namespace == "web_bookmarks") }
         }
         saveFastIndexCache()
         _indexUpdated.emit(Unit)
@@ -1521,12 +1513,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       withContext(Dispatchers.IO) {
         coroutineScope {
           val sdocs =
-            synchronized(documentCache) {
-              documentCache
-                .filter { it.namespaceInt == 1 } // apps
-                .sortedBy { it.nameLower }
-                .toList()
-            }
+            documentSnapshot
+              .filter { it.namespaceInt == 1 } // apps
+              .sortedBy { it.nameLower }
           val results =
             sdocs
               .map { sdoc -> async { convertDocumentToResult(sdoc, 0, allowDisk = true) } }
@@ -1794,57 +1783,56 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     val queryMask = calculateCharMask(queryLower)
     val normalizedQuery = com.searchlauncher.app.util.ContactUtils.normalizePhoneNumber(queryLower)
 
-    synchronized(documentCache) {
-      val syncStart = System.currentTimeMillis()
-      for (sdoc in documentCache) {
-        val score =
-          FuzzyMatch.calculateScore(
-            queryLower,
-            sdoc.nameLower,
-            sdoc.targetWords,
-            sdoc.acronym,
-            queryMask,
-            sdoc.charMask,
-          )
+    val snapshot = documentSnapshot
+    val syncStart = System.currentTimeMillis()
+    for (sdoc in snapshot) {
+      val score =
+        FuzzyMatch.calculateScore(
+          queryLower,
+          sdoc.nameLower,
+          sdoc.targetWords,
+          sdoc.acronym,
+          queryMask,
+          sdoc.charMask,
+        )
 
-        // Also check normalized phone number for contacts (use pre-computed normalizedPhone)
-        var contactScore = 0
-        if (sdoc.namespaceInt == 5 && normalizedQuery != null && normalizedQuery.length >= 3) {
-          if (sdoc.normalizedPhone?.contains(normalizedQuery) == true) {
-            contactScore = 85
-          }
+      // Also check normalized phone number for contacts (use pre-computed normalizedPhone)
+      var contactScore = 0
+      if (sdoc.namespaceInt == 5 && normalizedQuery != null && normalizedQuery.length >= 3) {
+        if (sdoc.normalizedPhone?.contains(normalizedQuery) == true) {
+          contactScore = 85
         }
-
-        val finalScore = maxOf(score, contactScore)
-        if (finalScore > 30) {
-          val doc = sdoc.doc
-          val manualUsage = usageStats[doc.id] ?: 0
-          var namespaceBoost =
-            when (sdoc.namespaceInt) {
-              1 -> 150 // apps (increased)
-              8 -> 100 // snippets
-              2 -> 130 // app_shortcuts (increased)
-              3 -> 80 // web_bookmarks
-              4 -> 70 // shortcuts
-              5 -> 40 // contacts (decreased)
-              else -> 0
-            }
-
-          // Aggressive boost for apps on short queries (1-2 chars)
-          if (queryLower.length <= 2 && sdoc.namespaceInt <= 2) {
-            namespaceBoost += 200
-          }
-
-          candidates.add(sdoc to (finalScore + namespaceBoost + (manualUsage * 10)))
-        }
-
-        if (candidates.size > 1000) break
       }
-      android.util.Log.v(
-        "SearchRepository",
-        "  [Timing] synchronized scan of ${documentCache.size} docs took ${System.currentTimeMillis() - syncStart}ms",
-      )
+
+      val finalScore = maxOf(score, contactScore)
+      if (finalScore > 30) {
+        val doc = sdoc.doc
+        val manualUsage = usageStats[doc.id] ?: 0
+        var namespaceBoost =
+          when (sdoc.namespaceInt) {
+            1 -> 150 // apps (increased)
+            8 -> 100 // snippets
+            2 -> 130 // app_shortcuts (increased)
+            3 -> 80 // web_bookmarks
+            4 -> 70 // shortcuts
+            5 -> 40 // contacts (decreased)
+            else -> 0
+          }
+
+        // Aggressive boost for apps on short queries (1-2 chars)
+        if (queryLower.length <= 2 && sdoc.namespaceInt <= 2) {
+          namespaceBoost += 200
+        }
+
+        candidates.add(sdoc to (finalScore + namespaceBoost + (manualUsage * 10)))
+      }
+
+      if (candidates.size > 1000) break
     }
+    android.util.Log.v(
+      "SearchRepository",
+      "  [Timing] scan of ${snapshot.size} docs took ${System.currentTimeMillis() - syncStart}ms",
+    )
 
     val sortStart = System.currentTimeMillis()
     candidates.sortByDescending { it.second }
@@ -1897,17 +1885,15 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private fun getFuzzyMatches(query: String): List<Pair<AppSearchDocument, Int>> {
     val results = mutableListOf<Pair<AppSearchDocument, Int>>()
     val queryLower = query.lowercase().trim()
-    synchronized(documentCache) {
-      for (sdoc in documentCache) {
-        val doc = sdoc.doc
-        val score =
-          FuzzyMatch.calculateScore(queryLower, sdoc.nameLower, sdoc.targetWords, sdoc.acronym)
-        if (score > 40) {
-          results.add(doc to score)
-        }
-        // Safety break if cache is somehow malformed/infinite
-        if (results.size > 500) break
+    for (sdoc in documentSnapshot) {
+      val doc = sdoc.doc
+      val score =
+        FuzzyMatch.calculateScore(queryLower, sdoc.nameLower, sdoc.targetWords, sdoc.acronym)
+      if (score > 40) {
+        results.add(doc to score)
       }
+      // Safety break if cache is somehow malformed/infinite
+      if (results.size > 500) break
     }
     return results.sortedByDescending { it.second }.take(50)
   }
@@ -2600,9 +2586,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   suspend fun loadIcon(result: SearchResult): Drawable? =
     withContext(Dispatchers.IO) {
       val sdoc =
-        synchronized(documentCache) {
-          documentCache.find { it.doc.id == result.id && it.doc.namespace == result.namespace }
-        }
+        documentSnapshot.find { it.doc.id == result.id && it.doc.namespace == result.namespace }
       if (sdoc == null) return@withContext null
 
       val res =
