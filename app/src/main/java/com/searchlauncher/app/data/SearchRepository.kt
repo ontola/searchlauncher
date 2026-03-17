@@ -525,7 +525,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             }
           }
         } catch (e: android.os.DeadObjectException) {
-          android.util.Log.w("SearchRepository", "System unavailable querying apps for profile $profile, skipping")
+          android.util.Log.w(
+            "SearchRepository",
+            "System unavailable querying apps for profile $profile, skipping",
+          )
         } catch (e: Exception) {
           android.util.Log.e("SearchRepository", "Error querying apps for profile $profile", e)
           Sentry.captureException(e)
@@ -673,8 +676,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                 val appName =
                   appNameCache.getOrPut(shortcut.`package`) {
                     try {
-                      val appInfo =
-                        context.packageManager.getApplicationInfo(shortcut.`package`, 0)
+                      val appInfo = context.packageManager.getApplicationInfo(shortcut.`package`, 0)
                       context.packageManager.getApplicationLabel(appInfo).toString()
                     } catch (e: Exception) {
                       shortcut.`package`
@@ -747,11 +749,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         synchronized(this@SearchRepository) {
           val filtered =
             documentSnapshot.filter { sdoc ->
-              sdoc.doc.namespace != "shortcuts" ||
-                packages.none { sdoc.doc.id.startsWith("$it/") }
+              sdoc.doc.namespace != "shortcuts" || packages.none { sdoc.doc.id.startsWith("$it/") }
             }
-          documentSnapshot =
-            (filtered + newShortcuts.map { wrap(it) }).sortedBy { it.namespaceInt }
+          documentSnapshot = (filtered + newShortcuts.map { wrap(it) }).sortedBy { it.namespaceInt }
         }
       }
 
@@ -1191,7 +1191,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   suspend fun getSearchShortcuts(limit: Int = 100): List<SearchResult> =
     withContext(Dispatchers.IO) {
       try {
-        val shortcuts = documentSnapshot.filter { it.doc.namespace == "search_shortcuts" }.map { it.doc }
+        val shortcuts =
+          documentSnapshot.filter { it.doc.namespace == "search_shortcuts" }.map { it.doc }
 
         // Sort by manual usage persistence (usageStats) which is the source of truth for sorting
         // among shortcuts
