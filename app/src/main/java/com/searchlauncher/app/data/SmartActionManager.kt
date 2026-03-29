@@ -137,8 +137,87 @@ class SmartActionManager(private val context: Context) {
       )
     }
 
+    // Timer Check - patterns like "1min", "4h", "20sec", "4m rice", "2 minutes pasta"
+    val timerResult = parseTimerQuery(trimmedQuery)
+    if (timerResult != null) {
+      val (seconds, label, name) = timerResult
+      val timerIcon = context.getDrawable(android.R.drawable.ic_menu_recent_history)
+      val title = if (name != null) "Set timer for $label ($name)" else "Set timer for $label"
+      val deepLink =
+        if (name != null) "timer://set?seconds=$seconds&name=${android.net.Uri.encode(name)}"
+        else "timer://set?seconds=$seconds"
+      results.add(
+        SearchResult.Content(
+          id = "smart_action_timer_$seconds",
+          namespace = "smart_actions",
+          title = title,
+          subtitle = "Timer",
+          icon = timerIcon,
+          packageName = "com.google.android.deskclock",
+          deepLink = deepLink,
+          rankingScore = 100,
+        )
+      )
+    }
+
     // Widget logic moved to Shortcuts.kt
 
     return results
+  }
+
+  // Returns Triple(seconds, durationLabel, optionalName)
+  private fun parseTimerQuery(query: String): Triple<Int, String, String?>? {
+    val pattern =
+      Regex(
+        """^(\d+)\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes|s|sec|secs|second|seconds)(?:\s+(.+))?$""",
+        RegexOption.IGNORE_CASE,
+      )
+    val match = pattern.matchEntire(query.trim()) ?: return null
+
+    val amount = match.groupValues[1].toIntOrNull() ?: return null
+    val unit = match.groupValues[2].lowercase()
+    val name = match.groupValues[3].trim().takeIf { it.isNotEmpty() }
+
+    val seconds =
+      when (unit) {
+        "h",
+        "hr",
+        "hrs",
+        "hour",
+        "hours" -> amount * 3600
+        "m",
+        "min",
+        "mins",
+        "minute",
+        "minutes" -> amount * 60
+        "s",
+        "sec",
+        "secs",
+        "second",
+        "seconds" -> amount
+        else -> return null
+      }
+
+    val label =
+      when (unit) {
+        "h",
+        "hr",
+        "hrs",
+        "hour",
+        "hours" -> if (amount == 1) "1 hour" else "$amount hours"
+        "m",
+        "min",
+        "mins",
+        "minute",
+        "minutes" -> if (amount == 1) "1 minute" else "$amount minutes"
+        "s",
+        "sec",
+        "secs",
+        "second",
+        "seconds" -> if (amount == 1) "1 second" else "$amount seconds"
+        else -> return null
+      }
+
+    return Triple(seconds, label, name)
   }
 }

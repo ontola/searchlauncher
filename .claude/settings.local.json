@@ -4,7 +4,11 @@
       "Bash(./gradlew :app:compileDebugKotlin 2>&1 | tail -50)",
       "Bash(./gradlew :app:testDebugUnitTest 2>&1 | tail -30)",
       "Bash(./gradlew installDebug 2>&1)",
-      "Bash(adb devices:*)"
+      "Bash(adb devices:*)",
+      "Bash(./gradlew :app:spotlessApply)",
+      "WebSearch",
+      "WebFetch(domain:android.googlesource.com)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

@@ -191,7 +191,9 @@ fun SearchScreen(
             OnboardingStep.AddFavorite
           else null
         } else {
-          if (!steps.contains(OnboardingStep.SwipeBackground) && folderImages.size > 1)
+          if (!steps.contains(OnboardingStep.SetDefaultLauncher) && !isDefaultLauncher)
+            OnboardingStep.SetDefaultLauncher
+          else if (!steps.contains(OnboardingStep.SwipeBackground) && folderImages.size > 1)
             OnboardingStep.SwipeBackground
           else if (!steps.contains(OnboardingStep.SwipeNotifications))
             OnboardingStep.SwipeNotifications
@@ -202,11 +204,10 @@ fun SearchScreen(
             OnboardingStep.LongPressBackground
           else if (!steps.contains(OnboardingStep.SearchYoutube)) OnboardingStep.SearchYoutube
           else if (!steps.contains(OnboardingStep.SearchGoogle)) OnboardingStep.SearchGoogle
+          else if (!steps.contains(OnboardingStep.SetTimer)) OnboardingStep.SetTimer
           else if (!steps.contains(OnboardingStep.ReorderFavorites) && favorites.size >= 2)
             OnboardingStep.ReorderFavorites
           else if (!steps.contains(OnboardingStep.OpenSettings)) OnboardingStep.OpenSettings
-          else if (!steps.contains(OnboardingStep.SetDefaultLauncher) && !isDefaultLauncher)
-            OnboardingStep.SetDefaultLauncher
           // AddFavorite is situational, shown when search results exist
           else null
         }
@@ -228,6 +229,17 @@ fun SearchScreen(
         query.trimStart().startsWith("g ", ignoreCase = true)
     ) {
       onboardingManager.markStepComplete(OnboardingStep.SearchGoogle)
+    }
+
+    if (
+      !steps.contains(OnboardingStep.SetTimer) &&
+        Regex(
+            """^\d+\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes|s|sec|secs|second|seconds)(\s+.+)?$""",
+            RegexOption.IGNORE_CASE,
+          )
+          .matches(query.trim())
+    ) {
+      onboardingManager.markStepComplete(OnboardingStep.SetTimer)
     }
   }
 
@@ -1323,6 +1335,23 @@ private fun launchResult(
         val clip = android.content.ClipData.newPlainText("Calculator Result", textToCopy)
         clipboard.setPrimaryClip(clip)
         Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+        return
+      }
+      if (result.deepLink?.startsWith("timer://set") == true) {
+        val uri = Uri.parse(result.deepLink)
+        val seconds = uri.getQueryParameter("seconds")?.toIntOrNull() ?: return
+        val name = uri.getQueryParameter("name")
+        val timerIntent =
+          Intent(android.provider.AlarmClock.ACTION_SET_TIMER).apply {
+            putExtra(android.provider.AlarmClock.EXTRA_LENGTH, seconds)
+            if (name != null) putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, name)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          }
+        try {
+          context.startActivity(timerIntent)
+        } catch (e: android.content.ActivityNotFoundException) {
+          Toast.makeText(context, "No timer app found", Toast.LENGTH_SHORT).show()
+        }
         return
       }
       result.deepLink?.let { deepLink ->

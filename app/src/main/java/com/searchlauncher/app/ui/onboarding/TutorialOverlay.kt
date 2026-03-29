@@ -104,13 +104,13 @@ fun TutorialOverlay(
         }
         OnboardingStep.SearchYoutube -> {
           TextHintIndicator(
-            text = "Try typing 'y spacebar test' to search YouTube",
+            text = "Type 'y cats' to search YouTube",
             modifier = Modifier.align(Alignment.Center),
           )
         }
         OnboardingStep.SearchGoogle -> {
           TextHintIndicator(
-            text = "Try typing 'g spacebar test' to search Google\n(more in settings)",
+            text = "Type 'g cats' to search Google\n(customize shortcuts in settings)",
             modifier = Modifier.align(Alignment.Center),
           )
         }
@@ -137,7 +137,13 @@ fun TutorialOverlay(
         }
         OnboardingStep.SetDefaultLauncher -> {
           TextHintIndicator(
-            text = "Type 'set launcher' to change\nyour default launcher",
+            text = "Search 'launcher' to set\nSearchLauncher as your default",
+            modifier = Modifier.align(Alignment.Center),
+          )
+        }
+        OnboardingStep.SetTimer -> {
+          TextHintIndicator(
+            text = "Type '2h' or '10m rice'\n to set a timer",
             modifier = Modifier.align(Alignment.Center),
           )
         }
