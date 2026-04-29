@@ -151,7 +151,19 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private val executor = Executors.newSingleThreadExecutor()
   private val smartActionManager = SmartActionManager(context)
   private val iconGenerator = SearchIconGenerator(context)
-  private val iconCache = LruCache<String, Drawable>(10000)
+  private val iconCache =
+    object : LruCache<String, Drawable>(ICON_CACHE_MAX_KB) {
+      override fun sizeOf(key: String, value: Drawable): Int {
+        val bitmap = (value as? BitmapDrawable)?.bitmap
+        if (bitmap != null && !bitmap.isRecycled) {
+          return (bitmap.allocationByteCount / 1024).coerceAtLeast(1)
+        }
+
+        val width = value.intrinsicWidth.takeIf { it > 0 } ?: ICON_SIZE_PX
+        val height = value.intrinsicHeight.takeIf { it > 0 } ?: ICON_SIZE_PX
+        return (width * height * 4 / 1024).coerceAtLeast(1)
+      }
+    }
 
   private val _isInitialized = kotlinx.coroutines.flow.MutableStateFlow(false)
   val isInitialized: kotlinx.coroutines.flow.StateFlow<Boolean> = _isInitialized
@@ -690,7 +702,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                       context.resources.displayMetrics.densityDpi,
                     )
                   if (icon != null) {
-                    iconCache.put("shortcut_$shortcutId", icon)
                     saveIconToDisk("shortcut_$shortcutId", icon, force = true)
                   }
                 } catch (e: Exception) {
@@ -698,10 +709,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                 }
 
                 val pkg = shortcut.`package`
-                if (iconCache.get("appicon_$pkg") == null) {
+                if (!hasIconOnDisk("appicon_$pkg")) {
                   try {
                     val appIcon = context.packageManager.getApplicationIcon(pkg)
-                    iconCache.put("appicon_$pkg", appIcon)
                     saveIconToDisk("appicon_$pkg", appIcon, force = true)
                   } catch (e: Exception) {
                     // Ignore icon loading failures
@@ -839,7 +849,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               val res = context.packageManager.getResourcesForApplication(s.packageName)
               val icon = res.getDrawable(s.iconResId.toInt(), null)
               if (icon != null) {
-                iconCache.put("static_shortcut_$shortcutId", icon)
                 saveIconToDisk("static_shortcut_$shortcutId", icon, force = true)
               }
             }
@@ -849,10 +858,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           }
 
           // Pre-load and cache app icon
-          if (!iconCache.get("appicon_${s.packageName}").let { it != null }) {
+          if (!hasIconOnDisk("appicon_${s.packageName}")) {
             try {
               val appIcon = context.packageManager.getApplicationIcon(s.packageName)
-              iconCache.put("appicon_${s.packageName}", appIcon)
               saveIconToDisk("appicon_${s.packageName}", appIcon, force = true)
             } catch (e: Exception) {
               // Ignore app icon loading failures
@@ -1519,7 +1527,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               .sortedBy { it.nameLower }
           val results =
             sdocs
-              .map { sdoc -> async { convertDocumentToResult(sdoc, 0, allowDisk = true) } }
+              .map { sdoc ->
+                async { convertDocumentToResult(sdoc, 0, allowIpc = false, allowDisk = false) }
+              }
               .awaitAll()
           results
         }
@@ -2476,34 +2486,26 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   private fun sanitizeId(id: String) = id.replace("/", "_").replace(":", "_")
 
+  private fun hasIconOnDisk(id: String): Boolean =
+    File(getIconDir(), "${sanitizeId(id)}.png").exists()
+
   private fun saveIconToDisk(id: String, drawable: Drawable?, force: Boolean = true) {
     if (drawable == null || !force) return
     val targetFile = File(getIconDir(), "${sanitizeId(id)}.png")
     val tmpFile = File(getIconDir(), "${sanitizeId(id)}.tmp")
 
     try {
-      val bitmap =
-        if (drawable is BitmapDrawable && drawable.bitmap != null && !drawable.bitmap.isRecycled) {
-          drawable.bitmap
-        } else {
-          // Force a reasonable size for AdaptiveIcons or vector drawables
-          // 192x192 is generally safe for high density icons
-          val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: 192
-          val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: 192
-          val size = maxOf(width, height, 192) // Ensure at least 192px
-
-          val b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-          val canvas = Canvas(b)
-          drawable.setBounds(0, 0, canvas.width, canvas.height)
-          drawable.draw(canvas)
-          b
-        }
+      val bitmap = Bitmap.createBitmap(ICON_SIZE_PX, ICON_SIZE_PX, Bitmap.Config.ARGB_8888)
+      val canvas = Canvas(bitmap)
+      drawable.setBounds(0, 0, canvas.width, canvas.height)
+      drawable.draw(canvas)
 
       // Write to temp file first to avoid partial writes (race condition)
       FileOutputStream(tmpFile).use { out ->
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
         out.flush()
       }
+      bitmap.recycle()
 
       // Atomic replacement
       if (tmpFile.exists() && tmpFile.length() > 0) {
@@ -2522,16 +2524,16 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     iconCache.evictAll()
     getIconDir().deleteRecursively()
     getIconDir().mkdirs()
-    // Re-index shortcuts to rebuild icon cache
+    // Re-index shortcuts to rebuild the disk cache.
     withContext(Dispatchers.IO) {
       try {
         android.util.Log.d("SearchRepository", "Rebuilding icon cache...")
 
-        // Re-index shortcuts (this pre-loads shortcut icons)
+        // Re-index shortcuts first; indexing writes shortcut icons to disk.
         indexShortcuts()
         indexStaticShortcuts()
 
-        // Rebuild ALL app icons by querying LauncherApps
+        // Rebuild app icons on disk without retaining every bitmap in memory.
         val launcherApps =
           context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
         val profiles = launcherApps.profiles
@@ -2544,14 +2546,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               val pkg = info.componentName.packageName
               try {
                 val appIcon = info.getIcon(context.resources.displayMetrics.densityDpi)
-                iconCache.put("appicon_$pkg", appIcon)
                 saveIconToDisk("appicon_$pkg", appIcon, force = true)
                 iconCount++
               } catch (e: Exception) {
                 // Try PackageManager as fallback
                 try {
                   val appIcon = context.packageManager.getApplicationIcon(pkg)
-                  iconCache.put("appicon_$pkg", appIcon)
                   saveIconToDisk("appicon_$pkg", appIcon, force = true)
                   iconCount++
                 } catch (e2: Exception) {
@@ -2583,6 +2583,11 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   }
 
   // checkSmartActions extracted to SmartActionManager
+
+  companion object {
+    private const val ICON_SIZE_PX = 192
+    private const val ICON_CACHE_MAX_KB = 24 * 1024
+  }
 
   suspend fun loadIcon(result: SearchResult): Drawable? =
     withContext(Dispatchers.IO) {

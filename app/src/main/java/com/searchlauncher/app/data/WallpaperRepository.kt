@@ -4,9 +4,11 @@ import android.annotation.SuppressLint
 import android.app.WallpaperManager
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +22,38 @@ class WallpaperRepository(private val context: Context) {
 
   init {
     reload()
+  }
+
+  fun normalizeStoredWallpapers() {
+    val files = wallpaperDir.listFiles()?.filter { it.isFile && isImage(it) } ?: emptyList()
+    val maxDimension = maxWallpaperDimension()
+    var changed = false
+
+    files.forEach { file ->
+      try {
+        if (isWithinBounds(file, maxDimension)) return@forEach
+
+        val bitmap = decodeSampledBitmap(Uri.fromFile(file), maxDimension) ?: return@forEach
+        val tmpFile = File(wallpaperDir, "${file.name}.tmp")
+        try {
+          FileOutputStream(tmpFile).use { output ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 88, output)
+          }
+          if (tmpFile.length() > 0) {
+            if (file.delete() && tmpFile.renameTo(file)) {
+              changed = true
+            }
+          }
+        } finally {
+          if (!bitmap.isRecycled) bitmap.recycle()
+          if (tmpFile.exists()) tmpFile.delete()
+        }
+      } catch (e: Exception) {
+        android.util.Log.w("WallpaperRepository", "Failed to normalize ${file.name}", e)
+      }
+    }
+
+    if (changed) reload()
   }
 
   fun reload() {
@@ -37,24 +71,7 @@ class WallpaperRepository(private val context: Context) {
 
   fun addWallpaper(uri: Uri): Uri? {
     return try {
-      val contentResolver = context.contentResolver
-      val inputStream = contentResolver.openInputStream(uri) ?: return null
-
-      // Generate a unique filename
-      val extension =
-        when (contentResolver.getType(uri)) {
-          "image/png" -> "png"
-          "image/webp" -> "webp"
-          else -> "jpg"
-        }
-      val filename = "wp_${System.currentTimeMillis()}.$extension"
-      val targetFile = File(wallpaperDir, filename)
-
-      inputStream.use { input ->
-        FileOutputStream(targetFile).use { output -> input.copyTo(output) }
-      }
-      reload()
-      Uri.fromFile(targetFile)
+      saveUriAsDisplayWallpaper(uri)
     } catch (e: Exception) {
       e.printStackTrace()
       null
@@ -92,18 +109,9 @@ class WallpaperRepository(private val context: Context) {
           // Try system wallpaper
           var pfd = wallpaperManager.getWallpaperFile(WallpaperManager.FLAG_SYSTEM)
           if (pfd != null) {
-            android.util.Log.d(
-              "WallpaperRepository",
-              "Got ParcelFileDescriptor from getWallpaperFile (FLAG_SYSTEM)",
-            )
-            val bitmap = android.graphics.BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor)
-            pfd.close()
-            if (bitmap != null) {
-              android.util.Log.d(
-                "WallpaperRepository",
-                "Decoded bitmap from PFD (FLAG_SYSTEM): ${bitmap.width}x${bitmap.height}",
-              )
-              return saveBitmapAsWallpaper(bitmap)
+            android.util.Log.d("WallpaperRepository", "Got wallpaper file (FLAG_SYSTEM)")
+            pfd.use {
+              return savePfdAsDisplayWallpaper(it.fileDescriptor)
             }
           } else {
             android.util.Log.w(
@@ -115,18 +123,9 @@ class WallpaperRepository(private val context: Context) {
           // Fallback to lock screen wallpaper
           pfd = wallpaperManager.getWallpaperFile(WallpaperManager.FLAG_LOCK)
           if (pfd != null) {
-            android.util.Log.d(
-              "WallpaperRepository",
-              "Got ParcelFileDescriptor from getWallpaperFile (FLAG_LOCK)",
-            )
-            val bitmap = android.graphics.BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor)
-            pfd.close()
-            if (bitmap != null) {
-              android.util.Log.d(
-                "WallpaperRepository",
-                "Decoded bitmap from PFD (FLAG_LOCK): ${bitmap.width}x${bitmap.height}",
-              )
-              return saveBitmapAsWallpaper(bitmap)
+            android.util.Log.d("WallpaperRepository", "Got wallpaper file (FLAG_LOCK)")
+            pfd.use {
+              return savePfdAsDisplayWallpaper(it.fileDescriptor)
             }
           } else {
             android.util.Log.w(
@@ -194,7 +193,7 @@ class WallpaperRepository(private val context: Context) {
         return null
       }
 
-      saveBitmapAsWallpaper(bitmap)
+      saveBitmapAsWallpaper(bitmap, recycleWhenDone = drawable !is BitmapDrawable)
     } catch (e: SecurityException) {
       android.util.Log.e(
         "WallpaperRepository",
@@ -242,20 +241,109 @@ class WallpaperRepository(private val context: Context) {
           }
         }
 
-      saveBitmapAsWallpaper(bitmap)
+      saveBitmapAsWallpaper(bitmap, recycleWhenDone = drawable !is BitmapDrawable)
     } catch (e: Exception) {
       android.util.Log.e("WallpaperRepository", "Built-in wallpaper fallback also failed", e)
       null
     }
   }
 
-  private fun saveBitmapAsWallpaper(bitmap: Bitmap): Uri? {
+  private fun saveUriAsDisplayWallpaper(uri: Uri): Uri? {
+    val bitmap = decodeSampledBitmap(uri, maxWallpaperDimension()) ?: return null
+    return saveBitmapAsWallpaper(bitmap, recycleWhenDone = true, prefix = "wp")
+  }
+
+  private fun savePfdAsDisplayWallpaper(fileDescriptor: java.io.FileDescriptor): Uri? {
+    val tmpFile = File(wallpaperDir, "wp_import_${System.currentTimeMillis()}.tmp")
+    return try {
+      FileInputStream(fileDescriptor).use { input ->
+        FileOutputStream(tmpFile).use { output -> input.copyTo(output) }
+      }
+      val bitmap =
+        decodeSampledBitmap(Uri.fromFile(tmpFile), maxWallpaperDimension()) ?: return null
+      saveBitmapAsWallpaper(bitmap, recycleWhenDone = true)
+    } finally {
+      tmpFile.delete()
+    }
+  }
+
+  private fun maxWallpaperDimension(): Int {
+    val metrics = context.resources.displayMetrics
+    return (maxOf(metrics.widthPixels, metrics.heightPixels) * 1.15f).toInt().coerceIn(1600, 3200)
+  }
+
+  private fun isWithinBounds(file: File, maxDimension: Int): Boolean {
+    val options =
+      BitmapFactory.Options().apply {
+        inJustDecodeBounds = true
+        BitmapFactory.decodeFile(file.absolutePath, this)
+      }
+    if (options.outWidth <= 0 || options.outHeight <= 0) return true
+    return maxOf(options.outWidth, options.outHeight) <= maxDimension
+  }
+
+  private fun decodeSampledBitmap(uri: Uri, maxDimension: Int): Bitmap? {
+    val bounds =
+      BitmapFactory.Options().apply {
+        inJustDecodeBounds = true
+        context.contentResolver.openInputStream(uri)?.use {
+          BitmapFactory.decodeStream(it, null, this)
+        }
+      }
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    val options =
+      BitmapFactory.Options().apply {
+        inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, maxDimension)
+        inPreferredConfig = Bitmap.Config.ARGB_8888
+      }
+    val decoded =
+      context.contentResolver.openInputStream(uri)?.use {
+        BitmapFactory.decodeStream(it, null, options)
+      } ?: return null
+
+    val largestSide = maxOf(decoded.width, decoded.height)
+    if (largestSide <= maxDimension) return decoded
+
+    val scale = maxDimension.toFloat() / largestSide
+    val scaled =
+      Bitmap.createScaledBitmap(
+        decoded,
+        (decoded.width * scale).toInt().coerceAtLeast(1),
+        (decoded.height * scale).toInt().coerceAtLeast(1),
+        true,
+      )
+    if (scaled != decoded) decoded.recycle()
+    return scaled
+  }
+
+  private fun calculateInSampleSize(width: Int, height: Int, maxDimension: Int): Int {
+    var inSampleSize = 1
+    var halfWidth = width / 2
+    var halfHeight = height / 2
+    while (maxOf(halfWidth, halfHeight) / inSampleSize >= maxDimension) {
+      inSampleSize *= 2
+    }
+    return inSampleSize
+  }
+
+  private fun saveBitmapAsWallpaper(
+    bitmap: Bitmap,
+    recycleWhenDone: Boolean,
+    prefix: String = "wp_system",
+  ): Uri? {
     android.util.Log.d("WallpaperRepository", "Bitmap obtained: ${bitmap.width}x${bitmap.height}")
-    val filename = "wp_system_${System.currentTimeMillis()}.jpg"
+    val filename = "${prefix}_${System.currentTimeMillis()}.jpg"
     val targetFile = File(wallpaperDir, filename)
 
-    FileOutputStream(targetFile).use { output ->
-      bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
+    try {
+      FileOutputStream(targetFile).use { output ->
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 88, output)
+      }
+    } finally {
+      if (recycleWhenDone && !bitmap.isRecycled) {
+        bitmap.recycle()
+      }
     }
     android.util.Log.d(
       "WallpaperRepository",
@@ -282,17 +370,19 @@ class WallpaperRepository(private val context: Context) {
   fun extractDominantColor(uri: Uri): Int? {
     return try {
       android.util.Log.d("WallpaperRepository", "Extracting color from: $uri")
-      val inputStream = context.contentResolver.openInputStream(uri) ?: return null
-      val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
-      inputStream.close()
+      val bitmap = decodeSampledBitmap(uri, 128)
 
       if (bitmap == null) {
         android.util.Log.w("WallpaperRepository", "Failed to decode bitmap from $uri")
         return null
       }
 
-      // Use Palette to extract dominant color
-      val palette = androidx.palette.graphics.Palette.from(bitmap).generate()
+      val palette =
+        try {
+          androidx.palette.graphics.Palette.from(bitmap).generate()
+        } finally {
+          if (!bitmap.isRecycled) bitmap.recycle()
+        }
 
       // Try dominant swatch first, then vibrant, then muted
       val swatch = palette.dominantSwatch ?: palette.vibrantSwatch ?: palette.mutedSwatch

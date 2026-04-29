@@ -47,6 +47,7 @@ class SearchLauncherApp : Application() {
     widgetRepository = com.searchlauncher.app.data.WidgetRepository(this)
     wallpaperRepository = WallpaperRepository(this)
     historyRepository = HistoryRepository(this)
+    CoroutineScope(Dispatchers.IO).launch { wallpaperRepository.normalizeStoredWallpapers() }
     CoroutineScope(Dispatchers.IO).launch { searchRepository.initialize() }
     createNotificationChannel()
     checkConsentAndInitSentry()

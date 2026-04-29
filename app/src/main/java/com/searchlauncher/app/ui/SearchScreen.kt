@@ -315,9 +315,9 @@ fun SearchScreen(
       // Use a higher limit to show all options as requested
       val shortcuts = searchRepository.getSearchShortcuts(limit = 50)
 
-      val resultIds = results.map { it.id }.toSet()
-      val uniqueShortcuts = shortcuts.filter { !resultIds.contains(it.id) }
-      val baseResults = results + uniqueShortcuts
+      val resultKeys = results.map { it.stableListKey }.toSet()
+      val uniqueShortcuts = shortcuts.filter { !resultKeys.contains(it.stableListKey) }
+      val baseResults = (results + uniqueShortcuts).distinctBy { it.stableListKey }
       isFallbackMode = results.isEmpty()
 
       // Calculator injection
@@ -337,7 +337,7 @@ fun SearchScreen(
               packageName = "android",
               deepLink = "calculator://copy?text=$formattedResult",
             )
-          searchResults = listOf(calcResult) + baseResults
+          searchResults = (listOf(calcResult) + baseResults).distinctBy { it.stableListKey }
         } else {
           searchResults = baseResults
         }
@@ -708,9 +708,10 @@ fun SearchScreen(
                 reverseLayout = true,
                 contentPadding = PaddingValues(vertical = 8.dp),
               ) {
-                itemsIndexed(searchResults, key = { _, item -> "${item.namespace}/${item.id}" }) {
-                  index,
-                  result ->
+                itemsIndexed(
+                  searchResults,
+                  key = { index, item -> "$index/${item.stableListKey}" },
+                ) { index, result ->
                   SearchResultItem(
                     result = result,
                     isFavorite = favoriteIds.contains(result.id),
@@ -1530,6 +1531,9 @@ internal fun Drawable.toImageBitmap(): ImageBitmap? {
     return null
   }
 }
+
+private val SearchResult.stableListKey: String
+  get() = "$namespace/$id"
 
 // FavoritesRow extracted to components/FavoritesRow.kt
 

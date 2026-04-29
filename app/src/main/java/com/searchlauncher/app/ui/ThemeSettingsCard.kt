@@ -1,5 +1,7 @@
 package com.searchlauncher.app.ui
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -341,19 +343,20 @@ private fun ImageColorPickerDialog(
   var imageBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
   var imageSize by remember { mutableStateOf<Size?>(null) }
 
-  // Load bitmap in background
   LaunchedEffect(imageUri) {
     withContext(Dispatchers.IO) {
       try {
         val uri = android.net.Uri.parse(imageUri)
-        context.contentResolver.openInputStream(uri)?.use { inputStream ->
-          val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
-          withContext(Dispatchers.Main) { imageBitmap = bitmap }
-        }
+        val bitmap = decodeSampledColorPickerBitmap(context, uri)
+        withContext(Dispatchers.Main) { imageBitmap = bitmap }
       } catch (e: Exception) {
         // Silently fail
       }
     }
+  }
+
+  DisposableEffect(Unit) {
+    onDispose { imageBitmap?.let { bitmap -> if (!bitmap.isRecycled) bitmap.recycle() } }
   }
 
   Dialog(
@@ -418,4 +421,40 @@ private fun ImageColorPickerDialog(
       )
     }
   }
+}
+
+private fun decodeSampledColorPickerBitmap(
+  context: android.content.Context,
+  uri: android.net.Uri,
+): Bitmap? {
+  val maxDimension =
+    maxOf(
+      context.resources.displayMetrics.widthPixels,
+      context.resources.displayMetrics.heightPixels,
+    )
+  val bounds =
+    BitmapFactory.Options().apply {
+      inJustDecodeBounds = true
+      context.contentResolver.openInputStream(uri)?.use {
+        BitmapFactory.decodeStream(it, null, this)
+      }
+    }
+  if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+  val options =
+    BitmapFactory.Options().apply {
+      inSampleSize = calculateColorPickerSampleSize(bounds.outWidth, bounds.outHeight, maxDimension)
+      inPreferredConfig = Bitmap.Config.ARGB_8888
+    }
+  return context.contentResolver.openInputStream(uri)?.use {
+    BitmapFactory.decodeStream(it, null, options)
+  }
+}
+
+private fun calculateColorPickerSampleSize(width: Int, height: Int, maxDimension: Int): Int {
+  var inSampleSize = 1
+  while (maxOf(width, height) / inSampleSize > maxDimension) {
+    inSampleSize *= 2
+  }
+  return inSampleSize
 }
