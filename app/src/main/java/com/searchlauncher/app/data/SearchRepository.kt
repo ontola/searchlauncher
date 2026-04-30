@@ -90,8 +90,14 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   }
 
   internal fun wrap(doc: AppSearchDocument): SearchableDocument {
-    val nameLower = doc.name.lowercase()
-    val words = nameLower.split(' ').filter { it.isNotEmpty() }
+    val searchableText =
+      if (doc.namespace == "snippets") {
+        listOf(doc.name, doc.description.orEmpty()).joinToString(" ")
+      } else {
+        doc.name
+      }
+    val nameLower = searchableText.lowercase()
+    val words = nameLower.split(Regex("\\s+")).filter { it.isNotEmpty() }
     val acronym = words.mapNotNull { it.firstOrNull() }.joinToString("")
     val charMask = calculateCharMask(nameLower)
 

@@ -118,6 +118,32 @@ class SearchRepositoryTest {
   }
 
   @Test
+  fun `snippet search matches both alias and content`() = runBlocking {
+    val snippet =
+      AppSearchDocument(
+        namespace = "snippets",
+        id = "shipping",
+        score = 5,
+        name = "shipping",
+        description = "Warehouse pickup window closes at 17:30",
+        intentUri = "snippet://shipping",
+        isAction = true,
+      )
+
+    repository.documentSnapshot = listOf(repository.wrap(snippet))
+
+    val aliasResults =
+      repository.searchApps("ship", limit = 5, includeSuggestions = false).getOrThrow()
+    assertEquals(snippet.id, aliasResults.filterIsInstance<SearchResult.Snippet>().first().id)
+
+    val contentResults =
+      repository.searchApps("warehouse", limit = 5, includeSuggestions = false).getOrThrow()
+    val contentMatch = contentResults.filterIsInstance<SearchResult.Snippet>().first()
+    assertEquals(snippet.id, contentMatch.id)
+    assertEquals("Warehouse pickup window closes at 17:30", contentMatch.content)
+  }
+
+  @Test
   fun `query usage boost moves tapped contact above app for same prefix`() = runBlocking {
     val contact =
       AppSearchDocument(

@@ -50,6 +50,24 @@ class FuzzyMatchTest {
   }
 
   @Test
+  fun `Typo fuzzy match handles missing substituted and transposed characters`() {
+    assertEquals(68, FuzzyMatch.calculateScore("gogle", "Google"))
+    assertEquals(68, FuzzyMatch.calculateScore("spotfy", "Spotify"))
+    assertEquals(68, FuzzyMatch.calculateScore("soptify", "Spotify"))
+  }
+
+  @Test
+  fun `Typo fuzzy match handles words inside multi word targets`() {
+    assertEquals(68, FuzzyMatch.calculateScore("stroe", "Play Store"))
+    assertEquals(58, FuzzyMatch.calculateScore("whstapp", "WhatsApp Messenger"))
+  }
+
+  @Test
+  fun `Typo fuzzy match is disabled for very short queries`() {
+    assertEquals(0, FuzzyMatch.calculateScore("gp", "Google"))
+  }
+
+  @Test
   fun `No match returns 0`() {
     assertEquals(0, FuzzyMatch.calculateScore("xyz", "Spotify"))
     assertEquals(0, FuzzyMatch.calculateScore("music", "Calculator"))
