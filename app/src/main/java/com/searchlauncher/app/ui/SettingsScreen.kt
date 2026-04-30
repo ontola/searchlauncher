@@ -1074,8 +1074,10 @@ private fun PrivacyCard() {
   var showPrivacyPolicy by remember { mutableStateOf(false) }
 
   val searchShortcutsEnabled =
-    remember { context.dataStore.data.map { it[PreferencesKeys.SEARCH_SHORTCUTS_ENABLED] ?: true } }
-      .collectAsState(initial = true)
+    remember {
+        context.dataStore.data.map { it[PreferencesKeys.SEARCH_SHORTCUTS_ENABLED] ?: false }
+      }
+      .collectAsState(initial = false)
 
   var crashReportingEnabled by remember { mutableStateOf(app.isConsentGranted()) }
 
@@ -1089,10 +1091,10 @@ private fun PrivacyCard() {
         verticalAlignment = Alignment.CenterVertically,
       ) {
         Column(modifier = Modifier.weight(1f)) {
-          Text(text = "Search suggestions", style = MaterialTheme.typography.bodyMedium)
+          Text(text = "Web shortcuts and suggestions", style = MaterialTheme.typography.bodyMedium)
           Text(
             text =
-              "Show autocomplete suggestions from third-party services (Google, YouTube, etc.) as you type",
+              "Allow search shortcuts and autocomplete suggestions that can contact third-party services",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )

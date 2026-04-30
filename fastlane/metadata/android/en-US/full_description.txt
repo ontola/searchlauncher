@@ -1,0 +1,15 @@
+SearchLauncher replaces browsing through your phone with fast, keyboard-centric search.
+
+Features:
+* Search apps, app shortcuts, contacts, settings, snippets, and custom actions
+* Use it as your default launcher, a home screen widget, or an overlay
+* Launch web searches through configurable shortcuts
+* Keep frequently used apps close with favorites and usage-aware history
+* Store and copy text snippets from the search UI
+* Use calculator queries, phone numbers, emails, URLs, and smart actions
+* Customize wallpapers, widgets, colors, and dark mode
+
+Privacy notes:
+* Web shortcuts and search suggestions are optional
+* They may contact third-party search providers when enabled
+* Crash reporting is opt-in only

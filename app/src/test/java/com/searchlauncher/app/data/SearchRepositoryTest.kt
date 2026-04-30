@@ -144,6 +144,34 @@ class SearchRepositoryTest {
   }
 
   @Test
+  fun `search shortcuts are hidden when optional web shortcuts are disabled`() = runBlocking {
+    val shortcut =
+      AppSearchDocument(
+        namespace = "search_shortcuts",
+        id = "google",
+        score = 5,
+        name = "Google Search",
+        description = "g",
+        intentUri = "https://www.google.com/search?q=%s",
+        isAction = true,
+      )
+
+    repository.documentSnapshot = listOf(repository.wrap(shortcut))
+
+    val enabledResults =
+      repository
+        .searchApps("google", limit = 5, includeSuggestions = false, includeSearchShortcuts = true)
+        .getOrThrow()
+    assertTrue(enabledResults.any { it.id == shortcut.id })
+
+    val disabledResults =
+      repository
+        .searchApps("google", limit = 5, includeSuggestions = false, includeSearchShortcuts = false)
+        .getOrThrow()
+    assertFalse(disabledResults.any { it.id == shortcut.id })
+  }
+
+  @Test
   fun `query usage boost moves tapped contact above app for same prefix`() = runBlocking {
     val contact =
       AppSearchDocument(

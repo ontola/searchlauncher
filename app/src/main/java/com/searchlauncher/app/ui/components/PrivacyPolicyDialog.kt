@@ -5,7 +5,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -151,28 +154,74 @@ fun PrivacyPolicyDialog(onDismiss: () -> Unit, policyText: String) {
 }
 
 @Composable
-fun ConsentDialog(onConsentGiven: (Boolean) -> Unit, onViewPrivacyPolicy: () -> Unit) {
+fun ConsentDialog(
+  onChoicesSaved: (allowWebShortcuts: Boolean, allowCrashReporting: Boolean) -> Unit,
+  onViewPrivacyPolicy: () -> Unit,
+) {
+  var allowWebShortcuts by remember { mutableStateOf(false) }
+  var allowCrashReporting by remember { mutableStateOf(false) }
+
   AlertDialog(
     onDismissRequest = { /* Don't dismiss without choice */},
-    title = { Text("Help improvement SearchLauncher?") },
+    title = { Text("Privacy choices") },
     text = {
-      Column {
-        Text(
-          "By enabling error reporting, you help us identify and fix bugs. No personal data or search queries are collected."
+      Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Choose which optional network features SearchLauncher may use.")
+
+        PrivacyChoiceRow(
+          title = "Web shortcuts and suggestions",
+          description =
+            "Allow search shortcuts and autocomplete suggestions that can contact third-party services such as Google, DuckDuckGo, YouTube, or Bing.",
+          checked = allowWebShortcuts,
+          onCheckedChange = { allowWebShortcuts = it },
         )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-          "SearchLauncher also shows live search suggestions from third-party services (e.g., Google) as you type. You can disable suggestions anytime in Settings → Privacy.",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
+
+        PrivacyChoiceRow(
+          title = "Crash reporting",
+          description =
+            "Send anonymous error reports to GlitchTip to help fix bugs. Search queries and personal input are not intentionally collected.",
+          checked = allowCrashReporting,
+          onCheckedChange = { allowCrashReporting = it },
         )
+
         Spacer(modifier = Modifier.height(8.dp))
         TextButton(onClick = onViewPrivacyPolicy, contentPadding = PaddingValues(0.dp)) {
           Text("View Privacy Policy", style = MaterialTheme.typography.labelMedium)
         }
       }
     },
-    confirmButton = { Button(onClick = { onConsentGiven(true) }) { Text("Enable") } },
-    dismissButton = { TextButton(onClick = { onConsentGiven(false) }) { Text("No thanks") } },
+    confirmButton = {
+      Button(onClick = { onChoicesSaved(allowWebShortcuts, allowCrashReporting) }) {
+        Text("Continue")
+      }
+    },
+    dismissButton = {
+      TextButton(onClick = { onChoicesSaved(false, false) }) { Text("Disable both") }
+    },
   )
+}
+
+@Composable
+private fun PrivacyChoiceRow(
+  title: String,
+  description: String,
+  checked: Boolean,
+  onCheckedChange: (Boolean) -> Unit,
+) {
+  Row(
+    modifier = Modifier.fillMaxWidth(),
+    horizontalArrangement = Arrangement.SpaceBetween,
+    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+  ) {
+    Column(modifier = Modifier.weight(1f)) {
+      Text(text = title, style = MaterialTheme.typography.bodyMedium)
+      Text(
+        text = description,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+    Spacer(modifier = Modifier.width(12.dp))
+    Switch(checked = checked, onCheckedChange = onCheckedChange)
+  }
 }

@@ -1,7 +1,7 @@
 Categories:
   - System
-  - Productivity
-License: Apache-2.0
+  - Launcher
+License: MIT
 SourceCode: https://github.com/joepio/searchlauncher
 IssueTracker: https://github.com/joepio/searchlauncher/issues
 Changelog: https://github.com/joepio/searchlauncher/releases
@@ -19,18 +19,29 @@ Description: |
   * **Flexible Usage:** Use it as your primary **Launcher**, a powerful **Home Screen Widget**, or an **Overlay** accessible with a swipe from any app.
   * **Customization:** Set your personal background, add widgets, and enjoy full dark mode support.
 
+  Web shortcuts and search suggestions are optional and may contact third-party search providers when enabled. Crash reporting is opt-in only.
+
+AntiFeatures:
+  - NonFreeNet
+  - Tracking
+
+MaintainerNotes: |
+  The upstream Gradle build derives versionCode and versionName from git by default. F-Droid build blocks should pin them with searchLauncherVersionCode and searchLauncherVersionName gradleprops.
+
 RepoType: git
 Repo: https://github.com/joepio/searchlauncher.git
 
 Builds:
-  - versionName: 0.0.1-beta
-    versionCode: 1
-    commit: v0.0.1-beta
+  - versionName: 0.0.3
+    versionCode: 180
+    commit: v0.0.3
     subdir: app
+    gradleprops:
+      - searchLauncherVersionCode=180
+      - searchLauncherVersionName=0.0.3
     gradle:
       - yes
 
-AutoUpdateMode: Version v%v
 UpdateCheckMode: Tags
-CurrentVersion: 0.0.1-beta
-CurrentVersionCode: 1
+CurrentVersion: 0.0.3
+CurrentVersionCode: 180

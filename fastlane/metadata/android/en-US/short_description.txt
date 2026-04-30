@@ -1,0 +1,1 @@
+Keyboard-first launcher for apps, contacts, snippets, shortcuts, and web search

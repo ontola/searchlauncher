@@ -107,6 +107,11 @@ fun SearchScreen(
   var showDefaultLauncherDialog by remember { mutableStateOf(false) }
   var showPrivacyPolicy by remember { mutableStateOf(false) }
   val searchShortcuts by app.searchShortcutRepository.items.collectAsState()
+  val searchShortcutsEnabled by
+    remember {
+        context.dataStore.data.map { it[PreferencesKeys.SEARCH_SHORTCUTS_ENABLED] ?: false }
+      }
+      .collectAsState(initial = false)
   var showShortcutDialog by remember { mutableStateOf(false) }
   var editingShortcut by remember {
     mutableStateOf<com.searchlauncher.app.data.SearchShortcut?>(null)
@@ -306,7 +311,7 @@ fun SearchScreen(
     }
   }
 
-  LaunchedEffect(query) {
+  LaunchedEffect(query, searchShortcutsEnabled) {
     traceSection("SL:SearchScreen.queryEffect") {
       if (query.isEmpty()) {
         searchResults = emptyList()
@@ -315,7 +320,12 @@ fun SearchScreen(
         val results =
           traceSection("SL:SearchScreen.searchApps") {
             searchRepository
-              .searchApps(query, limit = LIVE_SEARCH_RESULT_LIMIT, includeSuggestions = false)
+              .searchApps(
+                query,
+                limit = LIVE_SEARCH_RESULT_LIMIT,
+                includeSuggestions = false,
+                includeSearchShortcuts = searchShortcutsEnabled,
+              )
               .getOrElse { emptyList() }
           }
         currentCoroutineContext().ensureActive()
@@ -323,8 +333,12 @@ fun SearchScreen(
         // Always append search shortcuts to the end of the results
         // Keep this small in the live typing path; richer actions can load after selection.
         val shortcuts =
-          traceSection("SL:SearchScreen.getSearchShortcuts") {
-            searchRepository.getSearchShortcuts(limit = LIVE_SEARCH_SHORTCUT_LIMIT)
+          if (searchShortcutsEnabled) {
+            traceSection("SL:SearchScreen.getSearchShortcuts") {
+              searchRepository.getSearchShortcuts(limit = LIVE_SEARCH_SHORTCUT_LIMIT)
+            }
+          } else {
+            emptyList()
           }
         currentCoroutineContext().ensureActive()
 
@@ -609,8 +623,13 @@ fun SearchScreen(
           )
         } else if (showConsentDialog) {
           ConsentDialog(
-            onConsentGiven = { granted ->
-              app.setConsent(granted)
+            onChoicesSaved = { allowWebShortcuts, allowCrashReporting ->
+              app.setConsent(allowCrashReporting)
+              scope.launch {
+                context.dataStore.edit { preferences ->
+                  preferences[PreferencesKeys.SEARCH_SHORTCUTS_ENABLED] = allowWebShortcuts
+                }
+              }
               showConsentDialog = false
             },
             onViewPrivacyPolicy = { showPrivacyPolicy = true },

@@ -18,7 +18,7 @@ Additionally, some shortcuts provide **live search suggestions** as you type. Wh
 
 These requests are made directly from your device to the third-party service. We do not proxy, intercept, or store this data on our servers. The third-party service's own privacy policy governs how they handle your data.
 
-**You are in control:** Search suggestions can be disabled at any time in **Settings → Privacy**. When disabled, no autocomplete queries are sent to external services as you type. Search shortcuts themselves remain available since they only send data when you explicitly perform a search.
+**You are in control:** Web shortcuts and search suggestions are optional. You can enable or disable them during onboarding or at any time in **Settings → Privacy**. When disabled, SearchLauncher hides web shortcut results and does not send autocomplete queries to external services as you type.
 
 ### Error Logs and Diagnostics
 We collect error logs and crash reports to identify and fix issues in the application. This data helps us improve the stability and performance of the app.
@@ -35,7 +35,7 @@ We **do not** collect:
 
 ## User Consent
 - **Error logging** is optional. You will be asked for permission to enable this feature when you first open the app. You can change your preference at any time in **Settings → Privacy**.
-- **Search suggestions** are enabled by default but can be disabled at any time in **Settings → Privacy**.
+- **Web shortcuts and search suggestions** are optional. You will be asked whether to enable them when you first open the app. You can change your preference at any time in **Settings → Privacy**.
 
 ## Contact Us
 If you have any questions about this Privacy Policy, please contact us at info@ontola.io.

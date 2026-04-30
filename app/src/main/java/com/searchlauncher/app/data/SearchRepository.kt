@@ -1586,6 +1586,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     query: String,
     limit: Int = -1,
     includeSuggestions: Boolean = true,
+    includeSearchShortcuts: Boolean = true,
   ): Result<List<SearchResult>> =
     safeCall("SearchRepository", "Error searching apps") {
       withContext(Dispatchers.IO) {
@@ -1599,8 +1600,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
           // 1. Custom Shortcuts (Triggers) - Priority 1
           val customShortcutMatches =
-            traceSection("SL:SearchRepository.customShortcuts") {
-              findMatchingCustomShortcut(query)
+            if (includeSearchShortcuts) {
+              traceSection("SL:SearchRepository.customShortcuts") {
+                findMatchingCustomShortcut(query)
+              }
+            } else {
+              emptyList<SearchResult>() to null
             }
           val customShortcutResults = customShortcutMatches.first
           val matchedShortcut = customShortcutMatches.second
@@ -1622,12 +1627,17 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
           val indexResults =
             traceSection("SL:SearchRepository.performInMemorySearch") {
-              performInMemorySearch(query, excludedAliases, limit)
+              performInMemorySearch(query, excludedAliases, limit, includeSearchShortcuts)
             }
           results.addAll(indexResults)
 
           // 4. Suggestions (only when search shortcuts / suggestions are enabled)
-          if (includeSuggestions && matchedShortcut?.suggestionUrl != null && query.contains(" ")) {
+          if (
+            includeSearchShortcuts &&
+              includeSuggestions &&
+              matchedShortcut?.suggestionUrl != null &&
+              query.contains(" ")
+          ) {
             val searchTerm = query.substringAfter(" ")
             if (searchTerm.isNotEmpty()) {
               try {
@@ -1833,6 +1843,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     query: String,
     excludedAliases: Set<String>,
     limit: Int,
+    includeSearchShortcuts: Boolean,
   ): List<SearchResult> {
     val startTime = System.currentTimeMillis()
     val candidates = mutableListOf<Pair<SearchableDocument, Int>>()
@@ -1846,6 +1857,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     val syncStart = System.currentTimeMillis()
     traceSection("SL:SearchRepository.scanSnapshot") {
       for (sdoc in snapshot) {
+        if (!includeSearchShortcuts && sdoc.namespaceInt == 7) continue
+
         val score =
           FuzzyMatch.calculateScore(
             queryLower,

@@ -22,6 +22,12 @@ val gitCommitCount = runGit("rev-list", "--count", "HEAD").toIntOrNull() ?: 1
 val gitHash = runGit("rev-parse", "--short", "HEAD")
 val gitDescribe = runGit("describe", "--tags", "--always")
 val buildDate: String = runGit("log", "-1", "--format=%cs")
+val releaseVersionCode =
+  providers.gradleProperty("searchLauncherVersionCode").orNull?.toIntOrNull() ?: gitCommitCount
+val releaseVersionName = providers.gradleProperty("searchLauncherVersionName").orNull ?: gitDescribe
+val releaseKeyStorePath = System.getenv("SIGNING_KEY_STORE_PATH") ?: "upload.jks"
+val releaseKeyStoreFile = file(releaseKeyStorePath)
+val hasReleaseSigning = releaseKeyStoreFile.exists()
 
 android {
   namespace = "com.searchlauncher.app"
@@ -31,8 +37,8 @@ android {
     applicationId = "com.searchlauncher.app"
     minSdk = 29
     targetSdk = 36
-    versionCode = gitCommitCount
-    versionName = gitDescribe
+    versionCode = releaseVersionCode
+    versionName = releaseVersionName
 
     buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
     buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")
@@ -42,12 +48,13 @@ android {
   }
 
   signingConfigs {
-    create("release") {
-      val keyStorePath = System.getenv("SIGNING_KEY_STORE_PATH") ?: "upload.jks"
-      storeFile = file(keyStorePath)
-      storePassword = System.getenv("SIGNING_STORE_PASSWORD") ?: "password"
-      keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: "upload"
-      keyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: "password"
+    if (hasReleaseSigning) {
+      create("release") {
+        storeFile = releaseKeyStoreFile
+        storePassword = System.getenv("SIGNING_STORE_PASSWORD") ?: "password"
+        keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: "upload"
+        keyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: "password"
+      }
     }
   }
 
@@ -58,7 +65,9 @@ android {
       isMinifyEnabled = enableR8
       isShrinkResources = enableR8
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      if (hasReleaseSigning) {
+        signingConfig = signingConfigs.getByName("release")
+      }
     }
   }
   compileOptions {
