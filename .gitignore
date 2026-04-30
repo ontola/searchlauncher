@@ -20,6 +20,9 @@ release/
 .gradle/
 build/
 
+# Local tool caches
+.cache/
+
 # Local configuration file (sdk path, etc)
 local.properties
 
@@ -79,6 +82,7 @@ lint-results.xml
 
 # Android Profiling
 *.hprof
+analysis/traces/
 
 
 # Kotlin incremental compiler sessions

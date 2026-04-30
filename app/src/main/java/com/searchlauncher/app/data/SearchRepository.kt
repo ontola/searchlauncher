@@ -24,6 +24,7 @@ import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.util.FuzzyMatch
 import com.searchlauncher.app.util.StaticShortcutScanner
 import com.searchlauncher.app.util.SystemUtils
+import com.searchlauncher.app.util.traceSection
 import io.sentry.Sentry
 import java.io.File
 import java.io.FileOutputStream
@@ -1555,81 +1556,101 @@ class SearchRepository(private val context: Context) : BaseRepository() {
    * @param allowDisk Whether to allow reading from disk. Set to FALSE for ultra-fast, memory-only
    *   searches (e.g. for suggestions).
    */
-  suspend fun searchApps(query: String, limit: Int = -1): Result<List<SearchResult>> =
+  suspend fun searchApps(
+    query: String,
+    limit: Int = -1,
+    includeSuggestions: Boolean = true,
+  ): Result<List<SearchResult>> =
     safeCall("SearchRepository", "Error searching apps") {
       withContext(Dispatchers.IO) {
-        val startTime = System.currentTimeMillis()
-        if (query.isEmpty()) return@withContext emptyList()
+        traceSection("SL:SearchRepository.searchApps") {
+          val startTime = System.currentTimeMillis()
+          if (query.isEmpty()) return@withContext emptyList()
 
-        // searchCache.clear() - Removed
+          // searchCache.clear() - Removed
 
-        val results = mutableListOf<SearchResult>()
+          val results = mutableListOf<SearchResult>()
 
-        // 1. Custom Shortcuts (Triggers) - Priority 1
-        val customShortcutMatches = findMatchingCustomShortcut(query)
-        val customShortcutResults = customShortcutMatches.first
-        val matchedShortcut = customShortcutMatches.second
-        results.addAll(customShortcutResults)
+          // 1. Custom Shortcuts (Triggers) - Priority 1
+          val customShortcutMatches =
+            traceSection("SL:SearchRepository.customShortcuts") {
+              findMatchingCustomShortcut(query)
+            }
+          val customShortcutResults = customShortcutMatches.first
+          val matchedShortcut = customShortcutMatches.second
+          results.addAll(customShortcutResults)
 
-        // 2. Smart Actions
-        val smartActions = smartActionManager.checkSmartActions(query)
-        results.addAll(smartActions)
+          // 2. Smart Actions
+          val smartActions =
+            traceSection("SL:SearchRepository.smartActions") {
+              smartActionManager.checkSmartActions(query)
+            }
+          results.addAll(smartActions)
 
-        // 3. In-memory Index Search (including Apps, Shortcuts, Contacts, Snippets)
-        val excludedAliases =
-          customShortcutResults
-            .filterIsInstance<SearchResult.SearchIntent>()
-            .mapNotNull { it.trigger }
-            .toSet()
+          // 3. In-memory Index Search (including Apps, Shortcuts, Contacts, Snippets)
+          val excludedAliases =
+            customShortcutResults
+              .filterIsInstance<SearchResult.SearchIntent>()
+              .mapNotNull { it.trigger }
+              .toSet()
 
-        val indexResults = performInMemorySearch(query, excludedAliases, limit)
-        results.addAll(indexResults)
+          val indexResults =
+            traceSection("SL:SearchRepository.performInMemorySearch") {
+              performInMemorySearch(query, excludedAliases, limit)
+            }
+          results.addAll(indexResults)
 
-        // 4. Suggestions (only when search shortcuts / suggestions are enabled)
-        if (matchedShortcut?.suggestionUrl != null && query.contains(" ")) {
-          val searchTerm = query.substringAfter(" ")
-          if (searchTerm.isNotEmpty()) {
-            try {
-              val suggestions = fetchSuggestions(matchedShortcut.suggestionUrl, searchTerm)
-              suggestions.forEach { suggestion ->
-                val icon =
-                  iconGenerator.getColoredSearchIcon(matchedShortcut.color, matchedShortcut.alias)
-                val urlFormatted =
-                  String.format(
-                    matchedShortcut.urlTemplate,
-                    java.net.URLEncoder.encode(suggestion, "UTF-8"),
+          // 4. Suggestions (only when search shortcuts / suggestions are enabled)
+          if (includeSuggestions && matchedShortcut?.suggestionUrl != null && query.contains(" ")) {
+            val searchTerm = query.substringAfter(" ")
+            if (searchTerm.isNotEmpty()) {
+              try {
+                val suggestions =
+                  traceSection("SL:SearchRepository.fetchSuggestions") {
+                    fetchSuggestions(matchedShortcut.suggestionUrl, searchTerm)
+                  }
+                suggestions.forEach { suggestion ->
+                  val icon =
+                    iconGenerator.getColoredSearchIcon(matchedShortcut.color, matchedShortcut.alias)
+                  val urlFormatted =
+                    String.format(
+                      matchedShortcut.urlTemplate,
+                      java.net.URLEncoder.encode(suggestion, "UTF-8"),
+                    )
+
+                  results.add(
+                    SearchResult.Content(
+                      id = "suggestion_${matchedShortcut.alias}_$suggestion",
+                      namespace = "search_shortcuts",
+                      title = suggestion,
+                      subtitle = "${matchedShortcut.description} Suggestion",
+                      icon = icon,
+                      packageName = matchedShortcut.packageName ?: "android",
+                      deepLink = urlFormatted,
+                      rankingScore = 200,
+                    )
                   )
-
-                results.add(
-                  SearchResult.Content(
-                    id = "suggestion_${matchedShortcut.alias}_$suggestion",
-                    namespace = "search_shortcuts",
-                    title = suggestion,
-                    subtitle = "${matchedShortcut.description} Suggestion",
-                    icon = icon,
-                    packageName = matchedShortcut.packageName ?: "android",
-                    deepLink = urlFormatted,
-                    rankingScore = 200,
-                  )
-                )
+                }
+              } catch (e: Exception) {
+                SystemUtils.logError("SearchRepository", "Error processing suggestions", e)
               }
-            } catch (e: Exception) {
-              SystemUtils.logError("SearchRepository", "Error processing suggestions", e)
             }
           }
+
+          traceSection("SL:SearchRepository.sortResults") {
+            results.sortByDescending { it.rankingScore }
+          }
+
+          // searchCache write removed
+
+          val duration = System.currentTimeMillis() - startTime
+          android.util.Log.d(
+            "SearchRepository",
+            "searchApps for '$query' took ${duration}ms, results: ${results.size}",
+          )
+
+          results
         }
-
-        results.sortByDescending { it.rankingScore }
-
-        // searchCache write removed
-
-        val duration = System.currentTimeMillis() - startTime
-        android.util.Log.d(
-          "SearchRepository",
-          "searchApps for '$query' took ${duration}ms, results: ${results.size}",
-        )
-
-        results
       }
     }
 
@@ -1796,49 +1817,51 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
     val snapshot = documentSnapshot
     val syncStart = System.currentTimeMillis()
-    for (sdoc in snapshot) {
-      val score =
-        FuzzyMatch.calculateScore(
-          queryLower,
-          sdoc.nameLower,
-          sdoc.targetWords,
-          sdoc.acronym,
-          queryMask,
-          sdoc.charMask,
-        )
+    traceSection("SL:SearchRepository.scanSnapshot") {
+      for (sdoc in snapshot) {
+        val score =
+          FuzzyMatch.calculateScore(
+            queryLower,
+            sdoc.nameLower,
+            sdoc.targetWords,
+            sdoc.acronym,
+            queryMask,
+            sdoc.charMask,
+          )
 
-      // Also check normalized phone number for contacts (use pre-computed normalizedPhone)
-      var contactScore = 0
-      if (sdoc.namespaceInt == 5 && normalizedQuery != null && normalizedQuery.length >= 3) {
-        if (sdoc.normalizedPhone?.contains(normalizedQuery) == true) {
-          contactScore = 85
+        // Also check normalized phone number for contacts (use pre-computed normalizedPhone)
+        var contactScore = 0
+        if (sdoc.namespaceInt == 5 && normalizedQuery != null && normalizedQuery.length >= 3) {
+          if (sdoc.normalizedPhone?.contains(normalizedQuery) == true) {
+            contactScore = 85
+          }
         }
-      }
 
-      val finalScore = maxOf(score, contactScore)
-      if (finalScore > 30) {
-        val doc = sdoc.doc
-        val manualUsage = usageStats[doc.id] ?: 0
-        var namespaceBoost =
-          when (sdoc.namespaceInt) {
-            1 -> 150 // apps (increased)
-            8 -> 100 // snippets
-            2 -> 130 // app_shortcuts (increased)
-            3 -> 80 // web_bookmarks
-            4 -> 70 // shortcuts
-            5 -> 40 // contacts (decreased)
-            else -> 0
+        val finalScore = maxOf(score, contactScore)
+        if (finalScore > 30) {
+          val doc = sdoc.doc
+          val manualUsage = usageStats[doc.id] ?: 0
+          var namespaceBoost =
+            when (sdoc.namespaceInt) {
+              1 -> 150 // apps (increased)
+              8 -> 100 // snippets
+              2 -> 130 // app_shortcuts (increased)
+              3 -> 80 // web_bookmarks
+              4 -> 70 // shortcuts
+              5 -> 40 // contacts (decreased)
+              else -> 0
+            }
+
+          // Aggressive boost for apps on short queries (1-2 chars)
+          if (queryLower.length <= 2 && sdoc.namespaceInt <= 2) {
+            namespaceBoost += 200
           }
 
-        // Aggressive boost for apps on short queries (1-2 chars)
-        if (queryLower.length <= 2 && sdoc.namespaceInt <= 2) {
-          namespaceBoost += 200
+          candidates.add(sdoc to (finalScore + namespaceBoost + (manualUsage * 10)))
         }
 
-        candidates.add(sdoc to (finalScore + namespaceBoost + (manualUsage * 10)))
+        if (candidates.size > 1000) break
       }
-
-      if (candidates.size > 1000) break
     }
     android.util.Log.v(
       "SearchRepository",
@@ -1846,7 +1869,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     )
 
     val sortStart = System.currentTimeMillis()
-    candidates.sortByDescending { it.second }
+    traceSection("SL:SearchRepository.sortCandidates") { candidates.sortByDescending { it.second } }
     android.util.Log.v(
       "SearchRepository",
       "  [Timing] Sorting ${candidates.size} candidates took ${System.currentTimeMillis() - sortStart}ms",
@@ -1856,29 +1879,31 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     val conversionLimit = if (limit > 0) limit else 50
 
     val conversionStart = System.currentTimeMillis()
-    for ((sdoc, score) in candidates.take(conversionLimit * 2)) {
-      kotlinx.coroutines.currentCoroutineContext().ensureActive()
-      val searchResult =
-        convertDocumentToResult(
-          sdoc,
-          score,
-          query,
-          saveToDisk = false,
-          allowIpc = false, // Force fast path
-          allowDisk = false, // Force fast path
-        )
+    traceSection("SL:SearchRepository.convertResults") {
+      for ((sdoc, score) in candidates.take(conversionLimit * 2)) {
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        val searchResult =
+          convertDocumentToResult(
+            sdoc,
+            score,
+            query,
+            saveToDisk = false,
+            allowIpc = false, // Force fast path
+            allowDisk = false, // Force fast path
+          )
 
-      if (searchResult is SearchResult.SearchIntent && searchResult.trigger in excludedAliases) {
-        continue
+        if (searchResult is SearchResult.SearchIntent && searchResult.trigger in excludedAliases) {
+          continue
+        }
+
+        if (searchResult is SearchResult.SearchIntent && query.isNotBlank()) {
+          appSearchResults.add(searchResult.copy(title = "${searchResult.title}: $query"))
+        } else {
+          appSearchResults.add(searchResult)
+        }
+
+        if (limit > 0 && appSearchResults.size >= limit) break
       }
-
-      if (searchResult is SearchResult.SearchIntent && query.isNotBlank()) {
-        appSearchResults.add(searchResult.copy(title = "${searchResult.title}: $query"))
-      } else {
-        appSearchResults.add(searchResult)
-      }
-
-      if (limit > 0 && appSearchResults.size >= limit) break
     }
     android.util.Log.v(
       "SearchRepository",

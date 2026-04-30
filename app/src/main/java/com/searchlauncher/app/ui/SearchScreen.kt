@@ -65,7 +65,10 @@ import com.searchlauncher.app.ui.onboarding.TutorialOverlay
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import com.searchlauncher.app.util.CustomActionHandler
 import com.searchlauncher.app.util.MathEvaluator
+import com.searchlauncher.app.util.traceSection
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -304,45 +307,60 @@ fun SearchScreen(
   }
 
   LaunchedEffect(query) {
-    if (query.isEmpty()) {
-      searchResults = emptyList()
-      isFallbackMode = false
-    } else {
-      val resultsResult = searchRepository.searchApps(query)
-      val results = resultsResult.getOrElse { emptyList() }
+    traceSection("SL:SearchScreen.queryEffect") {
+      if (query.isEmpty()) {
+        searchResults = emptyList()
+        isFallbackMode = false
+      } else {
+        val results =
+          traceSection("SL:SearchScreen.searchApps") {
+            searchRepository
+              .searchApps(query, limit = LIVE_SEARCH_RESULT_LIMIT, includeSuggestions = false)
+              .getOrElse { emptyList() }
+          }
+        currentCoroutineContext().ensureActive()
 
-      // Always append search shortcuts to the end of the results
-      // Use a higher limit to show all options as requested
-      val shortcuts = searchRepository.getSearchShortcuts(limit = 50)
+        // Always append search shortcuts to the end of the results
+        // Keep this small in the live typing path; richer actions can load after selection.
+        val shortcuts =
+          traceSection("SL:SearchScreen.getSearchShortcuts") {
+            searchRepository.getSearchShortcuts(limit = LIVE_SEARCH_SHORTCUT_LIMIT)
+          }
+        currentCoroutineContext().ensureActive()
 
-      val resultKeys = results.map { it.stableListKey }.toSet()
-      val uniqueShortcuts = shortcuts.filter { !resultKeys.contains(it.stableListKey) }
-      val baseResults = (results + uniqueShortcuts).distinctBy { it.stableListKey }
-      isFallbackMode = results.isEmpty()
+        val baseResults =
+          traceSection("SL:SearchScreen.mergeResults") {
+            val resultKeys = results.map { it.stableListKey }.toSet()
+            val uniqueShortcuts = shortcuts.filter { !resultKeys.contains(it.stableListKey) }
+            (results + uniqueShortcuts).distinctBy { it.stableListKey }
+          }
+        isFallbackMode = results.isEmpty()
 
-      // Calculator injection
-      if (MathEvaluator.isExpression(query)) {
-        val eval = MathEvaluator.evaluate(query)
-        if (eval != null) {
-          // Round to avoid long decimals if possible, or show as is
-          val formattedResult = if (eval % 1.0 == 0.0) eval.toLong().toString() else eval.toString()
-          val calcResult =
-            SearchResult.Content(
-              id = "calculator_result",
-              namespace = "calculator",
-              title = formattedResult,
-              subtitle = "Calculation result (Tap to copy)",
-              icon =
-                searchRepository.getColoredSearchIcon(themeColor.toLong() and 0xFFFFFFFFL, "="),
-              packageName = "android",
-              deepLink = "calculator://copy?text=$formattedResult",
-            )
-          searchResults = (listOf(calcResult) + baseResults).distinctBy { it.stableListKey }
+        // Calculator injection
+        if (MathEvaluator.isExpression(query)) {
+          val eval = MathEvaluator.evaluate(query)
+          if (eval != null) {
+            // Round to avoid long decimals if possible, or show as is
+            val formattedResult =
+              if (eval % 1.0 == 0.0) eval.toLong().toString() else eval.toString()
+            val calcResult =
+              SearchResult.Content(
+                id = "calculator_result",
+                namespace = "calculator",
+                title = formattedResult,
+                subtitle = "Calculation result (Tap to copy)",
+                icon =
+                  searchRepository.getColoredSearchIcon(themeColor.toLong() and 0xFFFFFFFFL, "="),
+                packageName = "android",
+                deepLink = "calculator://copy?text=$formattedResult",
+              )
+            searchResults = (listOf(calcResult) + baseResults).distinctBy { it.stableListKey }
+          } else {
+            searchResults = baseResults
+          }
         } else {
           searchResults = baseResults
         }
-      } else {
-        searchResults = baseResults
       }
     }
   }
@@ -1531,6 +1549,9 @@ internal fun Drawable.toImageBitmap(): ImageBitmap? {
 
 private val SearchResult.stableListKey: String
   get() = "$namespace/$id"
+
+private const val LIVE_SEARCH_RESULT_LIMIT = 16
+private const val LIVE_SEARCH_SHORTCUT_LIMIT = 6
 
 // FavoritesRow extracted to components/FavoritesRow.kt
 
