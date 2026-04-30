@@ -211,7 +211,7 @@ class MainActivity : ComponentActivity() {
     }
 
   fun requestWidgetPick() {
-    queryState = "widgets "
+    updateQueryState("widgets ")
     focusTrigger = System.currentTimeMillis()
   }
 
@@ -320,6 +320,30 @@ class MainActivity : ComponentActivity() {
   private var pendingSettingsSection by mutableStateOf<String?>(null)
   private var focusTrigger by mutableStateOf(0L)
 
+  private fun queryPrefs() = getSharedPreferences("active_search", Context.MODE_PRIVATE)
+
+  private fun updateQueryState(value: String) {
+    queryState = value
+    queryPrefs()
+      .edit()
+      .putString(KEY_ACTIVE_QUERY, value)
+      .putLong(KEY_ACTIVE_QUERY_TIME, System.currentTimeMillis())
+      .apply()
+  }
+
+  private fun clearQueryState() {
+    queryState = ""
+    queryPrefs().edit().remove(KEY_ACTIVE_QUERY).remove(KEY_ACTIVE_QUERY_TIME).apply()
+  }
+
+  private fun restoreRecentQuery(): String {
+    val prefs = queryPrefs()
+    val query = prefs.getString(KEY_ACTIVE_QUERY, null).orEmpty()
+    val savedAt = prefs.getLong(KEY_ACTIVE_QUERY_TIME, 0L)
+    val isRecent = System.currentTimeMillis() - savedAt <= ACTIVE_QUERY_RESTORE_WINDOW_MS
+    return if (query.isNotBlank() && isRecent) query else ""
+  }
+
   private val screenOnReceiver =
     object : BroadcastReceiver() {
       override fun onReceive(context: Context, intent: Intent) {
@@ -410,7 +434,7 @@ class MainActivity : ComponentActivity() {
     }
 
     if (intent.hasCategory(Intent.CATEGORY_HOME) && intent.action == Intent.ACTION_MAIN) {
-      queryState = ""
+      clearQueryState()
       currentScreenState = Screen.Search
       pendingSettingsSection = null
       focusTrigger = System.currentTimeMillis()
@@ -447,6 +471,7 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     appWidgetManager = android.appwidget.AppWidgetManager.getInstance(applicationContext)
     appWidgetHost = android.appwidget.AppWidgetHost(applicationContext, APPWIDGET_HOST_ID)
+    queryState = savedInstanceState?.getString(KEY_ACTIVE_QUERY) ?: restoreRecentQuery()
     enableEdgeToEdge()
     // Keep keyboard always visible
     window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
@@ -583,6 +608,11 @@ class MainActivity : ComponentActivity() {
         appWidgetHost.deleteAppWidgetId(appWidgetId)
       }
     }
+  }
+
+  override fun onSaveInstanceState(outState: Bundle) {
+    super.onSaveInstanceState(outState)
+    outState.putString(KEY_ACTIVE_QUERY, queryState)
   }
 
   private enum class Screen {
@@ -801,8 +831,8 @@ class MainActivity : ComponentActivity() {
             Screen.Search -> {
               SearchScreen(
                 query = queryState,
-                onQueryChange = { queryState = it },
-                onDismiss = { queryState = "" },
+                onQueryChange = { updateQueryState(it) },
+                onDismiss = { clearQueryState() },
                 onOpenSettings = {
                   keyboardController?.hide()
                   currentScreenState = Screen.Settings
@@ -849,7 +879,7 @@ class MainActivity : ComponentActivity() {
             onAppClick = { result ->
               launchApp(context, result)
               currentScreenState = Screen.Search
-              queryState = ""
+              clearQueryState()
             },
             onBack = {
               currentScreenState = Screen.Search
@@ -911,7 +941,7 @@ class MainActivity : ComponentActivity() {
 
         // Intercept Widget Add Intent
         if (intent.action == "com.searchlauncher.action.ADD_WIDGET") {
-          queryState = "widgets "
+          updateQueryState("widgets ")
           focusTrigger = System.currentTimeMillis()
           return
         }
@@ -938,6 +968,12 @@ class MainActivity : ComponentActivity() {
         onWidgetProviderSelected(providerInfo)
       }
     }
+  }
+
+  companion object {
+    private const val KEY_ACTIVE_QUERY = "active_query"
+    private const val KEY_ACTIVE_QUERY_TIME = "active_query_time"
+    private const val ACTIVE_QUERY_RESTORE_WINDOW_MS = 5 * 60 * 1000L
   }
 }
 

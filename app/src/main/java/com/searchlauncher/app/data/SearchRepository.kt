@@ -1946,6 +1946,16 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     executor.shutdown()
   }
 
+  fun trimMemory(level: Int) {
+    if (
+      level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+        level == android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN
+    ) {
+      iconCache.evictAll()
+      android.util.Log.d("SearchRepository", "Evicted icon cache on trim memory level $level")
+    }
+  }
+
   // Delegation method for icon generation
   fun getColoredSearchIcon(color: Long?, text: String? = null): Drawable? {
     return iconGenerator.getColoredSearchIcon(color, text)

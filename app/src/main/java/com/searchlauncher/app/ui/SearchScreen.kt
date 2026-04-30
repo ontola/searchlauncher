@@ -490,9 +490,6 @@ fun SearchScreen(
         onDispose { speechRecognizer.destroy() }
       }
 
-      // Clear search query when a package is uninstalled or Updated
-      LaunchedEffect(Unit) { searchRepository.packageUpdated.collect { onDismiss() } }
-
       var currentWallpaperUri by remember { mutableStateOf<Uri?>(null) }
       var showBackgroundMenu by remember { mutableStateOf(false) }
       var menuOffset by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }

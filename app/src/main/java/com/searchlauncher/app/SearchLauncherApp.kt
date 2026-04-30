@@ -53,6 +53,13 @@ class SearchLauncherApp : Application() {
     checkConsentAndInitSentry()
   }
 
+  override fun onTrimMemory(level: Int) {
+    super.onTrimMemory(level)
+    if (::searchRepository.isInitialized) {
+      searchRepository.trimMemory(level)
+    }
+  }
+
   private fun checkConsentAndInitSentry() {
     val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     if (prefs.contains(KEY_CONSENT_GRANTED)) {
