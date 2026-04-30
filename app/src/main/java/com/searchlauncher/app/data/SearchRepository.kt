@@ -49,6 +49,12 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
+private const val USAGE_KEY_SEPARATOR = "\u001F"
+private const val GLOBAL_USAGE_SCORE_BOOST = 5
+private const val QUERY_USAGE_POINT_SCORE_BOOST = 2
+private const val QUERY_USAGE_FULL_QUERY_POINTS = 100
+private const val QUERY_USAGE_POINTS_CAP = 500
+
 data class SearchableDocument(
   val doc: AppSearchDocument,
   val nameLower: String,
@@ -209,6 +215,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   }
 
   private val usageStats = java.util.concurrent.ConcurrentHashMap<String, Int>()
+  private val queryUsageStats = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
   suspend fun initialize(): Result<Unit> =
     safeCall("SearchRepository", "Error initializing") {
@@ -1203,9 +1210,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         val shortcuts =
           documentSnapshot.filter { it.doc.namespace == "search_shortcuts" }.map { it.doc }
 
-        // Sort by manual usage persistence (usageStats) which is the source of truth for sorting
-        // among shortcuts
-        val sortedShortcuts = shortcuts.sortedByDescending { doc -> usageStats[doc.id] ?: 0 }
+        // Sort by manual usage persistence, which is the source of truth for shortcut ordering.
+        val sortedShortcuts =
+          shortcuts.sortedByDescending { doc -> getGlobalUsageCount(doc.namespace, doc.id) }
 
         return@withContext coroutineScope {
           sortedShortcuts
@@ -1243,7 +1250,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     wasFirstResult: Boolean = false,
   ) =
     withContext(Dispatchers.IO) {
-      val session = appSearchSession ?: return@withContext
+      val session = appSearchSession
       try {
         android.util.Log.d(
           "SearchRepository",
@@ -1252,7 +1259,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         // Only report usage to AppSearch for namespaces that are actually in the index.
         // smart_actions and others are dynamic and will cause reportUsageAsync to fail.
-        if (namespace != "smart_actions" && namespace != "snippets") {
+        if (session != null && namespace != "smart_actions" && namespace != "snippets") {
           try {
             val request =
               androidx.appsearch.app.ReportUsageRequest.Builder(namespace, id)
@@ -1275,9 +1282,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           _indexUpdated.emit(Unit)
         }
 
-        // Manual usage persistence
-        val count = usageStats[id] ?: 0
-        usageStats[id] = count + 1
+        // Manual usage persistence. Global usage is deliberately weak during ranking; query usage
+        // captures "when I type these letters, prefer this result".
+        val usageKey = usageKey(namespace, id)
+        usageStats[usageKey] = (usageStats[usageKey] ?: 0) + 1
+        normalizedUsageQuery(query)?.let { normalizedQuery ->
+          recordQueryUsage(normalizedQuery, namespace, id)
+        }
         saveUsageStats()
 
         // Only invalidate the cache if we picked a result that wasn't first
@@ -1297,6 +1308,15 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         Sentry.captureException(e)
       }
     }
+
+  fun reportUsageAsync(
+    namespace: String,
+    id: String,
+    query: String? = null,
+    wasFirstResult: Boolean = false,
+  ) {
+    scope.launch { reportUsage(namespace, id, query, wasFirstResult) }
+  }
 
   suspend fun indexWebUrl(url: String, title: String? = null) =
     withContext(Dispatchers.IO) {
@@ -1812,6 +1832,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     val candidates = mutableListOf<Pair<SearchableDocument, Int>>()
 
     val queryLower = query.lowercase().trim()
+    val usageQuery = normalizedUsageQuery(queryLower)
     val queryMask = calculateCharMask(queryLower)
     val normalizedQuery = com.searchlauncher.app.util.ContactUtils.normalizePhoneNumber(queryLower)
 
@@ -1840,7 +1861,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         val finalScore = maxOf(score, contactScore)
         if (finalScore > 30) {
           val doc = sdoc.doc
-          val manualUsage = usageStats[doc.id] ?: 0
+          val globalUsage = getGlobalUsageCount(doc.namespace, doc.id)
+          val queryUsagePoints = getQueryUsagePoints(usageQuery, doc.namespace, doc.id)
           var namespaceBoost =
             when (sdoc.namespaceInt) {
               1 -> 150 // apps (increased)
@@ -1857,7 +1879,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             namespaceBoost += 200
           }
 
-          candidates.add(sdoc to (finalScore + namespaceBoost + (manualUsage * 10)))
+          val usageBoost =
+            (globalUsage * GLOBAL_USAGE_SCORE_BOOST) +
+              (queryUsagePoints.coerceAtMost(QUERY_USAGE_POINTS_CAP) *
+                QUERY_USAGE_POINT_SCORE_BOOST)
+
+          candidates.add(sdoc to (finalScore + namespaceBoost + usageBoost))
         }
 
         if (candidates.size > 1000) break
@@ -2479,34 +2506,72 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   // --- Persistence for Instant Favorites ---
 
+  private fun usageKey(namespace: String, id: String): String = "$namespace$USAGE_KEY_SEPARATOR$id"
+
+  private fun queryUsageKey(query: String, namespace: String, id: String): String =
+    "$query$USAGE_KEY_SEPARATOR$namespace$USAGE_KEY_SEPARATOR$id"
+
+  private fun normalizedUsageQuery(query: String?): String? =
+    query?.trim()?.lowercase()?.replace(Regex("\\s+"), " ")?.takeIf { it.isNotEmpty() }
+
+  private fun getGlobalUsageCount(namespace: String, id: String): Int =
+    usageStats[usageKey(namespace, id)] ?: usageStats[id] ?: 0
+
+  private fun getQueryUsagePoints(query: String?, namespace: String, id: String): Int =
+    query?.let { queryUsageStats[queryUsageKey(it, namespace, id)] } ?: 0
+
+  private fun recordQueryUsage(query: String, namespace: String, id: String) {
+    val queryLength = query.length.coerceAtLeast(1)
+    for (prefixLength in 1..queryLength) {
+      val prefix = query.take(prefixLength)
+      val points = ((prefixLength * QUERY_USAGE_FULL_QUERY_POINTS) + queryLength - 1) / queryLength
+      val key = queryUsageKey(prefix, namespace, id)
+      queryUsageStats[key] =
+        ((queryUsageStats[key] ?: 0) + points).coerceAtMost(QUERY_USAGE_POINTS_CAP)
+    }
+  }
+
   private fun getUsageStatsFile() = File(context.filesDir, "usage_stats.json")
 
+  private fun getQueryUsageStatsFile() = File(context.filesDir, "query_usage_stats.json")
+
   private fun saveUsageStats() {
-    scope.launch(Dispatchers.IO) {
-      try {
-        val obj = JSONObject()
-        usageStats.forEach { (key, value) -> obj.put(key, value) }
-        getUsageStatsFile().writeText(obj.toString())
-      } catch (e: Exception) {
-        e.printStackTrace()
-      }
+    try {
+      val usageObj = JSONObject()
+      usageStats.forEach { (key, value) -> usageObj.put(key, value) }
+      getUsageStatsFile().writeText(usageObj.toString())
+
+      val queryUsageObj = JSONObject()
+      queryUsageStats.forEach { (key, value) -> queryUsageObj.put(key, value) }
+      getQueryUsageStatsFile().writeText(queryUsageObj.toString())
+    } catch (e: Exception) {
+      e.printStackTrace()
     }
   }
 
   private fun resetUsageStats() {
     usageStats.clear()
+    queryUsageStats.clear()
     getUsageStatsFile().delete()
+    getQueryUsageStatsFile().delete()
   }
 
   private fun loadUsageStats() {
-    val file = getUsageStatsFile()
+    loadUsageStatsFile(getUsageStatsFile(), usageStats)
+    loadUsageStatsFile(getQueryUsageStatsFile(), queryUsageStats)
+  }
+
+  private fun loadUsageStatsFile(
+    file: File,
+    target: java.util.concurrent.ConcurrentHashMap<String, Int>,
+  ) {
     if (!file.exists()) return
     try {
       val json = JSONObject(file.readText())
       val keys = json.keys()
       while (keys.hasNext()) {
         val key = keys.next()
-        usageStats[key] = json.getInt(key)
+        target[key] = json.getInt(key)
       }
     } catch (e: Exception) {
       e.printStackTrace()

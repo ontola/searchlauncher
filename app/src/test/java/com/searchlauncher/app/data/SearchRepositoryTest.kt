@@ -30,6 +30,8 @@ class SearchRepositoryTest {
     if (cacheFile.exists()) {
       cacheFile.delete()
     }
+    File(context.filesDir, "usage_stats.json").delete()
+    File(context.filesDir, "query_usage_stats.json").delete()
   }
 
   @Test
@@ -113,5 +115,89 @@ class SearchRepositoryTest {
     val loadResult = repository.loadFastIndexCache()
     assertFalse("loadFastIndexCache should return false if file does not exist", loadResult)
     assertTrue("documentSnapshot should be empty", repository.documentSnapshot.isEmpty())
+  }
+
+  @Test
+  fun `query usage boost moves tapped contact above app for same prefix`() = runBlocking {
+    val contact =
+      AppSearchDocument(
+        namespace = "contacts",
+        id = "alice_lookup/1",
+        score = 1,
+        name = "Alice Smith",
+        description = "|+15550123",
+      )
+    val app =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "com.example.aliexpress",
+        score = 1,
+        name = "AliExpress",
+        description = "Shopping",
+      )
+
+    repository.documentSnapshot =
+      listOf(repository.wrap(app), repository.wrap(contact)).sortedBy { it.namespaceInt }
+
+    val beforeTap = repository.searchApps("ali", limit = 5, includeSuggestions = false).getOrThrow()
+    assertEquals(
+      "App should win before the query-specific tap is learned",
+      app.id,
+      beforeTap.first().id,
+    )
+
+    repository.reportUsage(contact.namespace, contact.id, query = "ali", wasFirstResult = false)
+
+    val afterTap = repository.searchApps("ali", limit = 5, includeSuggestions = false).getOrThrow()
+    assertEquals(
+      "Tapped contact should win for the same query prefix",
+      contact.id,
+      afterTap.first().id,
+    )
+  }
+
+  @Test
+  fun `query usage boost also applies to shorter prefixes`() = runBlocking {
+    val contact =
+      AppSearchDocument(
+        namespace = "contacts",
+        id = "polle_lookup/1",
+        score = 1,
+        name = "Polle Person",
+        description = "|+15550123",
+      )
+    val app =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "com.example.polaris",
+        score = 1,
+        name = "Polaris",
+        description = "Tools",
+      )
+
+    repository.documentSnapshot =
+      listOf(repository.wrap(app), repository.wrap(contact)).sortedBy { it.namespaceInt }
+
+    val beforePol = repository.searchApps("pol", limit = 5, includeSuggestions = false).getOrThrow()
+    assertEquals("App should win before the longer query is learned", app.id, beforePol.first().id)
+
+    val beforePo = repository.searchApps("po", limit = 5, includeSuggestions = false).getOrThrow()
+    val contactScoreBeforePo = beforePo.first { it.id == contact.id }.rankingScore
+
+    repository.reportUsage(contact.namespace, contact.id, query = "polle", wasFirstResult = false)
+
+    val afterPol = repository.searchApps("pol", limit = 5, includeSuggestions = false).getOrThrow()
+    assertEquals(
+      "Tapped contact should win for a shorter, strong prefix",
+      contact.id,
+      afterPol.first().id,
+    )
+
+    val afterPo = repository.searchApps("po", limit = 5, includeSuggestions = false).getOrThrow()
+    val contactScoreAfterPo = afterPo.first { it.id == contact.id }.rankingScore
+    assertTrue(
+      "Very short prefixes should get a smaller boost, even if they do not become top result",
+      contactScoreAfterPo > contactScoreBeforePo,
+    )
   }
 }

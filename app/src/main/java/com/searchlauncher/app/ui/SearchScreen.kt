@@ -854,14 +854,12 @@ fun SearchScreen(
                               val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                               intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                               context.startActivity(intent)
-                              scope.launch {
-                                searchRepository.reportUsage(
-                                  result.namespace,
-                                  result.id,
-                                  query,
-                                  index == 0,
-                                )
-                              }
+                              searchRepository.reportUsageAsync(
+                                result.namespace,
+                                result.id,
+                                query,
+                                index == 0,
+                              )
                               onDismiss()
                             } catch (e: Exception) {
                               Toast.makeText(
@@ -1112,14 +1110,12 @@ fun SearchScreen(
                                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 context.startActivity(intent)
-                                scope.launch {
-                                  searchRepository.reportUsage(
-                                    topResult.namespace,
-                                    topResult.id,
-                                    query,
-                                    true,
-                                  )
-                                }
+                                searchRepository.reportUsageAsync(
+                                  topResult.namespace,
+                                  topResult.id,
+                                  query,
+                                  true,
+                                )
                                 onDismiss()
                               } catch (e: Exception) {
                                 Toast.makeText(
@@ -1503,7 +1499,7 @@ private fun launchResult(
   }
 
   // Usage reporting
-  scope.launch { searchRepository.reportUsage(result.namespace, result.id, query, wasFirstResult) }
+  searchRepository.reportUsageAsync(result.namespace, result.id, query, wasFirstResult)
 }
 
 internal fun Drawable.toImageBitmap(): ImageBitmap? {
