@@ -1073,7 +1073,7 @@ private fun PrivacyCard() {
   val scope = rememberCoroutineScope()
   var showPrivacyPolicy by remember { mutableStateOf(false) }
 
-  val searchShortcutsEnabled =
+  val autocompleteSuggestionsEnabled =
     remember {
         context.dataStore.data.map { it[PreferencesKeys.SEARCH_SHORTCUTS_ENABLED] ?: false }
       }
@@ -1091,17 +1091,17 @@ private fun PrivacyCard() {
         verticalAlignment = Alignment.CenterVertically,
       ) {
         Column(modifier = Modifier.weight(1f)) {
-          Text(text = "Web shortcuts and suggestions", style = MaterialTheme.typography.bodyMedium)
+          Text(text = "Autocomplete suggestions", style = MaterialTheme.typography.bodyMedium)
           Text(
             text =
-              "Allow search shortcuts and autocomplete suggestions that can contact third-party services",
+              "Fetch query suggestions from third-party services while typing shortcut searches",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
         }
         Spacer(modifier = Modifier.width(12.dp))
         Switch(
-          checked = searchShortcutsEnabled.value,
+          checked = autocompleteSuggestionsEnabled.value,
           onCheckedChange = { enabled ->
             scope.launch {
               context.dataStore.edit { preferences ->

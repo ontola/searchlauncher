@@ -107,11 +107,6 @@ fun SearchScreen(
   var showDefaultLauncherDialog by remember { mutableStateOf(false) }
   var showPrivacyPolicy by remember { mutableStateOf(false) }
   val searchShortcuts by app.searchShortcutRepository.items.collectAsState()
-  val searchShortcutsEnabled by
-    remember {
-        context.dataStore.data.map { it[PreferencesKeys.SEARCH_SHORTCUTS_ENABLED] ?: false }
-      }
-      .collectAsState(initial = false)
   var showShortcutDialog by remember { mutableStateOf(false) }
   var editingShortcut by remember {
     mutableStateOf<com.searchlauncher.app.data.SearchShortcut?>(null)
@@ -311,7 +306,7 @@ fun SearchScreen(
     }
   }
 
-  LaunchedEffect(query, searchShortcutsEnabled) {
+  LaunchedEffect(query) {
     traceSection("SL:SearchScreen.queryEffect") {
       if (query.isEmpty()) {
         searchResults = emptyList()
@@ -324,7 +319,7 @@ fun SearchScreen(
                 query,
                 limit = LIVE_SEARCH_RESULT_LIMIT,
                 includeSuggestions = false,
-                includeSearchShortcuts = searchShortcutsEnabled,
+                includeSearchShortcuts = true,
               )
               .getOrElse { emptyList() }
           }
@@ -333,12 +328,8 @@ fun SearchScreen(
         // Always append search shortcuts to the end of the results
         // Keep this small in the live typing path; richer actions can load after selection.
         val shortcuts =
-          if (searchShortcutsEnabled) {
-            traceSection("SL:SearchScreen.getSearchShortcuts") {
-              searchRepository.getSearchShortcuts(limit = LIVE_SEARCH_SHORTCUT_LIMIT)
-            }
-          } else {
-            emptyList()
+          traceSection("SL:SearchScreen.getSearchShortcuts") {
+            searchRepository.getSearchShortcuts(limit = LIVE_SEARCH_SHORTCUT_LIMIT)
           }
         currentCoroutineContext().ensureActive()
 
@@ -623,11 +614,12 @@ fun SearchScreen(
           )
         } else if (showConsentDialog) {
           ConsentDialog(
-            onChoicesSaved = { allowWebShortcuts, allowCrashReporting ->
+            onChoicesSaved = { allowAutocompleteSuggestions, allowCrashReporting ->
               app.setConsent(allowCrashReporting)
               scope.launch {
                 context.dataStore.edit { preferences ->
-                  preferences[PreferencesKeys.SEARCH_SHORTCUTS_ENABLED] = allowWebShortcuts
+                  preferences[PreferencesKeys.SEARCH_SHORTCUTS_ENABLED] =
+                    allowAutocompleteSuggestions
                 }
               }
               showConsentDialog = false

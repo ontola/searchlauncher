@@ -155,10 +155,10 @@ fun PrivacyPolicyDialog(onDismiss: () -> Unit, policyText: String) {
 
 @Composable
 fun ConsentDialog(
-  onChoicesSaved: (allowWebShortcuts: Boolean, allowCrashReporting: Boolean) -> Unit,
+  onChoicesSaved: (allowAutocompleteSuggestions: Boolean, allowCrashReporting: Boolean) -> Unit,
   onViewPrivacyPolicy: () -> Unit,
 ) {
-  var allowWebShortcuts by remember { mutableStateOf(false) }
+  var allowAutocompleteSuggestions by remember { mutableStateOf(false) }
   var allowCrashReporting by remember { mutableStateOf(false) }
 
   AlertDialog(
@@ -169,11 +169,11 @@ fun ConsentDialog(
         Text("Choose which optional network features SearchLauncher may use.")
 
         PrivacyChoiceRow(
-          title = "Web shortcuts and suggestions",
+          title = "Autocomplete suggestions",
           description =
-            "Allow search shortcuts and autocomplete suggestions that can contact third-party services such as Google, DuckDuckGo, YouTube, or Bing.",
-          checked = allowWebShortcuts,
-          onCheckedChange = { allowWebShortcuts = it },
+            "Fetch query suggestions from third-party services such as Google, DuckDuckGo, YouTube, or Bing while typing shortcut searches.",
+          checked = allowAutocompleteSuggestions,
+          onCheckedChange = { allowAutocompleteSuggestions = it },
         )
 
         PrivacyChoiceRow(
@@ -191,7 +191,7 @@ fun ConsentDialog(
       }
     },
     confirmButton = {
-      Button(onClick = { onChoicesSaved(allowWebShortcuts, allowCrashReporting) }) {
+      Button(onClick = { onChoicesSaved(allowAutocompleteSuggestions, allowCrashReporting) }) {
         Text("Continue")
       }
     },
