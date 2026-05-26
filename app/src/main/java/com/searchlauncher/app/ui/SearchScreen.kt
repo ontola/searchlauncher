@@ -308,6 +308,7 @@ fun SearchScreen(
 
   LaunchedEffect(query) {
     traceSection("SL:SearchScreen.queryEffect") {
+      searchRepository.noteInteractiveSearch(query)
       if (query.isEmpty()) {
         searchResults = emptyList()
         isFallbackMode = false
