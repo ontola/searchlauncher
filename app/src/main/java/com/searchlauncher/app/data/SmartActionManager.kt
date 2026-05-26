@@ -174,7 +174,7 @@ class SmartActionManager(private val context: Context) {
           icon = timerIcon,
           packageName = "com.google.android.deskclock",
           deepLink = deepLink,
-          rankingScore = 100,
+          rankingScore = 500,
         )
       )
     }
