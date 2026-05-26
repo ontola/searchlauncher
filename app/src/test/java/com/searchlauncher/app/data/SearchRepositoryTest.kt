@@ -172,6 +172,46 @@ class SearchRepositoryTest {
   }
 
   @Test
+  fun `global usage does not outrank a strong word-prefix title match`() = runBlocking {
+    val strongMatch =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "com.example.atomiccanvas",
+        score = 1,
+        name = "Atomic Canvas",
+        description = "Creative",
+      )
+    val weakMatch =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "com.example.cobaltnavigation",
+        score = 1,
+        name = "Cobalt Navigation",
+        description = "Utility",
+      )
+
+    repository.documentSnapshot =
+      listOf(repository.wrap(weakMatch), repository.wrap(strongMatch)).sortedBy { it.namespaceInt }
+
+    repeat(40) {
+      repository.reportUsage(
+        weakMatch.namespace,
+        weakMatch.id,
+        query = null,
+        wasFirstResult = false,
+      )
+    }
+
+    val results = repository.searchApps("Canv", limit = 5, includeSuggestions = false).getOrThrow()
+
+    assertEquals(
+      "A strong title match should beat an often-opened but weaker title match",
+      strongMatch.id,
+      results.first().id,
+    )
+  }
+
+  @Test
   fun `query usage boost moves tapped contact above app for same prefix`() = runBlocking {
     val contact =
       AppSearchDocument(
@@ -195,8 +235,8 @@ class SearchRepositoryTest {
 
     val beforeTap = repository.searchApps("ali", limit = 5, includeSuggestions = false).getOrThrow()
     assertEquals(
-      "App should win before the query-specific tap is learned",
-      app.id,
+      "A strong 3-character contact prefix should win before query-specific learning",
+      contact.id,
       beforeTap.first().id,
     )
 
@@ -207,6 +247,84 @@ class SearchRepositoryTest {
       "Tapped contact should win for the same query prefix",
       contact.id,
       afterTap.first().id,
+    )
+  }
+
+  @Test
+  fun `latest selected app wins for the same exact query`() = runBlocking {
+    val reddit =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "com.reddit.frontpage",
+        score = 1,
+        name = "Reddit",
+        description = "Social",
+      )
+    val reolink =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "com.mcu.reolink",
+        score = 1,
+        name = "Reolink",
+        description = "Camera",
+      )
+
+    repository.documentSnapshot =
+      listOf(repository.wrap(reddit), repository.wrap(reolink)).sortedBy { it.namespaceInt }
+
+    repeat(5) {
+      repository.reportUsage(reolink.namespace, reolink.id, query = "re", wasFirstResult = false)
+    }
+
+    val beforeRedditTap =
+      repository.searchApps("re", limit = 5, includeSuggestions = false).getOrThrow()
+    assertEquals(reolink.id, beforeRedditTap.first().id)
+
+    repository.reportUsage(reddit.namespace, reddit.id, query = "re", wasFirstResult = false)
+
+    val afterRedditTap =
+      repository.searchApps("re", limit = 5, includeSuggestions = false).getOrThrow()
+    assertEquals(
+      "Selecting Reddit for the exact same query should make Reddit the top learned result",
+      reddit.id,
+      afterRedditTap.first().id,
+    )
+  }
+
+  @Test
+  fun `three character contact prefix appears above weak app matches`() = runBlocking {
+    val contact =
+      AppSearchDocument(
+        namespace = "contacts",
+        id = "alice_lookup/1",
+        score = 1,
+        name = "Alice Smith",
+        description = "|+15550123",
+      )
+    val weakAppMatches =
+      (0 until 20).map { index ->
+        AppSearchDocument(
+          namespace = "apps",
+          id = "com.example.metallic$index",
+          score = 1,
+          name = "Metallic $index",
+          description = "Application",
+        )
+      }
+
+    repository.documentSnapshot =
+      (weakAppMatches + contact).map { repository.wrap(it) }.sortedBy { it.namespaceInt }
+
+    val results = repository.searchApps("ali", limit = 16, includeSuggestions = false).getOrThrow()
+
+    assertTrue(
+      "A 3-character contact prefix should not be hidden below weak app contains matches",
+      results.any { it.id == contact.id },
+    )
+    assertTrue(
+      "A 3-character contact prefix should rank above weak app contains matches",
+      results.indexOfFirst { it.id == contact.id } <
+        results.indexOfFirst { it.id == weakAppMatches.first().id },
     )
   }
 
@@ -233,7 +351,11 @@ class SearchRepositoryTest {
       listOf(repository.wrap(app), repository.wrap(contact)).sortedBy { it.namespaceInt }
 
     val beforePol = repository.searchApps("pol", limit = 5, includeSuggestions = false).getOrThrow()
-    assertEquals("App should win before the longer query is learned", app.id, beforePol.first().id)
+    assertEquals(
+      "A strong 3-character contact prefix should win before query-specific learning",
+      contact.id,
+      beforePol.first().id,
+    )
 
     val beforePo = repository.searchApps("po", limit = 5, includeSuggestions = false).getOrThrow()
     val contactScoreBeforePo = beforePo.first { it.id == contact.id }.rankingScore
@@ -250,8 +372,54 @@ class SearchRepositoryTest {
     val afterPo = repository.searchApps("po", limit = 5, includeSuggestions = false).getOrThrow()
     val contactScoreAfterPo = afterPo.first { it.id == contact.id }.rankingScore
     assertTrue(
-      "Very short prefixes should get a smaller boost, even if they do not become top result",
+      "A selected contact should get a learned boost for a two-character prefix",
       contactScoreAfterPo > contactScoreBeforePo,
+    )
+    assertEquals(
+      "A selected contact should be visible at the top for a learned two-character prefix",
+      contact.id,
+      afterPo.first().id,
+    )
+
+    val afterP = repository.searchApps("p", limit = 5, includeSuggestions = false).getOrThrow()
+    assertEquals(
+      "A selected contact should be visible at the top for a learned one-character prefix",
+      contact.id,
+      afterP.first().id,
+    )
+  }
+
+  @Test
+  fun `learned one character contact is not skipped after many app matches`() = runBlocking {
+    val contact =
+      AppSearchDocument(
+        namespace = "contacts",
+        id = "anja_lookup/1",
+        score = 1,
+        name = "Anja Person",
+        description = "|+15550123",
+      )
+    val appMatches =
+      (0 until 1100).map { index ->
+        AppSearchDocument(
+          namespace = "apps",
+          id = "com.example.alpha$index",
+          score = 1,
+          name = "Alpha App $index",
+          description = "Application",
+        )
+      }
+
+    repository.documentSnapshot =
+      (appMatches + contact).map { repository.wrap(it) }.sortedBy { it.namespaceInt }
+
+    repository.reportUsage(contact.namespace, contact.id, query = "anja", wasFirstResult = false)
+
+    val results = repository.searchApps("a", limit = 5, includeSuggestions = false).getOrThrow()
+    assertEquals(
+      "A learned contact should still be considered after a one-character app-heavy candidate list",
+      contact.id,
+      results.first().id,
     )
   }
 }

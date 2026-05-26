@@ -70,6 +70,25 @@ class SmartActionManager(private val context: Context) {
           )
         )
       }
+
+      // Add Contact Action
+      if (isPhone) {
+        val addContactIcon = context.getDrawable(android.R.drawable.ic_menu_add)
+        val encodedNumber = android.net.Uri.encode(targetNumber)
+        results.add(
+          SearchResult.Content(
+            id = "smart_action_add_contact_$targetNumber",
+            namespace = "smart_actions",
+            title = "Add $targetNumber to contacts",
+            subtitle = "Contact",
+            icon = addContactIcon,
+            packageName = "com.android.contacts", // Best effort
+            deepLink =
+              "intent:#Intent;action=android.intent.action.INSERT;type=vnd.android.cursor.dir/raw_contact;S.phone=$encodedNumber;end",
+            rankingScore = 98,
+          )
+        )
+      }
     }
 
     // Email Check

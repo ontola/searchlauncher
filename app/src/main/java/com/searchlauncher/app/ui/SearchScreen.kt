@@ -266,7 +266,6 @@ fun SearchScreen(
     }
   }
 
-  val isImeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
   val view = LocalView.current
 
   // Use InputMethodManager for more reliable keyboard control
@@ -275,33 +274,18 @@ fun SearchScreen(
       as android.view.inputmethod.InputMethodManager
   }
 
-  // Continuously monitor and force keyboard to stay visible using IMM
-  DisposableEffect(isActive) {
-    val job =
-      scope.launch {
-        while (isActive) {
-          if (!isImeVisible) {
-            focusRequester.requestFocus()
-            kotlinx.coroutines.delay(50)
-            // Use SHOW_IMPLICIT for standard keyboard show
-            view.post {
-              imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-            }
-          }
-          kotlinx.coroutines.delay(200) // Check every 200ms
-        }
-      }
-
-    onDispose { job.cancel() }
-  }
-
-  // Initial keyboard show on trigger
+  // Ask for the keyboard on activation, with a few retries for slow window attachment.
   LaunchedEffect(isActive, focusTrigger) {
     if (isActive) {
-      focusRequester.requestFocus()
-      kotlinx.coroutines.delay(100)
-      view.post {
-        imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+      repeat(3) {
+        focusRequester.requestFocus()
+        kotlinx.coroutines.delay(100)
+        view.post {
+          if (view.isAttachedToWindow && view.hasWindowFocus()) {
+            imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+          }
+        }
+        kotlinx.coroutines.delay(150)
       }
     }
   }

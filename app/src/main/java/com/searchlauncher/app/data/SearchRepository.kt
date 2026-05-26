@@ -57,6 +57,10 @@ private const val QUERY_USAGE_FULL_QUERY_POINTS = 100
 private const val QUERY_USAGE_POINTS_CAP = 500
 private const val INDEXING_INTERACTIVE_SEARCH_PAUSE_MS = 1200L
 private const val INDEXING_INTERACTIVE_SEARCH_POLL_MS = 80L
+private const val CONTACT_STRONG_MATCH_MIN_QUERY_LENGTH = 3
+private const val CONTACT_STRONG_MATCH_BOOST = 120
+private const val LEARNED_CONTACT_SHORT_QUERY_MAX_LENGTH = 2
+private const val LEARNED_CONTACT_SHORT_QUERY_BOOST = 320
 
 data class SearchableDocument(
   val doc: AppSearchDocument,
@@ -74,7 +78,16 @@ data class SearchableDocument(
 )
 
 class SearchRepository(private val context: Context) : BaseRepository() {
-  @Volatile internal var documentSnapshot: List<SearchableDocument> = emptyList()
+  @Volatile private var documentByNamespaceAndId: Map<String, SearchableDocument> = emptyMap()
+
+  @Volatile
+  internal var documentSnapshot: List<SearchableDocument> = emptyList()
+    set(value) {
+      field = value
+      documentByNamespaceAndId =
+        value.associateBy { documentLookupKey(it.doc.namespace, it.doc.id) }
+    }
+
   private var appSearchSession: AppSearchSession? = null
   @Volatile private var pauseIndexingUntilMs: Long = 0L
 
@@ -1943,6 +1956,23 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             namespaceBoost += 200
           }
 
+          if (
+            sdoc.namespaceInt == 5 &&
+              queryLower.length >= CONTACT_STRONG_MATCH_MIN_QUERY_LENGTH &&
+              finalScore >= 85
+          ) {
+            namespaceBoost += CONTACT_STRONG_MATCH_BOOST
+          }
+
+          if (
+            sdoc.namespaceInt == 5 &&
+              queryLower.length <= LEARNED_CONTACT_SHORT_QUERY_MAX_LENGTH &&
+              queryUsagePoints > 0 &&
+              finalScore >= 85
+          ) {
+            namespaceBoost += LEARNED_CONTACT_SHORT_QUERY_BOOST
+          }
+
           val usageBoost =
             (globalUsage.coerceAtMost(GLOBAL_USAGE_SCORE_CAP) * GLOBAL_USAGE_SCORE_BOOST) +
               (queryUsagePoints.coerceAtMost(QUERY_USAGE_POINTS_CAP) *
@@ -1954,6 +1984,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         if (candidates.size > 1000) break
       }
     }
+    addLearnedShortQueryContacts(
+      queryLower = queryLower,
+      usageQuery = usageQuery,
+      queryMask = queryMask,
+      candidates = candidates,
+    )
     android.util.Log.v(
       "SearchRepository",
       "  [Timing] scan of ${snapshot.size} docs took ${System.currentTimeMillis() - syncStart}ms",
@@ -2007,6 +2043,50 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     )
 
     return appSearchResults
+  }
+
+  private fun addLearnedShortQueryContacts(
+    queryLower: String,
+    usageQuery: String?,
+    queryMask: Long,
+    candidates: MutableList<Pair<SearchableDocument, Int>>,
+  ) {
+    if (usageQuery == null || queryLower.length > LEARNED_CONTACT_SHORT_QUERY_MAX_LENGTH) return
+
+    val existingContactIds =
+      candidates.asSequence().filter { it.first.namespaceInt == 5 }.map { it.first.doc.id }.toSet()
+    val keyPrefix = queryUsageKeyPrefix(usageQuery, "contacts")
+    val learnedContactEntries =
+      queryUsageStats.entries
+        .asSequence()
+        .filter { (key, points) -> points > 0 && key.startsWith(keyPrefix) }
+        .sortedByDescending { it.value }
+        .take(8)
+        .toList()
+
+    for ((key, queryUsagePoints) in learnedContactEntries) {
+      val contactId = key.removePrefix(keyPrefix)
+      if (contactId in existingContactIds) continue
+      val sdoc = documentByNamespaceAndId[documentLookupKey("contacts", contactId)] ?: continue
+      val finalScore =
+        FuzzyMatch.calculateScore(
+          queryLower,
+          sdoc.nameLower,
+          sdoc.targetWords,
+          sdoc.acronym,
+          queryMask,
+          sdoc.charMask,
+        )
+      if (finalScore < 85) continue
+
+      val doc = sdoc.doc
+      val globalUsage = getGlobalUsageCount(doc.namespace, doc.id)
+      val usageBoost =
+        (globalUsage.coerceAtMost(GLOBAL_USAGE_SCORE_CAP) * GLOBAL_USAGE_SCORE_BOOST) +
+          (queryUsagePoints.coerceAtMost(QUERY_USAGE_POINTS_CAP) * QUERY_USAGE_POINT_SCORE_BOOST)
+
+      candidates.add(sdoc to (finalScore + 40 + LEARNED_CONTACT_SHORT_QUERY_BOOST + usageBoost))
+    }
   }
 
   private fun getFuzzyMatches(query: String): List<Pair<AppSearchDocument, Int>> {
@@ -2570,10 +2650,16 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   // --- Persistence for Instant Favorites ---
 
+  private fun documentLookupKey(namespace: String, id: String): String =
+    "$namespace$USAGE_KEY_SEPARATOR$id"
+
   private fun usageKey(namespace: String, id: String): String = "$namespace$USAGE_KEY_SEPARATOR$id"
 
+  private fun queryUsageKeyPrefix(query: String, namespace: String): String =
+    "$query$USAGE_KEY_SEPARATOR$namespace$USAGE_KEY_SEPARATOR"
+
   private fun queryUsageKey(query: String, namespace: String, id: String): String =
-    "$query$USAGE_KEY_SEPARATOR$namespace$USAGE_KEY_SEPARATOR$id"
+    "${queryUsageKeyPrefix(query, namespace)}$id"
 
   private fun normalizedUsageQuery(query: String?): String? =
     query?.trim()?.lowercase()?.replace(Regex("\\s+"), " ")?.takeIf { it.isNotEmpty() }
@@ -2590,9 +2676,22 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       val prefix = query.take(prefixLength)
       val points = ((prefixLength * QUERY_USAGE_FULL_QUERY_POINTS) + queryLength - 1) / queryLength
       val key = queryUsageKey(prefix, namespace, id)
-      queryUsageStats[key] =
-        ((queryUsageStats[key] ?: 0) + points).coerceAtMost(QUERY_USAGE_POINTS_CAP)
+      if (prefix == query) {
+        clearCompetingQueryUsage(prefix, namespace, id)
+        queryUsageStats[key] = QUERY_USAGE_POINTS_CAP
+      } else {
+        queryUsageStats[key] =
+          ((queryUsageStats[key] ?: 0) + points).coerceAtMost(QUERY_USAGE_POINTS_CAP)
+      }
     }
+  }
+
+  private fun clearCompetingQueryUsage(query: String, namespace: String, selectedId: String) {
+    val selectedKey = queryUsageKey(query, namespace, selectedId)
+    val keyPrefix = queryUsageKeyPrefix(query, namespace)
+    queryUsageStats.keys
+      .filter { key -> key.startsWith(keyPrefix) && key != selectedKey }
+      .forEach { key -> queryUsageStats.remove(key) }
   }
 
   private fun getUsageStatsFile() = File(context.filesDir, "usage_stats.json")
