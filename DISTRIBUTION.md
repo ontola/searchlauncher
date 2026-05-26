@@ -20,9 +20,9 @@ F-Droid builds from source. Ensure your repository is public and the release com
 
 The metadata in `fdroid/com.searchlauncher.app.yml` currently targets:
 
-- Version: `0.0.3`
-- Version code: `180`
-- Commit/tag: `v0.0.3`
+- Version: `0.0.4`
+- Version code: `192`
+- Commit/tag: `v0.0.4`
 
 ### 2. Submission Process
 1. Fork the [fdroiddata repository](https://gitlab.com/fdroid/fdroiddata).

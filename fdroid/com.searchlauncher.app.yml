@@ -41,7 +41,16 @@ Builds:
       - searchLauncherVersionName=0.0.3
     gradle:
       - yes
+  - versionName: 0.0.4
+    versionCode: 192
+    commit: v0.0.4
+    subdir: app
+    gradleprops:
+      - searchLauncherVersionCode=192
+      - searchLauncherVersionName=0.0.4
+    gradle:
+      - yes
 
 UpdateCheckMode: Tags
-CurrentVersion: 0.0.3
-CurrentVersionCode: 180
+CurrentVersion: 0.0.4
+CurrentVersionCode: 192

@@ -1,0 +1,8 @@
+Improved live search ranking and responsiveness.
+
+- Better learned ranking for frequently selected apps and contacts.
+- Contacts selected from longer searches can now appear for learned 1-2 character prefixes.
+- Contacts are easier to find from 3-character name prefixes.
+- Added fuzzy matching and snippet content search.
+- Added an Add Contact action for typed phone numbers.
+- Reduced typing jank by pausing indexing during active search and removing repeated keyboard show requests.
