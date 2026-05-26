@@ -3,7 +3,6 @@ package com.searchlauncher.app.ui
 import android.app.AppOpsManager
 import android.content.Context
 import android.os.Process
-import android.provider.Settings
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -53,33 +52,5 @@ class MainActivityKtTest {
 
     // Should return false
     assertFalse(hasUsageStatsPermission(mockContext))
-  }
-
-  @Test
-  fun `returns true when this app accessibility service is enabled`() {
-    Settings.Secure.putString(
-      context.contentResolver,
-      Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-      pkg,
-    )
-
-    assertTrue(isAccessibilityServiceEnabled(context))
-  }
-
-  @Test
-  fun `returns false when other accessibility services are enabled but not this one`() {
-    assertFalse(isAccessibilityServiceEnabled(context))
-  }
-
-  @Test
-  fun `returns false when the enabled services string is null or empty`() {
-    val services =
-      Settings.Secure.getString(
-        context.contentResolver,
-        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-      )
-
-    assertTrue(services.isNullOrEmpty())
-    assertFalse(isAccessibilityServiceEnabled(context))
   }
 }

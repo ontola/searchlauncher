@@ -7,7 +7,6 @@ import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -28,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.lifecycleScope
 import com.searchlauncher.app.SearchLauncherApp
-import com.searchlauncher.app.service.OverlayService
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -624,7 +622,6 @@ class MainActivity : ComponentActivity() {
   @Composable
   private fun MainScreen() {
     val context = LocalContext.current
-    var showPractice by remember { mutableStateOf(false) }
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
@@ -647,10 +644,6 @@ class MainActivity : ComponentActivity() {
         focusTrigger = System.currentTimeMillis()
       }
     }
-
-    val swipeGestureEnabled =
-      remember { context.dataStore.data.map { it[PreferencesKeys.SWIPE_GESTURE_ENABLED] ?: false } }
-        .collectAsState(initial = false)
 
     val isFirstRun by
       remember { context.dataStore.data.map { it[PreferencesKeys.IS_FIRST_RUN] ?: true } }
@@ -724,197 +717,161 @@ class MainActivity : ComponentActivity() {
       }
     }
 
-    if (showPractice) {
-      PracticeGestureScreen(onBack = { showPractice = false })
-    } else {
-      // Auto-start service if enabled in settings AND permissions are granted
-      LaunchedEffect(swipeGestureEnabled.value) {
-        if (swipeGestureEnabled.value) {
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)) {
-            startOverlayService()
-          }
-        } else {
-          stopOverlayService()
-        }
+    // Hide keyboard when opening App List
+    LaunchedEffect(currentScreenState) {
+      if (currentScreenState == Screen.AppList) {
+        keyboardController?.hide()
+        focusManager.clearFocus()
       }
+    }
 
-      // Hide keyboard when opening App List
-      LaunchedEffect(currentScreenState) {
-        if (currentScreenState == Screen.AppList) {
-          keyboardController?.hide()
-          focusManager.clearFocus()
-        }
-      }
-
-      if (showImportConfirmation) {
-        AlertDialog(
-          onDismissRequest = {
-            showImportConfirmation = false
-            pendingImportUri = null
-          },
-          title = { Text("Import Backup?") },
-          text = {
-            Text(
-              "This will overwrite your existing shortcuts, favorites, history, and settings. Are you sure?"
-            )
-          },
-          confirmButton = {
-            TextButton(
-              onClick = {
-                showImportConfirmation = false
-                pendingImportUri?.let { uri -> lifecycleScope.launch { performImport(uri) } }
-                pendingImportUri = null
-              }
-            ) {
-              Text("Import")
-            }
-          },
-          dismissButton = {
-            TextButton(
-              onClick = {
-                showImportConfirmation = false
-                pendingImportUri = null
-              }
-            ) {
-              Text("Cancel")
-            }
-          },
-        )
-      }
-
-      if (showExportDialog) {
-        AlertDialog(
-          onDismissRequest = { showExportDialog = false },
-          title = { Text("Export Backup") },
-          text = {
-            Column {
-              Text("Create a backup of your data.")
-              Spacer(modifier = Modifier.height(16.dp))
-              Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Checkbox(
-                  checked = exportIncludeWallpapers,
-                  onCheckedChange = { exportIncludeWallpapers = it },
-                )
-                val sizeMb = exportWallpaperSize / (1024.0 * 1024.0)
-                Text("Include wallpapers (%.2f MB)".format(sizeMb))
-              }
-            }
-          },
-          confirmButton = {
-            TextButton(
-              onClick = {
-                showExportDialog = false
-                performExportAction()
-              }
-            ) {
-              Text("Export")
-            }
-          },
-          dismissButton = { TextButton(onClick = { showExportDialog = false }) { Text("Cancel") } },
-        )
-      }
-
-      Box(modifier = Modifier.fillMaxSize()) {
-        // Layer 1: Base Content (Search, Settings, etc.)
-        // When AppList is open, we want the base layer to be Search
-        val baseState =
-          if (currentScreenState == Screen.AppList) Screen.Search else currentScreenState
-
-        androidx.compose.animation.AnimatedContent(
-          targetState = baseState,
-          transitionSpec = {
-            androidx.compose.animation.fadeIn() togetherWith androidx.compose.animation.fadeOut()
-          },
-          label = "BaseScreenTransition",
-        ) { targetState ->
-          when (targetState) {
-            Screen.Search -> {
-              SearchScreen(
-                query = queryState,
-                onQueryChange = { updateQueryState(it) },
-                onDismiss = { clearQueryState() },
-                onOpenSettings = {
-                  keyboardController?.hide()
-                  currentScreenState = Screen.Settings
-                },
-                onOpenAppDrawer = { currentScreenState = Screen.AppList },
-                searchRepository = app.searchRepository,
-                focusTrigger = focusTrigger,
-                showBackgroundImage = true,
-                folderImages = folderImages,
-                lastImageUriString = lastImageUriString,
-                onAddWidget = { requestWidgetPick() },
-                isActive = currentScreenState == Screen.Search,
-              )
-            }
-            Screen.Settings -> {
-              SettingsScreen(
-                onStartService = { startOverlayService() },
-                onStopService = { stopOverlayService() },
-                onOpenPractice = { showPractice = true },
-                onBack = { currentScreenState = Screen.Search },
-                initialHighlightSection = pendingSettingsSection,
-                onExportBackup = { initiateExportBackup() },
-              )
-            }
-            else -> {
-              /* No-op */
-            }
-          }
-        }
-
-        // Layer 2: App List Overlay
-        androidx.compose.animation.AnimatedVisibility(
-          visible = currentScreenState == Screen.AppList,
-          enter =
-            androidx.compose.animation.slideInVertically { height -> height } +
-              androidx.compose.animation.fadeIn(),
-          exit =
-            androidx.compose.animation.slideOutVertically { height -> height } +
-              androidx.compose.animation.fadeOut(),
-          modifier = Modifier.fillMaxSize(),
-        ) {
-          AppListScreen(
-            searchRepository = app.searchRepository,
-            onAppClick = { result ->
-              launchApp(context, result)
-              currentScreenState = Screen.Search
-              clearQueryState()
-            },
-            onBack = {
-              currentScreenState = Screen.Search
-              focusTrigger = System.currentTimeMillis()
-            },
+    if (showImportConfirmation) {
+      AlertDialog(
+        onDismissRequest = {
+          showImportConfirmation = false
+          pendingImportUri = null
+        },
+        title = { Text("Import Backup?") },
+        text = {
+          Text(
+            "This will overwrite your existing shortcuts, favorites, history, and settings. Are you sure?"
           )
+        },
+        confirmButton = {
+          TextButton(
+            onClick = {
+              showImportConfirmation = false
+              pendingImportUri?.let { uri -> lifecycleScope.launch { performImport(uri) } }
+              pendingImportUri = null
+            }
+          ) {
+            Text("Import")
+          }
+        },
+        dismissButton = {
+          TextButton(
+            onClick = {
+              showImportConfirmation = false
+              pendingImportUri = null
+            }
+          ) {
+            Text("Cancel")
+          }
+        },
+      )
+    }
+
+    if (showExportDialog) {
+      AlertDialog(
+        onDismissRequest = { showExportDialog = false },
+        title = { Text("Export Backup") },
+        text = {
+          Column {
+            Text("Create a backup of your data.")
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+              Checkbox(
+                checked = exportIncludeWallpapers,
+                onCheckedChange = { exportIncludeWallpapers = it },
+              )
+              val sizeMb = exportWallpaperSize / (1024.0 * 1024.0)
+              Text("Include wallpapers (%.2f MB)".format(sizeMb))
+            }
+          }
+        },
+        confirmButton = {
+          TextButton(
+            onClick = {
+              showExportDialog = false
+              performExportAction()
+            }
+          ) {
+            Text("Export")
+          }
+        },
+        dismissButton = { TextButton(onClick = { showExportDialog = false }) { Text("Cancel") } },
+      )
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+      // Layer 1: Base Content (Search, Settings, etc.)
+      // When AppList is open, we want the base layer to be Search
+      val baseState =
+        if (currentScreenState == Screen.AppList) Screen.Search else currentScreenState
+
+      androidx.compose.animation.AnimatedContent(
+        targetState = baseState,
+        transitionSpec = {
+          androidx.compose.animation.fadeIn() togetherWith androidx.compose.animation.fadeOut()
+        },
+        label = "BaseScreenTransition",
+      ) { targetState ->
+        when (targetState) {
+          Screen.Search -> {
+            SearchScreen(
+              query = queryState,
+              onQueryChange = { updateQueryState(it) },
+              onDismiss = { clearQueryState() },
+              onOpenSettings = {
+                keyboardController?.hide()
+                currentScreenState = Screen.Settings
+              },
+              onOpenAppDrawer = { currentScreenState = Screen.AppList },
+              searchRepository = app.searchRepository,
+              focusTrigger = focusTrigger,
+              showBackgroundImage = true,
+              folderImages = folderImages,
+              lastImageUriString = lastImageUriString,
+              onAddWidget = { requestWidgetPick() },
+              isActive = currentScreenState == Screen.Search,
+            )
+          }
+          Screen.Settings -> {
+            SettingsScreen(
+              onBack = { currentScreenState = Screen.Search },
+              initialHighlightSection = pendingSettingsSection,
+              onExportBackup = { initiateExportBackup() },
+            )
+          }
+          else -> {
+            /* No-op */
+          }
         }
       }
 
-      if (showWidgetPicker.value) {
-        WidgetPicker(
-          appWidgetManager = appWidgetManager,
-          onWidgetSelected = { info -> onWidgetProviderSelected(info) },
-          onDismiss = { showWidgetPicker.value = false },
+      // Layer 2: App List Overlay
+      androidx.compose.animation.AnimatedVisibility(
+        visible = currentScreenState == Screen.AppList,
+        enter =
+          androidx.compose.animation.slideInVertically { height -> height } +
+            androidx.compose.animation.fadeIn(),
+        exit =
+          androidx.compose.animation.slideOutVertically { height -> height } +
+            androidx.compose.animation.fadeOut(),
+        modifier = Modifier.fillMaxSize(),
+      ) {
+        AppListScreen(
+          searchRepository = app.searchRepository,
+          onAppClick = { result ->
+            launchApp(context, result)
+            currentScreenState = Screen.Search
+            clearQueryState()
+          },
+          onBack = {
+            currentScreenState = Screen.Search
+            focusTrigger = System.currentTimeMillis()
+          },
         )
       }
     }
-  }
 
-  private fun startOverlayService() {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-      if (Settings.canDrawOverlays(this)) {
-        val intent = Intent(this, OverlayService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-          startForegroundService(intent)
-        } else {
-          startService(intent)
-        }
-      }
+    if (showWidgetPicker.value) {
+      WidgetPicker(
+        appWidgetManager = appWidgetManager,
+        onWidgetSelected = { info -> onWidgetProviderSelected(info) },
+        onDismiss = { showWidgetPicker.value = false },
+      )
     }
-  }
-
-  private fun stopOverlayService() {
-    val intent = Intent(this, OverlayService::class.java)
-    stopService(intent)
   }
 
   private fun launchApp(context: Context, result: com.searchlauncher.app.data.SearchResult) {

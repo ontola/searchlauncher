@@ -14,7 +14,7 @@ Android app that lets you search everything on your phone, and more.
 - **Widgets** - Add widgets through the search bar, resize them, and toggle visibility by tapping the background
 - **Voice search** - Tap the mic to speak your query
 - **Snippets** - Fast access to frequently used text snippets
-- **Quick Access to notification bar & quick settings** - With a swipe gesture from middle to the bottom, open the notification bar & quick settings.
+- **Quick Access to notification bar & quick settings** - Swipe down on the home screen background to open notifications or quick settings.
 - **Export & Import** - Backup your settings and wallpapers
 
 ## Screenshots
@@ -28,11 +28,10 @@ Android app that lets you search everything on your phone, and more.
   <img src="screenshots/Screenshot_2025-12-23-16-18-57-682_com.searchlauncher.app.jpg" width="200" />
 </p>
 
-## Use as Launcher, Widget, or Overlay
+## Use as Launcher or as a Widget
 
 - **Launcher** - Use it as your default homescreen
 - **Widget** - Add the most powerful search bar to your existing launcher / homescreen
-- **Swipe gesture (Overlay)** - With a gesture from the side, open the search bar from any screen.
 
 ## Architecture
 
@@ -41,16 +40,13 @@ Android app that lets you search everything on your phone, and more.
 - **Material 3** - Latest Material Design components
 - **AppSearch API** - For efficient content indexing and search
 - **DataStore** - For preferences management
-- **Overlay Service** - For gesture detection and floating UI
-- **Accessibility Service** - For system-wide gesture detection
 
 ## Requirements
 
 - Android 10 (API 29) or higher
 - Permissions:
-  - Display over other apps (required)
-  - Accessibility service (required for gesture detection)
   - Usage stats (optional, for smart app sorting)
+  - Contacts (optional, for contact search)
 
 ## Building
 
@@ -58,10 +54,6 @@ Android app that lets you search everything on your phone, and more.
 
 - JDK 17 (LTS, is recommended for Android development)
 - Android SDK with API 36
-
-### Editing default bg images
-
-Source images: https://www.figma.com/design/smIXjlmBe67Y0KVsx7EXE4/SearchLauncher?node-id=0-1&p=f&t=5ijYxLO4lpjlFUCs-0
 
 ### Build Instructions
 
@@ -85,8 +77,7 @@ cd searchlauncher
 ## Known Limitations
 
 - Content search within apps requires apps to implement AppSearch indexing
-- Gesture detection may conflict with other gesture-based apps (e.g. Samsung's One UI)
-- Some manufacturers' custom Android builds may restrict overlay permissions
+- Content search within third-party apps requires those apps to expose indexable data
 
 ## Contributing
 

@@ -1275,7 +1275,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         // Sort by manual usage persistence, which is the source of truth for shortcut ordering.
         val sortedShortcuts =
-          shortcuts.sortedByDescending { doc -> getGlobalUsageCount(doc.namespace, doc.id) }
+          shortcuts.sortedWith(
+            compareByDescending<AppSearchDocument> { doc ->
+                getGlobalUsageCount(doc.namespace, doc.id) + getDefaultSearchShortcutBoost(doc.id)
+              }
+              .thenBy { doc -> DefaultShortcuts.searchShortcutOrder(doc.id) }
+              .thenBy { doc -> doc.name }
+          )
 
         return@withContext coroutineScope {
           sortedShortcuts
@@ -1289,6 +1295,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         Sentry.captureException(e)
         return@withContext emptyList()
       }
+    }
+
+  private fun getDefaultSearchShortcutBoost(id: String): Int =
+    when (id.removePrefix("search_")) {
+      "google" -> 2
+      "playstore" -> 1
+      else -> 0
     }
 
   suspend fun getFavorites(favoriteIds: List<String>): List<SearchResult> =

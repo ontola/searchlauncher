@@ -49,6 +49,7 @@ fun SearchResultItem(
   onDeleteShortcut: (() -> Unit)? = null,
   onRemoveFromIndex: (() -> Unit)? = null,
   onRemoveBookmark: (() -> Unit)? = null,
+  onClearSearchResults: (() -> Unit)? = null,
   onClick: () -> Unit,
 ) {
   var showMenu by remember { mutableStateOf(false) }
@@ -281,6 +282,7 @@ fun SearchResultItem(
                   val intent = Intent(Intent.ACTION_DELETE, packageUri)
                   intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                   context.startActivity(intent)
+                  onClearSearchResults?.invoke()
                   // Optional: Feedback to user, in case the system dialog is slow
                   // Toast.makeText(context, "Requesting uninstall...", Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {

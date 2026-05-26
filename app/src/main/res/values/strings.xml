@@ -2,11 +2,6 @@
 <resources>
     <string name="app_name">SearchLauncher</string>
     <string name="search_hint">Search apps and content…</string>
-    <string name="accessibility_service_description">Allows SearchLauncher to detect swipe gestures from any screen to open the search bar.</string>
-    <string name="permission_overlay_title">Display Over Other Apps</string>
-    <string name="permission_overlay_desc">Required to show the search bar on top of other apps</string>
-    <string name="permission_accessibility_title">Accessibility Service</string>
-    <string name="permission_accessibility_desc">Required to detect swipe gestures from any screen</string>
     <string name="permission_usage_stats_title">Usage Access</string>
     <string name="permission_usage_stats_desc">Optional: Helps sort apps by most recently used</string>
     <string name="grant_permission">Grant Permission</string>
@@ -14,9 +9,7 @@
     <string name="skip_text">Skip</string>
     <string name="finish_text">Finish</string>
     <string name="welcome_title">Welcome to SearchLauncher</string>
-    <string name="welcome_desc">Search everything on your phone from any screen with a simple gesture</string>
+    <string name="welcome_desc">Search everything on your phone from one fast home screen</string>
     <string name="onboarding_complete">You\'re all set!</string>
-    <string name="service_notification_title">SearchLauncher Active</string>
-    <string name="service_notification_desc">Swipe from side and back to search</string>
     <string name="widget_description">Quick access to search</string>
 </resources>

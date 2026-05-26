@@ -29,10 +29,16 @@ sealed class AppShortcut {
 }
 
 object DefaultShortcuts {
+  private val searchShortcutOrderById by lazy {
+    searchShortcuts.mapIndexed { index, shortcut -> shortcut.id to index }.toMap()
+  }
+
+  fun searchShortcutOrder(indexedId: String): Int =
+    searchShortcutOrderById[indexedId.removePrefix("search_")] ?: Int.MAX_VALUE
+
   // App-defined actions and settings (not editable by user)
   private val settingsActions =
     listOf(
-      "android.settings.ACCESSIBILITY_SETTINGS",
       "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS",
       "android.settings.ADD_ACCOUNT_SETTINGS",
       "android.settings.AIRPLANE_MODE_SETTINGS",
@@ -89,7 +95,6 @@ object DefaultShortcuts {
       "android.settings.WIFI_SETTINGS",
       "android.settings.WIRELESS_SETTINGS",
       "android.settings.ZEN_MODE_PRIORITY_SETTINGS",
-      "android.settings.action.MANAGE_OVERLAY_PERMISSION",
       "android.settings.action.MANAGE_WRITE_SETTINGS",
     )
 
@@ -176,26 +181,6 @@ object DefaultShortcuts {
         id = "launcher_restart",
         intentUri = "intent:#Intent;action=com.searchlauncher.action.RESTART;end",
         description = "Restart SearchLauncher",
-      ),
-      AppShortcut.Action(
-        id = "launcher_reboot",
-        intentUri = "intent:#Intent;action=com.searchlauncher.action.REBOOT;end",
-        description = "Reboot Phone",
-      ),
-      AppShortcut.Action(
-        id = "launcher_lock_screen",
-        intentUri = "intent:#Intent;action=com.searchlauncher.action.LOCK_SCREEN;end",
-        description = "Lock Screen",
-      ),
-      AppShortcut.Action(
-        id = "launcher_power_menu",
-        intentUri = "intent:#Intent;action=com.searchlauncher.action.POWER_MENU;end",
-        description = "Power Menu",
-      ),
-      AppShortcut.Action(
-        id = "launcher_screenshot",
-        intentUri = "intent:#Intent;action=com.searchlauncher.action.SCREENSHOT;end",
-        description = "Take Screenshot",
       ),
       AppShortcut.Action(
         id = "launcher_toggle_dark_mode",

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-SearchLauncher is an Android application that provides system-wide search functionality through gesture activation. The app is built using modern Android development practices with Kotlin and Jetpack Compose.
+SearchLauncher is an Android launcher/search application built using modern Android development practices with Kotlin and Jetpack Compose.
 
 ## Technology Stack
 
@@ -22,32 +22,16 @@ SearchLauncher is an Android application that provides system-wide search functi
 - `AppInfo`: Data model for installed applications
 - `SearchResult`: Sealed class representing search results (Apps and Content)
 
-### 3. Service Layer
-- `OverlayService`: Foreground service that manages the overlay window and edge detection
-- `GestureAccessibilityService`: Accessibility service for detecting system-wide gestures
-- `SearchWindowManager`: Manages the floating search window using WindowManager
-
-### 4. UI Layer
-- `MainActivity`: Main entry point with permission checks and service controls
-- `OnboardingScreen`: Multi-step onboarding flow for permission requests
+### 3. UI Layer
+- `MainActivity`: Main entry point for search, settings, widgets, import/export, and app drawer flows
 - Compose UI for search interface with Material 3 design
 
 ## Architecture Decisions
-
-### Overlay System
-The app uses Android's `SYSTEM_ALERT_WINDOW` permission to display a floating search interface. This is implemented as:
-1. A thin edge detector view that captures swipe gestures
-2. A full search window that appears on gesture completion
 
 ### Search Implementation
 Search is performed in two stages:
 1. **App Search**: Queries `PackageManager` for installed launcher activities
 2. **Content Search**: Uses Android's AppSearch API (currently limited by app support)
-
-### Gesture Detection
-Two methods are used:
-1. **Edge Detection**: A thin overlay view at screen edge detects swipe gestures
-2. **Accessibility Service**: Provides additional context and alternative activation methods
 
 ## Development Setup
 
@@ -76,8 +60,7 @@ cd searchlauncher
 For best testing experience:
 1. Use a physical Android device (API 29+)
 2. Enable Developer Options and USB Debugging
-3. Grant all permissions during onboarding
-4. Test gesture from different apps
+3. Test launcher, widget, search, and settings flows
 
 ## Code Style
 
@@ -89,12 +72,6 @@ For best testing experience:
 
 ## Common Development Tasks
 
-### Adding a New Permission
-1. Add permission to `AndroidManifest.xml`
-2. Create permission check function in `MainActivity.kt`
-3. Add permission step to `OnboardingScreen.kt`
-4. Update UI to show permission status
-
 ### Modifying Search Logic
 Edit `SearchRepository.kt`:
 - `searchApps()`: Modify app search behavior
@@ -103,36 +80,17 @@ Edit `SearchRepository.kt`:
 
 ### Customizing UI
 Edit Compose files:
-- `SearchWindowManager.kt`: Search overlay UI
-- `OnboardingScreen.kt`: Onboarding flow
 - `MainActivity.kt`: Home screen
 - `theme/Theme.kt`: App theming
 
 ## Debugging Tips
 
-### Service Issues
-```bash
-# Check if service is running
-adb shell dumpsys activity services | grep SearchLauncher
-
-# View logs
-adb logcat -s SearchLauncher
-```
-
 ### Permission Issues
 - Check Settings > Apps > SearchLauncher > Permissions
-- Verify overlay permission: Settings > Apps > Special app access > Display over other apps
-- Check accessibility: Settings > Accessibility > SearchLauncher
-
-### Gesture Not Working
-- Ensure edge detector view is added (check WindowManager)
-- Verify touch events are being received
-- Check if another app is blocking touch events
+- Check Settings > Apps > Special app access > Usage Access if usage-based ranking is not working
 
 ## Performance Considerations
 
-- **Memory**: Overlay service runs continuously - keep memory footprint minimal
-- **Battery**: Use efficient event listeners, avoid polling
 - **Search Speed**: Implement debouncing (300ms) for search queries
 - **UI Responsiveness**: Perform search operations on background threads
 

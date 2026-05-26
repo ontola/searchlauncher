@@ -51,7 +51,6 @@ import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.edit
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
-import com.searchlauncher.app.service.GestureAccessibilityService
 import com.searchlauncher.app.ui.components.ConsentDialog
 import com.searchlauncher.app.ui.components.FavoritesRow
 import com.searchlauncher.app.ui.components.PrivacyPolicyDialog
@@ -314,7 +313,14 @@ fun SearchScreen(
         // Keep this small in the live typing path; richer actions can load after selection.
         val shortcuts =
           traceSection("SL:SearchScreen.getSearchShortcuts") {
-            searchRepository.getSearchShortcuts(limit = LIVE_SEARCH_SHORTCUT_LIMIT)
+            searchRepository.getSearchShortcuts(
+              limit =
+                if (results.isEmpty()) {
+                  FALLBACK_SEARCH_SHORTCUT_LIMIT
+                } else {
+                  LIVE_SEARCH_SHORTCUT_LIMIT
+                }
+            )
           }
         currentCoroutineContext().ensureActive()
 
@@ -549,15 +555,11 @@ fun SearchScreen(
           },
           onSwipeDownLeft = {
             scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeNotifications) }
-            if (!com.searchlauncher.app.service.GestureAccessibilityService.openNotifications()) {
-              com.searchlauncher.app.util.SystemUtils.expandNotifications(context)
-            }
+            com.searchlauncher.app.util.SystemUtils.expandNotifications(context)
           },
           onSwipeDownRight = {
             scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeQuickSettings) }
-            if (!com.searchlauncher.app.service.GestureAccessibilityService.openQuickSettings()) {
-              com.searchlauncher.app.util.SystemUtils.expandQuickSettings(context)
-            }
+            com.searchlauncher.app.util.SystemUtils.expandQuickSettings(context)
           },
         )
 
@@ -742,6 +744,7 @@ fun SearchScreen(
                         onQueryChange("") // Refresh
                       }
                     },
+                    onClearSearchResults = { onQueryChange("") },
                     onEditSnippet =
                       if (result is SearchResult.Snippet) {
                         {
@@ -1544,6 +1547,7 @@ private val SearchResult.stableListKey: String
 
 private const val LIVE_SEARCH_RESULT_LIMIT = 16
 private const val LIVE_SEARCH_SHORTCUT_LIMIT = 6
+private const val FALLBACK_SEARCH_SHORTCUT_LIMIT = 100
 
 // FavoritesRow extracted to components/FavoritesRow.kt
 

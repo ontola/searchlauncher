@@ -17,7 +17,6 @@ object PreferencesKeys {
   val DARK_MODE = intPreferencesKey("dark_mode")
   val OLED_MODE = booleanPreferencesKey("oled_mode")
   val BACKGROUND_LAST_IMAGE_URI = stringPreferencesKey("background_last_image_uri")
-  val SWIPE_GESTURE_ENABLED = booleanPreferencesKey("swipe_gesture_enabled")
   val SHOW_WIDGETS = booleanPreferencesKey("show_widgets")
   val IS_FIRST_RUN = booleanPreferencesKey("is_first_run")
   val STORE_WEB_HISTORY = booleanPreferencesKey("store_web_history")

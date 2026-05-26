@@ -155,55 +155,19 @@ object CustomActionHandler {
   }
 
   private fun rebootPhone(context: Context) {
-    if (!com.searchlauncher.app.service.GestureAccessibilityService.showPowerDialog()) {
-      requestAccessibilityService(context)
-    } else {
-      Toast.makeText(context, "Select 'Restart' in the Power Menu", Toast.LENGTH_LONG).show()
-    }
+    openPowerMenu(context)
   }
 
   private fun openPowerMenu(context: Context) {
-    if (!com.searchlauncher.app.service.GestureAccessibilityService.showPowerDialog()) {
-      requestAccessibilityService(context)
-    }
+    Toast.makeText(context, "Power menu action is no longer available", Toast.LENGTH_SHORT).show()
   }
 
   private fun lockScreen(context: Context) {
-    if (!com.searchlauncher.app.service.GestureAccessibilityService.lockScreen()) {
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-        Toast.makeText(context, "Lock Screen requires Android 9+", Toast.LENGTH_SHORT).show()
-      } else {
-        requestAccessibilityService(context)
-      }
-    }
+    Toast.makeText(context, "Lock screen action is no longer available", Toast.LENGTH_SHORT).show()
   }
 
   private fun takeScreenshot(context: Context) {
-    if (!com.searchlauncher.app.service.GestureAccessibilityService.takeScreenshot()) {
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-        Toast.makeText(context, "Screenshot requires Android 9+", Toast.LENGTH_SHORT).show()
-      } else {
-        requestAccessibilityService(context)
-      }
-    }
-  }
-
-  private fun requestAccessibilityService(context: Context) {
-    Toast.makeText(
-        context,
-        "Enable 'SearchLauncher Gesture Service' in Accessibility settings",
-        Toast.LENGTH_LONG,
-      )
-      .show()
-    try {
-      val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      context.startActivity(intent)
-    } catch (e: Exception) {
-      val intent = Intent(Settings.ACTION_SETTINGS)
-      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      context.startActivity(intent)
-    }
+    Toast.makeText(context, "Screenshot action is no longer available", Toast.LENGTH_SHORT).show()
   }
 
   private fun toggleDarkMode(context: Context) {

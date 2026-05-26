@@ -72,7 +72,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -87,15 +86,11 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
-  onStartService: () -> Unit,
-  onStopService: () -> Unit,
-  onOpenPractice: () -> Unit,
   onBack: () -> Unit,
   initialHighlightSection: String? = null,
   onExportBackup: () -> Unit,
 ) {
   val context = LocalContext.current
-  var showPermissionDialog by remember { mutableStateOf(false) }
   val listState = rememberLazyListState()
 
   // Check if this app is the default launcher
@@ -123,14 +118,6 @@ fun SettingsScreen(
       }
     }
   }
-
-  // Check if required permissions are granted
-  val hasOverlayPermission = remember {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-      Settings.canDrawOverlays(context)
-    } else true
-  }
-  val hasAccessibilityPermission = remember { isAccessibilityServiceEnabled(context) }
 
   LazyColumn(
     state = listState,
@@ -352,66 +339,6 @@ fun SettingsScreen(
       }
     }
 
-    item {
-      Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-          modifier = Modifier.padding(16.dp),
-          verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-          val scope = rememberCoroutineScope()
-          val swipeGestureEnabled =
-            remember {
-                context.dataStore.data.map { it[PreferencesKeys.SWIPE_GESTURE_ENABLED] ?: false }
-              }
-              .collectAsState(initial = false)
-
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Column(modifier = Modifier.weight(1f)) {
-              Text(text = "Side swipe gesture", style = MaterialTheme.typography.titleMedium)
-              Text(
-                text = "Swipe from the edge of the screen and back to open search",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-            Switch(
-              checked = swipeGestureEnabled.value,
-              onCheckedChange = { enabled ->
-                if (enabled) {
-                  // Check permissions before enabling
-                  if (hasOverlayPermission && hasAccessibilityPermission) {
-                    scope.launch {
-                      context.dataStore.edit { preferences ->
-                        preferences[PreferencesKeys.SWIPE_GESTURE_ENABLED] = true
-                      }
-                      onStartService()
-                    }
-                  } else {
-                    showPermissionDialog = true
-                  }
-                } else {
-                  scope.launch {
-                    context.dataStore.edit { preferences ->
-                      preferences[PreferencesKeys.SWIPE_GESTURE_ENABLED] = false
-                    }
-                    onStopService()
-                  }
-                }
-              },
-            )
-          }
-
-          OutlinedButton(onClick = onOpenPractice, modifier = Modifier.fillMaxWidth()) {
-            Text("Practice Gesture")
-          }
-        }
-      }
-    }
-
     // Show launcher settings if not default launcher
     if (!isDefaultLauncher) {
       item {
@@ -450,40 +377,6 @@ fun SettingsScreen(
           Text(text = "Permissions", style = MaterialTheme.typography.titleMedium)
 
           PermissionStatus(
-            title = "Display Over Other Apps",
-            description =
-              "Required for the side swipe gesture to show the search overlay on top of other apps.",
-            granted =
-              rememberPermissionState {
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    Settings.canDrawOverlays(context)
-                  } else true
-                }
-                .value,
-            onGrant = {
-              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val intent =
-                  Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:${context.packageName}"),
-                  )
-                context.startActivity(intent)
-              }
-            },
-          )
-
-          PermissionStatus(
-            title = "Accessibility Service",
-            description =
-              "Required for the side swipe gesture to detect swipes from the edge of the screen.",
-            granted = rememberPermissionState { isAccessibilityServiceEnabled(context) }.value,
-            onGrant = {
-              val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-              context.startActivity(intent)
-            },
-          )
-
-          PermissionStatus(
             title = "Usage Access",
             description = "Required to accurately detect when the keyboard is open.",
             granted = rememberPermissionState { hasUsageStatsPermission(context) }.value,
@@ -518,59 +411,6 @@ fun SettingsScreen(
     item { PrivacyCard() }
     item { BackupRestoreCard(onExportBackup) }
     item { AboutCard() }
-  }
-
-  // Show permission guide dialog
-  if (showPermissionDialog) {
-    AlertDialog(
-      onDismissRequest = { showPermissionDialog = false },
-      title = { Text("Required Permissions") },
-      text = {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-          Text(
-            "To use the side swipe gesture, SearchLauncher needs the following permissions:",
-            style = MaterialTheme.typography.bodyMedium,
-          )
-
-          if (!hasOverlayPermission) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-              Text(
-                "• Display Over Other Apps",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-              )
-              Text(
-                "Allows SearchLauncher to show the search interface on top of other apps",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-          }
-
-          if (!hasAccessibilityPermission) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-              Text(
-                "• Accessibility Service",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-              )
-              Text(
-                "Detects swipe gestures from the edge of your screen",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-          }
-
-          Text(
-            "You can grant these permissions in the Permissions section below.",
-            style = MaterialTheme.typography.bodySmall,
-            fontStyle = FontStyle.Italic,
-          )
-        }
-      },
-      confirmButton = { Button(onClick = { showPermissionDialog = false }) { Text("Got it") } },
-    )
   }
 }
 
@@ -1180,15 +1020,6 @@ private fun BackupRestoreCard(onExportBackup: () -> Unit) {
       }
     }
   }
-}
-
-fun isAccessibilityServiceEnabled(context: Context): Boolean {
-  val enabledServices =
-    Settings.Secure.getString(
-      context.contentResolver,
-      Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-    )
-  return enabledServices?.contains(context.packageName) == true
 }
 
 fun hasUsageStatsPermission(context: Context): Boolean {

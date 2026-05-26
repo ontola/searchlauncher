@@ -172,6 +172,55 @@ class SearchRepositoryTest {
   }
 
   @Test
+  fun `fallback search shortcuts can return all defaults`() = runBlocking {
+    repository.documentSnapshot =
+      DefaultShortcuts.searchShortcuts
+        .map { shortcut ->
+          repository.wrap(
+            AppSearchDocument(
+              namespace = "search_shortcuts",
+              id = "search_${shortcut.id}",
+              score = 3,
+              name = shortcut.description,
+              description = shortcut.alias,
+              intentUri = shortcut.urlTemplate,
+              isAction = false,
+            )
+          )
+        }
+        .sortedBy { it.namespaceInt }
+
+    val results = repository.getSearchShortcuts(limit = 100)
+
+    assertEquals(DefaultShortcuts.searchShortcuts.size, results.size)
+  }
+
+  @Test
+  fun `fallback search shortcuts prefer google and play store by default`() = runBlocking {
+    repository.documentSnapshot =
+      DefaultShortcuts.searchShortcuts
+        .map { shortcut ->
+          repository.wrap(
+            AppSearchDocument(
+              namespace = "search_shortcuts",
+              id = "search_${shortcut.id}",
+              score = 3,
+              name = shortcut.description,
+              description = shortcut.alias,
+              intentUri = shortcut.urlTemplate,
+              isAction = false,
+            )
+          )
+        }
+        .sortedBy { it.namespaceInt }
+
+    val results = repository.getSearchShortcuts(limit = 100)
+
+    assertEquals("search_google", results[0].id)
+    assertEquals("search_playstore", results[1].id)
+  }
+
+  @Test
   fun `global usage does not outrank a strong word-prefix title match`() = runBlocking {
     val strongMatch =
       AppSearchDocument(
