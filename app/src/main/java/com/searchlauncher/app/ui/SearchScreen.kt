@@ -101,6 +101,7 @@ fun SearchScreen(
   var showSnippetDialog by remember { mutableStateOf(false) }
   var snippetEditMode by remember { mutableStateOf(false) }
   var snippetItemToEdit by remember { mutableStateOf<SearchResult.Snippet?>(null) }
+  var snippetInitialContent by remember { mutableStateOf("") }
   var showResetConfirmation by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
   var showConsentDialog by remember { mutableStateOf(!app.hasAskedForConsent()) }
   var showDefaultLauncherDialog by remember { mutableStateOf(false) }
@@ -326,9 +327,11 @@ fun SearchScreen(
 
         val baseResults =
           traceSection("SL:SearchScreen.mergeResults") {
+            val defaultActions = listOf(createSnippetFallbackResult(context, query))
             val resultKeys = results.map { it.stableListKey }.toSet()
-            val uniqueShortcuts = shortcuts.filter { !resultKeys.contains(it.stableListKey) }
-            (results + uniqueShortcuts).distinctBy { it.stableListKey }
+            val fallbackResults =
+              (shortcuts + defaultActions).filter { !resultKeys.contains(it.stableListKey) }
+            (results + fallbackResults).distinctBy { it.stableListKey }
           }
         isFallbackMode = results.isEmpty()
 
@@ -817,6 +820,7 @@ fun SearchScreen(
                       } else null,
                     onCreateSnippet = {
                       snippetEditMode = false
+                      snippetInitialContent = ""
                       showSnippetDialog = true
                     },
                     onClick = {
@@ -876,10 +880,17 @@ fun SearchScreen(
                       } else {
                         if (
                           result is SearchResult.Content &&
-                            result.deepLink ==
-                              "intent:#Intent;action=com.searchlauncher.action.CREATE_SNIPPET;end"
+                            result.deepLink?.startsWith(
+                              "intent:#Intent;action=com.searchlauncher.action.CREATE_SNIPPET"
+                            ) == true
                         ) {
                           snippetEditMode = false
+                          snippetInitialContent =
+                            Regex("S\\.content=([^;]*)")
+                              .find(result.deepLink)
+                              ?.groupValues
+                              ?.get(1)
+                              ?.let { Uri.decode(it) } ?: ""
                           showSnippetDialog = true
                         } else if (
                           result is SearchResult.Content &&
@@ -1262,7 +1273,8 @@ fun SearchScreen(
       initialAlias =
         if (snippetEditMode && snippetItemToEdit != null) snippetItemToEdit!!.alias else "",
       initialContent =
-        if (snippetEditMode && snippetItemToEdit != null) snippetItemToEdit!!.content else "",
+        if (snippetEditMode && snippetItemToEdit != null) snippetItemToEdit!!.content
+        else snippetInitialContent,
       isEditMode = snippetEditMode,
       onDismiss = { showSnippetDialog = false },
       onConfirm = { alias, content ->
@@ -1544,6 +1556,20 @@ internal fun Drawable.toImageBitmap(): ImageBitmap? {
 
 private val SearchResult.stableListKey: String
   get() = "$namespace/$id"
+
+private fun createSnippetFallbackResult(context: Context, query: String): SearchResult.Content {
+  val encodedContent = Uri.encode(query.trim())
+  return SearchResult.Content(
+    id = "add_snippet_from_query",
+    namespace = "default_actions",
+    title = "Add snippet",
+    subtitle = "Save \"${query.trim()}\" as a snippet",
+    icon = context.getDrawable(android.R.drawable.ic_menu_edit),
+    packageName = "com.searchlauncher.app",
+    deepLink =
+      "intent:#Intent;action=com.searchlauncher.action.CREATE_SNIPPET;S.content=$encodedContent;end",
+  )
+}
 
 private const val LIVE_SEARCH_RESULT_LIMIT = 16
 private const val LIVE_SEARCH_SHORTCUT_LIMIT = 6

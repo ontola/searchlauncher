@@ -49,7 +49,7 @@ class SmartActionManager(private val context: Context) {
             icon = callIcon,
             packageName = "com.android.dialer", // Best effort
             deepLink = "tel:$targetNumber",
-            rankingScore = 100, // High priority
+            rankingScore = RankingScores.SMART_ACTION_CALL,
           )
         )
       }
@@ -66,7 +66,7 @@ class SmartActionManager(private val context: Context) {
             icon = messageIcon,
             packageName = "com.android.mms", // Best effort
             deepLink = "sms:$targetNumber",
-            rankingScore = 99, // Slightly lower than call
+            rankingScore = RankingScores.SMART_ACTION_SMS,
           )
         )
       }
@@ -85,7 +85,7 @@ class SmartActionManager(private val context: Context) {
             packageName = "com.android.contacts", // Best effort
             deepLink =
               "intent:#Intent;action=android.intent.action.INSERT;type=vnd.android.cursor.dir/raw_contact;S.phone=$encodedNumber;end",
-            rankingScore = 98,
+            rankingScore = RankingScores.SMART_ACTION_ADD_CONTACT,
           )
         )
       }
@@ -120,7 +120,7 @@ class SmartActionManager(private val context: Context) {
           icon = emailIcon,
           packageName = "com.android.email", // Best effort
           deepLink = "mailto:$targetEmail",
-          rankingScore = 100,
+          rankingScore = RankingScores.SMART_ACTION_EMAIL,
         )
       )
     }
@@ -151,7 +151,7 @@ class SmartActionManager(private val context: Context) {
           packageName = "com.android.chrome", // Best effort, system handles
           // it
           deepLink = url,
-          rankingScore = 98, // Slightly lower than direct actions
+          rankingScore = RankingScores.SMART_ACTION_URL,
         )
       )
     }
@@ -174,7 +174,7 @@ class SmartActionManager(private val context: Context) {
           icon = timerIcon,
           packageName = "com.google.android.deskclock",
           deepLink = deepLink,
-          rankingScore = 500,
+          rankingScore = RankingScores.SMART_ACTION_TIMER,
         )
       )
     }

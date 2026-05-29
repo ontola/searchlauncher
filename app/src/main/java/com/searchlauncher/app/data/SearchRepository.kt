@@ -50,17 +50,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val USAGE_KEY_SEPARATOR = "\u001F"
-private const val GLOBAL_USAGE_SCORE_BOOST = 5
-private const val GLOBAL_USAGE_SCORE_CAP = 5
-private const val QUERY_USAGE_POINT_SCORE_BOOST = 2
 private const val QUERY_USAGE_FULL_QUERY_POINTS = 100
-private const val QUERY_USAGE_POINTS_CAP = 500
 private const val INDEXING_INTERACTIVE_SEARCH_PAUSE_MS = 1200L
 private const val INDEXING_INTERACTIVE_SEARCH_POLL_MS = 80L
-private const val CONTACT_STRONG_MATCH_MIN_QUERY_LENGTH = 3
-private const val CONTACT_STRONG_MATCH_BOOST = 120
-private const val LEARNED_CONTACT_SHORT_QUERY_MAX_LENGTH = 2
-private const val LEARNED_CONTACT_SHORT_QUERY_BOOST = 320
 
 data class SearchableDocument(
   val doc: AppSearchDocument,
@@ -1734,7 +1726,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                       icon = icon,
                       packageName = matchedShortcut.packageName ?: "android",
                       deepLink = urlFormatted,
-                      rankingScore = 200,
+                      rankingScore = RankingScores.SUGGESTION,
                     )
                   )
                 }
@@ -1830,7 +1822,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             packageName = info.provider.packageName,
             deepLink =
               "intent:#Intent;action=com.searchlauncher.action.BIND_WIDGET;S.component=$providerName;end",
-            rankingScore = 200,
+            rankingScore = RankingScores.WIDGET_RESULT,
           )
         } to shortcut
       } catch (e: Exception) {
@@ -1873,41 +1865,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         icon = icon,
         packageName = shortcut.packageName ?: "android",
         deepLink = deepLink, // Use custom deepLink
-        rankingScore = if (searchTerm.isBlank()) 150 else 1200,
+        rankingScore =
+          if (searchTerm.isBlank()) RankingScores.CUSTOM_SHORTCUT_TRIGGER_ONLY
+          else RankingScores.CUSTOM_SHORTCUT_WITH_SEARCH_TERM,
       )
     )
 
     return results to shortcut
-  }
-
-  private fun getSnippetResults(query: String): List<SearchResult> {
-    if (query.isEmpty()) return emptyList()
-    val app = context.applicationContext as? SearchLauncherApp ?: return emptyList()
-    val clipboardIcon = context.getDrawable(android.R.drawable.ic_menu_edit)
-
-    return app.snippetsRepository.searchItems(query).map { item ->
-      val aliasLower = item.alias.lowercase()
-      val queryLower = query.lowercase()
-
-      val score =
-        when {
-          aliasLower == queryLower -> 150 // Exact alias match
-          aliasLower.startsWith(queryLower) -> 90 // Prefix alias match
-          aliasLower.contains(queryLower) -> 50 // Partial alias match
-          else -> 40 // Content match
-        }
-
-      SearchResult.Snippet(
-        id = "snippet_${item.alias}",
-        namespace = "snippets",
-        title = item.alias,
-        subtitle = item.content.take(50) + if (item.content.length > 50) "..." else "",
-        icon = clipboardIcon,
-        alias = item.alias,
-        content = item.content,
-        rankingScore = score,
-      )
-    }
   }
 
   private suspend fun performInMemorySearch(
@@ -1942,54 +1906,59 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         // Also check normalized phone number for contacts (use pre-computed normalizedPhone)
         var contactScore = 0
-        if (sdoc.namespaceInt == 5 && normalizedQuery != null && normalizedQuery.length >= 3) {
+        if (
+          sdoc.namespaceInt == 5 &&
+            normalizedQuery != null &&
+            normalizedQuery.length >= RankingScores.CONTACT_STRONG_MATCH_MIN_QUERY_LENGTH
+        ) {
           if (sdoc.normalizedPhone?.contains(normalizedQuery) == true) {
-            contactScore = 85
+            contactScore = RankingScores.CONTACT_PHONE_MATCH_SCORE
           }
         }
 
         val finalScore = maxOf(score, contactScore)
-        if (finalScore > 30) {
+        if (finalScore > RankingScores.MIN_CANDIDATE_SCORE) {
           val doc = sdoc.doc
           val globalUsage = getGlobalUsageCount(doc.namespace, doc.id)
           val queryUsagePoints = getQueryUsagePoints(usageQuery, doc.namespace, doc.id)
           var namespaceBoost =
             when (sdoc.namespaceInt) {
-              1 -> 150 // apps (increased)
-              8 -> 100 // snippets
-              2 -> 130 // app_shortcuts (increased)
-              3 -> 80 // web_bookmarks
-              4 -> 70 // shortcuts
-              5 -> 40 // contacts (decreased)
-              else -> 0
+              1 -> RankingScores.NAMESPACE_BOOST_APPS
+              2 -> RankingScores.NAMESPACE_BOOST_APP_SHORTCUTS
+              3 -> RankingScores.NAMESPACE_BOOST_WEB_BOOKMARKS
+              4 -> RankingScores.NAMESPACE_BOOST_SHORTCUTS
+              5 -> RankingScores.NAMESPACE_BOOST_CONTACTS
+              8 -> RankingScores.NAMESPACE_BOOST_SNIPPETS
+              else -> RankingScores.NAMESPACE_BOOST_DEFAULT
             }
 
-          // Aggressive boost for apps on short queries (1-2 chars)
-          if (queryLower.length <= 2 && sdoc.namespaceInt <= 2) {
-            namespaceBoost += 200
+          // Extra boost for apps / app_shortcuts on very short (1-2 char) queries.
+          if (queryLower.length <= RankingScores.SHORT_QUERY_MAX_LENGTH && sdoc.namespaceInt <= 2) {
+            namespaceBoost += RankingScores.SHORT_QUERY_APP_BOOST
           }
 
           if (
             sdoc.namespaceInt == 5 &&
-              queryLower.length >= CONTACT_STRONG_MATCH_MIN_QUERY_LENGTH &&
-              finalScore >= 85
+              queryLower.length >= RankingScores.CONTACT_STRONG_MATCH_MIN_QUERY_LENGTH &&
+              finalScore >= RankingScores.CONTACT_PHONE_MATCH_SCORE
           ) {
-            namespaceBoost += CONTACT_STRONG_MATCH_BOOST
+            namespaceBoost += RankingScores.CONTACT_STRONG_MATCH_BOOST
           }
 
           if (
             sdoc.namespaceInt == 5 &&
-              queryLower.length <= LEARNED_CONTACT_SHORT_QUERY_MAX_LENGTH &&
+              queryLower.length <= RankingScores.LEARNED_CONTACT_SHORT_QUERY_MAX_LENGTH &&
               queryUsagePoints > 0 &&
-              finalScore >= 85
+              finalScore >= RankingScores.CONTACT_PHONE_MATCH_SCORE
           ) {
-            namespaceBoost += LEARNED_CONTACT_SHORT_QUERY_BOOST
+            namespaceBoost += RankingScores.LEARNED_CONTACT_SHORT_QUERY_BOOST
           }
 
           val usageBoost =
-            (globalUsage.coerceAtMost(GLOBAL_USAGE_SCORE_CAP) * GLOBAL_USAGE_SCORE_BOOST) +
-              (queryUsagePoints.coerceAtMost(QUERY_USAGE_POINTS_CAP) *
-                QUERY_USAGE_POINT_SCORE_BOOST)
+            (globalUsage.coerceAtMost(RankingScores.GLOBAL_USAGE_SCORE_CAP) *
+              RankingScores.GLOBAL_USAGE_SCORE_BOOST) +
+              (queryUsagePoints.coerceAtMost(RankingScores.QUERY_USAGE_POINTS_CAP) *
+                RankingScores.QUERY_USAGE_POINT_SCORE_BOOST)
 
           candidates.add(sdoc to (finalScore + namespaceBoost + usageBoost))
         }
@@ -2064,7 +2033,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     queryMask: Long,
     candidates: MutableList<Pair<SearchableDocument, Int>>,
   ) {
-    if (usageQuery == null || queryLower.length > LEARNED_CONTACT_SHORT_QUERY_MAX_LENGTH) return
+    if (
+      usageQuery == null || queryLower.length > RankingScores.LEARNED_CONTACT_SHORT_QUERY_MAX_LENGTH
+    )
+      return
 
     val existingContactIds =
       candidates.asSequence().filter { it.first.namespaceInt == 5 }.map { it.first.doc.id }.toSet()
@@ -2090,15 +2062,23 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           queryMask,
           sdoc.charMask,
         )
-      if (finalScore < 85) continue
+      if (finalScore < RankingScores.CONTACT_PHONE_MATCH_SCORE) continue
 
       val doc = sdoc.doc
       val globalUsage = getGlobalUsageCount(doc.namespace, doc.id)
       val usageBoost =
-        (globalUsage.coerceAtMost(GLOBAL_USAGE_SCORE_CAP) * GLOBAL_USAGE_SCORE_BOOST) +
-          (queryUsagePoints.coerceAtMost(QUERY_USAGE_POINTS_CAP) * QUERY_USAGE_POINT_SCORE_BOOST)
+        (globalUsage.coerceAtMost(RankingScores.GLOBAL_USAGE_SCORE_CAP) *
+          RankingScores.GLOBAL_USAGE_SCORE_BOOST) +
+          (queryUsagePoints.coerceAtMost(RankingScores.QUERY_USAGE_POINTS_CAP) *
+            RankingScores.QUERY_USAGE_POINT_SCORE_BOOST)
 
-      candidates.add(sdoc to (finalScore + 40 + LEARNED_CONTACT_SHORT_QUERY_BOOST + usageBoost))
+      candidates.add(
+        sdoc to
+          (finalScore +
+            RankingScores.NAMESPACE_BOOST_CONTACTS +
+            RankingScores.LEARNED_CONTACT_SHORT_QUERY_BOOST +
+            usageBoost)
+      )
     }
   }
 
@@ -2691,10 +2671,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       val key = queryUsageKey(prefix, namespace, id)
       if (prefix == query) {
         clearCompetingQueryUsage(prefix, namespace, id)
-        queryUsageStats[key] = QUERY_USAGE_POINTS_CAP
+        queryUsageStats[key] = RankingScores.QUERY_USAGE_POINTS_CAP
       } else {
         queryUsageStats[key] =
-          ((queryUsageStats[key] ?: 0) + points).coerceAtMost(QUERY_USAGE_POINTS_CAP)
+          ((queryUsageStats[key] ?: 0) + points).coerceAtMost(RankingScores.QUERY_USAGE_POINTS_CAP)
       }
     }
   }

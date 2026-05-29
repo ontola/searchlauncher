@@ -45,4 +45,11 @@ class SmartActionManagerTest {
     assertTrue(results.any { it.id == "smart_action_sms_0612345678" })
     assertTrue(results.none { it.id == "smart_action_add_contact_0612345678" })
   }
+
+  @Test
+  fun `plain text does not create add snippet smart action`() {
+    val results = manager.checkSmartActions("random query")
+
+    assertTrue(results.none { it.id == "smart_action_add_snippet" })
+  }
 }

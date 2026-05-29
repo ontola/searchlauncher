@@ -24,6 +24,11 @@ fun SnippetDialog(
     title = { Text(if (isEditMode) "Edit Snippet" else "Add Snippet") },
     text = {
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+          "Use snippets to store data you often want to copy, like your address.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         OutlinedTextField(
           value = alias,
           onValueChange = {
@@ -33,10 +38,13 @@ fun SnippetDialog(
           label = { Text("Alias") },
           placeholder = { Text("e.g., 'bank', 'meet'") },
           isError = aliasError,
-          supportingText =
+          supportingText = {
             if (aliasError) {
-              { Text("Alias is required") }
-            } else null,
+              Text("Alias is required")
+            } else {
+              Text("An alias is the name of the snippet, shown in the search results.")
+            }
+          },
           modifier = Modifier.fillMaxWidth(),
           singleLine = true,
         )

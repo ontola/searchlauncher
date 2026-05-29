@@ -221,6 +221,28 @@ class SearchRepositoryTest {
   }
 
   @Test
+  fun `timer smart action outranks learned shortcut matches`() = runBlocking {
+    val napShortcut =
+      AppSearchDocument(
+        namespace = "app_shortcuts",
+        id = "nap_15m",
+        score = 3,
+        name = "nap 15m",
+        intentUri = "intent://nap",
+        description = "Timer preset",
+        isAction = true,
+      )
+
+    repository.documentSnapshot = listOf(repository.wrap(napShortcut))
+
+    repeat(5) { repository.reportUsage("app_shortcuts", napShortcut.id, "5m") }
+
+    val results = repository.searchApps("5m", limit = 5, includeSuggestions = false).getOrThrow()
+
+    assertEquals("smart_action_timer_300", results.first().id)
+  }
+
+  @Test
   fun `global usage does not outrank a strong word-prefix title match`() = runBlocking {
     val strongMatch =
       AppSearchDocument(
