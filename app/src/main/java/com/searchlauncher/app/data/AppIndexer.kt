@@ -22,6 +22,10 @@ class AppIndexer(private val context: Context) {
       context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
 
     val apps = mutableListOf<AppSearchDocument>()
+    // Apps are addressed by package id everywhere (search, favorites, history, the app list), so we
+    // keep one document per package. A package can expose several launcher activities (e.g. Tasker)
+    // or appear in multiple profiles, which would otherwise yield colliding ids.
+    val seenPackages = mutableSetOf<String>()
 
     for (profile in launcherApps.profiles) {
       pauseCheck()
@@ -35,6 +39,7 @@ class AppIndexer(private val context: Context) {
           try {
             val appName = info.label.toString()
             val packageName = info.componentName.packageName
+            if (!seenPackages.add(packageName)) continue
 
             val appInfo = info.applicationInfo
             val category =
