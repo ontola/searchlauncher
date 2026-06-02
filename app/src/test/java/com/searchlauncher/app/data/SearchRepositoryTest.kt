@@ -173,14 +173,10 @@ class SearchRepositoryTest {
 
   @Test
   fun `contact chat mime detection supports telegram org package`() {
-    val method =
-      SearchRepository::class.java.getDeclaredMethod("chatPackageFromMimeType", String::class.java)
-    method.isAccessible = true
-
+    val contactActionsRepository = ContactActionsRepository(context)
     val packageName =
-      method.invoke(
-        repository,
-        "vnd.android.cursor.item/vnd.org.telegram.messenger.android.profile",
+      contactActionsRepository.chatPackageFromMimeType(
+        "vnd.android.cursor.item/vnd.org.telegram.messenger.android.profile"
       )
 
     assertEquals("org.telegram.messenger", packageName)

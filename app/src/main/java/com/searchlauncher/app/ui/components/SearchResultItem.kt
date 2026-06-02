@@ -1,10 +1,6 @@
 package com.searchlauncher.app.ui.components
 
-import android.content.Context
-import android.content.Intent
 import android.graphics.drawable.Drawable
-import android.net.Uri
-import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -16,10 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -64,9 +57,8 @@ fun SearchResultItem(
     (context.applicationContext as SearchLauncherApp).searchRepository
   }
   var iconState by remember(result.id) { mutableStateOf<Drawable?>(result.icon) }
-  var contactChatActions by remember(result.id) {
-    mutableStateOf<List<ContactChatAction>>(emptyList())
-  }
+  var contactChatActions by
+    remember(result.id) { mutableStateOf<List<ContactChatAction>>(emptyList()) }
 
   LaunchedEffect(result.id) {
     if (iconState == null) {
@@ -236,10 +228,7 @@ fun SearchResultItem(
 
         if (result is SearchResult.App) {
           Box(modifier = Modifier.padding(start = 8.dp)) {
-            IconButton(
-              onClick = { showAppActionsMenu = true },
-              modifier = Modifier.size(40.dp),
-            ) {
+            IconButton(onClick = { showAppActionsMenu = true }, modifier = Modifier.size(40.dp)) {
               Icon(
                 imageVector = Icons.Default.MoreVert,
                 contentDescription = "More app actions",
@@ -253,13 +242,13 @@ fun SearchResultItem(
               modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
               properties = PopupProperties(focusable = false),
             ) {
-              AppMenuItems(
+              AppActionsMenuItems(
                 result = result,
-                context = context,
                 isFavorite = isFavorite,
                 onToggleFavorite = onToggleFavorite,
-                onClearSearchResults = onClearSearchResults,
                 onCloseMenu = { showAppActionsMenu = false },
+                showUninstall = true,
+                onClearSearchResults = onClearSearchResults,
               )
             }
           }
@@ -338,34 +327,23 @@ fun SearchResultItem(
           }
 
           if (onToggleFavorite != null) {
-            DropdownMenuItem(
-              text = { Text(if (isFavorite) "Remove from Favorites" else "Add to Favorites") },
-              onClick = {
-                onToggleFavorite()
-                showMenu = false
-              },
-              leadingIcon = {
-                Icon(
-                  imageVector =
-                    if (isFavorite) {
-                      Icons.Default.Star
-                    } else {
-                      Icons.Default.StarBorder
-                    },
-                  contentDescription = null,
-                )
-              },
+            AppActionsMenuItems(
+              result = result,
+              isFavorite = isFavorite,
+              onToggleFavorite = onToggleFavorite,
+              onCloseMenu = { showMenu = false },
+              showAppInfo = false,
             )
           }
 
           if (result is SearchResult.App) {
-            AppMenuItems(
+            AppActionsMenuItems(
               result = result,
-              context = context,
               isFavorite = isFavorite,
               onToggleFavorite = null,
-              onClearSearchResults = onClearSearchResults,
               onCloseMenu = { showMenu = false },
+              showUninstall = true,
+              onClearSearchResults = onClearSearchResults,
             )
           }
 
@@ -383,69 +361,6 @@ fun SearchResultItem(
       }
     }
   }
-}
-
-@Composable
-private fun AppMenuItems(
-  result: SearchResult.App,
-  context: Context,
-  isFavorite: Boolean,
-  onToggleFavorite: (() -> Unit)?,
-  onClearSearchResults: (() -> Unit)?,
-  onCloseMenu: () -> Unit,
-) {
-  if (onToggleFavorite != null) {
-    DropdownMenuItem(
-      text = { Text(if (isFavorite) "Remove from Favorites" else "Add to Favorites") },
-      onClick = {
-        onToggleFavorite()
-        onCloseMenu()
-      },
-      leadingIcon = {
-        Icon(
-          imageVector =
-            if (isFavorite) {
-              Icons.Default.Star
-            } else {
-              Icons.Default.StarBorder
-            },
-          contentDescription = null,
-        )
-      },
-    )
-  }
-
-  DropdownMenuItem(
-    text = { Text("App Info") },
-    onClick = {
-      try {
-        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-        intent.data = Uri.parse("package:${result.packageName}")
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-      } catch (e: Exception) {
-        Toast.makeText(context, "Cannot open App Info", Toast.LENGTH_SHORT).show()
-      }
-      onCloseMenu()
-    },
-    leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
-  )
-  DropdownMenuItem(
-    text = { Text("Uninstall") },
-    onClick = {
-      try {
-        val packageUri = Uri.fromParts("package", result.packageName, null)
-        val intent = Intent(Intent.ACTION_DELETE, packageUri)
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-        onClearSearchResults?.invoke()
-      } catch (e: Exception) {
-        Toast.makeText(context, "Cannot start uninstall: ${e.message}", Toast.LENGTH_SHORT).show()
-      }
-      onCloseMenu()
-    },
-    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-  )
 }
 
 @Composable

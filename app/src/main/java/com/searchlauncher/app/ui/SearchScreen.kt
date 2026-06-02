@@ -62,7 +62,6 @@ import com.searchlauncher.app.ui.onboarding.OnboardingManager
 import com.searchlauncher.app.ui.onboarding.OnboardingStep
 import com.searchlauncher.app.ui.onboarding.TutorialOverlay
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
-import com.searchlauncher.app.util.CustomActionHandler
 import com.searchlauncher.app.util.MathEvaluator
 import com.searchlauncher.app.util.traceSection
 import kotlinx.coroutines.Dispatchers
@@ -70,7 +69,6 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun SearchScreen(
@@ -176,6 +174,26 @@ fun SearchScreen(
   // Onboarding Logic
   val onboardingManager = remember { OnboardingManager(context) }
   val completedSteps by onboardingManager.completedSteps.collectAsState(initial = null)
+  val resultLauncher =
+    remember(context, searchRepository, scope, onQueryChange, onAddWidget, onboardingManager) {
+      ResultLauncher(
+        context = context,
+        searchRepository = searchRepository,
+        scope = scope,
+        onQueryChange = onQueryChange,
+        onBindWidgetIntent = { intent ->
+          val activity = context as? MainActivity
+          if (activity != null) {
+            activity.handleWidgetIntent(intent)
+            true
+          } else {
+            false
+          }
+        },
+        onAddWidgetSearch = onAddWidget,
+        onboardingManager = onboardingManager,
+      )
+    }
 
   // Determine current step using derivedStateOf so that intermediate state changes
   // (e.g. completedSteps updating async from DataStore) only trigger recomposition
@@ -758,11 +776,7 @@ fun SearchScreen(
                         )
                         onDismiss()
                       } else {
-                        Toast.makeText(
-                            context,
-                            "Cannot open ${action.label}",
-                            Toast.LENGTH_SHORT,
-                          )
+                        Toast.makeText(context, "Cannot open ${action.label}", Toast.LENGTH_SHORT)
                           .show()
                       }
                     },
@@ -910,28 +924,15 @@ fun SearchScreen(
                               ?.get(1)
                               ?.let { Uri.decode(it) } ?: ""
                           showSnippetDialog = true
-                        } else if (
-                          result is SearchResult.Content &&
-                            result.deepLink ==
-                              "intent:#Intent;action=com.searchlauncher.action.ADD_WIDGET;end"
-                        ) {
-                          onAddWidget()
                         } else {
-                          launchResult(
-                            context,
-                            result,
-                            searchRepository,
-                            scope,
-                            query,
-                            index == 0,
-                            onQueryChange,
-                            onboardingManager = onboardingManager,
-                          )
-                          if (
+                          resultLauncher.launch(result, query = query, wasFirstResult = index == 0)
+                          val keepSearchOpen =
                             result is SearchResult.Content &&
-                              result.deepLink ==
-                                "intent:#Intent;action=com.searchlauncher.action.APPEND_SPACE;end"
-                          ) {
+                              (result.deepLink ==
+                                "intent:#Intent;action=com.searchlauncher.action.APPEND_SPACE;end" ||
+                                result.deepLink ==
+                                  "intent:#Intent;action=com.searchlauncher.action.ADD_WIDGET;end")
+                          if (keepSearchOpen) {
                             // Do nothing (keep search open)
                           } else {
                             onDismiss()
@@ -955,14 +956,7 @@ fun SearchScreen(
             historyLimit = historyLimit,
             minIconSizeSetting = minIconSizeSetting,
             onLaunch = { result ->
-              launchResult(
-                context,
-                result,
-                searchRepository,
-                scope,
-                onQueryChange = onQueryChange,
-                onboardingManager = onboardingManager,
-              )
+              resultLauncher.launch(result, reportUsage = true)
               onDismiss()
             },
             onToggleFavorite = { result -> app.favoritesRepository.toggleFavorite(result.id) },
@@ -1165,14 +1159,7 @@ fun SearchScreen(
                             onQueryChange(topResult.trigger + " ")
                           }
                         } else {
-                          launchResult(
-                            context,
-                            topResult,
-                            searchRepository,
-                            scope,
-                            onQueryChange = onQueryChange,
-                            onboardingManager = onboardingManager,
-                          )
+                          resultLauncher.launch(topResult, query = query, wasFirstResult = true)
                           onDismiss()
                         }
                       }
@@ -1348,187 +1335,6 @@ fun SearchScreen(
       dismissButton = { TextButton(onClick = { showResetConfirmation = null }) { Text("Cancel") } },
     )
   }
-}
-
-private fun launchResult(
-  context: Context,
-  result: SearchResult,
-  searchRepository: SearchRepository,
-  scope: kotlinx.coroutines.CoroutineScope,
-  query: String = "",
-  wasFirstResult: Boolean = false,
-  onQueryChange: ((String) -> Unit)? = null,
-  onboardingManager: OnboardingManager? = null,
-) {
-  when (result) {
-    is SearchResult.App -> {
-      val launchIntent = context.packageManager.getLaunchIntentForPackage(result.packageName)
-      launchIntent?.let {
-        it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(it)
-      }
-    }
-    is SearchResult.Content -> {
-      if (result.deepLink?.startsWith("calculator://copy") == true) {
-        val textToCopy = Uri.parse(result.deepLink).getQueryParameter("text") ?: result.title
-        val clipboard =
-          context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        val clip = android.content.ClipData.newPlainText("Calculator Result", textToCopy)
-        clipboard.setPrimaryClip(clip)
-        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-        return
-      }
-      if (result.deepLink?.startsWith("timer://set") == true) {
-        val uri = Uri.parse(result.deepLink)
-        val seconds = uri.getQueryParameter("seconds")?.toIntOrNull() ?: return
-        val name = uri.getQueryParameter("name")
-        val timerIntent =
-          Intent(android.provider.AlarmClock.ACTION_SET_TIMER).apply {
-            putExtra(android.provider.AlarmClock.EXTRA_LENGTH, seconds)
-            if (name != null) putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, name)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-          }
-        try {
-          context.startActivity(timerIntent)
-        } catch (e: android.content.ActivityNotFoundException) {
-          Toast.makeText(context, "No timer app found", Toast.LENGTH_SHORT).show()
-        }
-        return
-      }
-      result.deepLink?.let { deepLink ->
-        try {
-          val intent =
-            if (deepLink.startsWith("intent:")) {
-              Intent.parseUri(deepLink, Intent.URI_INTENT_SCHEME)
-            } else {
-              Intent(Intent.ACTION_VIEW, Uri.parse(deepLink))
-            }
-
-          if (intent.action == "com.searchlauncher.action.BIND_WIDGET") {
-            (context as? MainActivity)?.handleWidgetIntent(intent)
-              ?: run {
-                Toast.makeText(
-                    context,
-                    "Cannot bind widget: Activity not found",
-                    Toast.LENGTH_SHORT,
-                  )
-                  .show()
-              }
-          } else if (intent.action == "com.searchlauncher.action.APPEND_SPACE") {
-            onQueryChange?.invoke(query + " ")
-          } else if (intent.action == "com.searchlauncher.RESET_INDEX") {
-            scope.launch {
-              searchRepository.resetIndex()
-              withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Search Index Reset", Toast.LENGTH_SHORT).show()
-              }
-            }
-          } else if (intent.action == "com.searchlauncher.RESET_APP_DATA") {
-            scope.launch {
-              searchRepository.resetAppData()
-              withContext(Dispatchers.Main) {
-                Toast.makeText(context, "App Data Reset", Toast.LENGTH_SHORT).show()
-              }
-            }
-          } else if (intent.action == "com.searchlauncher.action.RESET_ONBOARDING") {
-            onQueryChange?.invoke("")
-            scope.launch {
-              onboardingManager?.resetOnboarding()
-              withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Onboarding Reset", Toast.LENGTH_SHORT).show()
-              }
-            }
-          } else if (CustomActionHandler.handleAction(context, intent)) {
-            // Handled
-          } else {
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
-          }
-        } catch (e: Exception) {
-          e.printStackTrace()
-          Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
-      }
-    }
-    is SearchResult.Shortcut -> {
-      try {
-        val uri = result.intentUri
-        if (uri.startsWith("shortcut://")) {
-          val parts = uri.substring("shortcut://".length).split("/")
-          if (parts.size == 2) {
-            val pkg = parts[0]
-            val id = parts[1]
-            val launcherApps =
-              context.getSystemService(Context.LAUNCHER_APPS_SERVICE)
-                as android.content.pm.LauncherApps
-            launcherApps.startShortcut(pkg, id, null, null, android.os.Process.myUserHandle())
-          }
-        } else {
-          val intent = Intent.parseUri(uri, Intent.URI_INTENT_SCHEME)
-          if (intent.action == "com.searchlauncher.RESET_INDEX") {
-            scope.launch {
-              searchRepository.resetIndex()
-              withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Search Index Reset", Toast.LENGTH_SHORT).show()
-              }
-            }
-          } else if (intent.action == "com.searchlauncher.RESET_APP_DATA") {
-            scope.launch {
-              searchRepository.resetAppData()
-              withContext(Dispatchers.Main) {
-                Toast.makeText(context, "App Data Reset", Toast.LENGTH_SHORT).show()
-              }
-            }
-          } else if (intent.action == "com.searchlauncher.action.RESET_ONBOARDING") {
-            onQueryChange?.invoke("")
-            scope.launch {
-              onboardingManager?.resetOnboarding()
-              withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Onboarding Reset", Toast.LENGTH_SHORT).show()
-              }
-            }
-          } else if (CustomActionHandler.handleAction(context, intent)) {
-            // Handled
-          } else {
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
-          }
-        }
-      } catch (e: Exception) {
-        e.printStackTrace()
-        Toast.makeText(context, "Error launching shortcut", Toast.LENGTH_SHORT).show()
-      }
-    }
-    is SearchResult.SearchIntent -> {
-      // Handled in UI
-    }
-    is SearchResult.Contact -> {
-      try {
-        val intent = Intent(Intent.ACTION_VIEW)
-        val uri =
-          Uri.withAppendedPath(
-            android.provider.ContactsContract.Contacts.CONTENT_LOOKUP_URI,
-            result.lookupKey,
-          )
-        intent.data = uri
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-      } catch (e: Exception) {
-        e.printStackTrace()
-        Toast.makeText(context, "Error opening contact", Toast.LENGTH_SHORT).show()
-      }
-    }
-    is SearchResult.Snippet -> {
-      val clipboard =
-        context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-      val clip = android.content.ClipData.newPlainText(result.alias, result.content)
-      clipboard.setPrimaryClip(clip)
-      Toast.makeText(context, "Copied ${result.content}", Toast.LENGTH_SHORT).show()
-    }
-  }
-
-  // Usage reporting
-  searchRepository.reportUsageAsync(result.namespace, result.id, query, wasFirstResult)
 }
 
 internal fun Drawable.toImageBitmap(): ImageBitmap? {

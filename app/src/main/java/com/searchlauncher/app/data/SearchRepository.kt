@@ -2,15 +2,8 @@ package com.searchlauncher.app.data
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
-import android.net.Uri
 import android.util.Log
-import android.util.LruCache
 import androidx.appsearch.app.AppSearchSession
 import androidx.appsearch.app.PutDocumentsRequest
 import androidx.appsearch.app.RemoveByDocumentIdRequest
@@ -22,13 +15,11 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.dataStore
-import com.searchlauncher.app.util.FuzzyMatch
 import com.searchlauncher.app.util.StaticShortcutScanner
 import com.searchlauncher.app.util.SystemUtils
 import com.searchlauncher.app.util.traceSection
 import io.sentry.Sentry
 import java.io.File
-import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
@@ -84,19 +75,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private var appSearchSession: AppSearchSession? = null
   @Volatile private var pauseIndexingUntilMs: Long = 0L
 
-  private val defaultContactIcon: Drawable by lazy {
-    context.getDrawable(com.searchlauncher.app.R.drawable.ic_contact_default)!!.apply {
-      setTint(Color.GRAY)
-    }
-  }
-
   private fun calculateCharMask(text: String): Long {
-    var mask = 0L
-    for (c in text) {
-      if (c in 'a'..'z') mask = mask or (1L shl (c - 'a'))
-      else if (c in '0'..'9') mask = mask or (1L shl (c - '0' + 26))
-    }
-    return mask
+    return SearchRanker.calculateCharMask(text)
   }
 
   internal fun wrap(doc: AppSearchDocument): SearchableDocument {
@@ -192,20 +172,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   private val executor = Executors.newSingleThreadExecutor()
   private val smartActionManager = SmartActionManager(context)
+  private val contactActionsRepository = ContactActionsRepository(context)
   private val iconGenerator = SearchIconGenerator(context)
-  private val iconCache =
-    object : LruCache<String, Drawable>(ICON_CACHE_MAX_KB) {
-      override fun sizeOf(key: String, value: Drawable): Int {
-        val bitmap = (value as? BitmapDrawable)?.bitmap
-        if (bitmap != null && !bitmap.isRecycled) {
-          return (bitmap.allocationByteCount / 1024).coerceAtLeast(1)
-        }
-
-        val width = value.intrinsicWidth.takeIf { it > 0 } ?: ICON_SIZE_PX
-        val height = value.intrinsicHeight.takeIf { it > 0 } ?: ICON_SIZE_PX
-        return (width * height * 4 / 1024).coerceAtLeast(1)
-      }
-    }
+  private val iconRepository = IconRepository(context)
+  private val searchResultFactory = SearchResultFactory(context, iconRepository, iconGenerator)
 
   private val _isInitialized = kotlinx.coroutines.flow.MutableStateFlow(false)
   val isInitialized: kotlinx.coroutines.flow.StateFlow<Boolean> = _isInitialized
@@ -253,182 +223,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private val queryUsageStats = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
   suspend fun getContactChatActions(contact: SearchResult.Contact): List<ContactChatAction> =
-    withContext(Dispatchers.IO) {
-      val permission = context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS)
-      if (permission != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-        return@withContext emptyList()
-      }
+    contactActionsRepository.getContactActions(contact)
 
-      val actionsByPackage = linkedMapOf<String, ContactChatAction>()
-      val dataCursor =
-        context.contentResolver.query(
-          android.provider.ContactsContract.Data.CONTENT_URI,
-          arrayOf(
-            android.provider.ContactsContract.Data._ID,
-            android.provider.ContactsContract.Data.MIMETYPE,
-            android.provider.ContactsContract.Data.DATA1,
-          ),
-          "${android.provider.ContactsContract.Data.CONTACT_ID} = ?",
-          arrayOf(contact.contactId.toString()),
-          null,
-        )
-
-      dataCursor?.use {
-        val idIndex = it.getColumnIndex(android.provider.ContactsContract.Data._ID)
-        val mimeIndex = it.getColumnIndex(android.provider.ContactsContract.Data.MIMETYPE)
-        val data1Index = it.getColumnIndex(android.provider.ContactsContract.Data.DATA1)
-        while (it.moveToNext()) {
-          val mimeType = it.getString(mimeIndex) ?: continue
-          val packageName = chatPackageFromMimeType(mimeType) ?: continue
-          if (!isPackageInstalled(packageName)) continue
-          actionsByPackage.putIfAbsent(
-            packageName,
-            ContactChatAction(
-              label = getApplicationLabel(packageName) ?: packageName,
-              packageName = packageName,
-              dataId = it.getLong(idIndex),
-              phoneNumber = it.getString(data1Index),
-              icon = getApplicationIcon(packageName),
-            ),
-          )
-        }
-      }
-
-      val phoneNumber = getPrimaryPhoneNumber(contact.contactId)
-      if (phoneNumber != null && isPackageInstalled(WHATSAPP_PACKAGE)) {
-        actionsByPackage.putIfAbsent(
-          WHATSAPP_PACKAGE,
-          ContactChatAction(
-            label = getApplicationLabel(WHATSAPP_PACKAGE) ?: "WhatsApp",
-            packageName = WHATSAPP_PACKAGE,
-            phoneNumber = phoneNumber,
-            icon = getApplicationIcon(WHATSAPP_PACKAGE),
-          ),
-        )
-      }
-      if (phoneNumber != null) {
-        actionsByPackage.putIfAbsent(
-          SMS_ACTION_KEY,
-          ContactChatAction(
-            label = "SMS",
-            packageName = SMS_ACTION_KEY,
-            phoneNumber = phoneNumber,
-            icon = context.getDrawable(android.R.drawable.sym_action_chat),
-          ),
-        )
-        actionsByPackage.putIfAbsent(
-          CALL_ACTION_KEY,
-          ContactChatAction(
-            label = "Call",
-            packageName = CALL_ACTION_KEY,
-            phoneNumber = phoneNumber,
-            icon = context.getDrawable(android.R.drawable.ic_menu_call),
-          ),
-        )
-      }
-      val emailAddress = getPrimaryEmailAddress(contact.contactId)
-      if (emailAddress != null) {
-        actionsByPackage.putIfAbsent(
-          EMAIL_ACTION_KEY,
-          ContactChatAction(
-            label = "Email",
-            packageName = EMAIL_ACTION_KEY,
-            phoneNumber = emailAddress,
-            icon = context.getDrawable(android.R.drawable.ic_dialog_email),
-          ),
-        )
-      }
-
-      val actions = actionsByPackage.values.toList()
-      val lastPackage = getLastContactChatPackage(contact.id)
-      if (lastPackage == null) {
-        actions
-      } else {
-        actions.sortedBy { if (it.packageName == lastPackage) 0 else 1 }
-      }
-    }
-
-  fun launchContactChatAction(contact: SearchResult.Contact, action: ContactChatAction): Boolean {
-    val intents = buildList {
-      if (action.packageName == CALL_ACTION_KEY && action.phoneNumber != null) {
-        add(
-          android.content.Intent(
-            android.content.Intent.ACTION_DIAL,
-            Uri.parse("tel:${Uri.encode(action.phoneNumber)}"),
-          )
-        )
-      }
-
-      if (action.packageName == SMS_ACTION_KEY && action.phoneNumber != null) {
-        add(
-          android.content.Intent(
-            android.content.Intent.ACTION_SENDTO,
-            Uri.parse("smsto:${Uri.encode(action.phoneNumber)}"),
-          )
-        )
-      }
-
-      if (action.packageName == EMAIL_ACTION_KEY && action.phoneNumber != null) {
-        add(
-          android.content.Intent(
-            android.content.Intent.ACTION_SENDTO,
-            Uri.parse("mailto:${Uri.encode(action.phoneNumber)}"),
-          )
-        )
-      }
-
-      if (action.dataId != null) {
-        add(
-          android.content.Intent(
-              android.content.Intent.ACTION_VIEW,
-              Uri.withAppendedPath(
-                android.provider.ContactsContract.Data.CONTENT_URI,
-                action.dataId.toString(),
-              ),
-            )
-            .setPackage(action.packageName)
-        )
-      }
-
-      if (action.packageName == WHATSAPP_PACKAGE && action.phoneNumber != null) {
-        val normalizedPhone = com.searchlauncher.app.util.ContactUtils.normalizePhoneNumber(
-          action.phoneNumber
-        )
-        if (normalizedPhone != null) {
-          add(
-            android.content.Intent(
-                android.content.Intent.ACTION_VIEW,
-                Uri.parse("https://wa.me/$normalizedPhone"),
-              )
-              .setPackage(WHATSAPP_PACKAGE)
-          )
-        }
-      }
-
-      add(
-        android.content.Intent(
-            android.content.Intent.ACTION_VIEW,
-            Uri.withAppendedPath(
-              android.provider.ContactsContract.Contacts.CONTENT_LOOKUP_URI,
-              contact.lookupKey,
-            ),
-          )
-          .setPackage(action.packageName)
-      )
-    }
-
-    for (intent in intents) {
-      try {
-        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-        setLastContactChatPackage(contact.id, action.packageName)
-        return true
-      } catch (e: Exception) {
-        // Try the next route.
-      }
-    }
-    return false
-  }
+  fun launchContactChatAction(contact: SearchResult.Contact, action: ContactChatAction): Boolean =
+    contactActionsRepository.launchContactAction(contact, action)
 
   suspend fun initialize(): Result<Unit> =
     safeCall("SearchRepository", "Error initializing") {
@@ -460,7 +258,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           // Pre-cache SearchLauncher's own icon for internal actions
           scope.launch {
             try {
-              cacheAppIcon(context.packageName, "launcher_app_icon")
+              iconRepository.cacheAppIcon(context.packageName, "launcher_app_icon")
             } catch (e: Exception) {
               e.printStackTrace()
             }
@@ -933,17 +731,17 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                       context.resources.displayMetrics.densityDpi,
                     )
                   if (icon != null) {
-                    saveIconToDisk("shortcut_$shortcutId", icon, force = true)
+                    iconRepository.saveToDisk("shortcut_$shortcutId", icon, force = true)
                   }
                 } catch (e: Exception) {
                   // Ignore icon loading failures
                 }
 
                 val pkg = shortcut.`package`
-                if (!hasIconOnDisk("appicon_$pkg")) {
+                if (!iconRepository.hasOnDisk("appicon_$pkg")) {
                   try {
                     val appIcon = context.packageManager.getApplicationIcon(pkg)
-                    saveIconToDisk("appicon_$pkg", appIcon, force = true)
+                    iconRepository.saveToDisk("appicon_$pkg", appIcon, force = true)
                   } catch (e: Exception) {
                     // Ignore icon loading failures
                   }
@@ -1084,7 +882,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             val res = context.packageManager.getResourcesForApplication(s.packageName)
             val icon = res.getDrawable(s.iconResId.toInt(), null)
             if (icon != null) {
-              saveIconToDisk("static_shortcut_$shortcutId", icon, force = true)
+              iconRepository.saveToDisk("static_shortcut_$shortcutId", icon, force = true)
             }
           }
         } catch (e: Exception) {
@@ -1093,10 +891,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         }
 
         // Pre-load and cache app icon
-        if (!hasIconOnDisk("appicon_${s.packageName}")) {
+        if (!iconRepository.hasOnDisk("appicon_${s.packageName}")) {
           try {
             val appIcon = context.packageManager.getApplicationIcon(s.packageName)
-            saveIconToDisk("appicon_${s.packageName}", appIcon, force = true)
+            iconRepository.saveToDisk("appicon_${s.packageName}", appIcon, force = true)
           } catch (e: Exception) {
             // Ignore app icon loading failures
             Sentry.captureException(e)
@@ -1666,7 +1464,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         android.util.Log.d("SearchRepository", "onPackageAdded: $packageName")
         scope.launch {
           indexApps()
-          cacheAppIcon(packageName)
+          iconRepository.cacheAppIcon(packageName)
           _packageUpdated.emit(null) // null means generic update
         }
       }
@@ -1674,7 +1472,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       override fun onPackageChanged(packageName: String, user: android.os.UserHandle) {
         scope.launch {
           indexApps()
-          cacheAppIcon(packageName)
+          iconRepository.cacheAppIcon(packageName)
           _packageUpdated.emit(null)
         }
       }
@@ -2060,107 +1858,23 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     includeSearchShortcuts: Boolean,
   ): List<SearchResult> {
     val startTime = System.currentTimeMillis()
-    val candidates = mutableListOf<Pair<SearchableDocument, Int>>()
-
-    val queryLower = query.lowercase().trim()
-    val usageQuery = normalizedUsageQuery(queryLower)
-    val queryMask = calculateCharMask(queryLower)
-    val normalizedQuery = com.searchlauncher.app.util.ContactUtils.normalizePhoneNumber(queryLower)
 
     val snapshot = documentSnapshot
-    val syncStart = System.currentTimeMillis()
-    traceSection("SL:SearchRepository.scanSnapshot") {
-      for (sdoc in snapshot) {
-        if (!includeSearchShortcuts && sdoc.namespaceInt == 7) continue
-
-        val score =
-          FuzzyMatch.calculateScore(
-            queryLower,
-            sdoc.nameLower,
-            sdoc.targetWords,
-            sdoc.acronym,
-            queryMask,
-            sdoc.charMask,
-          )
-
-        // Also check normalized phone number for contacts (use pre-computed normalizedPhone)
-        var contactScore = 0
-        if (
-          sdoc.namespaceInt == 5 &&
-            normalizedQuery != null &&
-            normalizedQuery.length >= RankingScores.CONTACT_STRONG_MATCH_MIN_QUERY_LENGTH
-        ) {
-          if (sdoc.normalizedPhone?.contains(normalizedQuery) == true) {
-            contactScore = RankingScores.CONTACT_PHONE_MATCH_SCORE
-          }
-        }
-
-        val finalScore = maxOf(score, contactScore)
-        if (finalScore > RankingScores.MIN_CANDIDATE_SCORE) {
-          val doc = sdoc.doc
-          val globalUsage = getGlobalUsageCount(doc.namespace, doc.id)
-          val queryUsagePoints = getQueryUsagePoints(usageQuery, doc.namespace, doc.id)
-          var namespaceBoost =
-            when (sdoc.namespaceInt) {
-              1 -> RankingScores.NAMESPACE_BOOST_APPS
-              2 -> RankingScores.NAMESPACE_BOOST_APP_SHORTCUTS
-              3 -> RankingScores.NAMESPACE_BOOST_WEB_BOOKMARKS
-              4 -> RankingScores.NAMESPACE_BOOST_SHORTCUTS
-              5 -> RankingScores.NAMESPACE_BOOST_CONTACTS
-              8 -> RankingScores.NAMESPACE_BOOST_SNIPPETS
-              else -> RankingScores.NAMESPACE_BOOST_DEFAULT
-            }
-
-          // Extra boost for apps / app_shortcuts on very short (1-2 char) queries.
-          if (queryLower.length <= RankingScores.SHORT_QUERY_MAX_LENGTH && sdoc.namespaceInt <= 2) {
-            namespaceBoost += RankingScores.SHORT_QUERY_APP_BOOST
-          }
-
-          if (
-            sdoc.namespaceInt == 5 &&
-              queryLower.length >= RankingScores.CONTACT_STRONG_MATCH_MIN_QUERY_LENGTH &&
-              finalScore >= RankingScores.CONTACT_PHONE_MATCH_SCORE
-          ) {
-            namespaceBoost += RankingScores.CONTACT_STRONG_MATCH_BOOST
-          }
-
-          if (
-            sdoc.namespaceInt == 5 &&
-              queryLower.length <= RankingScores.LEARNED_CONTACT_SHORT_QUERY_MAX_LENGTH &&
-              queryUsagePoints > 0 &&
-              finalScore >= RankingScores.CONTACT_PHONE_MATCH_SCORE
-          ) {
-            namespaceBoost += RankingScores.LEARNED_CONTACT_SHORT_QUERY_BOOST
-          }
-
-          val usageBoost =
-            (globalUsage.coerceAtMost(RankingScores.GLOBAL_USAGE_SCORE_CAP) *
-              RankingScores.GLOBAL_USAGE_SCORE_BOOST) +
-              (queryUsagePoints.coerceAtMost(RankingScores.QUERY_USAGE_POINTS_CAP) *
-                RankingScores.QUERY_USAGE_POINT_SCORE_BOOST)
-
-          candidates.add(sdoc to (finalScore + namespaceBoost + usageBoost))
-        }
-
-        if (candidates.size > 1000) break
+    val rankStart = System.currentTimeMillis()
+    val candidates =
+      traceSection("SL:SearchRepository.rankCandidates") {
+        SearchRanker.rankCandidates(
+          query = query,
+          snapshot = snapshot,
+          includeSearchShortcuts = includeSearchShortcuts,
+          usageStats = usageStats,
+          queryUsageStats = queryUsageStats,
+          documentByNamespaceAndId = documentByNamespaceAndId,
+        )
       }
-    }
-    addLearnedShortQueryContacts(
-      queryLower = queryLower,
-      usageQuery = usageQuery,
-      queryMask = queryMask,
-      candidates = candidates,
-    )
     android.util.Log.v(
       "SearchRepository",
-      "  [Timing] scan of ${snapshot.size} docs took ${System.currentTimeMillis() - syncStart}ms",
-    )
-
-    val sortStart = System.currentTimeMillis()
-    traceSection("SL:SearchRepository.sortCandidates") { candidates.sortByDescending { it.second } }
-    android.util.Log.v(
-      "SearchRepository",
-      "  [Timing] Sorting ${candidates.size} candidates took ${System.currentTimeMillis() - sortStart}ms",
+      "  [Timing] Ranking ${snapshot.size} docs took ${System.currentTimeMillis() - rankStart}ms",
     )
 
     val appSearchResults = mutableListOf<SearchResult>()
@@ -2206,77 +1920,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     return appSearchResults
   }
 
-  private fun addLearnedShortQueryContacts(
-    queryLower: String,
-    usageQuery: String?,
-    queryMask: Long,
-    candidates: MutableList<Pair<SearchableDocument, Int>>,
-  ) {
-    if (
-      usageQuery == null || queryLower.length > RankingScores.LEARNED_CONTACT_SHORT_QUERY_MAX_LENGTH
-    )
-      return
-
-    val existingContactIds =
-      candidates.asSequence().filter { it.first.namespaceInt == 5 }.map { it.first.doc.id }.toSet()
-    val keyPrefix = queryUsageKeyPrefix(usageQuery, "contacts")
-    val learnedContactEntries =
-      queryUsageStats.entries
-        .asSequence()
-        .filter { (key, points) -> points > 0 && key.startsWith(keyPrefix) }
-        .sortedByDescending { it.value }
-        .take(8)
-        .toList()
-
-    for ((key, queryUsagePoints) in learnedContactEntries) {
-      val contactId = key.removePrefix(keyPrefix)
-      if (contactId in existingContactIds) continue
-      val sdoc = documentByNamespaceAndId[documentLookupKey("contacts", contactId)] ?: continue
-      val finalScore =
-        FuzzyMatch.calculateScore(
-          queryLower,
-          sdoc.nameLower,
-          sdoc.targetWords,
-          sdoc.acronym,
-          queryMask,
-          sdoc.charMask,
-        )
-      if (finalScore < RankingScores.CONTACT_PHONE_MATCH_SCORE) continue
-
-      val doc = sdoc.doc
-      val globalUsage = getGlobalUsageCount(doc.namespace, doc.id)
-      val usageBoost =
-        (globalUsage.coerceAtMost(RankingScores.GLOBAL_USAGE_SCORE_CAP) *
-          RankingScores.GLOBAL_USAGE_SCORE_BOOST) +
-          (queryUsagePoints.coerceAtMost(RankingScores.QUERY_USAGE_POINTS_CAP) *
-            RankingScores.QUERY_USAGE_POINT_SCORE_BOOST)
-
-      candidates.add(
-        sdoc to
-          (finalScore +
-            RankingScores.NAMESPACE_BOOST_CONTACTS +
-            RankingScores.LEARNED_CONTACT_SHORT_QUERY_BOOST +
-            usageBoost)
-      )
-    }
-  }
-
-  private fun getFuzzyMatches(query: String): List<Pair<AppSearchDocument, Int>> {
-    val results = mutableListOf<Pair<AppSearchDocument, Int>>()
-    val queryLower = query.lowercase().trim()
-    for (sdoc in documentSnapshot) {
-      val doc = sdoc.doc
-      val score =
-        FuzzyMatch.calculateScore(queryLower, sdoc.nameLower, sdoc.targetWords, sdoc.acronym)
-      if (score > 40) {
-        results.add(doc to score)
-      }
-      // Safety break if cache is somehow malformed/infinite
-      if (results.size > 500) break
-    }
-    return results.sortedByDescending { it.second }.take(50)
-  }
-
   suspend fun searchContent(): List<SearchResult.Content> =
     withContext(Dispatchers.IO) { emptyList() }
 
@@ -2319,7 +1962,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
         level == android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN
     ) {
-      iconCache.evictAll()
+      iconRepository.clearMemory()
       android.util.Log.d("SearchRepository", "Evicted icon cache on trim memory level $level")
     }
   }
@@ -2336,338 +1979,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     saveToDisk: Boolean = false,
     allowIpc: Boolean = true,
     allowDisk: Boolean = true,
-  ): SearchResult {
-    val doc = sdoc.doc
-    kotlinx.coroutines.currentCoroutineContext().ensureActive()
-    return when (doc.namespace) {
-      "shortcuts" -> {
-        // Icons pre-cached during indexing, just load from cache
-        var icon: Drawable? = iconCache.get("shortcut_${doc.id}")
-        if (icon == null && allowDisk) {
-          val diskIcon = loadIconFromDisk("shortcut_${doc.id}")
-          if (diskIcon != null) {
-            icon = diskIcon
-            iconCache.put("shortcut_${doc.id}", icon)
-          } else if (allowIpc) {
-            try {
-              val launcherApps =
-                context.getSystemService(Context.LAUNCHER_APPS_SERVICE)
-                  as android.content.pm.LauncherApps
-              val user = android.os.Process.myUserHandle()
-              val q = android.content.pm.LauncherApps.ShortcutQuery()
-              val packageName = sdoc.packageName ?: ""
-              val shortcutId = doc.id.substringAfter("/")
-              q.setPackage(packageName)
-              q.setShortcutIds(listOf(shortcutId))
-              q.setQueryFlags(
-                android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
-                  android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
-                  android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED
-              )
-              val shortcuts = launcherApps.getShortcuts(q, user)
-              if (shortcuts != null && shortcuts.isNotEmpty()) {
-                icon =
-                  launcherApps.getShortcutIconDrawable(
-                    shortcuts[0],
-                    context.resources.displayMetrics.densityDpi,
-                  )
-                if (icon != null) {
-                  iconCache.put("shortcut_${doc.id}", icon)
-                  if (saveToDisk) {
-                    saveIconToDisk("shortcut_${doc.id}", icon, force = true)
-                  }
-                }
-              }
-            } catch (e: Exception) {
-              // Ignore
-            }
-          }
-        }
-
-        // App icons pre-cached during indexing
-        val pkg = sdoc.packageName ?: ""
-        val appIcon =
-          iconCache.get("appicon_$pkg")
-            ?: (if (allowDisk)
-              loadIconFromDisk("appicon_$pkg")?.also { iconCache.put("appicon_$pkg", it) }
-            else null)
-            ?: (if (allowIpc) {
-              try {
-                val ai = context.packageManager.getApplicationIcon(pkg)
-                iconCache.put("appicon_$pkg", ai)
-                if (saveToDisk) {
-                  saveIconToDisk("appicon_$pkg", ai, force = true)
-                }
-                ai
-              } catch (e: Exception) {
-                null
-              }
-            } else null)
-
-        SearchResult.Shortcut(
-          id = doc.id,
-          namespace = "shortcuts",
-          title = doc.name,
-          subtitle = doc.description ?: "Shortcut",
-          icon = icon,
-          packageName = pkg,
-          intentUri = doc.intentUri ?: "",
-          appIcon = appIcon,
-          rankingScore = rankingScore,
-        )
-      }
-      "app_shortcuts" -> {
-        // Check cache first (settings icons, camera icons, etc.)
-        var icon: Drawable? = iconCache.get("app_shortcut_${doc.id}")
-        if (icon == null && allowDisk) {
-          val diskIcon = loadIconFromDisk("app_shortcut_${doc.id}")
-          if (diskIcon != null) {
-            icon = diskIcon
-            iconCache.put("app_shortcut_${doc.id}", icon)
-          } else if (allowIpc) {
-            icon =
-              when {
-                doc.intentUri?.contains("android.settings") == true -> {
-                  try {
-                    context.packageManager.getApplicationIcon("com.android.settings")
-                  } catch (e: Exception) {
-                    null
-                  }
-                }
-                doc.intentUri?.contains("STILL_IMAGE_CAMERA") == true -> {
-                  context.getDrawable(android.R.drawable.ic_menu_camera)
-                }
-                doc.intentUri?.contains("VIDEO_CAMERA") == true -> {
-                  context.getDrawable(android.R.drawable.ic_menu_camera)
-                }
-                else -> null
-              }
-            if (icon != null) {
-              iconCache.put("app_shortcut_${doc.id}", icon)
-              if (saveToDisk) {
-                saveIconToDisk("app_shortcut_${doc.id}", icon, force = true)
-              }
-            }
-          }
-        }
-
-        val isLauncherItem = doc.id.contains("launcher_")
-        val launcherIcon =
-          if (isLauncherItem) {
-            // Launcher icon should be pre-cached
-            val cacheKey = "launcher_app_icon"
-            iconCache.get(cacheKey)
-              ?: (if (allowDisk) loadIconFromDisk(cacheKey)?.also { iconCache.put(cacheKey, it) }
-              else null)
-              ?: run {
-                // Robust fallback: if IPC is allowed, try to load it now
-                if (allowIpc) {
-                  try {
-                    context.packageManager.getApplicationIcon(context.packageName).also {
-                      iconCache.put(cacheKey, it)
-                      if (saveToDisk) {
-                        saveIconToDisk(cacheKey, it, force = true)
-                      }
-                    }
-                  } catch (e: Exception) {
-                    null
-                  }
-                } else null
-              }
-          } else null
-
-        SearchResult.Content(
-          id = doc.id,
-          namespace = "app_shortcuts",
-          title = doc.name,
-          subtitle = if (isLauncherItem) "SearchLauncher" else "Action",
-          icon = launcherIcon ?: icon,
-          packageName = "android",
-          deepLink = doc.intentUri,
-          rankingScore = rankingScore,
-        )
-      }
-      "search_shortcuts" -> {
-        val alias = doc.description ?: ""
-        val cacheKey = "search_shortcut_${doc.id}"
-        var icon = iconCache.get(cacheKey)
-
-        if (icon == null) {
-          val app = context.applicationContext as? SearchLauncherApp
-          val shortcutDef = app?.searchShortcutRepository?.items?.value?.find { it.alias == alias }
-          icon = iconGenerator.getColoredSearchIcon(shortcutDef?.color, shortcutDef?.alias)
-          if (icon != null) {
-            iconCache.put(cacheKey, icon)
-          }
-        }
-
-        SearchResult.SearchIntent(
-          id = doc.id,
-          namespace = "search_shortcuts",
-          title = doc.name,
-          subtitle = "Type '${doc.description} ' to search",
-          icon = icon,
-          trigger = doc.description ?: "",
-          rankingScore = rankingScore,
-        )
-      }
-      "web_bookmarks" -> {
-        val browserIcon =
-          context.getDrawable(android.R.drawable.ic_menu_compass)
-            ?: context.getDrawable(android.R.drawable.ic_menu_search)
-        SearchResult.Content(
-          id = doc.id,
-          namespace = "web_bookmarks",
-          title = doc.name,
-          subtitle = "Bookmark",
-          icon = browserIcon,
-          packageName = "com.android.chrome",
-          deepLink = doc.intentUri,
-          rankingScore = rankingScore,
-        )
-      }
-      "static_shortcuts" -> {
-        var icon: Drawable? = iconCache.get("static_shortcut_${doc.id}")
-        if (icon == null && allowDisk) {
-          val diskIcon = loadIconFromDisk("static_shortcut_${doc.id}")
-          if (diskIcon != null) {
-            icon = diskIcon
-            iconCache.put("static_shortcut_${doc.id}", icon)
-          } else if (allowIpc) {
-            try {
-              val pkg = sdoc.packageName ?: ""
-              if (doc.iconResId > 0) {
-                val res = context.packageManager.getResourcesForApplication(pkg)
-                icon = res.getDrawable(doc.iconResId.toInt(), null)
-                if (icon != null) {
-                  iconCache.put("static_shortcut_${doc.id}", icon)
-                  if (saveToDisk) {
-                    saveIconToDisk("static_shortcut_${doc.id}", icon, force = true)
-                  }
-                }
-              }
-            } catch (e: Exception) {}
-          }
-        }
-
-        val pkg = sdoc.packageName ?: ""
-        val appIcon =
-          if (allowIpc) {
-            try {
-              context.packageManager.getApplicationIcon(pkg)
-            } catch (e: Exception) {
-              null
-            }
-          } else null
-
-        SearchResult.Shortcut(
-          id = doc.id,
-          namespace = "static_shortcuts",
-          title = doc.name,
-          subtitle = doc.description ?: "Shortcut",
-          icon = icon,
-          packageName = pkg,
-          intentUri = doc.intentUri ?: "",
-          appIcon = appIcon,
-          rankingScore = rankingScore,
-        )
-      }
-      "contacts" -> {
-        val lookupKey = sdoc.contactLookupKey ?: ""
-        val contactId = sdoc.contactId
-        val photoUri = sdoc.photoUri
-
-        var icon: Drawable? = iconCache.get("contact_${doc.id}")
-
-        if (icon == null && photoUri != null && allowIpc) {
-          try {
-            val uri = android.net.Uri.parse(photoUri)
-            val stream = context.contentResolver.openInputStream(uri)
-            icon = Drawable.createFromStream(stream, uri.toString())
-            stream?.close()
-            if (icon != null) {
-              iconCache.put("contact_${doc.id}", icon)
-            }
-          } catch (e: Exception) {
-            // Ignore
-          }
-        }
-
-        if (icon == null && allowIpc) {
-          icon = defaultContactIcon
-        }
-
-        SearchResult.Contact(
-          id = doc.id,
-          namespace = "contacts",
-          title = doc.name,
-          subtitle =
-            if (query != null && !doc.name.contains(query, ignoreCase = true)) {
-              val phoneNumbers = sdoc.phoneNumbers ?: ""
-              val tokens = phoneNumbers.split(" ")
-              val match = tokens.find { it.contains(query, ignoreCase = true) }
-              match?.trim() ?: "Contact"
-            } else {
-              "Contact"
-            },
-          icon = icon,
-          rankingScore = rankingScore,
-          lookupKey = lookupKey,
-          contactId = contactId,
-          photoUri = photoUri,
-        )
-      }
-      "snippets" -> {
-        val icon = context.getDrawable(android.R.drawable.ic_menu_save)
-        SearchResult.Snippet(
-          id = doc.id,
-          namespace = "snippets",
-          title = doc.name,
-          subtitle = doc.description ?: "Snippet",
-          icon = icon,
-          alias = doc.id,
-          content = doc.description ?: "",
-          rankingScore = rankingScore,
-        )
-      }
-      else -> { // apps
-        val packageName = doc.id
-        // App icons pre-cached during indexing/refresh
-        val icon =
-          iconCache.get("appicon_$packageName")
-            ?: (if (allowDisk)
-              loadIconFromDisk("appicon_$packageName")?.also {
-                iconCache.put("appicon_$packageName", it)
-              }
-            else null)
-            ?: (if (allowIpc) {
-              try {
-                context.packageManager.getApplicationIcon(packageName).also {
-                  iconCache.put("appicon_$packageName", it)
-                  if (saveToDisk) {
-                    saveIconToDisk("appicon_$packageName", it, force = true)
-                  }
-                }
-              } catch (e: Exception) {
-                android.util.Log.w(
-                  "SearchRepository",
-                  "Failed to load app icon on demand for $packageName",
-                )
-                null
-              }
-            } else null)
-        SearchResult.App(
-          id = doc.id,
-          namespace = "apps",
-          title = doc.name,
-          subtitle = doc.description ?: doc.id,
-          icon = icon,
-          packageName = doc.id,
-          rankingScore = rankingScore,
-        )
-      }
-    }
-  }
+  ): SearchResult =
+    searchResultFactory.create(sdoc, rankingScore, query, saveToDisk, allowIpc, allowDisk)
 
   private fun saveResultsToCache(results: List<SearchResult>, isFavorites: Boolean) {
     scope.launch(Dispatchers.IO) {
@@ -2713,7 +2026,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             }
           }
           array.put(obj)
-          saveIconToDisk(res.id, res.icon)
+          iconRepository.saveToDisk(res.id, res.icon)
         }
         file.writeText(array.toString())
       } catch (e: Exception) {
@@ -2721,19 +2034,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
     }
   }
-
-  private suspend fun cacheAppIcon(packageName: String, customKey: String? = null) =
-    withContext(Dispatchers.IO) {
-      try {
-        val key = customKey ?: "appicon_$packageName"
-        val icon = context.packageManager.getApplicationIcon(packageName)
-        iconCache.put(key, icon)
-        saveIconToDisk(key, icon, force = true)
-        android.util.Log.d("SearchRepository", "Cached icon for $packageName as $key")
-      } catch (e: Exception) {
-        android.util.Log.e("SearchRepository", "Failed to cache icon for $packageName", e)
-      }
-    }
 
   private fun loadResultsFromCache(isFavorites: Boolean): List<SearchResult> {
     val file = if (isFavorites) getFavoritesCacheFile() else getHistoryCacheFile()
@@ -2747,7 +2047,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         val ns = obj.getString("namespace")
         val title = obj.getString("title")
         val sub = obj.optString("subtitle", "").takeIf { it.isNotEmpty() }
-        val icon = loadIconFromDisk(id)
+        val icon = iconRepository.loadFromDisk(id)
         val res =
           when (obj.getString("type")) {
             "App" ->
@@ -2839,9 +2139,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private fun getGlobalUsageCount(namespace: String, id: String): Int =
     usageStats[usageKey(namespace, id)] ?: usageStats[id] ?: 0
 
-  private fun getQueryUsagePoints(query: String?, namespace: String, id: String): Int =
-    query?.let { queryUsageStats[queryUsageKey(it, namespace, id)] } ?: 0
-
   private fun recordQueryUsage(query: String, namespace: String, id: String) {
     val queryLength = query.length.coerceAtLeast(1)
     for (prefixLength in 1..queryLength) {
@@ -2917,48 +2214,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   private fun getHistoryCacheFile() = File(context.filesDir, "history_cache.json")
 
-  private fun getIconDir() = File(context.filesDir, "favorite_icons").apply { mkdirs() }
-
-  private fun sanitizeId(id: String) = id.replace("/", "_").replace(":", "_")
-
-  private fun hasIconOnDisk(id: String): Boolean =
-    File(getIconDir(), "${sanitizeId(id)}.png").exists()
-
-  private fun saveIconToDisk(id: String, drawable: Drawable?, force: Boolean = true) {
-    if (drawable == null || !force) return
-    val targetFile = File(getIconDir(), "${sanitizeId(id)}.png")
-    val tmpFile = File(getIconDir(), "${sanitizeId(id)}.tmp")
-
-    try {
-      val bitmap = Bitmap.createBitmap(ICON_SIZE_PX, ICON_SIZE_PX, Bitmap.Config.ARGB_8888)
-      val canvas = Canvas(bitmap)
-      drawable.setBounds(0, 0, canvas.width, canvas.height)
-      drawable.draw(canvas)
-
-      // Write to temp file first to avoid partial writes (race condition)
-      FileOutputStream(tmpFile).use { out ->
-        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-        out.flush()
-      }
-      bitmap.recycle()
-
-      // Atomic replacement
-      if (tmpFile.exists() && tmpFile.length() > 0) {
-        if (targetFile.exists()) {
-          targetFile.delete()
-        }
-        tmpFile.renameTo(targetFile)
-      }
-    } catch (e: Exception) {
-      e.printStackTrace()
-      tmpFile.delete()
-    }
-  }
-
   suspend fun clearIconCache() {
-    iconCache.evictAll()
-    getIconDir().deleteRecursively()
-    getIconDir().mkdirs()
+    iconRepository.clearMemory()
+    iconRepository.clearDisk()
     // Re-index shortcuts to rebuild the disk cache.
     withContext(Dispatchers.IO) {
       try {
@@ -2981,13 +2239,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               val pkg = info.componentName.packageName
               try {
                 val appIcon = info.getIcon(context.resources.displayMetrics.densityDpi)
-                saveIconToDisk("appicon_$pkg", appIcon, force = true)
+                iconRepository.saveToDisk("appicon_$pkg", appIcon, force = true)
                 iconCount++
               } catch (e: Exception) {
                 // Try PackageManager as fallback
                 try {
                   val appIcon = context.packageManager.getApplicationIcon(pkg)
-                  saveIconToDisk("appicon_$pkg", appIcon, force = true)
+                  iconRepository.saveToDisk("appicon_$pkg", appIcon, force = true)
                   iconCount++
                 } catch (e2: Exception) {
                   // Ignore
@@ -3006,128 +2264,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     }
   }
 
-  private fun loadIconFromDisk(id: String): Drawable? {
-    val file = File(getIconDir(), "${sanitizeId(id)}.png")
-    if (!file.exists()) return null
-    return try {
-      val bitmap = BitmapFactory.decodeFile(file.absolutePath)
-      BitmapDrawable(context.resources, bitmap)
-    } catch (e: Exception) {
-      null
-    }
-  }
-
-  private fun chatPackageFromMimeType(mimeType: String): String? {
-    return KNOWN_CHAT_PACKAGES.firstOrNull { packageName ->
-      mimeType.contains(packageName, ignoreCase = true)
-    }
-  }
-
-  private fun getPrimaryPhoneNumber(contactId: Long): String? {
-    val cursor =
-      context.contentResolver.query(
-        android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-        arrayOf(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER),
-        "${android.provider.ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?",
-        arrayOf(contactId.toString()),
-        "${android.provider.ContactsContract.CommonDataKinds.Phone.IS_PRIMARY} DESC",
-      )
-
-    cursor?.use {
-      val numberIndex =
-        it.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER)
-      while (it.moveToNext()) {
-        val number = it.getString(numberIndex)
-        if (!number.isNullOrBlank()) return number
-      }
-    }
-    return null
-  }
-
-  private fun getPrimaryEmailAddress(contactId: Long): String? {
-    val cursor =
-      context.contentResolver.query(
-        android.provider.ContactsContract.CommonDataKinds.Email.CONTENT_URI,
-        arrayOf(android.provider.ContactsContract.CommonDataKinds.Email.ADDRESS),
-        "${android.provider.ContactsContract.CommonDataKinds.Email.CONTACT_ID} = ?",
-        arrayOf(contactId.toString()),
-        "${android.provider.ContactsContract.CommonDataKinds.Email.IS_PRIMARY} DESC",
-      )
-
-    cursor?.use {
-      val addressIndex =
-        it.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Email.ADDRESS)
-      while (it.moveToNext()) {
-        val address = it.getString(addressIndex)
-        if (!address.isNullOrBlank()) return address
-      }
-    }
-    return null
-  }
-
-  private fun isPackageInstalled(packageName: String): Boolean =
-    try {
-      context.packageManager.getPackageInfo(packageName, 0)
-      true
-    } catch (e: Exception) {
-      false
-    }
-
-  private fun getApplicationLabel(packageName: String): String? =
-    try {
-      val appInfo = context.packageManager.getApplicationInfo(packageName, 0)
-      context.packageManager.getApplicationLabel(appInfo).toString()
-    } catch (e: Exception) {
-      null
-    }
-
-  private fun getApplicationIcon(packageName: String): Drawable? =
-    try {
-      iconCache.get("appicon_$packageName")
-        ?: context.packageManager.getApplicationIcon(packageName).also {
-          iconCache.put("appicon_$packageName", it)
-        }
-    } catch (e: Exception) {
-      null
-    }
-
-  private fun getLastContactChatPackage(contactId: String): String? =
-    context
-      .getSharedPreferences("contact_chat_actions", Context.MODE_PRIVATE)
-      .getString(contactId, null)
-
-  private fun setLastContactChatPackage(contactId: String, packageName: String) {
-    context
-      .getSharedPreferences("contact_chat_actions", Context.MODE_PRIVATE)
-      .edit()
-      .putString(contactId, packageName)
-      .apply()
-  }
-
   // checkSmartActions extracted to SmartActionManager
-
-  companion object {
-    private const val ICON_SIZE_PX = 192
-    private const val ICON_CACHE_MAX_KB = 24 * 1024
-    private const val CALL_ACTION_KEY = "com.searchlauncher.action.CALL_CONTACT"
-    private const val SMS_ACTION_KEY = "com.searchlauncher.action.SMS_CONTACT"
-    private const val EMAIL_ACTION_KEY = "com.searchlauncher.action.EMAIL_CONTACT"
-    private const val WHATSAPP_PACKAGE = "com.whatsapp"
-    private val KNOWN_CHAT_PACKAGES =
-      setOf(
-        WHATSAPP_PACKAGE,
-        "com.whatsapp.w4b",
-        "org.telegram.messenger",
-        "org.thunderdog.challegram",
-        "org.telegram.plus",
-        "com.facebook.orca",
-        "com.viber.voip",
-        "com.signal",
-        "org.thoughtcrime.securesms",
-        "com.google.android.apps.messaging",
-        "com.skype.raider",
-      )
-  }
 
   suspend fun loadIcon(result: SearchResult): Drawable? =
     withContext(Dispatchers.IO) {
