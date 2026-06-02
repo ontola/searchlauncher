@@ -238,19 +238,18 @@ class ContactActionsRepository(private val context: Context) {
 
   private fun getLastContactActionPackage(contactId: String): String? =
     context
-      .getSharedPreferences(CONTACT_ACTION_PREFS, Context.MODE_PRIVATE)
+      .getSharedPreferences(Prefs.ContactActions.FILE, Context.MODE_PRIVATE)
       .getString(contactId, null)
 
   private fun setLastContactActionPackage(contactId: String, packageName: String) {
     context
-      .getSharedPreferences(CONTACT_ACTION_PREFS, Context.MODE_PRIVATE)
+      .getSharedPreferences(Prefs.ContactActions.FILE, Context.MODE_PRIVATE)
       .edit()
       .putString(contactId, packageName)
       .apply()
   }
 
   companion object {
-    private const val CONTACT_ACTION_PREFS = "contact_chat_actions"
     private const val CALL_ACTION_KEY = "com.searchlauncher.action.CALL_CONTACT"
     private const val SMS_ACTION_KEY = "com.searchlauncher.action.SMS_CONTACT"
     private const val EMAIL_ACTION_KEY = "com.searchlauncher.action.EMAIL_CONTACT"

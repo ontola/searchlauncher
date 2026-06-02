@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.lifecycleScope
 import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -318,7 +319,7 @@ class MainActivity : ComponentActivity() {
   private var pendingSettingsSection by mutableStateOf<String?>(null)
   private var focusTrigger by mutableStateOf(0L)
 
-  private fun queryPrefs() = getSharedPreferences("active_search", Context.MODE_PRIVATE)
+  private fun queryPrefs() = getSharedPreferences(Prefs.ActiveSearch.FILE, Context.MODE_PRIVATE)
 
   private fun updateQueryState(value: String) {
     queryState = value
@@ -900,8 +901,8 @@ class MainActivity : ComponentActivity() {
   }
 
   companion object {
-    private const val KEY_ACTIVE_QUERY = "active_query"
-    private const val KEY_ACTIVE_QUERY_TIME = "active_query_time"
+    private const val KEY_ACTIVE_QUERY = Prefs.ActiveSearch.QUERY
+    private const val KEY_ACTIVE_QUERY_TIME = Prefs.ActiveSearch.QUERY_TIME
     private const val ACTIVE_QUERY_RESTORE_WINDOW_MS = 5 * 60 * 1000L
   }
 }

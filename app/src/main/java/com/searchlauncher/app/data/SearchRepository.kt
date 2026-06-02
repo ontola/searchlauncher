@@ -202,13 +202,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private var observedHistoryLimit: Int
     get() =
       context
-        .getSharedPreferences("search_launcher_prefs", Context.MODE_PRIVATE)
-        .getInt("observed_history_limit", 10)
+        .getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+        .getInt(Prefs.Launcher.OBSERVED_HISTORY_LIMIT, 10)
     set(value) {
       context
-        .getSharedPreferences("search_launcher_prefs", Context.MODE_PRIVATE)
+        .getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
         .edit()
-        .putInt("observed_history_limit", value)
+        .putInt(Prefs.Launcher.OBSERVED_HISTORY_LIMIT, value)
         .apply()
     }
 
@@ -339,8 +339,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         scope.launch {
           delay(2000) // Give the UI 2 seconds to load icons and settle
 
-          val prefs = context.getSharedPreferences("search_launcher_prefs", Context.MODE_PRIVATE)
-          val lastReindex = prefs.getLong("last_reindex_timestamp", 0L)
+          val prefs = context.getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+          val lastReindex = prefs.getLong(Prefs.Launcher.LAST_REINDEX_TIMESTAMP, 0L)
           val currentTime = System.currentTimeMillis()
           // Re-index only if empty or older than 4 hours
           val isStale = (currentTime - lastReindex) > (12 * 60 * 60 * 1000)
@@ -404,7 +404,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               "Background Re-indexing took ${System.currentTimeMillis() - backgroundStart}ms",
             )
             saveFastIndexCache()
-            prefs.edit().putLong("last_reindex_timestamp", System.currentTimeMillis()).apply()
+            prefs.edit().putLong(Prefs.Launcher.LAST_REINDEX_TIMESTAMP, System.currentTimeMillis()).apply()
             _indexUpdated.emit(Unit)
           } finally {
             _isIndexing.value = false
@@ -771,8 +771,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         }
 
         // Clear timestamp to ensure future "fresh" checks fail until we are done
-        val prefs = context.getSharedPreferences("search_launcher_prefs", Context.MODE_PRIVATE)
-        prefs.edit().remove("last_reindex_timestamp").apply()
+        val prefs = context.getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+        prefs.edit().remove(Prefs.Launcher.LAST_REINDEX_TIMESTAMP).apply()
 
         // Re-index everything (indexApps etc. will re-populate documentCache)
         indexApps()
@@ -783,7 +783,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         // warmupCache() - Removed
 
-        prefs.edit().putLong("last_reindex_timestamp", System.currentTimeMillis()).apply()
+        prefs.edit().putLong(Prefs.Launcher.LAST_REINDEX_TIMESTAMP, System.currentTimeMillis()).apply()
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error during resetIndex", e)
         Sentry.captureException(e)

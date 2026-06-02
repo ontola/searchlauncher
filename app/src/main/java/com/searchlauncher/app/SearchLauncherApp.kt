@@ -7,6 +7,7 @@ import android.content.Context
 import android.os.Build
 import com.searchlauncher.app.data.FavoritesRepository
 import com.searchlauncher.app.data.HistoryRepository
+import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchShortcutRepository
 import com.searchlauncher.app.data.SnippetsRepository
@@ -132,8 +133,8 @@ class SearchLauncherApp : Application() {
   companion object {
     const val NOTIFICATION_CHANNEL_ID = "searchlauncher_service"
     const val NOTIFICATION_ID = 1001
-    private const val PREFS_NAME = "privacy_prefs"
-    private const val KEY_CONSENT_GRANTED = "consent_granted"
-    private const val KEY_ASKED_DEFAULT_LAUNCHER = "asked_default_launcher"
+    private const val PREFS_NAME = Prefs.Privacy.FILE
+    private const val KEY_CONSENT_GRANTED = Prefs.Privacy.CONSENT_GRANTED
+    private const val KEY_ASKED_DEFAULT_LAUNCHER = Prefs.Privacy.ASKED_DEFAULT_LAUNCHER
   }
 }

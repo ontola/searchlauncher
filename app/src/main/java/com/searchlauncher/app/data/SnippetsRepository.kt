@@ -10,7 +10,7 @@ import org.json.JSONObject
 
 class SnippetsRepository(context: Context) {
   private val prefs: SharedPreferences =
-    context.getSharedPreferences("quick_copy", Context.MODE_PRIVATE)
+    context.getSharedPreferences(Prefs.Snippets.FILE, Context.MODE_PRIVATE)
 
   private val _items = MutableStateFlow<List<SnippetItem>>(emptyList())
   val items: StateFlow<List<SnippetItem>> = _items
@@ -20,7 +20,7 @@ class SnippetsRepository(context: Context) {
   }
 
   private fun loadItems() {
-    val json = prefs.getString("items", "[]") ?: "[]"
+    val json = prefs.getString(Prefs.Snippets.ITEMS, "[]") ?: "[]"
     try {
       val jsonArray = JSONArray(json)
       val items = mutableListOf<SnippetItem>()
@@ -74,7 +74,7 @@ class SnippetsRepository(context: Context) {
       obj.put("content", item.content)
       jsonArray.put(obj)
     }
-    prefs.edit().putString("items", jsonArray.toString()).apply()
+    prefs.edit().putString(Prefs.Snippets.ITEMS, jsonArray.toString()).apply()
   }
 
   fun searchItems(query: String): List<SnippetItem> {

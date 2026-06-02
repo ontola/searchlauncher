@@ -83,16 +83,50 @@ Expected benefit:
 
 ### Phase 4: Normalize storage
 
-Status: pending
+Status: in progress
 
-- Inventory SharedPreferences and DataStore usage.
-- Decide which state belongs in DataStore, cache files, or migration-only SharedPreferences.
-- Remove ad hoc preference names where possible.
+- Inventory SharedPreferences and DataStore usage. Done (see map below).
+- Centralize ad hoc preference file/key names into one registry (`Prefs`). Done.
+- Decide which state belongs in DataStore, cache files, or migration-only SharedPreferences. Pending
+  (these move persisted data, so they need explicit sign-off — see open decisions).
 
 Expected benefit:
 
 - Easier backup/restore and reset behavior.
 - Less mystery around which file owns which user-visible setting.
+
+#### Storage inventory (2026-06-02)
+
+DataStore (async, user-facing settings):
+
+- `settings` — all `PreferencesKeys` (theme, dark/oled mode, wallpaper uri, show widgets, first run,
+  store web history, history limit, min icon size, auto-theme, search shortcuts enabled).
+- `onboarding` — separate store owned by `OnboardingManager`.
+
+SharedPreferences (now all named via `Prefs`):
+
+| File | Owner | Keys |
+| --- | --- | --- |
+| `privacy_prefs` | `SearchLauncherApp` | `consent_granted`, `asked_default_launcher` |
+| `active_search` | `MainActivity` | `active_query`, `active_query_time` |
+| `search_launcher_prefs` | `SearchScreen` + `SearchRepository` | `min_icon_size` (boot cache), `observed_history_limit`, `last_reindex_timestamp` |
+| `window_prefs` | `SearchScreen` | `keyboard_height` |
+| `favorites` | `FavoritesRepository` | `favorite_ids_ordered`, `favorite_ids` (legacy set) |
+| `search_shortcuts` | `SearchShortcutRepository` | `shortcuts` (JSON) |
+| `quick_copy` | `SnippetsRepository` | `items` (JSON) |
+| `history` | `HistoryRepository` | `history_ids` (JSON) |
+| `contact_chat_actions` | `ContactActionsRepository` | per-contact package (keys are contact ids) |
+
+#### Open decisions (move persisted data — need sign-off)
+
+- `min_icon_size` lives in both DataStore (`settings`, source of truth) and `search_launcher_prefs`
+  (synchronous boot cache to avoid first-frame icon flicker). Keep the dual storage, or replace the
+  cache with a blocking first read / a smarter default?
+- `observed_history_limit` and `last_reindex_timestamp` are launcher-internal ints in
+  `search_launcher_prefs`; they could move to DataStore for consistency, but that needs a migration.
+- Backup/restore (`BackupManager`) currently snapshots the DataStore `settings` plus the JSON
+  repositories, but not `privacy_prefs`, `window_prefs`, `active_search`, or `search_launcher_prefs`.
+  Confirm that exclusion is intentional before consolidating.
 
 ## Change Log
 
@@ -114,3 +148,9 @@ Expected benefit:
   orchestration; indexers are pure document builders (icon-caching side effects retained). Behavior
   preserved; `./gradlew testDebugUnitTest assembleDebug` passes. Kotlin LOC now 14,747.
   `SearchRepository.kt` is 1,968 lines. This completes the Phase 3 indexer split.
+- 2026-06-02: Phase 4 inventory complete. Centralized all SharedPreferences file/key names into a
+  single `Prefs` registry (byte-identical string values, no data migration). Updated 9 call sites
+  across `SearchLauncherApp`, `MainActivity`, `SearchScreen`, `SearchRepository`,
+  `ContactActionsRepository`, and the Favorites/Snippets/SearchShortcut/History repositories.
+  Behavior preserved; `./gradlew testDebugUnitTest assembleDebug` passes. Store-migration decisions
+  deferred (see Phase 4 open decisions).
