@@ -49,6 +49,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.edit
+import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.components.ConsentDialog
@@ -123,16 +124,16 @@ fun SearchScreen(
       .collectAsState(
         initial =
           context
-            .getSharedPreferences("search_launcher_prefs", Context.MODE_PRIVATE)
-            .getInt("min_icon_size", PreferencesKeys.getDefaultIconSize(context))
+            .getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+            .getInt(Prefs.Launcher.MIN_ICON_SIZE, PreferencesKeys.getDefaultIconSize(context))
       )
 
   // Sync back to SharedPreferences for faster boot next time
   LaunchedEffect(minIconSizeSetting) {
     context
-      .getSharedPreferences("search_launcher_prefs", Context.MODE_PRIVATE)
+      .getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
       .edit()
-      .putInt("min_icon_size", minIconSizeSetting)
+      .putInt(Prefs.Launcher.MIN_ICON_SIZE, minIconSizeSetting)
       .apply()
   }
 
@@ -421,12 +422,12 @@ fun SearchScreen(
   LaunchedEffect(hintManager) { hintManager.getHintsFlow().collect { hint -> currentHint = hint } }
 
   // Use SharedPreferences for synchronous read to avoid initial jump
-  val sharedPrefs = remember { context.getSharedPreferences("window_prefs", Context.MODE_PRIVATE) }
+  val sharedPrefs = remember { context.getSharedPreferences(Prefs.Window.FILE, Context.MODE_PRIVATE) }
   val density = LocalDensity.current
   val imeHeightPx = WindowInsets.ime.getBottom(density)
 
   // Read synchronously for initial value
-  var storedKeyboardHeight by remember { mutableStateOf(sharedPrefs.getInt("keyboard_height", 0)) }
+  var storedKeyboardHeight by remember { mutableStateOf(sharedPrefs.getInt(Prefs.Window.KEYBOARD_HEIGHT, 0)) }
 
   val isMultiWindow = (context as? android.app.Activity)?.isInMultiWindowMode == true
 
@@ -436,7 +437,7 @@ fun SearchScreen(
       kotlinx.coroutines.delay(300)
       // If we are still active (didn't get cancelled by new value), save it
       storedKeyboardHeight = imeHeightPx
-      sharedPrefs.edit().putInt("keyboard_height", imeHeightPx).apply()
+      sharedPrefs.edit().putInt(Prefs.Window.KEYBOARD_HEIGHT, imeHeightPx).apply()
     }
   }
 

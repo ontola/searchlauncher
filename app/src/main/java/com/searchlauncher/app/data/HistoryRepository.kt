@@ -8,7 +8,7 @@ import org.json.JSONArray
 
 class HistoryRepository(context: Context) {
   private val prefs: SharedPreferences =
-    context.getSharedPreferences("history", Context.MODE_PRIVATE)
+    context.getSharedPreferences(Prefs.History.FILE, Context.MODE_PRIVATE)
 
   private val _historyIds = MutableStateFlow<List<String>>(emptyList())
   val historyIds: StateFlow<List<String>> = _historyIds
@@ -18,7 +18,7 @@ class HistoryRepository(context: Context) {
   }
 
   private fun loadHistory() {
-    val jsonString = prefs.getString("history_ids", null)
+    val jsonString = prefs.getString(Prefs.History.IDS, null)
     if (jsonString != null) {
       try {
         val array = JSONArray(jsonString)
@@ -58,11 +58,11 @@ class HistoryRepository(context: Context) {
   private fun saveHistory(history: List<String>) {
     val array = JSONArray()
     history.forEach { array.put(it) }
-    prefs.edit().putString("history_ids", array.toString()).apply()
+    prefs.edit().putString(Prefs.History.IDS, array.toString()).apply()
   }
 
   fun clearHistory() {
     _historyIds.value = emptyList()
-    prefs.edit().remove("history_ids").apply()
+    prefs.edit().remove(Prefs.History.IDS).apply()
   }
 }

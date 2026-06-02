@@ -15,7 +15,7 @@ import org.json.JSONObject
  */
 class SearchShortcutRepository(context: Context) {
   private val prefs: SharedPreferences =
-    context.getSharedPreferences("search_shortcuts", Context.MODE_PRIVATE)
+    context.getSharedPreferences(Prefs.SearchShortcuts.FILE, Context.MODE_PRIVATE)
 
   private val _items = MutableStateFlow<List<SearchShortcut>>(emptyList())
   val items: StateFlow<List<SearchShortcut>> = _items
@@ -25,7 +25,7 @@ class SearchShortcutRepository(context: Context) {
   }
 
   private fun loadItems() {
-    val json = prefs.getString("shortcuts", null)
+    val json = prefs.getString(Prefs.SearchShortcuts.SHORTCUTS, null)
     if (json == null) {
       // First run, load defaults
       resetToDefaults()
@@ -128,7 +128,7 @@ class SearchShortcutRepository(context: Context) {
       item.shortLabel?.let { obj.put("shortLabel", it) }
       jsonArray.put(obj)
     }
-    prefs.edit().putString("shortcuts", jsonArray.toString()).apply()
+    prefs.edit().putString(Prefs.SearchShortcuts.SHORTCUTS, jsonArray.toString()).apply()
     _items.value = items
   }
 

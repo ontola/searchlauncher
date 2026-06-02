@@ -8,7 +8,7 @@ import org.json.JSONArray
 
 class FavoritesRepository(context: Context) {
   private val prefs: SharedPreferences =
-    context.getSharedPreferences("favorites", Context.MODE_PRIVATE)
+    context.getSharedPreferences(Prefs.Favorites.FILE, Context.MODE_PRIVATE)
 
   private val _favoriteIds = MutableStateFlow<List<String>>(emptyList())
   val favoriteIds: StateFlow<List<String>> = _favoriteIds
@@ -19,7 +19,7 @@ class FavoritesRepository(context: Context) {
 
   private fun loadFavorites() {
     // Try to load the ordered JSON list first
-    val jsonString = prefs.getString("favorite_ids_ordered", null)
+    val jsonString = prefs.getString(Prefs.Favorites.IDS_ORDERED, null)
     if (jsonString != null) {
       try {
         val array = JSONArray(jsonString)
@@ -35,7 +35,7 @@ class FavoritesRepository(context: Context) {
     }
 
     // Migration path: load from the old Set if JSON is missing
-    val favoritesSet = prefs.getStringSet("favorite_ids", emptySet()) ?: emptySet()
+    val favoritesSet = prefs.getStringSet(Prefs.Favorites.IDS, emptySet()) ?: emptySet()
     _favoriteIds.value = favoritesSet.toList()
   }
 
@@ -57,9 +57,9 @@ class FavoritesRepository(context: Context) {
   private fun saveFavorites(favorites: List<String>) {
     val array = JSONArray()
     favorites.forEach { array.put(it) }
-    prefs.edit().putString("favorite_ids_ordered", array.toString()).apply()
+    prefs.edit().putString(Prefs.Favorites.IDS_ORDERED, array.toString()).apply()
     // Also update the old Set for backward compatibility or simple lookups
-    prefs.edit().putStringSet("favorite_ids", favorites.toSet()).apply()
+    prefs.edit().putStringSet(Prefs.Favorites.IDS, favorites.toSet()).apply()
   }
 
   fun updateOrder(newOrder: List<String>) {
@@ -78,6 +78,6 @@ class FavoritesRepository(context: Context) {
 
   fun clear() {
     _favoriteIds.value = emptyList()
-    prefs.edit().remove("favorite_ids_ordered").remove("favorite_ids").apply()
+    prefs.edit().remove(Prefs.Favorites.IDS_ORDERED).remove(Prefs.Favorites.IDS).apply()
   }
 }
