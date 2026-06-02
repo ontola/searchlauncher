@@ -1,8 +1,5 @@
 package com.searchlauncher.app.ui.components
 
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -11,9 +8,6 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,7 +17,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
@@ -50,7 +43,6 @@ fun FavoritesRow(
 
   val haptic = LocalHapticFeedback.current
   val density = LocalDensity.current
-  val context = LocalContext.current
 
   val minIconSizeDp = minIconSizeSetting.dp
   val dividerGapDp = 16.dp
@@ -319,33 +311,13 @@ fun FavoritesRow(
             ) {
               val isFavorite = favorites.any { it.id == result.id }
 
-              DropdownMenuItem(
-                text = { Text(if (isFavorite) "Remove from Favorites" else "Add Favorite") },
-                onClick = {
-                  onToggleFavorite(result)
-                  showMenuForIndex = null
-                },
-                leadingIcon = { Icon(Icons.Default.Star, contentDescription = null) },
+              AppActionsMenuItems(
+                result = result,
+                isFavorite = isFavorite,
+                onToggleFavorite = { onToggleFavorite(result) },
+                onCloseMenu = { showMenuForIndex = null },
+                favoriteAddLabel = "Add Favorite",
               )
-
-              if (result is SearchResult.App) {
-                DropdownMenuItem(
-                  text = { Text("App Info") },
-                  onClick = {
-                    try {
-                      val intent =
-                        Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                      intent.data = Uri.parse("package:${result.packageName}")
-                      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                      context.startActivity(intent)
-                    } catch (e: Exception) {
-                      Toast.makeText(context, "Cannot open App Info", Toast.LENGTH_SHORT).show()
-                    }
-                    showMenuForIndex = null
-                  },
-                  leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
-                )
-              }
             }
           }
         }

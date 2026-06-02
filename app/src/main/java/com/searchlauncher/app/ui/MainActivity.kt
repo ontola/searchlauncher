@@ -853,7 +853,20 @@ class MainActivity : ComponentActivity() {
         AppListScreen(
           searchRepository = app.searchRepository,
           onAppClick = { result ->
-            launchApp(context, result)
+            ResultLauncher(
+                context = context,
+                searchRepository = app.searchRepository,
+                scope = lifecycleScope,
+                onBindWidgetIntent = { intent ->
+                  handleWidgetIntent(intent)
+                  true
+                },
+                onAddWidgetSearch = {
+                  updateQueryState("widgets ")
+                  focusTrigger = System.currentTimeMillis()
+                },
+              )
+              .launch(result, reportUsage = false)
             currentScreenState = Screen.Search
             clearQueryState()
           },
@@ -871,47 +884,6 @@ class MainActivity : ComponentActivity() {
         onWidgetSelected = { info -> onWidgetProviderSelected(info) },
         onDismiss = { showWidgetPicker.value = false },
       )
-    }
-  }
-
-  private fun launchApp(context: Context, result: com.searchlauncher.app.data.SearchResult) {
-    try {
-      if (result is com.searchlauncher.app.data.SearchResult.Shortcut) {
-        val intent = Intent.parseUri(result.intentUri, Intent.URI_INTENT_SCHEME)
-
-        // Intercept Widget Binding
-        if (intent.action == "com.searchlauncher.action.BIND_WIDGET") {
-          val componentNameStr = intent.getStringExtra("component")
-          if (componentNameStr != null) {
-            val component = android.content.ComponentName.unflattenFromString(componentNameStr)
-            if (component != null) {
-              val providers =
-                appWidgetManager.getInstalledProvidersForProfile(android.os.Process.myUserHandle())
-              val providerInfo = providers.find { it.provider == component }
-              if (providerInfo != null) {
-                onWidgetProviderSelected(providerInfo)
-                return
-              }
-            }
-          }
-        }
-
-        // Intercept Widget Add Intent
-        if (intent.action == "com.searchlauncher.action.ADD_WIDGET") {
-          updateQueryState("widgets ")
-          focusTrigger = System.currentTimeMillis()
-          return
-        }
-
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-      } else if (result is com.searchlauncher.app.data.SearchResult.App) {
-        val intent = context.packageManager.getLaunchIntentForPackage(result.packageName)
-        intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-      }
-    } catch (e: Exception) {
-      Toast.makeText(context, "Cannot launch app", Toast.LENGTH_SHORT).show()
     }
   }
 
