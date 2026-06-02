@@ -115,6 +115,11 @@ fun SearchScreen(
   val historyLimit by
     remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
       .collectAsState(initial = -1)
+  // "Autocomplete suggestions" setting. Gates the network fetch of query suggestions while typing
+  // a shortcut search (e.g. "g cats"). Stored under SEARCH_SHORTCUTS_ENABLED for historical reasons.
+  val suggestionsEnabled by
+    remember { context.dataStore.data.map { it[PreferencesKeys.SEARCH_SHORTCUTS_ENABLED] ?: false } }
+      .collectAsState(initial = false)
   val minIconSizeSetting by
     remember { MinIconSize.flow(context) }.collectAsState(initial = MinIconSize.cached(context))
 
@@ -293,7 +298,7 @@ fun SearchScreen(
     }
   }
 
-  LaunchedEffect(query) {
+  LaunchedEffect(query, suggestionsEnabled) {
     traceSection("SL:SearchScreen.queryEffect") {
       searchRepository.noteInteractiveSearch(query)
       if (query.isEmpty()) {
@@ -306,7 +311,7 @@ fun SearchScreen(
               .searchApps(
                 query,
                 limit = LIVE_SEARCH_RESULT_LIMIT,
-                includeSuggestions = false,
+                includeSuggestions = suggestionsEnabled,
                 includeSearchShortcuts = true,
               )
               .getOrElse { emptyList() }
