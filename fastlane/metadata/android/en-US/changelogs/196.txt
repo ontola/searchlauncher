@@ -1,0 +1,4 @@
+Added F-Droid Fastlane screenshots and metadata.
+
+Removed the side-swipe overlay start feature and related permissions.
+Improved search ranking, timer priority, and snippet fallback behavior.
