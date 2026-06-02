@@ -1258,6 +1258,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           val sdocs =
             documentSnapshot
               .filter { it.namespaceInt == 1 } // apps
+              // Guard the app list's LazyColumn key against duplicate package ids that an older
+              // index/cache may still hold (a package can have several launcher activities).
+              .distinctBy { it.doc.id }
               .sortedBy { it.nameLower }
           val results =
             sdocs
