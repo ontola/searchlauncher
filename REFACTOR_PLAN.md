@@ -83,12 +83,12 @@ Expected benefit:
 
 ### Phase 4: Normalize storage
 
-Status: in progress
+Status: done
 
 - Inventory SharedPreferences and DataStore usage. Done (see map below).
 - Centralize ad hoc preference file/key names into one registry (`Prefs`). Done.
-- Decide which state belongs in DataStore, cache files, or migration-only SharedPreferences. Pending
-  (these move persisted data, so they need explicit sign-off — see open decisions).
+- Decide which state belongs in DataStore, cache files, or migration-only SharedPreferences. Done
+  (see ownership principle and resolved decisions below — no data relocation needed).
 
 Expected benefit:
 
@@ -117,16 +117,30 @@ SharedPreferences (now all named via `Prefs`):
 | `history` | `HistoryRepository` | `history_ids` (JSON) |
 | `contact_chat_actions` | `ContactActionsRepository` | per-contact package (keys are contact ids) |
 
-#### Open decisions (move persisted data — need sign-off)
+#### Ownership principle
 
-- `min_icon_size` lives in both DataStore (`settings`, source of truth) and `search_launcher_prefs`
-  (synchronous boot cache to avoid first-frame icon flicker). Keep the dual storage, or replace the
-  cache with a blocking first read / a smarter default?
-- `observed_history_limit` and `last_reindex_timestamp` are launcher-internal ints in
-  `search_launcher_prefs`; they could move to DataStore for consistency, but that needs a migration.
-- Backup/restore (`BackupManager`) currently snapshots the DataStore `settings` plus the JSON
-  repositories, but not `privacy_prefs`, `window_prefs`, `active_search`, or `search_launcher_prefs`.
-  Confirm that exclusion is intentional before consolidating.
+DataStore (`settings`) owns durable, user-facing settings that should survive backup/restore.
+SharedPreferences owns device-local, internal, transient, or synchronously-read state. Reviewed
+against this principle, every current store is already in the right place — so Phase 4 is about
+making the split legible, not relocating data.
+
+#### Resolved decisions
+
+- `min_icon_size` dual storage: KEEP. DataStore is the source of truth; the `search_launcher_prefs`
+  copy is a synchronous boot cache that prevents real icon flicker on cold start. Encapsulated into
+  `MinIconSize` (`flow` / `cached` / `updateCache`) so the read/write/default logic lives in one
+  named place instead of inline in `SearchScreen`.
+- `observed_history_limit`, `last_reindex_timestamp`: STAY in SharedPreferences.
+  `observed_history_limit` is read synchronously on the cold-start hot path (to size the initial
+  history frame without jumpiness); `last_reindex_timestamp` is device-local reindex-throttle state.
+  Neither is a user setting, so moving them to async DataStore would add complexity for no benefit.
+- Backup exclusions (`privacy_prefs`, `window_prefs`, `active_search`, `search_launcher_prefs`):
+  INTENTIONAL. Privacy consent should re-prompt on a new device, `active_query` is transient, and the
+  rest are device-specific. `min_icon_size`'s authoritative copy already rides along in the
+  backed-up DataStore.
+
+Phase 4 is effectively complete: storage is inventoried, named via `Prefs`, the ownership principle
+is documented, and the one real redundancy (`min_icon_size`) is encapsulated.
 
 ## Change Log
 
@@ -154,3 +168,8 @@ SharedPreferences (now all named via `Prefs`):
   `ContactActionsRepository`, and the Favorites/Snippets/SearchShortcut/History repositories.
   Behavior preserved; `./gradlew testDebugUnitTest assembleDebug` passes. Store-migration decisions
   deferred (see Phase 4 open decisions).
+- 2026-06-02: Phase 4 complete. Reviewed each store against an ownership principle (DataStore =
+  durable user settings; SharedPreferences = device-local/internal/transient) and confirmed no data
+  needs relocating. Encapsulated the `min_icon_size` DataStore-plus-boot-cache pattern into
+  `MinIconSize`, removing the duplicated default logic and inline SharedPreferences plumbing from
+  `SearchScreen`. Behavior preserved; `./gradlew testDebugUnitTest assembleDebug` passes.
