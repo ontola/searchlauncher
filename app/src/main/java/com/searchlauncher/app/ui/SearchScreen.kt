@@ -116,26 +116,10 @@ fun SearchScreen(
     remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
       .collectAsState(initial = -1)
   val minIconSizeSetting by
-    remember {
-        context.dataStore.data.map {
-          it[PreferencesKeys.MIN_ICON_SIZE] ?: PreferencesKeys.getDefaultIconSize(context)
-        }
-      }
-      .collectAsState(
-        initial =
-          context
-            .getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
-            .getInt(Prefs.Launcher.MIN_ICON_SIZE, PreferencesKeys.getDefaultIconSize(context))
-      )
+    remember { MinIconSize.flow(context) }.collectAsState(initial = MinIconSize.cached(context))
 
-  // Sync back to SharedPreferences for faster boot next time
-  LaunchedEffect(minIconSizeSetting) {
-    context
-      .getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
-      .edit()
-      .putInt(Prefs.Launcher.MIN_ICON_SIZE, minIconSizeSetting)
-      .apply()
-  }
+  // Sync back to the boot cache so the next cold start renders at this size immediately.
+  LaunchedEffect(minIconSizeSetting) { MinIconSize.updateCache(context, minIconSizeSetting) }
 
   val historyItems =
     remember(rawHistoryItems, favoriteIds, historyLimit) {
