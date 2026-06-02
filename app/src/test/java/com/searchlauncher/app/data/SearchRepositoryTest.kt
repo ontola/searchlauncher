@@ -172,6 +172,21 @@ class SearchRepositoryTest {
   }
 
   @Test
+  fun `contact chat mime detection supports telegram org package`() {
+    val method =
+      SearchRepository::class.java.getDeclaredMethod("chatPackageFromMimeType", String::class.java)
+    method.isAccessible = true
+
+    val packageName =
+      method.invoke(
+        repository,
+        "vnd.android.cursor.item/vnd.org.telegram.messenger.android.profile",
+      )
+
+    assertEquals("org.telegram.messenger", packageName)
+  }
+
+  @Test
   fun `fallback search shortcuts can return all defaults`() = runBlocking {
     repository.documentSnapshot =
       DefaultShortcuts.searchShortcuts

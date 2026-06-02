@@ -1,32 +1,15 @@
+AntiFeatures:
+  - NonFreeNet
+  - Tracking
 Categories:
-  - System
   - Launcher
+  - System
 License: MIT
 SourceCode: https://github.com/joepio/searchlauncher
 IssueTracker: https://github.com/joepio/searchlauncher/issues
 Changelog: https://github.com/joepio/searchlauncher/releases
 
 AutoName: Search Launcher
-Summary: Search everything—apps, web, and shortcuts—instantly.
-Description: |
-  SearchLauncher transforms how you navigate your device. It replaces browsing with instant, keyboard-centric searching.
-
-  **Key Features:**
-  * **Search Everything:** Instantly find apps, shortcuts, contacts, and device settings.
-  * **Web Integration:** Search directly on YouTube, Google, Maps, Spotify, and more.
-  * **Productivity Tools:** Built-in calculator, text snippets for quick pasting, and custom intent shortcuts (e.g., toggle flashlight).
-  * **Smart & Fast:** Apps are sorted by usage for quick access. The interface is lightweight and designed for speed.
-  * **Flexible Usage:** Use it as your primary **Launcher** or as a powerful **Home Screen Widget**.
-  * **Customization:** Set your personal background, add widgets, and enjoy full dark mode support.
-
-  Web shortcuts and search suggestions are optional and may contact third-party search providers when enabled. Crash reporting is opt-in only.
-
-AntiFeatures:
-  - NonFreeNet
-  - Tracking
-
-MaintainerNotes: |
-  The upstream Gradle build derives versionCode and versionName from git by default. F-Droid build blocks should pin them with searchLauncherVersionCode and searchLauncherVersionName gradleprops.
 
 RepoType: git
 Repo: https://github.com/joepio/searchlauncher.git
@@ -34,23 +17,38 @@ Repo: https://github.com/joepio/searchlauncher.git
 Builds:
   - versionName: 0.0.3
     versionCode: 180
-    commit: v0.0.3
+    commit: 26e93ca8e193d01db6826afa3350108aec3fea69
     subdir: app
+    gradle:
+      - yes
     gradleprops:
       - searchLauncherVersionCode=180
       - searchLauncherVersionName=0.0.3
-    gradle:
-      - yes
+
   - versionName: 0.0.4
     versionCode: 192
-    commit: v0.0.4
+    commit: cc2d7df0412234f34f4b79bca06f4011b44d9dcc
     subdir: app
+    gradle:
+      - yes
     gradleprops:
       - searchLauncherVersionCode=192
       - searchLauncherVersionName=0.0.4
+
+  - versionName: 0.0.5
+    versionCode: 196
+    commit: 8f6c45e2af98a6801abbecf053551fe00ee89612
+    subdir: app
     gradle:
       - yes
+    gradleprops:
+      - searchLauncherVersionCode=196
+      - searchLauncherVersionName=0.0.5
 
+MaintainerNotes: |
+  The upstream Gradle build derives versionCode and versionName from git by default. F-Droid build blocks should pin them with searchLauncherVersionCode and searchLauncherVersionName gradleprops.
+
+AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 0.0.4
-CurrentVersionCode: 192
+CurrentVersion: 0.0.5
+CurrentVersionCode: 196

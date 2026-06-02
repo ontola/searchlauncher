@@ -748,6 +748,24 @@ fun SearchScreen(
                       }
                     },
                     onClearSearchResults = { onQueryChange("") },
+                    onContactChatAction = { contact, action ->
+                      if (searchRepository.launchContactChatAction(contact, action)) {
+                        searchRepository.reportUsageAsync(
+                          contact.namespace,
+                          contact.id,
+                          query,
+                          index == 0,
+                        )
+                        onDismiss()
+                      } else {
+                        Toast.makeText(
+                            context,
+                            "Cannot open ${action.label}",
+                            Toast.LENGTH_SHORT,
+                          )
+                          .show()
+                      }
+                    },
                     onEditSnippet =
                       if (result is SearchResult.Snippet) {
                         {

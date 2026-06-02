@@ -1,5 +1,6 @@
 package com.searchlauncher.app.ui.components
 
+import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Drawable
 import android.net.Uri
@@ -16,6 +17,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.*
@@ -30,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
 import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.data.ContactChatAction
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.toImageBitmap
 import com.searchlauncher.app.util.traceSection
@@ -50,14 +53,20 @@ fun SearchResultItem(
   onRemoveFromIndex: (() -> Unit)? = null,
   onRemoveBookmark: (() -> Unit)? = null,
   onClearSearchResults: (() -> Unit)? = null,
+  onContactChatAction: ((SearchResult.Contact, ContactChatAction) -> Unit)? = null,
   onClick: () -> Unit,
 ) {
   var showMenu by remember { mutableStateOf(false) }
+  var showContactActionsMenu by remember { mutableStateOf(false) }
+  var showAppActionsMenu by remember { mutableStateOf(false) }
   val context = LocalContext.current
   val searchRepository = remember {
     (context.applicationContext as SearchLauncherApp).searchRepository
   }
   var iconState by remember(result.id) { mutableStateOf<Drawable?>(result.icon) }
+  var contactChatActions by remember(result.id) {
+    mutableStateOf<List<ContactChatAction>>(emptyList())
+  }
 
   LaunchedEffect(result.id) {
     if (iconState == null) {
@@ -66,6 +75,15 @@ fun SearchResultItem(
           searchRepository.loadIcon(result)
         }
     }
+  }
+
+  LaunchedEffect(result.id, onContactChatAction) {
+    contactChatActions =
+      if (result is SearchResult.Contact && onContactChatAction != null) {
+        searchRepository.getContactChatActions(result)
+      } else {
+        emptyList()
+      }
   }
 
   traceSection("SL:SearchResultItem.compose:${result.namespace}") {
@@ -163,6 +181,89 @@ fun SearchResultItem(
             )
           }
         }
+
+        if (
+          result is SearchResult.Contact &&
+            onContactChatAction != null &&
+            contactChatActions.isNotEmpty()
+        ) {
+          Row(
+            modifier = Modifier.padding(start = 8.dp).widthIn(min = 48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End,
+          ) {
+            ContactChatActionButton(
+              action = contactChatActions.first(),
+              onClick = { onContactChatAction(result, contactChatActions.first()) },
+            )
+
+            if (contactChatActions.size > 1) {
+              Box {
+                IconButton(
+                  onClick = { showContactActionsMenu = true },
+                  modifier = Modifier.size(40.dp),
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "More contact actions",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                }
+
+                if (showContactActionsMenu) {
+                  DropdownMenu(
+                    expanded = showContactActionsMenu,
+                    onDismissRequest = { showContactActionsMenu = false },
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
+                    properties = PopupProperties(focusable = false),
+                  ) {
+                    contactChatActions.forEach { action ->
+                      DropdownMenuItem(
+                        text = { Text(action.label) },
+                        onClick = {
+                          onContactChatAction(result, action)
+                          showContactActionsMenu = false
+                        },
+                        leadingIcon = { ContactChatActionIcon(action = action) },
+                      )
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        if (result is SearchResult.App) {
+          Box(modifier = Modifier.padding(start = 8.dp)) {
+            IconButton(
+              onClick = { showAppActionsMenu = true },
+              modifier = Modifier.size(40.dp),
+            ) {
+              Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = "More app actions",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+
+            DropdownMenu(
+              expanded = showAppActionsMenu,
+              onDismissRequest = { showAppActionsMenu = false },
+              modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
+              properties = PopupProperties(focusable = false),
+            ) {
+              AppMenuItems(
+                result = result,
+                context = context,
+                isFavorite = isFavorite,
+                onToggleFavorite = onToggleFavorite,
+                onClearSearchResults = onClearSearchResults,
+                onCloseMenu = { showAppActionsMenu = false },
+              )
+            }
+          }
+        }
       }
 
       if (showMenu) {
@@ -258,44 +359,13 @@ fun SearchResultItem(
           }
 
           if (result is SearchResult.App) {
-            DropdownMenuItem(
-              text = { Text("App Info") },
-              onClick = {
-                try {
-                  val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                  intent.data = Uri.parse("package:${result.packageName}")
-                  intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                  context.startActivity(intent)
-                } catch (e: Exception) {
-                  Toast.makeText(context, "Cannot open App Info", Toast.LENGTH_SHORT).show()
-                }
-                showMenu = false
-              },
-              leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
-            )
-            DropdownMenuItem(
-              text = { Text("Uninstall") },
-              onClick = {
-                try {
-                  // Use Uri.fromParts for cleaner URI construction
-                  val packageUri = Uri.fromParts("package", result.packageName, null)
-                  val intent = Intent(Intent.ACTION_DELETE, packageUri)
-                  intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                  context.startActivity(intent)
-                  onClearSearchResults?.invoke()
-                  // Optional: Feedback to user, in case the system dialog is slow
-                  // Toast.makeText(context, "Requesting uninstall...", Toast.LENGTH_SHORT).show()
-                } catch (e: Exception) {
-                  Toast.makeText(
-                      context,
-                      "Cannot start uninstall: ${e.message}",
-                      Toast.LENGTH_SHORT,
-                    )
-                    .show()
-                }
-                showMenu = false
-              },
-              leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+            AppMenuItems(
+              result = result,
+              context = context,
+              isFavorite = isFavorite,
+              onToggleFavorite = null,
+              onClearSearchResults = onClearSearchResults,
+              onCloseMenu = { showMenu = false },
             )
           }
 
@@ -312,5 +382,97 @@ fun SearchResultItem(
         }
       }
     }
+  }
+}
+
+@Composable
+private fun AppMenuItems(
+  result: SearchResult.App,
+  context: Context,
+  isFavorite: Boolean,
+  onToggleFavorite: (() -> Unit)?,
+  onClearSearchResults: (() -> Unit)?,
+  onCloseMenu: () -> Unit,
+) {
+  if (onToggleFavorite != null) {
+    DropdownMenuItem(
+      text = { Text(if (isFavorite) "Remove from Favorites" else "Add to Favorites") },
+      onClick = {
+        onToggleFavorite()
+        onCloseMenu()
+      },
+      leadingIcon = {
+        Icon(
+          imageVector =
+            if (isFavorite) {
+              Icons.Default.Star
+            } else {
+              Icons.Default.StarBorder
+            },
+          contentDescription = null,
+        )
+      },
+    )
+  }
+
+  DropdownMenuItem(
+    text = { Text("App Info") },
+    onClick = {
+      try {
+        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+        intent.data = Uri.parse("package:${result.packageName}")
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+      } catch (e: Exception) {
+        Toast.makeText(context, "Cannot open App Info", Toast.LENGTH_SHORT).show()
+      }
+      onCloseMenu()
+    },
+    leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
+  )
+  DropdownMenuItem(
+    text = { Text("Uninstall") },
+    onClick = {
+      try {
+        val packageUri = Uri.fromParts("package", result.packageName, null)
+        val intent = Intent(Intent.ACTION_DELETE, packageUri)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+        onClearSearchResults?.invoke()
+      } catch (e: Exception) {
+        Toast.makeText(context, "Cannot start uninstall: ${e.message}", Toast.LENGTH_SHORT).show()
+      }
+      onCloseMenu()
+    },
+    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+  )
+}
+
+@Composable
+private fun ContactChatActionButton(action: ContactChatAction, onClick: () -> Unit) {
+  IconButton(onClick = onClick, modifier = Modifier.size(40.dp)) {
+    ContactChatActionIcon(action = action)
+  }
+}
+
+@Composable
+private fun ContactChatActionIcon(action: ContactChatAction) {
+  val imageBitmap =
+    remember(action.icon) {
+      traceSection("SL:SearchResultItem.contactChatIcon") { action.icon?.toImageBitmap() }
+    }
+  if (imageBitmap != null) {
+    Image(
+      bitmap = imageBitmap,
+      contentDescription = action.label,
+      modifier = Modifier.size(24.dp).clip(RoundedCornerShape(4.dp)),
+      contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+    )
+  } else {
+    Icon(
+      imageVector = Icons.Default.MoreVert,
+      contentDescription = action.label,
+      tint = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
   }
 }
