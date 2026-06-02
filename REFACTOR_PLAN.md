@@ -71,7 +71,7 @@ Expected benefit:
 
 Status: in progress
 
-- Extract indexers: apps, shortcuts, contacts, snippets.
+- Extract indexers: apps, shortcuts, contacts, snippets. Done.
 - Extract ranking and learned-query scoring. Done.
 - Extract `SearchableDocument -> SearchResult` conversion. Done.
 - Extract icon cache/disk persistence. Done.
@@ -109,3 +109,8 @@ Expected benefit:
   Kotlin LOC now 14,581. `SearchRepository.kt` is 2,637 lines.
 - 2026-06-02: Extracted `SearchResultFactory` from `SearchRepository`.
   Kotlin LOC now 14,633. `SearchRepository.kt` is 2,301 lines, `SearchResultFactory.kt` is 409 lines.
+- 2026-06-02: Extracted `AppIndexer`, `ShortcutIndexer` (dynamic/static/custom), `ContactIndexer`,
+  and `SnippetIndexer` from `SearchRepository`. The repo keeps AppSearch persistence and
+  orchestration; indexers are pure document builders (icon-caching side effects retained). Behavior
+  preserved; `./gradlew testDebugUnitTest assembleDebug` passes. Kotlin LOC now 14,747.
+  `SearchRepository.kt` is 1,968 lines. This completes the Phase 3 indexer split.

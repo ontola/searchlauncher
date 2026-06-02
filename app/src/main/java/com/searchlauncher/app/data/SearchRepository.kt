@@ -1,7 +1,6 @@
 package com.searchlauncher.app.data
 
 import android.content.Context
-import android.content.pm.ApplicationInfo
 import android.graphics.drawable.Drawable
 import android.util.Log
 import androidx.appsearch.app.AppSearchSession
@@ -15,7 +14,6 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.dataStore
-import com.searchlauncher.app.util.StaticShortcutScanner
 import com.searchlauncher.app.util.SystemUtils
 import com.searchlauncher.app.util.traceSection
 import io.sentry.Sentry
@@ -176,6 +174,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private val iconGenerator = SearchIconGenerator(context)
   private val iconRepository = IconRepository(context)
   private val searchResultFactory = SearchResultFactory(context, iconRepository, iconGenerator)
+  private val appIndexer = AppIndexer(context)
+  private val shortcutIndexer = ShortcutIndexer(context, iconRepository)
+  private val contactIndexer = ContactIndexer(context)
+  private val snippetIndexer = SnippetIndexer(context)
 
   private val _isInitialized = kotlinx.coroutines.flow.MutableStateFlow(false)
   val isInitialized: kotlinx.coroutines.flow.StateFlow<Boolean> = _isInitialized
@@ -510,68 +512,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     withContext(Dispatchers.IO) {
       android.util.Log.d("SearchRepository", "Indexing apps...")
       val session = appSearchSession ?: return@withContext
-      val launcherApps =
-        context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
-
-      val apps = mutableListOf<AppSearchDocument>()
 
       // Note: We NO LONGER clear the entire 'apps' namespace here.
       // Clearing the namespace also wipes usage stats (history).
       // Instead, we put new documents (updates existing ones) and later
       // we could implement a cleanup for apps that were uninstalled.
 
-      val profiles = launcherApps.profiles
-
-      for (profile in profiles) {
-        pauseIndexingIfSearchIsActive()
-        try {
-          // fetch activities directly per profile. This is more efficient and safer
-          // than getInstalledPackages which is prone to DeadObjectException.
-          val activityList = launcherApps.getActivityList(null, profile)
-
-          for (info in activityList) {
-            pauseIndexingIfSearchIsActive()
-            try {
-              val appName = info.label.toString()
-              val packageName = info.componentName.packageName
-
-              val appInfo = info.applicationInfo
-              val category =
-                when (appInfo.category) {
-                  ApplicationInfo.CATEGORY_GAME -> "Game"
-                  ApplicationInfo.CATEGORY_AUDIO -> "Audio"
-                  ApplicationInfo.CATEGORY_VIDEO -> "Video"
-                  ApplicationInfo.CATEGORY_IMAGE -> "Image"
-                  ApplicationInfo.CATEGORY_SOCIAL -> "Social"
-                  ApplicationInfo.CATEGORY_NEWS -> "News"
-                  ApplicationInfo.CATEGORY_MAPS -> "Maps"
-                  ApplicationInfo.CATEGORY_PRODUCTIVITY -> "Productivity"
-                  else -> "Application"
-                }
-
-              apps.add(
-                AppSearchDocument(
-                  namespace = "apps",
-                  id = packageName,
-                  name = appName,
-                  score = 2,
-                  description = category,
-                )
-              )
-            } catch (e: Exception) {
-              // Ignore individual app failures
-            }
-          }
-        } catch (e: android.os.DeadObjectException) {
-          android.util.Log.w(
-            "SearchRepository",
-            "System unavailable querying apps for profile $profile, skipping",
-          )
-        } catch (e: Exception) {
-          android.util.Log.e("SearchRepository", "Error querying apps for profile $profile", e)
-          Sentry.captureException(e)
-        }
-      }
+      val apps = appIndexer.buildDocuments(::pauseIndexingIfSearchIsActive)
 
       if (apps.isNotEmpty()) {
         // Batch AppSearch puts to avoid TransactionTooLargeException
@@ -640,9 +587,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   suspend fun indexShortcuts(packageNames: List<String>? = null) =
     withContext(Dispatchers.IO) {
       val session = appSearchSession ?: return@withContext
-      val launcherApps =
-        context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
-      val profiles = launcherApps.profiles
 
       val isFullReindex = packageNames == null
       val packages =
@@ -680,96 +624,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         }
       }
 
-      val newShortcuts = mutableListOf<AppSearchDocument>()
-      val appNameCache = mutableMapOf<String, String>()
-
-      for (profile in profiles) {
-        pauseIndexingIfSearchIsActive()
-        for (packageName in packages) {
-          pauseIndexingIfSearchIsActive()
-          try {
-            val query = android.content.pm.LauncherApps.ShortcutQuery()
-            query.setQueryFlags(
-              android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
-                android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
-                android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED
-            )
-            query.setPackage(packageName)
-
-            val shortcutList =
-              try {
-                launcherApps.getShortcuts(query, profile) ?: emptyList()
-              } catch (e: android.os.DeadObjectException) {
-                android.util.Log.w(
-                  "SearchRepository",
-                  "System unavailable querying shortcuts for $packageName, skipping",
-                )
-                return@withContext
-              } catch (e: Exception) {
-                emptyList()
-              }
-
-            for (shortcut in shortcutList) {
-              pauseIndexingIfSearchIsActive()
-              try {
-                val shortcutId = "${shortcut.`package`}/${shortcut.id}"
-                val name = shortcut.shortLabel?.toString() ?: shortcut.longLabel?.toString() ?: ""
-                val appName =
-                  appNameCache.getOrPut(shortcut.`package`) {
-                    try {
-                      val appInfo = context.packageManager.getApplicationInfo(shortcut.`package`, 0)
-                      context.packageManager.getApplicationLabel(appInfo).toString()
-                    } catch (e: Exception) {
-                      shortcut.`package`
-                    }
-                  }
-
-                try {
-                  val icon =
-                    launcherApps.getShortcutIconDrawable(
-                      shortcut,
-                      context.resources.displayMetrics.densityDpi,
-                    )
-                  if (icon != null) {
-                    iconRepository.saveToDisk("shortcut_$shortcutId", icon, force = true)
-                  }
-                } catch (e: Exception) {
-                  // Ignore icon loading failures
-                }
-
-                val pkg = shortcut.`package`
-                if (!iconRepository.hasOnDisk("appicon_$pkg")) {
-                  try {
-                    val appIcon = context.packageManager.getApplicationIcon(pkg)
-                    iconRepository.saveToDisk("appicon_$pkg", appIcon, force = true)
-                  } catch (e: Exception) {
-                    // Ignore icon loading failures
-                  }
-                }
-
-                newShortcuts.add(
-                  AppSearchDocument(
-                    namespace = "shortcuts",
-                    id = shortcutId,
-                    name = name,
-                    score = 1,
-                    intentUri = "shortcut://${shortcut.`package`}/${shortcut.id}",
-                    description = "Shortcut - $appName",
-                  )
-                )
-              } catch (e: Exception) {
-                // Ignore individual shortcut failures
-              }
-            }
-          } catch (e: Exception) {
-            android.util.Log.w(
-              "SearchRepository",
-              "Failed to query shortcuts for package $packageName",
-              e,
-            )
-          }
-        }
-      }
+      val newShortcuts =
+        shortcutIndexer.buildDynamicDocuments(packages, ::pauseIndexingIfSearchIsActive)
+          ?: return@withContext
 
       if (newShortcuts.isNotEmpty()) {
         newShortcuts.chunked(50).forEach { chunk ->
@@ -802,8 +659,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       pauseIndexingIfSearchIsActive()
       val session = appSearchSession ?: return@withContext
 
-      val app = context.applicationContext as? SearchLauncherApp ?: return@withContext
-
       // Remove old shortcuts first to prevent zombies
       try {
         val removeSpec =
@@ -814,36 +669,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         Sentry.captureException(e)
       }
 
-      // Index app-defined shortcuts (settings, actions)
-      val appShortcutDocs: List<AppSearchDocument> =
-        DefaultShortcuts.appShortcuts.map { shortcut ->
-          AppSearchDocument(
-            namespace = "app_shortcuts",
-            id = "app_${shortcut.id}",
-            name = shortcut.description,
-            score = 3,
-            description = (shortcut as? AppShortcut.Action)?.aliases,
-            intentUri = (shortcut as? AppShortcut.Action)?.intentUri,
-            isAction = true,
-          )
-        }
-
-      // Index user-editable search shortcuts
-      val searchShortcuts = app.searchShortcutRepository.items.value
-      val searchShortcutDocs: List<AppSearchDocument> =
-        searchShortcuts.map { shortcut ->
-          AppSearchDocument(
-            namespace = "search_shortcuts",
-            id = "search_${shortcut.id}",
-            name = shortcut.description,
-            score = 3,
-            description = shortcut.alias,
-            intentUri = shortcut.urlTemplate,
-            isAction = false,
-          )
-        }
-
-      val allDocs = appShortcutDocs + searchShortcutDocs
+      val allDocs = shortcutIndexer.buildCustomDocuments()
       if (allDocs.isNotEmpty()) {
         pauseIndexingIfSearchIsActive()
         val putRequest = PutDocumentsRequest.Builder().addDocuments(allDocs).build()
@@ -863,55 +689,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     withContext(Dispatchers.IO) {
       pauseIndexingIfSearchIsActive()
       val session = appSearchSession ?: return@withContext
-      val shortcuts = StaticShortcutScanner.scan(context)
-      val docs = mutableListOf<AppSearchDocument>()
-      for (s in shortcuts) {
-        pauseIndexingIfSearchIsActive()
-        val appName =
-          try {
-            val appInfo = context.packageManager.getApplicationInfo(s.packageName, 0)
-            context.packageManager.getApplicationLabel(appInfo).toString()
-          } catch (e: Exception) {
-            s.packageName
-          }
-
-        // Pre-load and cache static shortcut icon
-        val shortcutId = "${s.packageName}/${s.id}"
-        try {
-          if (s.iconResId > 0) {
-            val res = context.packageManager.getResourcesForApplication(s.packageName)
-            val icon = res.getDrawable(s.iconResId.toInt(), null)
-            if (icon != null) {
-              iconRepository.saveToDisk("static_shortcut_$shortcutId", icon, force = true)
-            }
-          }
-        } catch (e: Exception) {
-          // Ignore icon loading failures
-          Sentry.captureException(e)
-        }
-
-        // Pre-load and cache app icon
-        if (!iconRepository.hasOnDisk("appicon_${s.packageName}")) {
-          try {
-            val appIcon = context.packageManager.getApplicationIcon(s.packageName)
-            iconRepository.saveToDisk("appicon_${s.packageName}", appIcon, force = true)
-          } catch (e: Exception) {
-            // Ignore app icon loading failures
-            Sentry.captureException(e)
-          }
-        }
-
-        AppSearchDocument(
-            namespace = "static_shortcuts",
-            id = shortcutId,
-            name = "$appName: ${s.shortLabel}",
-            description = "Shortcut - $appName",
-            score = 1,
-            intentUri = s.intent.toUri(0),
-            iconResId = s.iconResId.toLong(),
-          )
-          .also { docs.add(it) }
-      }
+      val docs = shortcutIndexer.buildStaticDocuments(::pauseIndexingIfSearchIsActive)
 
       // Clear old entries
       pauseIndexingIfSearchIsActive()
@@ -942,101 +720,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
       android.util.Log.d("SearchRepository", "Indexing contacts...")
 
-      val contacts = mutableListOf<AppSearchDocument>()
-      // 1. Fetch search data (Phone numbers and Emails)
-      val searchDataMap = mutableMapOf<Long, StringBuilder>()
-      val dataCursor =
-        context.contentResolver.query(
-          android.provider.ContactsContract.Data.CONTENT_URI,
-          arrayOf(
-            android.provider.ContactsContract.Data.CONTACT_ID,
-            android.provider.ContactsContract.Data.MIMETYPE,
-            android.provider.ContactsContract.Data.DATA1,
-          ),
-          "${android.provider.ContactsContract.Data.MIMETYPE} IN (?, ?)",
-          arrayOf(
-            android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
-            android.provider.ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE,
-          ),
-          null,
-        )
-
-      dataCursor?.use {
-        val contactIdIndex = it.getColumnIndex(android.provider.ContactsContract.Data.CONTACT_ID)
-        val mimeTypeIndex = it.getColumnIndex(android.provider.ContactsContract.Data.MIMETYPE)
-        val dataIndex = it.getColumnIndex(android.provider.ContactsContract.Data.DATA1)
-
-        while (it.moveToNext()) {
-          pauseIndexingIfSearchIsActive()
-          val contactId = it.getLong(contactIdIndex)
-          val mimeType = it.getString(mimeTypeIndex)
-          val data = it.getString(dataIndex)
-
-          if (data != null) {
-            val sb = searchDataMap.getOrPut(contactId) { StringBuilder() }
-            // Use space as separator for better tokenization
-            sb.append(" ").append(data)
-
-            // Normalize phone numbers and add variants (e.g. 06... for +31...)
-            if (
-              mimeType == android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE
-            ) {
-              com.searchlauncher.app.util.ContactUtils.getIndexableVariants(data).forEach {
-                sb.append(" ").append(it)
-              }
-            }
-          }
-        }
-      }
-
-      // 2. Fetch Contacts and merge
-      val cursor =
-        context.contentResolver.query(
-          android.provider.ContactsContract.Contacts.CONTENT_URI,
-          arrayOf(
-            android.provider.ContactsContract.Contacts._ID,
-            android.provider.ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,
-            android.provider.ContactsContract.Contacts.LOOKUP_KEY,
-            android.provider.ContactsContract.Contacts.PHOTO_THUMBNAIL_URI,
-          ),
-          null,
-          null,
-          null,
-        )
-
-      cursor?.use {
-        val idIndex = it.getColumnIndex(android.provider.ContactsContract.Contacts._ID)
-        val nameIndex =
-          it.getColumnIndex(android.provider.ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)
-        val lookupIndex = it.getColumnIndex(android.provider.ContactsContract.Contacts.LOOKUP_KEY)
-        val photoIndex =
-          it.getColumnIndex(android.provider.ContactsContract.Contacts.PHOTO_THUMBNAIL_URI)
-
-        while (it.moveToNext()) {
-          pauseIndexingIfSearchIsActive()
-          val id = it.getLong(idIndex)
-          val name = it.getString(nameIndex)
-          val lookupKey = it.getString(lookupIndex)
-          val photoUri = it.getString(photoIndex)
-
-          if (name != null) {
-            val extraData = searchDataMap[id]?.toString() ?: ""
-            // Store photoUri + delimiter + searchable text
-            val description = "${photoUri ?: ""}|$extraData"
-
-            contacts.add(
-              AppSearchDocument(
-                namespace = "contacts",
-                id = "$lookupKey/$id",
-                name = name,
-                description = description,
-                score = 4,
-                intentUri = "content://com.android.contacts/contacts/lookup/$lookupKey/$id",
-              )
-            )
-          }
-        }
-      }
+      val contacts = contactIndexer.buildDocuments(::pauseIndexingIfSearchIsActive)
 
       if (contacts.isNotEmpty()) {
         pauseIndexingIfSearchIsActive()
@@ -1547,26 +1231,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     withContext(Dispatchers.IO) {
       pauseIndexingIfSearchIsActive()
       val session = appSearchSession ?: return@withContext
-      val app = context.applicationContext as? SearchLauncherApp ?: return@withContext
 
       try {
-        val snippets = app.snippetsRepository.items.value
-        val docs =
-          snippets.map { snippet ->
-            AppSearchDocument(
-              namespace = "snippets",
-              id = snippet.alias,
-              name = snippet.alias,
-              description = snippet.content,
-              score = 5,
-              // Snippets don't really use intentUri for launching/Action,
-              // but we might need a dummy one or update schema if required.
-              // Assuming optional or strict checking is handled.
-              // Logic in SearchResultItem handles it via clipboard.
-              intentUri = "snippet://${snippet.alias}",
-              isAction = true,
-            )
-          }
+        val docs = snippetIndexer.buildDocuments()
 
         if (docs.isNotEmpty()) {
           val putRequest = PutDocumentsRequest.Builder().addDocuments(docs).build()
