@@ -1,0 +1,4 @@
+Improved search reliability and ranking.
+
+Added contact actions from search results.
+Refactored indexing and search internals for better maintainability.
