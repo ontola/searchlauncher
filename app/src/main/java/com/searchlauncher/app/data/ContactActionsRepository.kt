@@ -95,63 +95,11 @@ class ContactActionsRepository(private val context: Context) {
       }
 
       val actions = actionsByPackage.values.toList()
-      val lastPackage = getLastContactActionPackage(contact.id)
-      if (lastPackage == null) {
-        actions
-      } else {
-        actions.sortedBy { if (it.packageName == lastPackage) 0 else 1 }
-      }
+      orderByLastUsed(actions, getLastContactActionPackage(contact.id))
     }
 
   fun launchContactAction(contact: SearchResult.Contact, action: ContactChatAction): Boolean {
-    val intents = buildList {
-      if (action.packageName == CALL_ACTION_KEY && action.phoneNumber != null) {
-        add(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(action.phoneNumber)}")))
-      }
-
-      if (action.packageName == SMS_ACTION_KEY && action.phoneNumber != null) {
-        add(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${Uri.encode(action.phoneNumber)}")))
-      }
-
-      if (action.packageName == EMAIL_ACTION_KEY && action.phoneNumber != null) {
-        add(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${Uri.encode(action.phoneNumber)}")))
-      }
-
-      if (action.dataId != null) {
-        add(
-          Intent(
-              Intent.ACTION_VIEW,
-              Uri.withAppendedPath(
-                android.provider.ContactsContract.Data.CONTENT_URI,
-                action.dataId.toString(),
-              ),
-            )
-            .setPackage(action.packageName)
-        )
-      }
-
-      if (action.packageName == WHATSAPP_PACKAGE && action.phoneNumber != null) {
-        val normalizedPhone =
-          com.searchlauncher.app.util.ContactUtils.normalizePhoneNumber(action.phoneNumber)
-        if (normalizedPhone != null) {
-          add(
-            Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$normalizedPhone"))
-              .setPackage(WHATSAPP_PACKAGE)
-          )
-        }
-      }
-
-      add(
-        Intent(
-            Intent.ACTION_VIEW,
-            Uri.withAppendedPath(
-              android.provider.ContactsContract.Contacts.CONTENT_LOOKUP_URI,
-              contact.lookupKey,
-            ),
-          )
-          .setPackage(action.packageName)
-      )
-    }
+    val intents = buildContactActionIntents(contact, action)
 
     for (intent in intents) {
       try {
@@ -165,6 +113,73 @@ class ContactActionsRepository(private val context: Context) {
     }
     return false
   }
+
+  /**
+   * Builds the ordered list of intents to try for [action], most specific first, always ending with
+   * a generic contact-lookup fallback. Pure: no side effects, so it is unit-testable.
+   */
+  internal fun buildContactActionIntents(
+    contact: SearchResult.Contact,
+    action: ContactChatAction,
+  ): List<Intent> = buildList {
+    if (action.packageName == CALL_ACTION_KEY && action.phoneNumber != null) {
+      add(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(action.phoneNumber)}")))
+    }
+
+    if (action.packageName == SMS_ACTION_KEY && action.phoneNumber != null) {
+      add(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${Uri.encode(action.phoneNumber)}")))
+    }
+
+    if (action.packageName == EMAIL_ACTION_KEY && action.phoneNumber != null) {
+      add(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${Uri.encode(action.phoneNumber)}")))
+    }
+
+    if (action.dataId != null) {
+      add(
+        Intent(
+            Intent.ACTION_VIEW,
+            Uri.withAppendedPath(
+              android.provider.ContactsContract.Data.CONTENT_URI,
+              action.dataId.toString(),
+            ),
+          )
+          .setPackage(action.packageName)
+      )
+    }
+
+    if (action.packageName == WHATSAPP_PACKAGE && action.phoneNumber != null) {
+      val normalizedPhone =
+        com.searchlauncher.app.util.ContactUtils.normalizePhoneNumber(action.phoneNumber)
+      if (normalizedPhone != null) {
+        add(
+          Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$normalizedPhone"))
+            .setPackage(WHATSAPP_PACKAGE)
+        )
+      }
+    }
+
+    add(
+      Intent(
+          Intent.ACTION_VIEW,
+          Uri.withAppendedPath(
+            android.provider.ContactsContract.Contacts.CONTENT_LOOKUP_URI,
+            contact.lookupKey,
+          ),
+        )
+        .setPackage(action.packageName)
+    )
+  }
+
+  /**
+   * Moves the most recently used action ([lastPackage]) to the front, preserving the relative order
+   * of the rest. A null [lastPackage] (or one not present) leaves the order unchanged.
+   */
+  internal fun orderByLastUsed(
+    actions: List<ContactChatAction>,
+    lastPackage: String?,
+  ): List<ContactChatAction> =
+    if (lastPackage == null) actions
+    else actions.sortedBy { if (it.packageName == lastPackage) 0 else 1 }
 
   internal fun chatPackageFromMimeType(mimeType: String): String? =
     KNOWN_CHAT_PACKAGES.firstOrNull { packageName ->
@@ -250,10 +265,10 @@ class ContactActionsRepository(private val context: Context) {
   }
 
   companion object {
-    private const val CALL_ACTION_KEY = "com.searchlauncher.action.CALL_CONTACT"
-    private const val SMS_ACTION_KEY = "com.searchlauncher.action.SMS_CONTACT"
-    private const val EMAIL_ACTION_KEY = "com.searchlauncher.action.EMAIL_CONTACT"
-    private const val WHATSAPP_PACKAGE = "com.whatsapp"
+    internal const val CALL_ACTION_KEY = "com.searchlauncher.action.CALL_CONTACT"
+    internal const val SMS_ACTION_KEY = "com.searchlauncher.action.SMS_CONTACT"
+    internal const val EMAIL_ACTION_KEY = "com.searchlauncher.action.EMAIL_CONTACT"
+    internal const val WHATSAPP_PACKAGE = "com.whatsapp"
     private val KNOWN_CHAT_PACKAGES =
       setOf(
         WHATSAPP_PACKAGE,
