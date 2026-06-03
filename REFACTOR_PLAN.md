@@ -42,11 +42,14 @@ find app/src/main/java app/src/test/java -name '*.kt' -print0 | xargs -0 wc -l
 
 ### Phase 1: Remove duplicated UI/action code
 
-Status: in progress
+Status: done (one optional item dropped)
 
 - Extract shared app actions menu from `SearchResultItem` and `FavoritesRow`. Done.
 - Extract result launching from `SearchScreen` and `MainActivity`. Done.
 - Make result rows delegate actions instead of knowing repositories directly where practical.
+  Dropped: in Compose, rows pulling the app singleton from context is idiomatic; threading action
+  callbacks through every call site would add indirection for working UI without real benefit
+  (and cuts against "avoid hiding logic in vague abstractions").
 
 Expected benefit:
 
@@ -56,11 +59,15 @@ Expected benefit:
 
 ### Phase 2: Extract contact actions
 
-Status: in progress
+Status: done
 
 - Move contact chat/SMS/call/email discovery and launch code out of `SearchRepository`. Done.
-- Keep `SearchRepository` focused on search/index results.
+- Keep `SearchRepository` focused on search/index results. Done.
 - Add focused tests for Telegram MIME detection, phone fallback, SMS, email, and last-used ordering.
+  Done — extracted the intent-building (`buildContactActionIntents`) and last-used sort
+  (`orderByLastUsed`) into pure functions and covered them, plus `chatPackageFromMimeType`, in
+  `ContactActionsRepositoryTest` (14 cases). The `ContentResolver` query paths remain
+  integration-only by design.
 
 Expected benefit:
 
@@ -69,7 +76,7 @@ Expected benefit:
 
 ### Phase 3: Split search/index responsibilities
 
-Status: in progress
+Status: done
 
 - Extract indexers: apps, shortcuts, contacts, snippets. Done.
 - Extract ranking and learned-query scoring. Done.
@@ -173,3 +180,7 @@ is documented, and the one real redundancy (`min_icon_size`) is encapsulated.
   needs relocating. Encapsulated the `min_icon_size` DataStore-plus-boot-cache pattern into
   `MinIconSize`, removing the duplicated default logic and inline SharedPreferences plumbing from
   `SearchScreen`. Behavior preserved; `./gradlew testDebugUnitTest assembleDebug` passes.
+- 2026-06-03: Phase 2 tests added. Extracted `buildContactActionIntents` and `orderByLastUsed` as
+  pure functions and covered them plus `chatPackageFromMimeType` in `ContactActionsRepositoryTest`
+  (14 cases). Dropped the optional Phase 1 "rows delegate actions" item (see Phase 1 note). All four
+  phases now done; refactor considered complete. `./gradlew testDebugUnitTest assembleDebug` passes.
