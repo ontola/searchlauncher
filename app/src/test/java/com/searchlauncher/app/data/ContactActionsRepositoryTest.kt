@@ -133,11 +133,7 @@ class ContactActionsRepositoryTest {
   @Test
   fun `dataId opens the specific data row scoped to the package`() {
     val action =
-      ContactChatAction(
-        label = "Telegram",
-        packageName = "org.telegram.messenger",
-        dataId = 99L,
-      )
+      ContactChatAction(label = "Telegram", packageName = "org.telegram.messenger", dataId = 99L)
     val intents = repo.buildContactActionIntents(contact(), action)
 
     val dataIntent = intents.first { it.data?.toString()?.endsWith("/99") == true }

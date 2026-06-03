@@ -404,7 +404,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               "Background Re-indexing took ${System.currentTimeMillis() - backgroundStart}ms",
             )
             saveFastIndexCache()
-            prefs.edit().putLong(Prefs.Launcher.LAST_REINDEX_TIMESTAMP, System.currentTimeMillis()).apply()
+            prefs
+              .edit()
+              .putLong(Prefs.Launcher.LAST_REINDEX_TIMESTAMP, System.currentTimeMillis())
+              .apply()
             _indexUpdated.emit(Unit)
           } finally {
             _isIndexing.value = false
@@ -783,7 +786,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         // warmupCache() - Removed
 
-        prefs.edit().putLong(Prefs.Launcher.LAST_REINDEX_TIMESTAMP, System.currentTimeMillis()).apply()
+        prefs
+          .edit()
+          .putLong(Prefs.Launcher.LAST_REINDEX_TIMESTAMP, System.currentTimeMillis())
+          .apply()
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error during resetIndex", e)
         Sentry.captureException(e)

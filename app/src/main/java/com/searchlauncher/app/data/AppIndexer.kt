@@ -18,8 +18,7 @@ class AppIndexer(private val context: Context) {
    * between profiles and apps so indexing yields to active searches.
    */
   suspend fun buildDocuments(pauseCheck: suspend () -> Unit): List<AppSearchDocument> {
-    val launcherApps =
-      context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
+    val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
 
     val apps = mutableListOf<AppSearchDocument>()
     // Apps are addressed by package id everywhere (search, favorites, history, the app list), so we
