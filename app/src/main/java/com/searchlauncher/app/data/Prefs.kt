@@ -3,9 +3,9 @@ package com.searchlauncher.app.data
 /**
  * Central registry of the launcher's `SharedPreferences` files and their keys.
  *
- * Async, user-facing settings live in DataStore (see
- * [com.searchlauncher.app.ui.PreferencesKeys]); this object covers the remaining
- * `SharedPreferences`-backed state — per-store, so it's clear which file owns which value.
+ * Async, user-facing settings live in DataStore (see [com.searchlauncher.app.ui.PreferencesKeys]);
+ * this object covers the remaining `SharedPreferences`-backed state — per-store, so it's clear
+ * which file owns which value.
  *
  * IMPORTANT: every string here names data persisted on users' devices. Changing a value orphans
  * existing data, so treat these constants as immutable; add new ones rather than renaming.

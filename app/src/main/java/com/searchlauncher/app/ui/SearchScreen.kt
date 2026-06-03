@@ -116,9 +116,12 @@ fun SearchScreen(
     remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
       .collectAsState(initial = -1)
   // "Autocomplete suggestions" setting. Gates the network fetch of query suggestions while typing
-  // a shortcut search (e.g. "g cats"). Stored under SEARCH_SHORTCUTS_ENABLED for historical reasons.
+  // a shortcut search (e.g. "g cats"). Stored under SEARCH_SHORTCUTS_ENABLED for historical
+  // reasons.
   val suggestionsEnabled by
-    remember { context.dataStore.data.map { it[PreferencesKeys.SEARCH_SHORTCUTS_ENABLED] ?: false } }
+    remember {
+        context.dataStore.data.map { it[PreferencesKeys.SEARCH_SHORTCUTS_ENABLED] ?: false }
+      }
       .collectAsState(initial = false)
   val minIconSizeSetting by
     remember { MinIconSize.flow(context) }.collectAsState(initial = MinIconSize.cached(context))
@@ -411,12 +414,16 @@ fun SearchScreen(
   LaunchedEffect(hintManager) { hintManager.getHintsFlow().collect { hint -> currentHint = hint } }
 
   // Use SharedPreferences for synchronous read to avoid initial jump
-  val sharedPrefs = remember { context.getSharedPreferences(Prefs.Window.FILE, Context.MODE_PRIVATE) }
+  val sharedPrefs = remember {
+    context.getSharedPreferences(Prefs.Window.FILE, Context.MODE_PRIVATE)
+  }
   val density = LocalDensity.current
   val imeHeightPx = WindowInsets.ime.getBottom(density)
 
   // Read synchronously for initial value
-  var storedKeyboardHeight by remember { mutableStateOf(sharedPrefs.getInt(Prefs.Window.KEYBOARD_HEIGHT, 0)) }
+  var storedKeyboardHeight by remember {
+    mutableStateOf(sharedPrefs.getInt(Prefs.Window.KEYBOARD_HEIGHT, 0))
+  }
 
   val isMultiWindow = (context as? android.app.Activity)?.isInMultiWindowMode == true
 

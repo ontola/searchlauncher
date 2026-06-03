@@ -8,8 +8,8 @@ import kotlinx.coroutines.flow.map
 /**
  * The minimum search-result icon size, in dp.
  *
- * DataStore ([PreferencesKeys.MIN_ICON_SIZE]) is the source of truth, but the value is mirrored to a
- * synchronous SharedPreferences cache ([Prefs.Launcher.MIN_ICON_SIZE]) so the first frame after a
+ * DataStore ([PreferencesKeys.MIN_ICON_SIZE]) is the source of truth, but the value is mirrored to
+ * a synchronous SharedPreferences cache ([Prefs.Launcher.MIN_ICON_SIZE]) so the first frame after a
  * cold start can size icons immediately, rather than rendering at the default and snapping once the
  * async DataStore read completes.
  */

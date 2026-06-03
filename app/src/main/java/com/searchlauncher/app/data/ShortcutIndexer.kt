@@ -15,24 +15,20 @@ import io.sentry.Sentry
  * These are pure readers (aside from caching icons to disk as a side effect). Persisting the
  * documents is the caller's responsibility.
  */
-class ShortcutIndexer(
-  private val context: Context,
-  private val iconRepository: IconRepository,
-) {
+class ShortcutIndexer(private val context: Context, private val iconRepository: IconRepository) {
 
   /**
-   * Reads dynamic/manifest/pinned shortcuts for the given [packages] across all profiles and
-   * caches their icons to disk.
+   * Reads dynamic/manifest/pinned shortcuts for the given [packages] across all profiles and caches
+   * their icons to disk.
    *
-   * Returns null if the system shortcut service became unavailable mid-scan (the caller should
-   * then abandon the index update), otherwise the collected documents.
+   * Returns null if the system shortcut service became unavailable mid-scan (the caller should then
+   * abandon the index update), otherwise the collected documents.
    */
   suspend fun buildDynamicDocuments(
     packages: List<String>,
     pauseCheck: suspend () -> Unit,
   ): List<AppSearchDocument>? {
-    val launcherApps =
-      context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
+    val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
 
     val newShortcuts = mutableListOf<AppSearchDocument>()
     val appNameCache = mutableMapOf<String, String>()
