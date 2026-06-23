@@ -1,0 +1,3 @@
+Added explicit F-Droid update-check metadata.
+
+This lets F-Droid detect future tagged releases without relying on dynamic Gradle version parsing.
