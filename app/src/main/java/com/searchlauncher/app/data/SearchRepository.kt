@@ -79,7 +79,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   internal fun wrap(doc: AppSearchDocument): SearchableDocument {
     val searchableText =
-      if (doc.namespace == "snippets") {
+      if (doc.namespace == "snippets" || doc.namespace == "app_shortcuts") {
         listOf(doc.name, doc.description.orEmpty()).joinToString(" ")
       } else {
         doc.name

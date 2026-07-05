@@ -47,7 +47,6 @@ object DefaultShortcuts {
       "android.settings.APPLICATION_DEVELOPMENT_SETTINGS",
       "android.settings.APPLICATION_SETTINGS",
       "android.settings.APP_NOTIFICATION_SETTINGS",
-      "android.settings.BATTERY_SAVER_SETTINGS",
       "android.settings.BLUETOOTH_SETTINGS",
       "android.settings.CAPTIONING_SETTINGS",
       "android.settings.CAST_SETTINGS",
@@ -244,6 +243,18 @@ object DefaultShortcuts {
         intentUri =
           "intent:#Intent;action=com.searchlauncher.action.REFRESH_ICONS;component=com.searchlauncher.app/.ui.MainActivity;end",
         description = "Refresh Icons",
+      ),
+      AppShortcut.Action(
+        id = "settings_battery_saver",
+        intentUri = "intent:#Intent;action=android.settings.BATTERY_SAVER_SETTINGS;end",
+        description = "Battery Saver Settings",
+        aliases = "battery saver mode power save status battery saver settings",
+      ),
+      AppShortcut.Action(
+        id = "settings_wireless_debugging",
+        intentUri = "intent:#Intent;action=com.searchlauncher.action.WIRELESS_DEBUGGING;end",
+        description = "Wireless Debugging Settings",
+        aliases = "wireless debugging adb wifi debug developers developer options status settings wireless debugging settings",
       ),
     ) + generateSettingsShortcuts()
 

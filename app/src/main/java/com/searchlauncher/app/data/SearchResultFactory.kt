@@ -297,7 +297,7 @@ class SearchResultFactory(
       ?: if (allowIpc) {
         val icon =
           when {
-            doc.intentUri?.contains("android.settings") == true ->
+            doc.intentUri?.contains("android.settings") == true || doc.id.startsWith("app_settings") ->
               runCatching { context.packageManager.getApplicationIcon("com.android.settings") }
                 .getOrNull()
             doc.intentUri?.contains("STILL_IMAGE_CAMERA") == true ->

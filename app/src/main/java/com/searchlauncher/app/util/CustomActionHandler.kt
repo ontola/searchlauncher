@@ -72,6 +72,10 @@ object CustomActionHandler {
         openInternalSetting(context, "remove_current_wallpaper")
         true
       }
+      "com.searchlauncher.action.WIRELESS_DEBUGGING" -> {
+        openWirelessDebugging(context)
+        true
+      }
       "com.searchlauncher.action.RESET_ONBOARDING" -> {
         // Will be intercepted and handled by SearchScreen/MainActivity
         false
@@ -213,6 +217,40 @@ object CustomActionHandler {
       context.startActivity(intent)
     } catch (e: Exception) {
       e.printStackTrace()
+    }
+  }
+
+  private fun openWirelessDebugging(context: Context) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+      try {
+        val intent = Intent("android.service.quicksettings.action.QS_TILE_PREFERENCES").apply {
+          putExtra(
+            Intent.EXTRA_COMPONENT_NAME,
+            android.content.ComponentName(
+              "com.android.settings",
+              "com.android.settings.development.qstile.DevelopmentTiles\$WirelessDebugging"
+            )
+          )
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+      } catch (e: Exception) {
+        // Fallback to developer options
+        openDeveloperOptions(context)
+      }
+    } else {
+      openDeveloperOptions(context)
+    }
+  }
+
+  private fun openDeveloperOptions(context: Context) {
+    try {
+      val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      context.startActivity(intent)
+    } catch (e: Exception) {
+      Toast.makeText(context, "Developer options not available", Toast.LENGTH_SHORT).show()
     }
   }
 }
