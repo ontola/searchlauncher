@@ -61,7 +61,7 @@ fun SearchResultItem(
     remember(result.id) { mutableStateOf<List<ContactChatAction>>(emptyList()) }
 
   LaunchedEffect(result.id) {
-    if (iconState == null) {
+    if (iconState == null && result !is SearchResult.IndexingIndicator) {
       iconState =
         traceSection("SL:SearchResultItem.loadIcon:${result.namespace}") {
           searchRepository.loadIcon(result)
@@ -84,7 +84,9 @@ fun SearchResultItem(
         modifier =
           Modifier.fillMaxWidth()
             .then(
-              if (onToggleFavorite != null) {
+              if (result is SearchResult.IndexingIndicator) {
+                Modifier
+              } else if (onToggleFavorite != null) {
                 Modifier.combinedClickable(onClick = onClick, onLongClick = { showMenu = true })
               } else if (
                 result is SearchResult.Snippet ||
@@ -101,8 +103,14 @@ fun SearchResultItem(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        Box(modifier = Modifier.size(40.dp)) {
-          if (iconState != null) {
+        Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+          if (result is SearchResult.IndexingIndicator) {
+            CircularProgressIndicator(
+              modifier = Modifier.size(24.dp),
+              strokeWidth = 2.dp,
+              color = MaterialTheme.colorScheme.primary
+            )
+          } else if (iconState != null) {
             val iconModifier =
               if (
                 result is SearchResult.Contact ||

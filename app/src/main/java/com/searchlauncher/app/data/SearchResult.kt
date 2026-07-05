@@ -75,4 +75,13 @@ sealed class SearchResult {
     val alias: String,
     val content: String,
   ) : SearchResult()
+
+  data class IndexingIndicator(
+    override val id: String = "indexing_indicator",
+    override val namespace: String = "system",
+    override val title: String = "Indexing, results loading...",
+    override val subtitle: String? = null,
+    override val icon: Drawable? = null,
+    override val rankingScore: Int = Int.MAX_VALUE,
+  ) : SearchResult()
 }

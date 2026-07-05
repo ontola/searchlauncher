@@ -301,7 +301,7 @@ fun SearchScreen(
     }
   }
 
-  LaunchedEffect(query, suggestionsEnabled) {
+  LaunchedEffect(query, suggestionsEnabled, isIndexing) {
     traceSection("SL:SearchScreen.queryEffect") {
       searchRepository.noteInteractiveSearch(query)
       if (query.isEmpty()) {
@@ -346,6 +346,12 @@ fun SearchScreen(
           }
         isFallbackMode = results.isEmpty()
 
+        val resultsWithIndexing = if (isIndexing) {
+          listOf(SearchResult.IndexingIndicator()) + baseResults
+        } else {
+          baseResults
+        }
+
         // Calculator injection
         if (MathEvaluator.isExpression(query)) {
           val eval = MathEvaluator.evaluate(query)
@@ -364,12 +370,12 @@ fun SearchScreen(
                 packageName = "android",
                 deepLink = "calculator://copy?text=$formattedResult",
               )
-            searchResults = (listOf(calcResult) + baseResults).distinctBy { it.stableListKey }
+            searchResults = (listOf(calcResult) + resultsWithIndexing).distinctBy { it.stableListKey }
           } else {
-            searchResults = baseResults
+            searchResults = resultsWithIndexing
           }
         } else {
-          searchResults = baseResults
+          searchResults = resultsWithIndexing
         }
       }
     }

@@ -39,9 +39,12 @@ class ResultLauncher(
       }
       is SearchResult.Contact -> launchContact(result)
       is SearchResult.Snippet -> copySnippet(result)
+      is SearchResult.IndexingIndicator -> {
+        // Do nothing
+      }
     }
 
-    if (reportUsage) {
+    if (reportUsage && result !is SearchResult.IndexingIndicator) {
       searchRepository.reportUsageAsync(result.namespace, result.id, query, wasFirstResult)
     }
   }

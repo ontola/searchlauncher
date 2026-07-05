@@ -76,6 +76,7 @@ object CustomActionHandler {
         openWirelessDebugging(context)
         true
       }
+
       "com.searchlauncher.action.RESET_ONBOARDING" -> {
         // Will be intercepted and handled by SearchScreen/MainActivity
         false
@@ -253,4 +254,5 @@ object CustomActionHandler {
       Toast.makeText(context, "Developer options not available", Toast.LENGTH_SHORT).show()
     }
   }
+
 }
