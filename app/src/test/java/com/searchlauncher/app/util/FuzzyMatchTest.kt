@@ -74,6 +74,16 @@ class FuzzyMatchTest {
   }
 
   @Test
+  fun `Random short queries do not typo match similarly short names`() {
+    // Regression: the bounded distance sentinel (maxDistance + 1) used to be scored as a real
+    // distance-2 typo match, making every 2-4 letter name match any 3-4 char junk query.
+    assertEquals(0, FuzzyMatch.calculateScore("yy8", "Maps"))
+    assertEquals(0, FuzzyMatch.calculateScore("yy8", "Bunq"))
+    assertEquals(0, FuzzyMatch.calculateScore("yy8", "Keep Notes"))
+    assertEquals(0, FuzzyMatch.calculateScore("qzx7", "Docs"))
+  }
+
+  @Test
   fun `Empty query returns 0`() {
     assertEquals(0, FuzzyMatch.calculateScore("", "    Spotify  "))
     assertEquals(0, FuzzyMatch.calculateScore("", "Spotify"))

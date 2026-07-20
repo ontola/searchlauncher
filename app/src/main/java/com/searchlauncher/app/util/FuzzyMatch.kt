@@ -82,7 +82,9 @@ object FuzzyMatch {
       if (abs(candidate.length - query.length) > maxDistance) continue
 
       val distance = boundedDamerauLevenshtein(query, candidate, maxDistance)
-      if (distance < bestDistance) bestDistance = distance
+      // boundedDamerauLevenshtein returns maxDistance + 1 as its "too far" sentinel; treating
+      // that as a real distance made every short word a typo match for any short query.
+      if (distance <= maxDistance && distance < bestDistance) bestDistance = distance
       if (bestDistance == 0) break
     }
 
