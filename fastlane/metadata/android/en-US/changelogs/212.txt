@@ -1,0 +1,7 @@
+Added a built-in browser mode.
+
+- Open web results in-app, with tabs you switch by swiping the bottom bar sideways.
+- Private browsing in an isolated process; fullscreen video support.
+- The search bar and system bars adopt each page's background color.
+- Per-site settings (JavaScript, pop-ups, third-party cookies), find in page, and desktop mode.
+- Fixed random short queries matching unrelated apps.
