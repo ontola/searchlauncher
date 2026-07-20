@@ -932,51 +932,55 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         val shortcuts =
           documentSnapshot.filter { it.doc.namespace == "search_shortcuts" }.map { it.doc }
 
-        val results = if (shortcuts.isEmpty()) {
-          val app = context.applicationContext as? SearchLauncherApp
-          val repoShortcuts = app?.searchShortcutRepository?.items?.value ?: emptyList()
-          val sortedRepoShortcuts = repoShortcuts.sortedWith(
-            compareByDescending<com.searchlauncher.app.data.SearchShortcut> { shortcut ->
-                getGlobalUsageCount("search_shortcuts", shortcut.id) + getDefaultSearchShortcutBoost(shortcut.id)
-              }
-              .thenBy { shortcut -> DefaultShortcuts.searchShortcutOrder(shortcut.id) }
-              .thenBy { shortcut -> shortcut.description }
-          )
-          sortedRepoShortcuts.map { shortcut ->
-            val cacheKey = "search_shortcut_${shortcut.id}"
-            var icon = iconRepository.getMemory(cacheKey)
-            if (icon == null) {
-              icon = iconGenerator.getColoredSearchIcon(shortcut.color, shortcut.alias)
-              if (icon != null) {
-                iconRepository.putMemory(cacheKey, icon)
-              }
-            }
-            SearchResult.SearchIntent(
-              id = shortcut.id,
-              namespace = "search_shortcuts",
-              title = shortcut.description,
-              subtitle = "Type '${shortcut.alias} ' to search",
-              icon = icon,
-              trigger = shortcut.alias,
-              rankingScore = 0,
-            )
-          }
-        } else {
-          val sortedShortcuts =
-            shortcuts.sortedWith(
-              compareByDescending<AppSearchDocument> { doc ->
-                  getGlobalUsageCount(doc.namespace, doc.id) + getDefaultSearchShortcutBoost(doc.id)
+        val results =
+          if (shortcuts.isEmpty()) {
+            val app = context.applicationContext as? SearchLauncherApp
+            val repoShortcuts = app?.searchShortcutRepository?.items?.value ?: emptyList()
+            val sortedRepoShortcuts =
+              repoShortcuts.sortedWith(
+                compareByDescending<com.searchlauncher.app.data.SearchShortcut> { shortcut ->
+                    getGlobalUsageCount("search_shortcuts", shortcut.id) +
+                      getDefaultSearchShortcutBoost(shortcut.id)
+                  }
+                  .thenBy { shortcut -> DefaultShortcuts.searchShortcutOrder(shortcut.id) }
+                  .thenBy { shortcut -> shortcut.description }
+              )
+            sortedRepoShortcuts.map { shortcut ->
+              val cacheKey = "search_shortcut_${shortcut.id}"
+              var icon = iconRepository.getMemory(cacheKey)
+              if (icon == null) {
+                icon = iconGenerator.getColoredSearchIcon(shortcut.color, shortcut.alias)
+                if (icon != null) {
+                  iconRepository.putMemory(cacheKey, icon)
                 }
-                .thenBy { doc -> DefaultShortcuts.searchShortcutOrder(doc.id) }
-                .thenBy { doc -> doc.name }
-            )
-          coroutineScope {
-            sortedShortcuts
-              .map { doc -> async { convertDocumentToResult(wrap(doc), 100, saveToDisk = true) } }
-              .awaitAll()
-              .filterIsInstance<SearchResult.SearchIntent>()
+              }
+              SearchResult.SearchIntent(
+                id = shortcut.id,
+                namespace = "search_shortcuts",
+                title = shortcut.description,
+                subtitle = "Type '${shortcut.alias} ' to search",
+                icon = icon,
+                trigger = shortcut.alias,
+                rankingScore = 0,
+              )
+            }
+          } else {
+            val sortedShortcuts =
+              shortcuts.sortedWith(
+                compareByDescending<AppSearchDocument> { doc ->
+                    getGlobalUsageCount(doc.namespace, doc.id) +
+                      getDefaultSearchShortcutBoost(doc.id)
+                  }
+                  .thenBy { doc -> DefaultShortcuts.searchShortcutOrder(doc.id) }
+                  .thenBy { doc -> doc.name }
+              )
+            coroutineScope {
+              sortedShortcuts
+                .map { doc -> async { convertDocumentToResult(wrap(doc), 100, saveToDisk = true) } }
+                .awaitAll()
+                .filterIsInstance<SearchResult.SearchIntent>()
+            }
           }
-        }
 
         return@withContext results.take(limit)
       } catch (e: Exception) {

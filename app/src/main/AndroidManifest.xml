@@ -62,6 +62,37 @@
             </intent-filter>
         </activity>
 
+        <!-- Browser lives in its own task so Home always returns to the launcher surface. -->
+        <activity
+            android:name=".ui.browser.BrowserActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.searchlauncher.app.browser"
+            android:theme="@style/Theme.SearchLauncher"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ui.browser.PrivateBrowserActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":incognito"
+            android:taskAffinity="com.searchlauncher.app.incognito"
+            android:theme="@style/Theme.SearchLauncher"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- Search Activity (Transparent) -->
         <activity
             android:name=".ui.SearchActivity"

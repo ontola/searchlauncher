@@ -41,6 +41,10 @@ class SearchLauncherApp : Application() {
 
   override fun onCreate() {
     super.onCreate()
+    // The private browser gets an isolated WebView process/profile and must not initialize the
+    // launcher's indexes, repositories, analytics, or other persistent application services.
+    if (Application.getProcessName().endsWith(":incognito")) return
+
     searchRepository = SearchRepository(this)
     snippetsRepository = SnippetsRepository(this)
     favoritesRepository = FavoritesRepository(this)

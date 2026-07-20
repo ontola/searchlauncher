@@ -167,7 +167,7 @@ fun SettingsScreen(
             Column(modifier = Modifier.weight(1f)) {
               Text(text = "Store Web History", style = MaterialTheme.typography.bodyMedium)
               Text(
-                text = "Automatically bookmark visited websites from search",
+                text = "Keep visited pages locally so they appear in launcher search",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
               )

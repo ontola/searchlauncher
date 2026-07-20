@@ -8,6 +8,7 @@ import android.net.Uri
 import android.widget.Toast
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.ui.browser.BrowserActivity
 import com.searchlauncher.app.ui.onboarding.OnboardingManager
 import com.searchlauncher.app.util.CustomActionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -139,8 +140,17 @@ class ResultLauncher(
       ACTION_RESET_ONBOARDING -> resetOnboarding()
       else -> {
         if (!CustomActionHandler.handleAction(context, intent)) {
-          intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-          context.startActivity(intent)
+          val uri = intent.data
+          if (
+            intent.action == Intent.ACTION_VIEW &&
+              uri != null &&
+              (uri.scheme == "http" || uri.scheme == "https")
+          ) {
+            context.startActivity(BrowserActivity.createIntent(context, uri.toString()))
+          } else {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+          }
         }
       }
     }

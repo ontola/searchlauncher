@@ -20,6 +20,7 @@ object PreferencesKeys {
   val SHOW_WIDGETS = booleanPreferencesKey("show_widgets")
   val IS_FIRST_RUN = booleanPreferencesKey("is_first_run")
   val STORE_WEB_HISTORY = booleanPreferencesKey("store_web_history")
+  val BROWSER_SHOW_FAVORITES = booleanPreferencesKey("browser_show_favorites")
   val HISTORY_LIMIT = intPreferencesKey("history_limit")
   val MIN_ICON_SIZE = intPreferencesKey("min_icon_size")
   val AUTO_THEME_FROM_WALLPAPER = booleanPreferencesKey("auto_theme_from_wallpaper")

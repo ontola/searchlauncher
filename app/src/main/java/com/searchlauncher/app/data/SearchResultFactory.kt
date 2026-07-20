@@ -147,7 +147,7 @@ class SearchResultFactory(
       id = doc.id,
       namespace = "web_bookmarks",
       title = doc.name,
-      subtitle = "Bookmark",
+      subtitle = "Browser history",
       icon = browserIcon,
       packageName = "com.android.chrome",
       deepLink = doc.intentUri,
@@ -297,7 +297,8 @@ class SearchResultFactory(
       ?: if (allowIpc) {
         val icon =
           when {
-            doc.intentUri?.contains("android.settings") == true || doc.id.startsWith("app_settings") ->
+            doc.intentUri?.contains("android.settings") == true ||
+              doc.id.startsWith("app_settings") ->
               runCatching { context.packageManager.getApplicationIcon("com.android.settings") }
                 .getOrNull()
             doc.intentUri?.contains("STILL_IMAGE_CAMERA") == true ->

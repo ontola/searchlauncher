@@ -254,7 +254,8 @@ object DefaultShortcuts {
         id = "settings_wireless_debugging",
         intentUri = "intent:#Intent;action=com.searchlauncher.action.WIRELESS_DEBUGGING;end",
         description = "Wireless Debugging Settings",
-        aliases = "wireless debugging adb wifi debug developers developer options status settings wireless debugging settings",
+        aliases =
+          "wireless debugging adb wifi debug developers developer options status settings wireless debugging settings",
       ),
     ) + generateSettingsShortcuts()
 

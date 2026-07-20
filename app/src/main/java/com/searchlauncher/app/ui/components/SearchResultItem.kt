@@ -46,12 +46,15 @@ fun SearchResultItem(
   onRemoveFromIndex: (() -> Unit)? = null,
   onRemoveBookmark: (() -> Unit)? = null,
   onClearSearchResults: (() -> Unit)? = null,
+  onOpenTab: (() -> Unit)? = null,
+  onOpenPrivate: (() -> Unit)? = null,
   onContactChatAction: ((SearchResult.Contact, ContactChatAction) -> Unit)? = null,
   onClick: () -> Unit,
 ) {
   var showMenu by remember { mutableStateOf(false) }
   var showContactActionsMenu by remember { mutableStateOf(false) }
   var showAppActionsMenu by remember { mutableStateOf(false) }
+  var showWebActionsMenu by remember { mutableStateOf(false) }
   val context = LocalContext.current
   val searchRepository = remember {
     (context.applicationContext as SearchLauncherApp).searchRepository
@@ -108,7 +111,7 @@ fun SearchResultItem(
             CircularProgressIndicator(
               modifier = Modifier.size(24.dp),
               strokeWidth = 2.dp,
-              color = MaterialTheme.colorScheme.primary
+              color = MaterialTheme.colorScheme.primary,
             )
           } else if (iconState != null) {
             val iconModifier =
@@ -258,6 +261,44 @@ fun SearchResultItem(
                 showUninstall = true,
                 onClearSearchResults = onClearSearchResults,
               )
+            }
+          }
+        }
+
+        if (onOpenTab != null || onOpenPrivate != null) {
+          Box(modifier = Modifier.padding(start = 8.dp)) {
+            IconButton(onClick = { showWebActionsMenu = true }, modifier = Modifier.size(40.dp)) {
+              Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = "More browser actions",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+
+            DropdownMenu(
+              expanded = showWebActionsMenu,
+              onDismissRequest = { showWebActionsMenu = false },
+              modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
+              properties = PopupProperties(focusable = false),
+            ) {
+              if (onOpenTab != null) {
+                DropdownMenuItem(
+                  text = { Text("Open tab") },
+                  onClick = {
+                    showWebActionsMenu = false
+                    onOpenTab()
+                  },
+                )
+              }
+              if (onOpenPrivate != null) {
+                DropdownMenuItem(
+                  text = { Text("Open private") },
+                  onClick = {
+                    showWebActionsMenu = false
+                    onOpenPrivate()
+                  },
+                )
+              }
             }
           }
         }

@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.ui.browser.BrowserActivity
 
 class SearchActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,6 +33,12 @@ class SearchActivity : ComponentActivity() {
     setContent {
       val context = LocalContext.current
       val query = remember { mutableStateOf("") }
+      val browserSearchMode = intent.getBooleanExtra(EXTRA_BROWSER_SEARCH, false)
+      val chromeBarColor =
+        intent
+          .getIntExtra(EXTRA_CHROME_COLOR, 0)
+          .takeIf { it != 0 }
+          ?.let { androidx.compose.ui.graphics.Color(it) }
 
       SearchScreen(
         query = query.value,
@@ -50,7 +57,27 @@ class SearchActivity : ComponentActivity() {
         searchRepository = (application as SearchLauncherApp).searchRepository,
         focusTrigger = 0L,
         showBackgroundImage = false,
+        privateWebResults = intent.getBooleanExtra(EXTRA_PRIVATE_WEB_RESULTS, false),
+        startVoiceSearchOnOpen = intent.getBooleanExtra(EXTRA_START_VOICE_SEARCH, false),
+        fixedHint = if (browserSearchMode) "Search anything…" else null,
+        onOpenBrowserContext =
+          if (browserSearchMode) {
+            {
+              sendBroadcast(
+                Intent(BrowserActivity.ACTION_SHOW_BROWSER_MENU).setPackage(packageName)
+              )
+              finish()
+            }
+          } else null,
+        chromeBarColor = chromeBarColor,
       )
     }
+  }
+
+  companion object {
+    const val EXTRA_PRIVATE_WEB_RESULTS = "private_web_results"
+    const val EXTRA_START_VOICE_SEARCH = "start_voice_search"
+    const val EXTRA_BROWSER_SEARCH = "browser_search"
+    const val EXTRA_CHROME_COLOR = "chrome_color"
   }
 }
