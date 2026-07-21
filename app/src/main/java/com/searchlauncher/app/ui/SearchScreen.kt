@@ -1319,7 +1319,6 @@ fun SearchScreen(
               Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = "Clear",
-                modifier = Modifier.size(16.dp),
                 tint = LocalContentColor.current,
               )
             }

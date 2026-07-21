@@ -47,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
@@ -71,6 +72,8 @@ internal fun BrowserOverflowButton(
   tabCount: Int,
   hasPreviousTab: Boolean,
   hasNextTab: Boolean,
+  menuColor: Color,
+  menuContentColor: Color,
   openRequest: Long = 0L,
   onShare: () -> Unit,
   onCopyUrl: () -> Unit,
@@ -100,7 +103,12 @@ internal fun BrowserOverflowButton(
       Badge(modifier = Modifier.align(Alignment.TopEnd)) { Text(tabCount.toString()) }
     }
 
-    AnchoredDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+    AnchoredDropdownMenu(
+      expanded = expanded,
+      onDismissRequest = { expanded = false },
+      color = menuColor,
+      contentColor = menuContentColor,
+    ) {
       DropdownMenuItem(
         text = { Text("New tab") },
         onClick = {
@@ -215,6 +223,8 @@ internal fun BrowserOverflowButton(
 private fun AnchoredDropdownMenu(
   expanded: Boolean,
   onDismissRequest: () -> Unit,
+  color: Color = MaterialTheme.colorScheme.surface,
+  contentColor: Color = MaterialTheme.colorScheme.onSurface,
   content: @Composable ColumnScope.() -> Unit,
 ) {
   if (!expanded) return
@@ -245,16 +255,27 @@ private fun AnchoredDropdownMenu(
   ) {
     Surface(
       shape = MaterialTheme.shapes.extraSmall,
-      tonalElevation = 3.dp,
+      color = color,
+      contentColor = contentColor,
       shadowElevation = 3.dp,
     ) {
-      Column(
-        modifier =
-          Modifier.width(IntrinsicSize.Max)
-            .padding(vertical = 8.dp)
-            .verticalScroll(rememberScrollState()),
-        content = content,
-      )
+      // DropdownMenuItem reads onSurface/onSurfaceVariant from the theme rather than
+      // LocalContentColor, so override those locally to match the page-derived colors.
+      MaterialTheme(
+        colorScheme =
+          MaterialTheme.colorScheme.copy(
+            onSurface = contentColor,
+            onSurfaceVariant = contentColor.copy(alpha = 0.8f),
+          )
+      ) {
+        Column(
+          modifier =
+            Modifier.width(IntrinsicSize.Max)
+              .padding(vertical = 8.dp)
+              .verticalScroll(rememberScrollState()),
+          content = content,
+        )
+      }
     }
   }
 }

@@ -982,31 +982,12 @@ private fun BrowserLauncherChrome(
   modifier: Modifier = Modifier,
 ) {
   Column(
-    modifier = modifier.fillMaxWidth().navigationBarsPadding().padding(top = 8.dp, bottom = 4.dp)
-  ) {
-    if (showFavorites && (favoriteApps.isNotEmpty() || recentApps.isNotEmpty())) {
-      FavoritesRow(
-        favorites = favoriteApps,
-        history = recentApps,
-        historyLimit = historyLimit,
-        minIconSizeSetting = minIconSizeSetting,
-        onLaunch = { onLaunchFavorite(it as SearchResult.App) },
-        onToggleFavorite = { onToggleFavorite(it as SearchResult.App) },
-        onReorder = onReorder,
-        onCapacityChanged = onHistoryCapacityChanged,
-      )
-      Spacer(modifier = Modifier.height(2.dp))
-    }
-
-    SearchChromeBar(
-      isIndexing = false,
-      color = barColor,
-      contentColor = barContentColor,
-      // Zero tonal elevation: when the page color happens to equal the theme surface, Material
-      // would tint the bar and it would stop matching the screen background exactly.
-      tonalElevation = 0.dp,
-      modifier =
-        Modifier.pointerInput(onHide, onTabDragStart, onTabDrag, onTabDragEnd) {
+    modifier =
+      modifier
+        .fillMaxWidth()
+        // Tab-swipe and hide gestures cover the whole chrome section, favorites row included.
+        // Favorites taps and long-press reordering consume their own events first, so they win.
+        .pointerInput(onHide, onTabDragStart, onTabDrag, onTabDragEnd) {
           var downwardDrag = 0f
           var horizontalGesture: Boolean? = null
           detectDragGestures(
@@ -1038,7 +1019,31 @@ private fun BrowserLauncherChrome(
               change.consume()
             },
           )
-        },
+        }
+        .navigationBarsPadding()
+        .padding(top = 8.dp, bottom = 4.dp)
+  ) {
+    if (showFavorites && (favoriteApps.isNotEmpty() || recentApps.isNotEmpty())) {
+      FavoritesRow(
+        favorites = favoriteApps,
+        history = recentApps,
+        historyLimit = historyLimit,
+        minIconSizeSetting = minIconSizeSetting,
+        onLaunch = { onLaunchFavorite(it as SearchResult.App) },
+        onToggleFavorite = { onToggleFavorite(it as SearchResult.App) },
+        onReorder = onReorder,
+        onCapacityChanged = onHistoryCapacityChanged,
+      )
+      Spacer(modifier = Modifier.height(2.dp))
+    }
+
+    SearchChromeBar(
+      isIndexing = false,
+      color = barColor,
+      contentColor = barContentColor,
+      // Zero tonal elevation: when the page color happens to equal the theme surface, Material
+      // would tint the bar and it would stop matching the screen background exactly.
+      tonalElevation = 0.dp,
     ) {
       Box(
         modifier =
@@ -1072,6 +1077,8 @@ private fun BrowserLauncherChrome(
         tabCount = tabCount,
         hasPreviousTab = hasPreviousTab,
         hasNextTab = hasNextTab,
+        menuColor = barColor,
+        menuContentColor = barContentColor,
         onPreviousTab = onPreviousTab,
         onNextTab = onNextTab,
         openRequest = browserMenuRequest,
