@@ -139,9 +139,7 @@ class SearchResultFactory(
     rankingScore: Int,
   ): SearchResult.Content {
     val doc = sdoc.doc
-    val browserIcon =
-      context.getDrawable(android.R.drawable.ic_menu_compass)
-        ?: context.getDrawable(android.R.drawable.ic_menu_search)
+    val browserIcon = context.getDrawable(com.searchlauncher.app.R.drawable.ic_globe)
 
     return SearchResult.Content(
       id = doc.id,

@@ -331,7 +331,7 @@ private fun BrowserScreen(
     settleJob?.cancel()
     tabsInMotion = true
     webView?.let { saveWebViewIntoTab(it, tabs.active) }
-    tabs.add("about:blank")
+    tabs.add("about:blank").pageBackgroundArgb = defaultPageBackground.toArgb()
     webView = null
     progress = 0
     pageBackground = defaultPageBackground
@@ -410,6 +410,7 @@ private fun BrowserScreen(
       exitFullscreenVideo()
       webView?.let { saveWebViewIntoTab(it, tabs.active) }
       val newTab = tabs.add(request.url)
+      newTab.pageBackgroundArgb = defaultPageBackground.toArgb()
       webView = null
       progress = 0
       pageBackground = Color(newTab.pageBackgroundArgb)
@@ -568,12 +569,24 @@ private fun BrowserScreen(
               webViewClient =
                 object : WebViewClient() {
                   // The previous page's color is kept while loading; updating only once the new
-                  // page's background is known avoids flashing through the default color.
-                  private fun refreshPageBackground(view: WebView) {
+                  // page's background is known avoids flashing through the default color. The
+                  // WebView's own canvas is kept in sync so pages without a painted background
+                  // (blank tabs, load gaps) show the section color instead of WebView's white.
+                  private fun applyPageBackground(view: WebView, argb: Int) {
+                    view.setBackgroundColor(argb)
+                    activeTab.pageBackgroundArgb = argb
+                    pageBackground = Color(argb)
+                  }
+
+                  private fun refreshPageBackground(view: WebView, allowWhiteFallback: Boolean) {
                     view.evaluateJavascript(PAGE_BACKGROUND_SCRIPT) { result ->
-                      parseCssColor(result)?.let {
-                        activeTab.pageBackgroundArgb = it
-                        pageBackground = Color(it)
+                      val parsed = parseCssColor(result)
+                      if (parsed != null) {
+                        applyPageBackground(view, parsed)
+                      } else if (allowWhiteFallback && view.url != "about:blank") {
+                        // A fully loaded page with a transparent background is unstyled and
+                        // assumes a white canvas (default black text).
+                        applyPageBackground(view, 0xFFFFFFFF.toInt())
                       }
                     }
                   }
@@ -588,12 +601,12 @@ private fun BrowserScreen(
                     if (suppressCommitVisibleColor) {
                       suppressCommitVisibleColor = false
                     } else {
-                      refreshPageBackground(view)
+                      refreshPageBackground(view, allowWhiteFallback = false)
                     }
                   }
 
                   override fun onPageFinished(view: WebView, url: String) {
-                    refreshPageBackground(view)
+                    refreshPageBackground(view, allowWhiteFallback = true)
                     activeTab.url = url
                     activeTab.title = view.title
                     restoringSnapshot = null
@@ -617,6 +630,9 @@ private fun BrowserScreen(
                     return false
                   }
                 }
+              // Paint the WebView canvas in the tab's color right away — WebView defaults to
+              // white, which flashed on blank tabs and dark pages (worst in dark mode).
+              setBackgroundColor(activeTab.pageBackgroundArgb)
               webView = this
               val restored = activeTab.webViewState?.let { restoreState(it) } != null
               suppressCommitVisibleColor = restored

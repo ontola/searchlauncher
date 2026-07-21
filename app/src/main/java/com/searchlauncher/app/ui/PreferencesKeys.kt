@@ -26,6 +26,9 @@ object PreferencesKeys {
   val AUTO_THEME_FROM_WALLPAPER = booleanPreferencesKey("auto_theme_from_wallpaper")
   val SEARCH_SHORTCUTS_ENABLED = booleanPreferencesKey("search_shortcuts_enabled")
 
+  /** Id of the [com.searchlauncher.app.data.SearchShortcut] used by the global search button. */
+  val DEFAULT_SEARCH_ENGINE = stringPreferencesKey("default_search_engine")
+
   fun getDefaultIconSize(context: android.content.Context): Int {
     val config = context.resources.configuration
     return if (config.smallestScreenWidthDp >= 600) 48 else 32

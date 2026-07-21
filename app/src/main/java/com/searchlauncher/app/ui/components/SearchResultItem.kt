@@ -299,6 +299,16 @@ fun SearchResultItem(
                   },
                 )
               }
+              if (onRemoveBookmark != null && result.namespace == "web_bookmarks") {
+                DropdownMenuItem(
+                  text = { Text("Remove from history") },
+                  onClick = {
+                    showWebActionsMenu = false
+                    onRemoveBookmark()
+                  },
+                  leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                )
+              }
             }
           }
         }
@@ -398,7 +408,7 @@ fun SearchResultItem(
 
           if (onRemoveBookmark != null && result.namespace == "web_bookmarks") {
             DropdownMenuItem(
-              text = { Text("Remove Bookmark") },
+              text = { Text("Remove from history") },
               onClick = {
                 onRemoveBookmark()
                 showMenu = false

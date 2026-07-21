@@ -1265,6 +1265,25 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
     }
 
+  suspend fun clearWebHistory() =
+    withContext(Dispatchers.IO) {
+      val session = appSearchSession ?: return@withContext
+      try {
+        val removeSpec = SearchSpec.Builder().addFilterNamespaces("web_bookmarks").build()
+        session.removeAsync("", removeSpec).await()
+
+        synchronized(this) {
+          documentSnapshot = documentSnapshot.filter { it.doc.namespace != "web_bookmarks" }
+        }
+        saveFastIndexCache()
+        _indexUpdated.emit(Unit)
+        android.util.Log.d("SearchRepository", "Cleared all web history")
+      } catch (e: Exception) {
+        android.util.Log.e("SearchRepository", "Failed to clear web history", e)
+        Sentry.captureException(e)
+      }
+    }
+
   // indexContacts - Removed
 
   suspend fun indexSnippets() =

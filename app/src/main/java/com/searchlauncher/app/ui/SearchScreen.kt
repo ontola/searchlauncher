@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -134,6 +135,11 @@ fun SearchScreen(
       .collectAsState(initial = false)
   val minIconSizeSetting by
     remember { MinIconSize.flow(context) }.collectAsState(initial = MinIconSize.cached(context))
+  val defaultSearchEngineId by
+    remember {
+        context.dataStore.data.map { it[PreferencesKeys.DEFAULT_SEARCH_ENGINE] ?: "google" }
+      }
+      .collectAsState(initial = "google")
 
   // Sync back to the boot cache so the next cold start renders at this size immediately.
   LaunchedEffect(minIconSizeSetting) { MinIconSize.updateCache(context, minIconSizeSetting) }
@@ -1280,6 +1286,32 @@ fun SearchScreen(
           )
 
           if (query.isNotEmpty()) {
+            IconButton(
+              onClick = {
+                val engine =
+                  (searchShortcuts + com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts)
+                    .firstOrNull {
+                      it.id == defaultSearchEngineId && it.urlTemplate.startsWith("http")
+                    }
+                    ?: com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.first {
+                      it.id == "google"
+                    }
+                val url =
+                  engine.urlTemplate.replace("%s", java.net.URLEncoder.encode(query, "UTF-8"))
+                context.startActivity(
+                  if (privateWebResults) BrowserActivity.createPrivateIntent(context, url)
+                  else BrowserActivity.createIntent(context, url)
+                )
+                onDismiss()
+              },
+              modifier = Modifier.size(32.dp).padding(4.dp),
+            ) {
+              Icon(
+                imageVector = Icons.Default.Public,
+                contentDescription = "Search the web",
+                tint = LocalContentColor.current,
+              )
+            }
             IconButton(
               onClick = { onQueryChange("") },
               modifier = Modifier.size(32.dp).padding(4.dp),

@@ -47,6 +47,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -144,6 +146,8 @@ fun SettingsScreen(
 
     item { ThemeSettingsCard() }
 
+    item { DefaultSearchEngineCard() }
+
     item {
       Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -180,6 +184,46 @@ fun SettingsScreen(
                     preferences[PreferencesKeys.STORE_WEB_HISTORY] = enabled
                   }
                 }
+              },
+            )
+          }
+
+          var showClearHistoryConfirm by remember { mutableStateOf(false) }
+          OutlinedButton(
+            onClick = { showClearHistoryConfirm = true },
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Text("Remove all web history", color = MaterialTheme.colorScheme.error)
+          }
+          if (showClearHistoryConfirm) {
+            AlertDialog(
+              onDismissRequest = { showClearHistoryConfirm = false },
+              title = { Text("Remove all web history?") },
+              text = {
+                Text("All pages saved from browsing will be removed from launcher search.")
+              },
+              confirmButton = {
+                TextButton(
+                  onClick = {
+                    showClearHistoryConfirm = false
+                    scope.launch {
+                      (context.applicationContext as SearchLauncherApp)
+                        .searchRepository
+                        .clearWebHistory()
+                      android.widget.Toast.makeText(
+                          context,
+                          "Web history removed",
+                          android.widget.Toast.LENGTH_SHORT,
+                        )
+                        .show()
+                    }
+                  }
+                ) {
+                  Text("Remove", color = MaterialTheme.colorScheme.error)
+                }
+              },
+              dismissButton = {
+                TextButton(onClick = { showClearHistoryConfirm = false }) { Text("Cancel") }
               },
             )
           }
@@ -576,6 +620,69 @@ private fun SnippetsCard() {
         }
       },
     )
+  }
+}
+
+@Composable
+private fun DefaultSearchEngineCard() {
+  val context = LocalContext.current
+  val app = context.applicationContext as SearchLauncherApp
+  val scope = rememberCoroutineScope()
+  val customShortcuts by app.searchShortcutRepository.items.collectAsState()
+  // Any web-based search shortcut can act as the engine behind the search bar's globe button.
+  val engines =
+    remember(customShortcuts) {
+      (com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts + customShortcuts)
+        .filter { it.urlTemplate.startsWith("http") }
+        .distinctBy { it.id }
+    }
+  val selectedEngineId by
+    remember {
+        context.dataStore.data.map { it[PreferencesKeys.DEFAULT_SEARCH_ENGINE] ?: "google" }
+      }
+      .collectAsState(initial = "google")
+  val selectedEngine = engines.firstOrNull { it.id == selectedEngineId } ?: engines.firstOrNull()
+  var menuExpanded by remember { mutableStateOf(false) }
+
+  Card(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      Text(text = "Search", style = MaterialTheme.typography.titleMedium)
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(text = "Default search engine", style = MaterialTheme.typography.bodyMedium)
+          Text(
+            text = "Used by the globe button when typing a query",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Box {
+          OutlinedButton(onClick = { menuExpanded = true }) {
+            Text(selectedEngine?.shortLabel ?: selectedEngine?.description ?: "Google")
+          }
+          DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+            engines.forEach { engine ->
+              DropdownMenuItem(
+                text = { Text(engine.shortLabel ?: engine.description) },
+                onClick = {
+                  menuExpanded = false
+                  scope.launch {
+                    context.dataStore.edit { preferences ->
+                      preferences[PreferencesKeys.DEFAULT_SEARCH_ENGINE] = engine.id
+                    }
+                  }
+                },
+              )
+            }
+          }
+        }
+      }
+    }
   }
 }
 
