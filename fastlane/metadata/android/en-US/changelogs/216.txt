@@ -1,0 +1,8 @@
+Browser polish and search improvements.
+
+- Global search button with a configurable default search engine.
+- Long-press links for new tab, incognito, copy/share, image download.
+- Minimal browser mode: compact pill with search, mic, and menu.
+- Crisper tab previews that hold until pages fully render.
+- Remove single history items or all web history.
+- More reliable keyboard on the home screen.
