@@ -15,6 +15,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -73,6 +74,7 @@ import com.searchlauncher.app.util.traceSection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -300,18 +302,33 @@ fun SearchScreen(
       as android.view.inputmethod.InputMethodManager
   }
 
-  // Ask for the keyboard on activation, with a few retries for slow window attachment.
+  // Ask for the keyboard on activation. The IME can only be shown once the window actually
+  // holds focus — returning to the home screen often delivers focus late, so wait for it
+  // instead of guessing with fixed retries, then keep asking until the IME is really visible.
+  val windowInfo = androidx.compose.ui.platform.LocalWindowInfo.current
   LaunchedEffect(isActive, focusTrigger) {
     if (isActive) {
-      repeat(3) {
+      snapshotFlow { windowInfo.isWindowFocused }.first { it }
+      repeat(10) {
         focusRequester.requestFocus()
-        kotlinx.coroutines.delay(100)
-        view.post {
-          if (view.isAttachedToWindow && view.hasWindowFocus()) {
-            imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-          }
-        }
-        kotlinx.coroutines.delay(150)
+        imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        kotlinx.coroutines.delay(120)
+        val imeVisible =
+          androidx.core.view.ViewCompat.getRootWindowInsets(view)
+            ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
+        if (imeVisible) return@LaunchedEffect
+      }
+    }
+  }
+
+  // Tapping the field when it is already focused produces no focus change, so nothing would
+  // re-open a dismissed keyboard; show it explicitly on every press.
+  val searchFieldInteractionSource = remember { MutableInteractionSource() }
+  LaunchedEffect(searchFieldInteractionSource) {
+    searchFieldInteractionSource.interactions.collect { interaction ->
+      if (interaction is androidx.compose.foundation.interaction.PressInteraction.Release) {
+        focusRequester.requestFocus()
+        imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
       }
     }
   }
@@ -480,7 +497,19 @@ fun SearchScreen(
     chroma = themeSaturation,
     isOled = isOled,
   ) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+      modifier =
+        Modifier.fillMaxSize()
+          .then(
+            // As a browser overlay, dim the page behind so the search UI reads as a layer above
+            // it even when the page shares its exact color.
+            if (chromeBarColor != null) {
+              Modifier.background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.35f))
+            } else {
+              Modifier
+            }
+          )
+    ) {
       var isListening by remember { mutableStateOf(false) }
       val speechRecognizer: android.speech.SpeechRecognizer = remember {
         SpeechRecognizer.createSpeechRecognizer(context)
@@ -775,271 +804,296 @@ fun SearchScreen(
         verticalArrangement = Arrangement.Bottom,
       ) {
         if (searchResults.isNotEmpty()) {
-          Surface(
-            modifier =
-              Modifier.fillMaxWidth()
-                .weight(1f, fill = false)
-                .padding(horizontal = 16.dp)
-                .clickable(
-                  indication = null,
-                  interactionSource = remember { MutableInteractionSource() },
-                ) {},
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 2.dp,
-          ) {
-            if (isLoading) {
-              Box(
-                modifier = Modifier.fillMaxWidth().padding(32.dp),
-                contentAlignment = Alignment.Center,
-              ) {
-                CircularProgressIndicator()
-              }
+          // When opened from the browser, the results panel takes the page color like the rest
+          // of the chrome. SearchResultItem reads onSurface/onSurfaceVariant from the theme, so
+          // override those locally for contrast on arbitrary page colors.
+          val resultsColor = chromeBarColor ?: MaterialTheme.colorScheme.surface
+          val resultsContentColor =
+            chromeBarColor?.let {
+              if (it.luminance() > 0.5f) Color(0xFF1C1B1F) else Color(0xFFEDE8EE)
+            } ?: MaterialTheme.colorScheme.onSurface
+          val resultsColorScheme =
+            if (chromeBarColor != null) {
+              MaterialTheme.colorScheme.copy(
+                surface = resultsColor,
+                surfaceVariant = resultsColor,
+                onSurface = resultsContentColor,
+                onSurfaceVariant = resultsContentColor.copy(alpha = 0.8f),
+              )
             } else {
-              LazyColumn(
-                state = listState,
-                reverseLayout = true,
-                contentPadding = PaddingValues(vertical = 8.dp),
-              ) {
-                itemsIndexed(
-                  searchResults,
-                  key = { index, item -> "$index/${item.stableListKey}" },
-                ) { index, result ->
-                  val webUrl = webUrlForResult(result, query, searchShortcuts)
-                  SearchResultItem(
-                    result = result,
-                    isFavorite = favoriteIds.contains(result.id),
-                    onToggleFavorite =
-                      if (result is SearchResult.App) {
-                        {
-                          app.favoritesRepository.toggleFavorite(result.id)
-                          onQueryChange("")
-                          scope.launch {
-                            onboardingManager.markStepComplete(OnboardingStep.AddFavorite)
+              MaterialTheme.colorScheme
+            }
+          MaterialTheme(colorScheme = resultsColorScheme) {
+            Surface(
+              modifier =
+                Modifier.fillMaxWidth()
+                  .weight(1f, fill = false)
+                  .padding(horizontal = 16.dp)
+                  .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                  ) {},
+              shape = RoundedCornerShape(16.dp),
+              color = resultsColor,
+              contentColor = resultsContentColor,
+              tonalElevation = if (chromeBarColor != null) 0.dp else 2.dp,
+              shadowElevation = if (chromeBarColor != null) 8.dp else 0.dp,
+            ) {
+              if (isLoading) {
+                Box(
+                  modifier = Modifier.fillMaxWidth().padding(32.dp),
+                  contentAlignment = Alignment.Center,
+                ) {
+                  CircularProgressIndicator()
+                }
+              } else {
+                LazyColumn(
+                  state = listState,
+                  reverseLayout = true,
+                  contentPadding = PaddingValues(vertical = 8.dp),
+                ) {
+                  itemsIndexed(
+                    searchResults,
+                    key = { index, item -> "$index/${item.stableListKey}" },
+                  ) { index, result ->
+                    val webUrl = webUrlForResult(result, query, searchShortcuts)
+                    SearchResultItem(
+                      result = result,
+                      isFavorite = favoriteIds.contains(result.id),
+                      onToggleFavorite =
+                        if (result is SearchResult.App) {
+                          {
+                            app.favoritesRepository.toggleFavorite(result.id)
+                            onQueryChange("")
+                            scope.launch {
+                              onboardingManager.markStepComplete(OnboardingStep.AddFavorite)
+                            }
                           }
+                        } else null,
+                      onRemoveBookmark = {
+                        scope.launch {
+                          searchRepository.removeBookmark(result.id)
+                          onQueryChange("") // Refresh
                         }
-                      } else null,
-                    onRemoveBookmark = {
-                      scope.launch {
-                        searchRepository.removeBookmark(result.id)
-                        onQueryChange("") // Refresh
-                      }
-                    },
-                    onClearSearchResults = { onQueryChange("") },
-                    onOpenTab =
-                      webUrl?.let { url ->
-                        {
-                          context.startActivity(BrowserActivity.createIntent(context, url))
+                      },
+                      onClearSearchResults = { onQueryChange("") },
+                      onOpenTab =
+                        webUrl?.let { url ->
+                          {
+                            context.startActivity(BrowserActivity.createIntent(context, url))
+                            searchRepository.reportUsageAsync(
+                              result.namespace,
+                              result.id,
+                              query,
+                              index == 0,
+                            )
+                            onDismiss()
+                          }
+                        },
+                      onOpenPrivate =
+                        webUrl?.let { url ->
+                          {
+                            context.startActivity(BrowserActivity.createPrivateIntent(context, url))
+                            onDismiss()
+                          }
+                        },
+                      onContactChatAction = { contact, action ->
+                        if (searchRepository.launchContactChatAction(contact, action)) {
                           searchRepository.reportUsageAsync(
-                            result.namespace,
-                            result.id,
+                            contact.namespace,
+                            contact.id,
                             query,
                             index == 0,
                           )
                           onDismiss()
+                        } else {
+                          Toast.makeText(context, "Cannot open ${action.label}", Toast.LENGTH_SHORT)
+                            .show()
                         }
                       },
-                    onOpenPrivate =
-                      webUrl?.let { url ->
-                        {
-                          context.startActivity(BrowserActivity.createPrivateIntent(context, url))
-                          onDismiss()
-                        }
-                      },
-                    onContactChatAction = { contact, action ->
-                      if (searchRepository.launchContactChatAction(contact, action)) {
-                        searchRepository.reportUsageAsync(
-                          contact.namespace,
-                          contact.id,
-                          query,
-                          index == 0,
-                        )
-                        onDismiss()
-                      } else {
-                        Toast.makeText(context, "Cannot open ${action.label}", Toast.LENGTH_SHORT)
-                          .show()
-                      }
-                    },
-                    onEditSnippet =
-                      if (result is SearchResult.Snippet) {
-                        {
-                          snippetItemToEdit = result
-                          snippetEditMode = true
-                          showSnippetDialog = true
-                        }
-                      } else null,
-                    onEditShortcut =
-                      if (result is SearchResult.Shortcut) {
-                        {
-                          val shortcut = searchShortcuts.find { it.id == result.id }
-                          if (shortcut != null) {
-                            editingShortcut = shortcut
-                            showShortcutDialog = true
+                      onEditSnippet =
+                        if (result is SearchResult.Snippet) {
+                          {
+                            snippetItemToEdit = result
+                            snippetEditMode = true
+                            showSnippetDialog = true
                           }
-                        }
-                      } else if (result is SearchResult.SearchIntent) {
-                        {
-                          val shortcut = searchShortcuts.find { it.alias == result.trigger }
-                          if (shortcut != null) {
-                            editingShortcut = shortcut
-                            showShortcutDialog = true
-                          }
-                        }
-                      } else if (
-                        result is SearchResult.Content && result.namespace == "search_shortcuts"
-                      ) {
-                        {
-                          val alias = result.id.removePrefix("shortcut_")
-                          val shortcut = searchShortcuts.find { it.alias == alias }
-                          if (shortcut != null) {
-                            editingShortcut = shortcut
-                            showShortcutDialog = true
-                          }
-                        }
-                      } else null,
-                    onDeleteShortcut =
-                      if (result is SearchResult.Shortcut) {
-                        {
-                          scope.launch {
-                            app.searchShortcutRepository.removeShortcut(result.id)
-                            Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT).show()
-                          }
-                        }
-                      } else if (result is SearchResult.SearchIntent) {
-                        {
-                          scope.launch {
-                            // Find the shortcut first to get its ID
-                            val shortcut = searchShortcuts.find { it.alias == result.trigger }
+                        } else null,
+                      onEditShortcut =
+                        if (result is SearchResult.Shortcut) {
+                          {
+                            val shortcut = searchShortcuts.find { it.id == result.id }
                             if (shortcut != null) {
-                              app.searchShortcutRepository.removeShortcut(shortcut.id)
-                              Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT).show()
+                              editingShortcut = shortcut
+                              showShortcutDialog = true
                             }
                           }
-                        }
-                      } else if (
-                        result is SearchResult.Content && result.namespace == "search_shortcuts"
-                      ) {
-                        {
-                          scope.launch {
+                        } else if (result is SearchResult.SearchIntent) {
+                          {
+                            val shortcut = searchShortcuts.find { it.alias == result.trigger }
+                            if (shortcut != null) {
+                              editingShortcut = shortcut
+                              showShortcutDialog = true
+                            }
+                          }
+                        } else if (
+                          result is SearchResult.Content && result.namespace == "search_shortcuts"
+                        ) {
+                          {
                             val alias = result.id.removePrefix("shortcut_")
                             val shortcut = searchShortcuts.find { it.alias == alias }
                             if (shortcut != null) {
-                              app.searchShortcutRepository.removeShortcut(shortcut.id)
+                              editingShortcut = shortcut
+                              showShortcutDialog = true
+                            }
+                          }
+                        } else null,
+                      onDeleteShortcut =
+                        if (result is SearchResult.Shortcut) {
+                          {
+                            scope.launch {
+                              app.searchShortcutRepository.removeShortcut(result.id)
                               Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT).show()
                             }
                           }
-                        }
-                      } else null,
-                    onCreateSnippet = {
-                      snippetEditMode = false
-                      snippetInitialContent = ""
-                      showSnippetDialog = true
-                    },
-                    onClick = {
-                      if (result is SearchResult.SearchIntent) {
-                        // If the title implies a direct search (or we
-                        // are in fallback mode with query), perform
-                        // search
-                        // OR if the result title was modified to
-                        // include "Search ... on ..."
-                        // A better check: if query is not empty AND
-                        // it's not just the trigger itself.
-                        // The logic below handles both cases.
-
-                        // If it's a "Search X on Y" action (inferred
-                        // from query context)
-                        if (
-                          query.isNotEmpty() &&
-                            !result.trigger.equals(query.trim(), ignoreCase = true) &&
-                            !result.title.contains(query.trim(), ignoreCase = true)
-                        ) {
-                          // Perform Search
-                          val shortcut =
-                            app.searchShortcutRepository.items.value
-                              .filterIsInstance<com.searchlauncher.app.data.SearchShortcut>()
-                              .find { it.alias == result.trigger }
-
-                          if (shortcut != null) {
-                            try {
-                              val url =
-                                shortcut.urlTemplate.replace(
-                                  "%s",
-                                  java.net.URLEncoder.encode(query, "UTF-8"),
-                                )
-                              context.startActivity(
-                                if (privateWebResults) {
-                                  BrowserActivity.createPrivateIntent(context, url)
-                                } else {
-                                  BrowserActivity.createIntent(context, url)
-                                }
-                              )
-                              if (!privateWebResults) {
-                                searchRepository.reportUsageAsync(
-                                  result.namespace,
-                                  result.id,
-                                  query,
-                                  index == 0,
-                                )
+                        } else if (result is SearchResult.SearchIntent) {
+                          {
+                            scope.launch {
+                              // Find the shortcut first to get its ID
+                              val shortcut = searchShortcuts.find { it.alias == result.trigger }
+                              if (shortcut != null) {
+                                app.searchShortcutRepository.removeShortcut(shortcut.id)
+                                Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT)
+                                  .show()
                               }
-                              onDismiss()
-                            } catch (e: Exception) {
-                              Toast.makeText(
-                                  context,
-                                  "Cannot open: ${result.title}",
-                                  Toast.LENGTH_SHORT,
-                                )
-                                .show()
                             }
                           }
-                        } else {
-                          // Enter sub-search mode (append trigger)
-                          onQueryChange(result.trigger + " ")
-                        }
-                      } else {
-                        if (
-                          result is SearchResult.Content &&
-                            result.deepLink?.startsWith(
-                              "intent:#Intent;action=com.searchlauncher.action.CREATE_SNIPPET"
-                            ) == true
+                        } else if (
+                          result is SearchResult.Content && result.namespace == "search_shortcuts"
                         ) {
-                          snippetEditMode = false
-                          snippetInitialContent =
-                            Regex("S\\.content=([^;]*)")
-                              .find(result.deepLink)
-                              ?.groupValues
-                              ?.get(1)
-                              ?.let { Uri.decode(it) } ?: ""
-                          showSnippetDialog = true
-                        } else {
-                          val privateUrl =
-                            if (privateWebResults) webUrlForResult(result, query, searchShortcuts)
-                            else null
-                          if (privateUrl != null) {
-                            context.startActivity(
-                              BrowserActivity.createPrivateIntent(context, privateUrl)
-                            )
-                          } else {
-                            resultLauncher.launch(
-                              result,
-                              query = query,
-                              wasFirstResult = index == 0,
-                            )
+                          {
+                            scope.launch {
+                              val alias = result.id.removePrefix("shortcut_")
+                              val shortcut = searchShortcuts.find { it.alias == alias }
+                              if (shortcut != null) {
+                                app.searchShortcutRepository.removeShortcut(shortcut.id)
+                                Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT)
+                                  .show()
+                              }
+                            }
                           }
-                          val keepSearchOpen =
-                            result is SearchResult.Content &&
-                              (result.deepLink ==
-                                "intent:#Intent;action=com.searchlauncher.action.APPEND_SPACE;end" ||
-                                result.deepLink ==
-                                  "intent:#Intent;action=com.searchlauncher.action.ADD_WIDGET;end")
-                          if (keepSearchOpen) {
-                            // Do nothing (keep search open)
+                        } else null,
+                      onCreateSnippet = {
+                        snippetEditMode = false
+                        snippetInitialContent = ""
+                        showSnippetDialog = true
+                      },
+                      onClick = {
+                        if (result is SearchResult.SearchIntent) {
+                          // If the title implies a direct search (or we
+                          // are in fallback mode with query), perform
+                          // search
+                          // OR if the result title was modified to
+                          // include "Search ... on ..."
+                          // A better check: if query is not empty AND
+                          // it's not just the trigger itself.
+                          // The logic below handles both cases.
+
+                          // If it's a "Search X on Y" action (inferred
+                          // from query context)
+                          if (
+                            query.isNotEmpty() &&
+                              !result.trigger.equals(query.trim(), ignoreCase = true) &&
+                              !result.title.contains(query.trim(), ignoreCase = true)
+                          ) {
+                            // Perform Search
+                            val shortcut =
+                              app.searchShortcutRepository.items.value
+                                .filterIsInstance<com.searchlauncher.app.data.SearchShortcut>()
+                                .find { it.alias == result.trigger }
+
+                            if (shortcut != null) {
+                              try {
+                                val url =
+                                  shortcut.urlTemplate.replace(
+                                    "%s",
+                                    java.net.URLEncoder.encode(query, "UTF-8"),
+                                  )
+                                context.startActivity(
+                                  if (privateWebResults) {
+                                    BrowserActivity.createPrivateIntent(context, url)
+                                  } else {
+                                    BrowserActivity.createIntent(context, url)
+                                  }
+                                )
+                                if (!privateWebResults) {
+                                  searchRepository.reportUsageAsync(
+                                    result.namespace,
+                                    result.id,
+                                    query,
+                                    index == 0,
+                                  )
+                                }
+                                onDismiss()
+                              } catch (e: Exception) {
+                                Toast.makeText(
+                                    context,
+                                    "Cannot open: ${result.title}",
+                                    Toast.LENGTH_SHORT,
+                                  )
+                                  .show()
+                              }
+                            }
                           } else {
-                            onDismiss()
+                            // Enter sub-search mode (append trigger)
+                            onQueryChange(result.trigger + " ")
+                          }
+                        } else {
+                          if (
+                            result is SearchResult.Content &&
+                              result.deepLink?.startsWith(
+                                "intent:#Intent;action=com.searchlauncher.action.CREATE_SNIPPET"
+                              ) == true
+                          ) {
+                            snippetEditMode = false
+                            snippetInitialContent =
+                              Regex("S\\.content=([^;]*)")
+                                .find(result.deepLink)
+                                ?.groupValues
+                                ?.get(1)
+                                ?.let { Uri.decode(it) } ?: ""
+                            showSnippetDialog = true
+                          } else {
+                            val privateUrl =
+                              if (privateWebResults) webUrlForResult(result, query, searchShortcuts)
+                              else null
+                            if (privateUrl != null) {
+                              context.startActivity(
+                                BrowserActivity.createPrivateIntent(context, privateUrl)
+                              )
+                            } else {
+                              resultLauncher.launch(
+                                result,
+                                query = query,
+                                wasFirstResult = index == 0,
+                              )
+                            }
+                            val keepSearchOpen =
+                              result is SearchResult.Content &&
+                                (result.deepLink ==
+                                  "intent:#Intent;action=com.searchlauncher.action.APPEND_SPACE;end" ||
+                                  result.deepLink ==
+                                    "intent:#Intent;action=com.searchlauncher.action.ADD_WIDGET;end")
+                            if (keepSearchOpen) {
+                              // Do nothing (keep search open)
+                            } else {
+                              onDismiss()
+                            }
                           }
                         }
-                      }
-                    },
-                  )
+                      },
+                    )
+                  }
                 }
               }
             }
@@ -1075,6 +1129,9 @@ fun SearchScreen(
             chromeBarColor?.let {
               if (it.luminance() > 0.5f) Color(0xFF1C1B1F) else Color(0xFFEDE8EE)
             } ?: MaterialTheme.colorScheme.onSurface,
+          // As a browser overlay the bar floats over the page, which may be the exact same
+          // color — a shadow keeps it readable as its own layer.
+          shadowElevation = if (chromeBarColor != null) 8.dp else 0.dp,
         ) {
           val activeShortcut =
             remember(query) {
@@ -1253,6 +1310,7 @@ fun SearchScreen(
                 }
               ),
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            interactionSource = searchFieldInteractionSource,
             decorationBox = { innerTextField ->
               Box(contentAlignment = Alignment.CenterStart) {
                 if (displayQuery.isEmpty() && activeShortcut == null) {

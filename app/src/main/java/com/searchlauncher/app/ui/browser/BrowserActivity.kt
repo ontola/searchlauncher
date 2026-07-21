@@ -12,9 +12,11 @@ import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -33,8 +35,10 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
@@ -44,9 +48,11 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -126,6 +132,7 @@ open class BrowserActivity : ComponentActivity() {
           privateMode = isPrivateMode,
           showLauncherChrome = !searchOverlayVisible,
           browserMenuRequest = browserMenuRequest,
+          onBrowserMenuShown = { browserMenuRequest = 0L },
           onOpenSearch = ::openSearch,
           onClose = ::finish,
         )
@@ -198,6 +205,9 @@ open class BrowserActivity : ComponentActivity() {
 
 private data class NavigationRequest(val url: String, val sequence: Long)
 
+/** Target of a long-press on web content: a link, an image, or a link wrapping an image. */
+private data class LinkMenuTarget(val linkUrl: String?, val imageUrl: String?)
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun BrowserScreen(
@@ -205,6 +215,7 @@ private fun BrowserScreen(
   privateMode: Boolean,
   showLauncherChrome: Boolean,
   browserMenuRequest: Long,
+  onBrowserMenuShown: () -> Unit,
   onOpenSearch: (Boolean, Int) -> Unit,
   onClose: () -> Unit,
 ) {
@@ -231,13 +242,14 @@ private fun BrowserScreen(
         if (historyLimit >= 0) apps.take(historyLimit) else apps
       }
     }
+  // Hidden by default while browsing: the page is the focus, and the row is a lot of UI.
   val showFavorites by
     remember {
         context.dataStore.data.map { preferences ->
-          preferences[PreferencesKeys.BROWSER_SHOW_FAVORITES] ?: true
+          preferences[PreferencesKeys.BROWSER_SHOW_FAVORITES] ?: false
         }
       }
-      .collectAsState(initial = true)
+      .collectAsState(initial = false)
   val coroutineScope = rememberCoroutineScope()
   val initialNavigationRequest = remember { navigationRequest }
   val defaultPageBackground = MaterialTheme.colorScheme.background
@@ -263,6 +275,7 @@ private fun BrowserScreen(
   var activeFindMatch by remember { mutableIntStateOf(0) }
   var findMatchCount by remember { mutableIntStateOf(0) }
   var showPageSettings by rememberSaveable { mutableStateOf(false) }
+  var linkMenuTarget by remember { mutableStateOf<LinkMenuTarget?>(null) }
   val siteSettingsStore = remember(privateMode) { BrowserSiteSettingsStore(context, privateMode) }
   var siteSettings by remember { mutableStateOf(siteSettingsStore.load(activeTab.url)) }
   var pageBackground by remember { mutableStateOf(Color(activeTab.pageBackgroundArgb)) }
@@ -373,6 +386,18 @@ private fun BrowserScreen(
 
   // Plays the same slide animation as a horizontal swipe, so menu-triggered tab switches teach
   // the gesture. A slower spring than the swipe settle keeps the motion legible.
+  fun openLinkInNewTab(url: String) {
+    exitFullscreenVideo()
+    webView?.let { saveWebViewIntoTab(it, tabs.active) }
+    val newTab = tabs.add(url)
+    newTab.pageBackgroundArgb = defaultPageBackground.toArgb()
+    webView = null
+    progress = 0
+    pageBackground = Color(newTab.pageBackgroundArgb)
+    siteSettings = siteSettingsStore.load(newTab.url)
+    restoringSnapshot = newTab.snapshot
+  }
+
   fun animateToAdjacentTab(direction: Int) {
     if (tabs.adjacent(direction) == null) return
     settleJob?.cancel()
@@ -407,15 +432,7 @@ private fun BrowserScreen(
       siteSettings = siteSettingsStore.load(request.url)
       webView?.loadUrl(request.url)
     } else {
-      exitFullscreenVideo()
-      webView?.let { saveWebViewIntoTab(it, tabs.active) }
-      val newTab = tabs.add(request.url)
-      newTab.pageBackgroundArgb = defaultPageBackground.toArgb()
-      webView = null
-      progress = 0
-      pageBackground = Color(newTab.pageBackgroundArgb)
-      siteSettings = siteSettingsStore.load(newTab.url)
-      restoringSnapshot = newTab.snapshot
+      openLinkInNewTab(request.url)
     }
   }
 
@@ -468,6 +485,45 @@ private fun BrowserScreen(
   val chromeBarColor = animatedPageBackground
   val chromeBarContentColor =
     if (chromeBarColor.luminance() > 0.5f) Color(0xFF1C1B1F) else Color(0xFFEDE8EE)
+
+  // Single overflow-menu definition shared by the full chrome bar and the minimal pill, so both
+  // stay wired identically (including the open-on-broadcast request from the search overlay).
+  val browserOverflowMenu: @Composable () -> Unit = {
+    BrowserOverflowButton(
+      desktopMode = activeTab.desktopMode,
+      showFavorites = showFavorites,
+      tabCount = tabs.items.size,
+      hasPreviousTab = tabs.activeIndex > 0,
+      hasNextTab = tabs.activeIndex < tabs.items.lastIndex,
+      menuColor = chromeBarColor,
+      menuContentColor = chromeBarContentColor,
+      openRequest = browserMenuRequest,
+      onOpenRequestConsumed = onBrowserMenuShown,
+      onShare = { shareUrl(context, webView?.url ?: activeTab.url, webView?.title) },
+      onCopyUrl = { copyUrl(context, webView?.url ?: activeTab.url) },
+      onToggleDesktopMode = {
+        webView?.let { view ->
+          activeTab.desktopMode = !activeTab.desktopMode
+          view.setDesktopMode(activeTab.desktopMode, phoneUserAgent)
+          view.reload()
+        }
+      },
+      onOpenDownloads = { openDownloads(context) },
+      onFindInPage = { showFindInPage = true },
+      onPageSettings = { showPageSettings = true },
+      onToggleFavorites = {
+        coroutineScope.launch {
+          context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.BROWSER_SHOW_FAVORITES] = !showFavorites
+          }
+        }
+      },
+      onNewTab = ::createTab,
+      onCloseTab = ::closeActiveTab,
+      onPreviousTab = { animateToAdjacentTab(-1) },
+      onNextTab = { animateToAdjacentTab(1) },
+    )
+  }
 
   val adjacentDirection =
     when {
@@ -543,12 +599,49 @@ private fun BrowserScreen(
                 activeFindMatch = activeMatchOrdinal
                 findMatchCount = numberOfMatches
               }
+              setOnLongClickListener {
+                val hit = hitTestResult
+                when (hit.type) {
+                  WebView.HitTestResult.SRC_ANCHOR_TYPE -> {
+                    val url = hit.extra
+                    if (url.isNullOrBlank()) {
+                      false
+                    } else {
+                      linkMenuTarget = LinkMenuTarget(linkUrl = url, imageUrl = null)
+                      true
+                    }
+                  }
+                  WebView.HitTestResult.IMAGE_TYPE -> {
+                    val url = hit.extra
+                    if (url.isNullOrBlank()) {
+                      false
+                    } else {
+                      linkMenuTarget = LinkMenuTarget(linkUrl = null, imageUrl = url)
+                      true
+                    }
+                  }
+                  WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> {
+                    // The hit only carries the image; the wrapping link arrives via a message.
+                    val imageUrl = hit.extra
+                    val handler =
+                      android.os.Handler(android.os.Looper.getMainLooper()) { message ->
+                        val href = message.data.getString("url")?.takeIf { it.isNotBlank() }
+                        if (href != null || !imageUrl.isNullOrBlank()) {
+                          linkMenuTarget = LinkMenuTarget(linkUrl = href, imageUrl = imageUrl)
+                        }
+                        true
+                      }
+                    requestFocusNodeHref(handler.obtainMessage())
+                    true
+                  }
+                  else -> false
+                }
+              }
 
               webChromeClient =
                 object : WebChromeClient() {
                   override fun onProgressChanged(view: WebView?, newProgress: Int) {
                     progress = newProgress
-                    if (newProgress >= 35) restoringSnapshot = null
                   }
 
                   override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
@@ -609,7 +702,16 @@ private fun BrowserScreen(
                     refreshPageBackground(view, allowWhiteFallback = true)
                     activeTab.url = url
                     activeTab.title = view.title
-                    restoringSnapshot = null
+                    // Keep the snapshot up until the fully loaded page (CSS and fonts included)
+                    // has actually been drawn, so tab switches never flash a half-styled page.
+                    view.postVisualStateCallback(
+                      0,
+                      object : WebView.VisualStateCallback() {
+                        override fun onComplete(requestId: Long) {
+                          restoringSnapshot = null
+                        }
+                      },
+                    )
                     if (
                       searchRepository != null &&
                         (url.startsWith("https://") || url.startsWith("http://"))
@@ -638,7 +740,9 @@ private fun BrowserScreen(
               suppressCommitVisibleColor = restored
               setDesktopMode(activeTab.desktopMode, phoneUserAgent)
               if (!restored) loadUrl(activeTab.url)
-              else postDelayed({ restoringSnapshot = null }, 220)
+              // Safety net: if the restore never reaches a drawn onPageFinished (hung renderer,
+              // stuck load), don't leave the stale snapshot covering the page forever.
+              else postDelayed({ restoringSnapshot = null }, 5000)
             }
           },
           onRelease = { releasedView ->
@@ -689,39 +793,12 @@ private fun BrowserScreen(
           recentApps = recentApps,
           historyLimit = historyLimit,
           minIconSizeSetting = minIconSizeSetting,
-          privateMode = privateMode,
-          desktopMode = activeTab.desktopMode,
           showFavorites = showFavorites,
           barColor = chromeBarColor,
           barContentColor = chromeBarContentColor,
-          browserMenuRequest = browserMenuRequest,
-          tabCount = tabs.items.size,
-          hasPreviousTab = tabs.activeIndex > 0,
-          hasNextTab = tabs.activeIndex < tabs.items.lastIndex,
-          onPreviousTab = { animateToAdjacentTab(-1) },
-          onNextTab = { animateToAdjacentTab(1) },
+          overflowMenu = browserOverflowMenu,
           onOpenSearch = { onOpenSearch(false, pageBackground.toArgb()) },
           onVoiceSearch = { onOpenSearch(true, pageBackground.toArgb()) },
-          onShare = { shareUrl(context, webView?.url ?: activeTab.url, webView?.title) },
-          onCopyUrl = { copyUrl(context, webView?.url ?: activeTab.url) },
-          onToggleDesktopMode = {
-            val view = webView ?: return@BrowserLauncherChrome
-            activeTab.desktopMode = !activeTab.desktopMode
-            view.setDesktopMode(activeTab.desktopMode, phoneUserAgent)
-            view.reload()
-          },
-          onOpenDownloads = { openDownloads(context) },
-          onFindInPage = { showFindInPage = true },
-          onPageSettings = { showPageSettings = true },
-          onToggleFavorites = {
-            coroutineScope.launch {
-              context.dataStore.edit { preferences ->
-                preferences[PreferencesKeys.BROWSER_SHOW_FAVORITES] = !showFavorites
-              }
-            }
-          },
-          onNewTab = ::createTab,
-          onCloseTab = ::closeActiveTab,
           onTabDragStart = {
             settleJob?.cancel()
             tabsInMotion = true
@@ -818,11 +895,20 @@ private fun BrowserScreen(
     if (showLauncherChrome && !showFindInPage)
       AnimatedVisibility(
         visible = chromeHiddenByUser,
-        modifier = Modifier.align(Alignment.BottomCenter),
+        // Right-aligned like the mic and menu icons in the full bar, so minimal mode keeps the
+        // same corner of the screen for its controls.
+        modifier = Modifier.align(Alignment.BottomEnd),
         enter = fadeIn(),
         exit = fadeOut(),
       ) {
-        RevealBrowserChromeHandle(onReveal = { chromeHiddenByUser = false })
+        RevealBrowserChromeHandle(
+          barColor = chromeBarColor,
+          barContentColor = chromeBarContentColor,
+          onReveal = { chromeHiddenByUser = false },
+          onSearch = { onOpenSearch(false, pageBackground.toArgb()) },
+          onVoiceSearch = { onOpenSearch(true, pageBackground.toArgb()) },
+          overflowMenu = browserOverflowMenu,
+        )
       }
 
     AnimatedVisibility(
@@ -867,6 +953,21 @@ private fun BrowserScreen(
         )
       }
     }
+  }
+
+  linkMenuTarget?.let { target ->
+    LinkContextMenuDialog(
+      linkUrl = target.linkUrl,
+      imageUrl = target.imageUrl,
+      onOpenInNewTab = ::openLinkInNewTab,
+      onOpenPrivate = { url ->
+        context.startActivity(BrowserActivity.createPrivateIntent(context, url))
+      },
+      onCopyUrl = { url -> copyUrl(context, url) },
+      onShareUrl = { url -> shareUrl(context, url, null) },
+      onDownloadImage = { url -> downloadImage(context, url) },
+      onDismiss = { linkMenuTarget = null },
+    )
   }
 
   if (showPageSettings) {
@@ -949,28 +1050,12 @@ private fun BrowserLauncherChrome(
   recentApps: List<SearchResult.App>,
   historyLimit: Int,
   minIconSizeSetting: Int,
-  privateMode: Boolean,
-  desktopMode: Boolean,
   showFavorites: Boolean,
   barColor: Color,
   barContentColor: Color,
-  browserMenuRequest: Long,
-  tabCount: Int,
-  hasPreviousTab: Boolean,
-  hasNextTab: Boolean,
-  onPreviousTab: () -> Unit,
-  onNextTab: () -> Unit,
+  overflowMenu: @Composable () -> Unit,
   onOpenSearch: () -> Unit,
   onVoiceSearch: () -> Unit,
-  onShare: () -> Unit,
-  onCopyUrl: () -> Unit,
-  onToggleDesktopMode: () -> Unit,
-  onOpenDownloads: () -> Unit,
-  onFindInPage: () -> Unit,
-  onPageSettings: () -> Unit,
-  onToggleFavorites: () -> Unit,
-  onNewTab: () -> Unit,
-  onCloseTab: () -> Unit,
   onTabDragStart: () -> Unit,
   onTabDrag: (Float) -> Unit,
   onTabDragEnd: () -> Unit,
@@ -1023,18 +1108,24 @@ private fun BrowserLauncherChrome(
         .navigationBarsPadding()
         .padding(top = 8.dp, bottom = 4.dp)
   ) {
-    if (showFavorites && (favoriteApps.isNotEmpty() || recentApps.isNotEmpty())) {
-      FavoritesRow(
-        favorites = favoriteApps,
-        history = recentApps,
-        historyLimit = historyLimit,
-        minIconSizeSetting = minIconSizeSetting,
-        onLaunch = { onLaunchFavorite(it as SearchResult.App) },
-        onToggleFavorite = { onToggleFavorite(it as SearchResult.App) },
-        onReorder = onReorder,
-        onCapacityChanged = onHistoryCapacityChanged,
-      )
-      Spacer(modifier = Modifier.height(2.dp))
+    AnimatedVisibility(
+      visible = showFavorites && (favoriteApps.isNotEmpty() || recentApps.isNotEmpty()),
+      enter = expandVertically() + fadeIn(),
+      exit = shrinkVertically() + fadeOut(),
+    ) {
+      Column {
+        FavoritesRow(
+          favorites = favoriteApps,
+          history = recentApps,
+          historyLimit = historyLimit,
+          minIconSizeSetting = minIconSizeSetting,
+          onLaunch = { onLaunchFavorite(it as SearchResult.App) },
+          onToggleFavorite = { onToggleFavorite(it as SearchResult.App) },
+          onReorder = onReorder,
+          onCapacityChanged = onHistoryCapacityChanged,
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+      }
     }
 
     SearchChromeBar(
@@ -1071,43 +1162,36 @@ private fun BrowserLauncherChrome(
           tint = LocalContentColor.current,
         )
       }
-      BrowserOverflowButton(
-        desktopMode = desktopMode,
-        showFavorites = showFavorites,
-        tabCount = tabCount,
-        hasPreviousTab = hasPreviousTab,
-        hasNextTab = hasNextTab,
-        menuColor = barColor,
-        menuContentColor = barContentColor,
-        onPreviousTab = onPreviousTab,
-        onNextTab = onNextTab,
-        openRequest = browserMenuRequest,
-        onShare = onShare,
-        onCopyUrl = onCopyUrl,
-        onToggleDesktopMode = onToggleDesktopMode,
-        onOpenDownloads = onOpenDownloads,
-        onFindInPage = onFindInPage,
-        onPageSettings = onPageSettings,
-        onToggleFavorites = onToggleFavorites,
-        onNewTab = onNewTab,
-        onCloseTab = onCloseTab,
-      )
+      overflowMenu()
     }
   }
 }
 
 @Composable
-private fun RevealBrowserChromeHandle(onReveal: () -> Unit, modifier: Modifier = Modifier) {
-  // Only the caret itself handles input; the web content around and behind it stays
-  // fully interactive.
-  Box(
-    modifier = modifier.navigationBarsPadding().padding(bottom = 8.dp),
-    contentAlignment = Alignment.Center,
-  ) {
+private fun RevealBrowserChromeHandle(
+  barColor: Color,
+  barContentColor: Color,
+  onReveal: () -> Unit,
+  onSearch: () -> Unit,
+  onVoiceSearch: () -> Unit,
+  overflowMenu: @Composable () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  // A compact pill mirroring the full bar: same shape, colors, icon sizes, and right-edge
+  // position, with the mic and menu in their usual rightmost spots. Only the pill itself
+  // handles input; the web content around it stays fully interactive.
+  Box(modifier = modifier.navigationBarsPadding().padding(bottom = 4.dp, end = 16.dp)) {
     Surface(
-      modifier =
-        Modifier.size(36.dp)
-          .pointerInput(onReveal) {
+      shape = RoundedCornerShape(16.dp),
+      color = barColor.copy(alpha = 0.8f),
+      contentColor = barContentColor,
+      tonalElevation = 0.dp,
+    ) {
+      Row(
+        modifier =
+          Modifier.heightIn(min = 40.dp).padding(horizontal = 16.dp, vertical = 4.dp).pointerInput(
+            onReveal
+          ) {
             var upwardDrag = 0f
             detectDragGestures(
               onDragStart = { upwardDrag = 0f },
@@ -1117,19 +1201,31 @@ private fun RevealBrowserChromeHandle(onReveal: () -> Unit, modifier: Modifier =
               },
               onDragEnd = { if (upwardDrag >= 16.dp.toPx()) onReveal() },
             )
-          }
-          .clickable(onClick = onReveal),
-      shape = CircleShape,
-      color = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
-      tonalElevation = 1.dp,
-    ) {
-      Box(contentAlignment = Alignment.Center) {
-        Icon(
-          imageVector = Icons.Default.KeyboardArrowUp,
-          contentDescription = "Show launcher controls",
-          modifier = Modifier.size(20.dp),
-          tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-        )
+          },
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        IconButton(onClick = onReveal, modifier = Modifier.size(32.dp).padding(4.dp)) {
+          Icon(
+            imageVector = Icons.Default.KeyboardArrowUp,
+            contentDescription = "Show launcher controls",
+            tint = LocalContentColor.current,
+          )
+        }
+        IconButton(onClick = onSearch, modifier = Modifier.size(32.dp).padding(4.dp)) {
+          Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = "Search",
+            tint = LocalContentColor.current,
+          )
+        }
+        IconButton(onClick = onVoiceSearch, modifier = Modifier.size(32.dp).padding(4.dp)) {
+          Icon(
+            imageVector = Icons.Default.Mic,
+            contentDescription = "Voice Search",
+            tint = LocalContentColor.current,
+          )
+        }
+        overflowMenu()
       }
     }
   }
@@ -1169,6 +1265,26 @@ private fun copyUrl(context: Context, url: String) {
   val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
   clipboard.setPrimaryClip(ClipData.newPlainText("Webpage URL", url))
   Toast.makeText(context, "URL copied", Toast.LENGTH_SHORT).show()
+}
+
+private fun downloadImage(context: Context, url: String) {
+  if (!url.startsWith("https://") && !url.startsWith("http://")) {
+    Toast.makeText(context, "Cannot download this image", Toast.LENGTH_SHORT).show()
+    return
+  }
+  try {
+    val fileName = URLUtil.guessFileName(url, null, null)
+    val request =
+      DownloadManager.Request(Uri.parse(url))
+        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+        .setTitle(fileName)
+    CookieManager.getInstance().getCookie(url)?.let { request.addRequestHeader("Cookie", it) }
+    (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+    Toast.makeText(context, "Downloading $fileName", Toast.LENGTH_SHORT).show()
+  } catch (_: Exception) {
+    Toast.makeText(context, "Download failed", Toast.LENGTH_SHORT).show()
+  }
 }
 
 private fun openDownloads(context: Context) {

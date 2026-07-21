@@ -89,4 +89,6 @@ private fun captureWebViewSnapshot(webView: WebView): Bitmap? {
     .getOrNull()
 }
 
-private const val SNAPSHOT_WIDTH_PX = 480
+// Full resolution on common 1080p phones; RGB_565 keeps that at ~5 MB per tab. Higher-density
+// screens get a mild downscale, which is barely visible at swipe speed.
+private const val SNAPSHOT_WIDTH_PX = 1080

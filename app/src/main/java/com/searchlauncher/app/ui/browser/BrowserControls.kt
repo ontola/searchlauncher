@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -43,13 +44,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -58,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import kotlinx.coroutines.flow.first
 
 internal data class BrowserSiteSettings(
   val javaScriptEnabled: Boolean = true,
@@ -75,6 +80,7 @@ internal fun BrowserOverflowButton(
   menuColor: Color,
   menuContentColor: Color,
   openRequest: Long = 0L,
+  onOpenRequestConsumed: () -> Unit = {},
   onShare: () -> Unit,
   onCopyUrl: () -> Unit,
   onToggleDesktopMode: () -> Unit,
@@ -89,7 +95,14 @@ internal fun BrowserOverflowButton(
 ) {
   var expanded by remember { mutableStateOf(false) }
 
-  LaunchedEffect(openRequest) { if (openRequest != 0L) expanded = true }
+  // Consume the request once handled — otherwise any later recomposition of the chrome (for
+  // example after a search-overlay round trip) would see the stale value and reopen the menu.
+  LaunchedEffect(openRequest) {
+    if (openRequest != 0L) {
+      expanded = true
+      onOpenRequestConsumed()
+    }
+  }
 
   Box {
     IconButton(onClick = { expanded = true }, modifier = Modifier.size(32.dp).padding(4.dp)) {
@@ -253,6 +266,14 @@ private fun AnchoredDropdownMenu(
     onDismissRequest = onDismissRequest,
     properties = PopupProperties(focusable = true),
   ) {
+    // Dismiss when the popup's window loses focus (another activity opening over the browser),
+    // instead of lingering until the user returns and taps outside.
+    val windowInfo = LocalWindowInfo.current
+    LaunchedEffect(Unit) {
+      snapshotFlow { windowInfo.isWindowFocused }.first { it }
+      snapshotFlow { windowInfo.isWindowFocused }.first { !it }
+      onDismissRequest()
+    }
     Surface(
       shape = MaterialTheme.shapes.extraSmall,
       color = color,
@@ -278,6 +299,83 @@ private fun AnchoredDropdownMenu(
       }
     }
   }
+}
+
+@Composable
+internal fun LinkContextMenuDialog(
+  linkUrl: String?,
+  imageUrl: String?,
+  onOpenInNewTab: (String) -> Unit,
+  onOpenPrivate: (String) -> Unit,
+  onCopyUrl: (String) -> Unit,
+  onShareUrl: (String) -> Unit,
+  onDownloadImage: (String) -> Unit,
+  onDismiss: () -> Unit,
+) {
+  val primaryUrl = linkUrl ?: imageUrl
+  if (primaryUrl == null) {
+    onDismiss()
+    return
+  }
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = {
+      Text(
+        text = primaryUrl,
+        style = MaterialTheme.typography.bodyMedium,
+        maxLines = 3,
+        overflow = TextOverflow.Ellipsis,
+      )
+    },
+    text = {
+      Column {
+        DropdownMenuItem(
+          text = { Text("Open in new tab") },
+          onClick = {
+            onDismiss()
+            onOpenInNewTab(primaryUrl)
+          },
+          leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) },
+        )
+        DropdownMenuItem(
+          text = { Text("Open incognito") },
+          onClick = {
+            onDismiss()
+            onOpenPrivate(primaryUrl)
+          },
+          leadingIcon = { Icon(Icons.Default.VisibilityOff, contentDescription = null) },
+        )
+        DropdownMenuItem(
+          text = { Text("Copy URL") },
+          onClick = {
+            onDismiss()
+            onCopyUrl(primaryUrl)
+          },
+          leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+        )
+        DropdownMenuItem(
+          text = { Text("Share URL") },
+          onClick = {
+            onDismiss()
+            onShareUrl(primaryUrl)
+          },
+          leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+        )
+        if (imageUrl != null) {
+          DropdownMenuItem(
+            text = { Text("Download image") },
+            onClick = {
+              onDismiss()
+              onDownloadImage(imageUrl)
+            },
+            leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
+          )
+        }
+      }
+    },
+    confirmButton = {},
+    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+  )
 }
 
 @Composable

@@ -30,6 +30,7 @@ fun SearchChromeBar(
   color: Color = MaterialTheme.colorScheme.surface,
   contentColor: Color = contentColorFor(color),
   tonalElevation: Dp = 3.dp,
+  shadowElevation: Dp = 0.dp,
   content: @Composable RowScope.() -> Unit,
 ) {
   Surface(
@@ -38,6 +39,7 @@ fun SearchChromeBar(
     color = color,
     contentColor = contentColor,
     tonalElevation = tonalElevation,
+    shadowElevation = shadowElevation,
   ) {
     Box {
       AnimatedVisibility(
