@@ -7,9 +7,11 @@ Android app that lets you search everything on your phone, and more.
 - **Direct keyboard access** - Your homescreen now has a keyboard!
 - **Search everything on your phone** - Apps, their shortcuts, device settings, sorted smartly by usage.
 - **Search everything on the web** - Youtube, google, bing, maps, spotify... Or add your own custom shortcuts!
+- **Built-in ad-free browser** - Opens web results in-app, blocking ads and trackers by default. Swipe the search bar sideways to switch tabs, and browse privately in an isolated window.
+- **Bookmarks & history** - Save any page under a title you choose, then find it back from the search bar. Pages you visit are searchable too, and both show the site's icon.
 - **Speed** - Lightweight, fast!
 - **Swipe Wallpapers** - Your background is an interactive picture album.
-- **Smart input** - Recognizes phone numbers, emails, calculator queries, and web addresses. It even stores visited websites as bookmarks.
+- **Smart input** - Recognizes phone numbers, emails, calculator queries, and web addresses.
 - **App icons history & favorites** - Recently used & favorited apps are shown above the search bar
 - **Widgets** - Add widgets through the search bar, resize them, and toggle visibility by tapping the background
 - **Voice search** - Tap the mic to speak your query
@@ -58,7 +60,7 @@ Android app that lets you search everything on your phone, and more.
 ### Build Instructions
 
 ```bash
-git clone https://github.com/joepio/searchlauncher.git
+git clone https://github.com/ontola/searchlauncher.git
 cd searchlauncher
 # Format code
 ./gradlew spotlessApply

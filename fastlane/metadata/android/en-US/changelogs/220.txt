@@ -1,0 +1,7 @@
+Ad blocking, bookmarks, and site icons.
+
+- Block ads and trackers in the browser, on by default, with a per-site toggle.
+- Save bookmarks under your own title, edit them later, or bookmark a history entry.
+- History and bookmark results now show the site's icon.
+- Browser settings: set SearchLauncher as your default browser, manage web history.
+- Fixed the background flashing while the search index was building.
