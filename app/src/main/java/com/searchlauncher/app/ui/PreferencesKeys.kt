@@ -29,6 +29,8 @@ object PreferencesKeys {
   /** Id of the [com.searchlauncher.app.data.SearchShortcut] used by the global search button. */
   val DEFAULT_SEARCH_ENGINE = stringPreferencesKey("default_search_engine")
 
+  val AD_BLOCK_ENABLED = booleanPreferencesKey("ad_block_enabled")
+
   fun getDefaultIconSize(context: android.content.Context): Int {
     val config = context.resources.configuration
     return if (config.smallestScreenWidthDp >= 600) 48 else 32

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
@@ -33,6 +34,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+/** Web pages in the index: passively recorded history, and explicitly saved bookmarks. */
+private val SearchResult.isWebPage: Boolean
+  get() = namespace == "web_bookmarks" || namespace == "web_saved"
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SearchResultItem(
@@ -45,6 +50,8 @@ fun SearchResultItem(
   onDeleteShortcut: (() -> Unit)? = null,
   onRemoveFromIndex: (() -> Unit)? = null,
   onRemoveBookmark: (() -> Unit)? = null,
+  onEditBookmark: (() -> Unit)? = null,
+  onAddBookmark: (() -> Unit)? = null,
   onClearSearchResults: (() -> Unit)? = null,
   onOpenTab: (() -> Unit)? = null,
   onOpenPrivate: (() -> Unit)? = null,
@@ -94,7 +101,7 @@ fun SearchResultItem(
               } else if (
                 result is SearchResult.Snippet ||
                   result is SearchResult.App ||
-                  result.namespace == "web_bookmarks" ||
+                  result.isWebPage ||
                   onEditShortcut != null ||
                   onDeleteShortcut != null
               ) {
@@ -299,16 +306,13 @@ fun SearchResultItem(
                   },
                 )
               }
-              if (onRemoveBookmark != null && result.namespace == "web_bookmarks") {
-                DropdownMenuItem(
-                  text = { Text("Remove from history") },
-                  onClick = {
-                    showWebActionsMenu = false
-                    onRemoveBookmark()
-                  },
-                  leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-                )
-              }
+              WebPageMenuItems(
+                result = result,
+                onEditBookmark = onEditBookmark,
+                onAddBookmark = onAddBookmark,
+                onRemoveBookmark = onRemoveBookmark,
+                onCloseMenu = { showWebActionsMenu = false },
+              )
             }
           }
         }
@@ -406,19 +410,63 @@ fun SearchResultItem(
             )
           }
 
-          if (onRemoveBookmark != null && result.namespace == "web_bookmarks") {
-            DropdownMenuItem(
-              text = { Text("Remove from history") },
-              onClick = {
-                onRemoveBookmark()
-                showMenu = false
-              },
-              leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-            )
-          }
+          WebPageMenuItems(
+            result = result,
+            onEditBookmark = onEditBookmark,
+            onAddBookmark = onAddBookmark,
+            onRemoveBookmark = onRemoveBookmark,
+            onCloseMenu = { showMenu = false },
+          )
         }
       }
     }
+  }
+}
+
+/**
+ * Bookmark actions for indexed web pages. Shared by the overflow button and the long-press menu so
+ * both stay in step; which items appear depends on whether the page is saved or just history.
+ */
+@Composable
+private fun WebPageMenuItems(
+  result: SearchResult,
+  onEditBookmark: (() -> Unit)?,
+  onAddBookmark: (() -> Unit)?,
+  onRemoveBookmark: (() -> Unit)?,
+  onCloseMenu: () -> Unit,
+) {
+  if (!result.isWebPage) return
+  val isSavedBookmark = result.namespace == "web_saved"
+
+  if (isSavedBookmark && onEditBookmark != null) {
+    DropdownMenuItem(
+      text = { Text("Edit bookmark") },
+      onClick = {
+        onCloseMenu()
+        onEditBookmark()
+      },
+      leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+    )
+  }
+  if (!isSavedBookmark && onAddBookmark != null) {
+    DropdownMenuItem(
+      text = { Text("Add as bookmark") },
+      onClick = {
+        onCloseMenu()
+        onAddBookmark()
+      },
+      leadingIcon = { Icon(Icons.Default.BookmarkAdd, contentDescription = null) },
+    )
+  }
+  if (onRemoveBookmark != null) {
+    DropdownMenuItem(
+      text = { Text(if (isSavedBookmark) "Remove bookmark" else "Remove from history") },
+      onClick = {
+        onCloseMenu()
+        onRemoveBookmark()
+      },
+      leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+    )
   }
 }
 

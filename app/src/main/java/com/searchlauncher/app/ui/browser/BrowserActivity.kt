@@ -19,6 +19,7 @@ import android.webkit.CookieManager
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
@@ -90,6 +91,7 @@ import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.MinIconSize
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.SearchActivity
+import com.searchlauncher.app.ui.components.BookmarkDialog
 import com.searchlauncher.app.ui.components.FavoritesRow
 import com.searchlauncher.app.ui.components.SearchChromeBar
 import com.searchlauncher.app.ui.dataStore
@@ -208,6 +210,9 @@ private data class NavigationRequest(val url: String, val sequence: Long)
 /** Target of a long-press on web content: a link, an image, or a link wrapping an image. */
 private data class LinkMenuTarget(val linkUrl: String?, val imageUrl: String?)
 
+/** A bookmark awaiting title confirmation in [BookmarkDialog]. */
+private data class BookmarkDraft(val url: String, val title: String)
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun BrowserScreen(
@@ -250,6 +255,13 @@ private fun BrowserScreen(
         }
       }
       .collectAsState(initial = false)
+  val adBlockEnabled by
+    remember {
+        context.dataStore.data.map { preferences ->
+          preferences[PreferencesKeys.AD_BLOCK_ENABLED] ?: true
+        }
+      }
+      .collectAsState(initial = true)
   val coroutineScope = rememberCoroutineScope()
   val initialNavigationRequest = remember { navigationRequest }
   val defaultPageBackground = MaterialTheme.colorScheme.background
@@ -276,6 +288,7 @@ private fun BrowserScreen(
   var findMatchCount by remember { mutableIntStateOf(0) }
   var showPageSettings by rememberSaveable { mutableStateOf(false) }
   var linkMenuTarget by remember { mutableStateOf<LinkMenuTarget?>(null) }
+  var bookmarkDraft by remember { mutableStateOf<BookmarkDraft?>(null) }
   val siteSettingsStore = remember(privateMode) { BrowserSiteSettingsStore(context, privateMode) }
   var siteSettings by remember { mutableStateOf(siteSettingsStore.load(activeTab.url)) }
   var pageBackground by remember { mutableStateOf(Color(activeTab.pageBackgroundArgb)) }
@@ -442,6 +455,10 @@ private fun BrowserScreen(
     restoringSnapshot = activeTab.snapshot
   }
 
+  // Loads the cached filter list (downloading it when missing or stale). Pages opened before this
+  // finishes simply aren't filtered; nothing blocks on it.
+  LaunchedEffect(adBlockEnabled) { if (adBlockEnabled) AdBlocker.ensureLoaded(context) }
+
   LaunchedEffect(animatedPageBackground) {
     (context as BrowserActivity).let { activity ->
       val isLightBackground = animatedPageBackground.luminance() > 0.5f
@@ -499,8 +516,22 @@ private fun BrowserScreen(
       menuContentColor = chromeBarContentColor,
       openRequest = browserMenuRequest,
       onOpenRequestConsumed = onBrowserMenuShown,
+      onReload = { webView?.reload() },
       onShare = { shareUrl(context, webView?.url ?: activeTab.url, webView?.title) },
       onCopyUrl = { copyUrl(context, webView?.url ?: activeTab.url) },
+      onSaveBookmark =
+        searchRepository?.let {
+          {
+            val url = (webView?.url ?: activeTab.url).takeUnless { it.isBlank() }
+            if (url == null || url == "about:blank") {
+              Toast.makeText(context, "Nothing to bookmark", Toast.LENGTH_SHORT).show()
+            } else {
+              // Confirm the title first; saving happens when the dialog is accepted.
+              bookmarkDraft =
+                BookmarkDraft(url = url, title = webView?.title ?: activeTab.title ?: "")
+            }
+          }
+        },
       onToggleDesktopMode = {
         webView?.let { view ->
           activeTab.desktopMode = !activeTab.desktopMode
@@ -523,6 +554,47 @@ private fun BrowserScreen(
       onPreviousTab = { animateToAdjacentTab(-1) },
       onNextTab = { animateToAdjacentTab(1) },
     )
+  }
+
+  // Tab-swipe handlers shared by the full chrome and the minimal pill.
+  val tabDragStart = {
+    settleJob?.cancel()
+    tabsInMotion = true
+    fingerOnTabDrag = true
+    webView?.let { saveWebViewIntoTab(it, tabs.active) }
+    dragTabStateSaved = true
+  }
+  val tabDrag = { delta: Float ->
+    val proposed = tabDragOffsetPx + delta
+    val direction = if (proposed < 0f) 1 else -1
+    tabDragOffsetPx += if (tabs.adjacent(direction) != null) delta else delta * 0.16f
+  }
+  val tabDragEnd = {
+    fingerOnTabDrag = false
+    val startOffset = tabDragOffsetPx
+    val direction = if (startOffset < 0f) 1 else -1
+    val commit = tabs.adjacent(direction) != null && abs(startOffset) >= viewportWidthPx * 0.18f
+    if (commit) {
+      // Switch the model immediately and rebase the offset so the new active tab keeps its
+      // current on-screen position; the next swipe can start right away instead of waiting
+      // for the settle animation.
+      activateTab(tabs.activeIndex + direction)
+      tabDragOffsetPx = startOffset + direction * viewportWidthPx
+    } else {
+      dragTabStateSaved = false
+    }
+    settleJob =
+      coroutineScope.launch {
+        animate(
+          initialValue = tabDragOffsetPx,
+          targetValue = 0f,
+          animationSpec =
+            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+        ) { value, _ ->
+          tabDragOffsetPx = value
+        }
+        tabsInMotion = false
+      }
   }
 
   val adjacentDirection =
@@ -686,8 +758,24 @@ private fun BrowserScreen(
 
                   override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                     activeTab.url = url
+                    activeTab.blockedRequestCount.set(0)
                     siteSettings = siteSettingsStore.load(url)
                     view.applySiteSettings(siteSettings)
+                  }
+
+                  // Runs on a WebView worker thread for every subresource, so it must stay cheap:
+                  // AdBlocker.shouldBlock is a handful of binary searches over a long array.
+                  override fun shouldInterceptRequest(
+                    view: WebView,
+                    request: WebResourceRequest,
+                  ): WebResourceResponse? {
+                    // Never block top-level navigation: the user asked for that page explicitly,
+                    // and blocking it would make links appear broken rather than ad-free.
+                    if (request.isForMainFrame) return null
+                    if (!adBlockEnabled || !siteSettings.adBlockEnabled) return null
+                    if (!AdBlocker.shouldBlock(request.url.toString())) return null
+                    activeTab.blockedRequestCount.incrementAndGet()
+                    return AdBlocker.blockedResponse()
                   }
 
                   override fun onPageCommitVisible(view: WebView, url: String) {
@@ -745,9 +833,9 @@ private fun BrowserScreen(
               else postDelayed({ restoringSnapshot = null }, 5000)
             }
           },
-          onRelease = { releasedView ->
-            if (webView === releasedView) webView = null
-            releasedView.destroy()
+          onRelease = { releasedWebView ->
+            if (webView === releasedWebView) webView = null
+            releasedWebView.destroy()
           },
         )
     }
@@ -799,49 +887,9 @@ private fun BrowserScreen(
           overflowMenu = browserOverflowMenu,
           onOpenSearch = { onOpenSearch(false, pageBackground.toArgb()) },
           onVoiceSearch = { onOpenSearch(true, pageBackground.toArgb()) },
-          onTabDragStart = {
-            settleJob?.cancel()
-            tabsInMotion = true
-            fingerOnTabDrag = true
-            webView?.let { saveWebViewIntoTab(it, tabs.active) }
-            dragTabStateSaved = true
-          },
-          onTabDrag = { delta ->
-            val proposed = tabDragOffsetPx + delta
-            val direction = if (proposed < 0f) 1 else -1
-            tabDragOffsetPx += if (tabs.adjacent(direction) != null) delta else delta * 0.16f
-          },
-          onTabDragEnd = {
-            fingerOnTabDrag = false
-            val startOffset = tabDragOffsetPx
-            val direction = if (startOffset < 0f) 1 else -1
-            val commit =
-              tabs.adjacent(direction) != null && abs(startOffset) >= viewportWidthPx * 0.18f
-            if (commit) {
-              // Switch the model immediately and rebase the offset so the new active tab keeps
-              // its current on-screen position; the next swipe can start right away instead of
-              // waiting for the settle animation.
-              activateTab(tabs.activeIndex + direction)
-              tabDragOffsetPx = startOffset + direction * viewportWidthPx
-            } else {
-              dragTabStateSaved = false
-            }
-            settleJob =
-              coroutineScope.launch {
-                animate(
-                  initialValue = tabDragOffsetPx,
-                  targetValue = 0f,
-                  animationSpec =
-                    spring(
-                      dampingRatio = Spring.DampingRatioNoBouncy,
-                      stiffness = Spring.StiffnessMedium,
-                    ),
-                ) { value, _ ->
-                  tabDragOffsetPx = value
-                }
-                tabsInMotion = false
-              }
-          },
+          onTabDragStart = tabDragStart,
+          onTabDrag = tabDrag,
+          onTabDragEnd = tabDragEnd,
           onLaunchFavorite = { result ->
             context.packageManager.getLaunchIntentForPackage(result.packageName)?.let { intent ->
               intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -907,7 +955,11 @@ private fun BrowserScreen(
           onReveal = { chromeHiddenByUser = false },
           onSearch = { onOpenSearch(false, pageBackground.toArgb()) },
           onVoiceSearch = { onOpenSearch(true, pageBackground.toArgb()) },
+          onTabDragStart = tabDragStart,
+          onTabDrag = tabDrag,
+          onTabDragEnd = tabDragEnd,
           overflowMenu = browserOverflowMenu,
+          modifier = Modifier.graphicsLayer { translationX = chromeDragOffsetPx },
         )
       }
 
@@ -970,10 +1022,32 @@ private fun BrowserScreen(
     )
   }
 
+  bookmarkDraft?.let { draft ->
+    BookmarkDialog(
+      initialTitle = draft.title,
+      url = draft.url,
+      isEditMode = false,
+      onDismiss = { bookmarkDraft = null },
+      onConfirm = { title ->
+        bookmarkDraft = null
+        coroutineScope.launch {
+          val saved = searchRepository?.saveBookmark(draft.url, title) == true
+          Toast.makeText(
+              context,
+              if (saved) "Bookmark saved" else "Could not save bookmark",
+              Toast.LENGTH_SHORT,
+            )
+            .show()
+        }
+      },
+    )
+  }
+
   if (showPageSettings) {
     BrowserPageSettingsDialog(
       siteLabel = browserSiteLabel(webView?.url ?: activeTab.url),
       settings = siteSettings,
+      blockedRequestCount = activeTab.blockedRequestCount.get(),
       onSettingsChange = { updatedSettings ->
         val url = webView?.url ?: activeTab.url
         siteSettings = updatedSettings
@@ -1174,6 +1248,9 @@ private fun RevealBrowserChromeHandle(
   onReveal: () -> Unit,
   onSearch: () -> Unit,
   onVoiceSearch: () -> Unit,
+  onTabDragStart: () -> Unit,
+  onTabDrag: (Float) -> Unit,
+  onTabDragEnd: () -> Unit,
   overflowMenu: @Composable () -> Unit,
   modifier: Modifier = Modifier,
 ) {
@@ -1190,16 +1267,38 @@ private fun RevealBrowserChromeHandle(
       Row(
         modifier =
           Modifier.heightIn(min = 40.dp).padding(horizontal = 16.dp, vertical = 4.dp).pointerInput(
-            onReveal
+            onReveal,
+            onTabDragStart,
+            onTabDrag,
+            onTabDragEnd,
           ) {
             var upwardDrag = 0f
+            var horizontalGesture: Boolean? = null
             detectDragGestures(
               onDragStart = { upwardDrag = 0f },
+              onDragEnd = {
+                if (horizontalGesture == true) onTabDragEnd()
+                else if (upwardDrag >= 16.dp.toPx()) onReveal()
+                upwardDrag = 0f
+                horizontalGesture = null
+              },
+              onDragCancel = {
+                if (horizontalGesture == true) onTabDragEnd()
+                upwardDrag = 0f
+                horizontalGesture = null
+              },
               onDrag = { change, dragAmount ->
-                if (dragAmount.y < 0f) upwardDrag -= dragAmount.y
+                if (horizontalGesture == null) {
+                  horizontalGesture = abs(dragAmount.x) > abs(dragAmount.y)
+                  if (horizontalGesture == true) onTabDragStart()
+                }
+                if (horizontalGesture == true) {
+                  onTabDrag(dragAmount.x)
+                } else if (dragAmount.y < 0f) {
+                  upwardDrag -= dragAmount.y
+                }
                 change.consume()
               },
-              onDragEnd = { if (upwardDrag >= 16.dp.toPx()) onReveal() },
             )
           },
         verticalAlignment = Alignment.CenterVertically,

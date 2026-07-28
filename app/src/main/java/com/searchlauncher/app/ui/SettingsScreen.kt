@@ -83,6 +83,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import com.searchlauncher.app.R
 import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.ui.browser.AdBlocker
+import com.searchlauncher.app.util.CustomActionHandler
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -106,13 +108,16 @@ fun SettingsScreen(
   // Use LaunchedEffect to scroll to the requested section
   LaunchedEffect(initialHighlightSection) {
     if (initialHighlightSection != null) {
+      // Index of each item{} block in the LazyColumn below. The Launcher card only exists when
+      // this app isn't the default launcher, so items after it shift accordingly.
       val index =
         when (initialHighlightSection) {
           "wallpaper" -> 1
           "shortcuts" -> 2
           "snippets" -> 3
-          "history" -> 5
-          "privacy" -> 9
+          "browser" -> 6
+          "history" -> 7
+          "privacy" -> if (isDefaultLauncher) 9 else 10
           else -> -1
         }
       if (index >= 0) {
@@ -148,6 +153,8 @@ fun SettingsScreen(
 
     item { DefaultSearchEngineCard() }
 
+    item { BrowserSettingsCard() }
+
     item {
       Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -157,76 +164,6 @@ fun SettingsScreen(
           Text(text = "History", style = MaterialTheme.typography.titleMedium)
 
           val scope = rememberCoroutineScope()
-          val storeWebHistory =
-            remember {
-                context.dataStore.data.map { it[PreferencesKeys.STORE_WEB_HISTORY] ?: true }
-              }
-              .collectAsState(initial = true)
-
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Column(modifier = Modifier.weight(1f)) {
-              Text(text = "Store Web History", style = MaterialTheme.typography.bodyMedium)
-              Text(
-                text = "Keep visited pages locally so they appear in launcher search",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-            Switch(
-              checked = storeWebHistory.value,
-              onCheckedChange = { enabled ->
-                scope.launch {
-                  context.dataStore.edit { preferences ->
-                    preferences[PreferencesKeys.STORE_WEB_HISTORY] = enabled
-                  }
-                }
-              },
-            )
-          }
-
-          var showClearHistoryConfirm by remember { mutableStateOf(false) }
-          OutlinedButton(
-            onClick = { showClearHistoryConfirm = true },
-            modifier = Modifier.fillMaxWidth(),
-          ) {
-            Text("Remove all web history", color = MaterialTheme.colorScheme.error)
-          }
-          if (showClearHistoryConfirm) {
-            AlertDialog(
-              onDismissRequest = { showClearHistoryConfirm = false },
-              title = { Text("Remove all web history?") },
-              text = {
-                Text("All pages saved from browsing will be removed from launcher search.")
-              },
-              confirmButton = {
-                TextButton(
-                  onClick = {
-                    showClearHistoryConfirm = false
-                    scope.launch {
-                      (context.applicationContext as SearchLauncherApp)
-                        .searchRepository
-                        .clearWebHistory()
-                      android.widget.Toast.makeText(
-                          context,
-                          "Web history removed",
-                          android.widget.Toast.LENGTH_SHORT,
-                        )
-                        .show()
-                    }
-                  }
-                ) {
-                  Text("Remove", color = MaterialTheme.colorScheme.error)
-                }
-              },
-              dismissButton = {
-                TextButton(onClick = { showClearHistoryConfirm = false }) { Text("Cancel") }
-              },
-            )
-          }
 
           val historyLimit =
             remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
@@ -681,6 +618,195 @@ private fun DefaultSearchEngineCard() {
             }
           }
         }
+      }
+    }
+  }
+}
+
+/** Mirrors [isDefaultLauncher]'s resolution check, but for the http(s)/BROWSABLE role. */
+private fun isDefaultBrowser(context: Context): Boolean {
+  val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))
+  val resolveInfo = context.packageManager.resolveActivity(intent, 0)
+  return resolveInfo?.activityInfo?.packageName == context.packageName
+}
+
+@Composable
+private fun BrowserSettingsCard() {
+  val context = LocalContext.current
+  val scope = rememberCoroutineScope()
+  val isDefaultBrowser = rememberPermissionState { isDefaultBrowser(context) }
+  val storeWebHistory =
+    remember { context.dataStore.data.map { it[PreferencesKeys.STORE_WEB_HISTORY] ?: true } }
+      .collectAsState(initial = true)
+  val adBlockEnabled =
+    remember { context.dataStore.data.map { it[PreferencesKeys.AD_BLOCK_ENABLED] ?: true } }
+      .collectAsState(initial = true)
+  var showClearHistoryConfirm by remember { mutableStateOf(false) }
+  var blockedDomainCount by remember { mutableStateOf(AdBlocker.domainCount) }
+  var isUpdatingFilters by remember { mutableStateOf(false) }
+
+  Card(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+      Text(text = "Browser", style = MaterialTheme.typography.titleMedium)
+
+      if (isDefaultBrowser.value) {
+        Row(
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Icon(
+            imageVector = Icons.Default.Check,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+          )
+          Text(
+            "SearchLauncher is your default browser",
+            style = MaterialTheme.typography.bodyMedium,
+          )
+        }
+      } else {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          Text(
+            text = "Open links in SearchLauncher's browser instead of another app",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          Button(
+            // Reuses the exact action the "Set Default Browser" search result triggers, so both
+            // entry points stay in sync.
+            onClick = {
+              CustomActionHandler.handleAction(
+                context,
+                Intent("com.searchlauncher.action.SET_DEFAULT_BROWSER"),
+              )
+            },
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Text("Set as Default Browser")
+          }
+        }
+      }
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(text = "Block ads and trackers", style = MaterialTheme.typography.bodyMedium)
+          Text(
+            text =
+              when {
+                !adBlockEnabled.value -> "Ads and trackers load normally"
+                blockedDomainCount > 0 -> "Blocking $blockedDomainCount known domains"
+                else -> "Filter list downloads the first time you browse"
+              },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Switch(
+          checked = adBlockEnabled.value,
+          onCheckedChange = { enabled ->
+            scope.launch {
+              context.dataStore.edit { preferences ->
+                preferences[PreferencesKeys.AD_BLOCK_ENABLED] = enabled
+              }
+              if (enabled) {
+                AdBlocker.ensureLoaded(context)
+                blockedDomainCount = AdBlocker.domainCount
+              }
+            }
+          },
+        )
+      }
+
+      AnimatedVisibility(visible = adBlockEnabled.value) {
+        OutlinedButton(
+          onClick = {
+            scope.launch {
+              isUpdatingFilters = true
+              val result = AdBlocker.update(context)
+              isUpdatingFilters = false
+              blockedDomainCount = AdBlocker.domainCount
+              android.widget.Toast.makeText(
+                  context,
+                  result.fold(
+                    onSuccess = { count -> "Filter list updated: $count domains" },
+                    onFailure = { "Could not update filter list" },
+                  ),
+                  android.widget.Toast.LENGTH_SHORT,
+                )
+                .show()
+            }
+          },
+          enabled = !isUpdatingFilters,
+          modifier = Modifier.fillMaxWidth(),
+        ) {
+          Text(if (isUpdatingFilters) "Updating filter list…" else "Update filter list")
+        }
+      }
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(text = "Store Web History", style = MaterialTheme.typography.bodyMedium)
+          Text(
+            text = "Keep visited pages locally so they appear in launcher search",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Switch(
+          checked = storeWebHistory.value,
+          onCheckedChange = { enabled ->
+            scope.launch {
+              context.dataStore.edit { preferences ->
+                preferences[PreferencesKeys.STORE_WEB_HISTORY] = enabled
+              }
+            }
+          },
+        )
+      }
+
+      OutlinedButton(
+        onClick = { showClearHistoryConfirm = true },
+        modifier = Modifier.fillMaxWidth(),
+      ) {
+        Text("Remove all web history", color = MaterialTheme.colorScheme.error)
+      }
+      if (showClearHistoryConfirm) {
+        AlertDialog(
+          onDismissRequest = { showClearHistoryConfirm = false },
+          title = { Text("Remove all web history?") },
+          text = { Text("All pages saved from browsing will be removed from launcher search.") },
+          confirmButton = {
+            TextButton(
+              onClick = {
+                showClearHistoryConfirm = false
+                scope.launch {
+                  (context.applicationContext as SearchLauncherApp)
+                    .searchRepository
+                    .clearWebHistory()
+                  android.widget.Toast.makeText(
+                      context,
+                      "Web history removed",
+                      android.widget.Toast.LENGTH_SHORT,
+                    )
+                    .show()
+                }
+              }
+            ) {
+              Text("Remove", color = MaterialTheme.colorScheme.error)
+            }
+          },
+          dismissButton = {
+            TextButton(onClick = { showClearHistoryConfirm = false }) { Text("Cancel") }
+          },
+        )
       }
     }
   }

@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import java.util.concurrent.atomic.AtomicInteger
 
 internal class BrowserTab(initialUrl: String) {
   val id: Long = System.nanoTime()
@@ -19,6 +20,11 @@ internal class BrowserTab(initialUrl: String) {
   var pageBackgroundArgb by mutableIntStateOf(0xff000000.toInt())
   var snapshot by mutableStateOf<Bitmap?>(null)
   var webViewState: Bundle? = null
+  /**
+   * Requests the ad blocker rejected for the page currently loaded in this tab. Incremented from
+   * the WebView's background request thread, so it is deliberately not Compose state.
+   */
+  val blockedRequestCount = AtomicInteger(0)
 }
 
 @Stable

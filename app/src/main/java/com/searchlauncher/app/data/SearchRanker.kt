@@ -94,6 +94,7 @@ object SearchRanker {
         4 -> RankingScores.NAMESPACE_BOOST_SHORTCUTS
         5 -> RankingScores.NAMESPACE_BOOST_CONTACTS
         8 -> RankingScores.NAMESPACE_BOOST_SNIPPETS
+        9 -> RankingScores.NAMESPACE_BOOST_WEB_SAVED
         else -> RankingScores.NAMESPACE_BOOST_DEFAULT
       }
 

@@ -1,5 +1,6 @@
 package com.searchlauncher.app.util
 
+import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.hardware.camera2.CameraManager
@@ -74,6 +75,14 @@ object CustomActionHandler {
       }
       "com.searchlauncher.action.WIRELESS_DEBUGGING" -> {
         openWirelessDebugging(context)
+        true
+      }
+      "com.searchlauncher.action.SETTINGS_BROWSER" -> {
+        openInternalSetting(context, "browser")
+        true
+      }
+      "com.searchlauncher.action.SET_DEFAULT_BROWSER" -> {
+        requestDefaultBrowserRole(context)
         true
       }
       "com.searchlauncher.action.RESET_ONBOARDING" -> {
@@ -241,6 +250,37 @@ object CustomActionHandler {
       }
     } else {
       openDeveloperOptions(context)
+    }
+  }
+
+  private fun requestDefaultBrowserRole(context: Context) {
+    try {
+      val roleManager = context.getSystemService(Context.ROLE_SERVICE) as RoleManager
+      if (roleManager.isRoleHeld(RoleManager.ROLE_BROWSER)) {
+        Toast.makeText(
+            context,
+            "SearchLauncher is already your default browser",
+            Toast.LENGTH_SHORT,
+          )
+          .show()
+        return
+      }
+      if (roleManager.isRoleAvailable(RoleManager.ROLE_BROWSER)) {
+        // No FLAG_ACTIVITY_NEW_TASK: the role picker expects to return a result to the calling
+        // task, and callers here are always a real foreground Activity context (never
+        // ApplicationContext). Requesting a new task made the system dialog silently no-op on
+        // some devices instead of showing.
+        context.startActivity(roleManager.createRequestRoleIntent(RoleManager.ROLE_BROWSER))
+        return
+      }
+    } catch (e: Exception) {
+      e.printStackTrace()
+      // Fall through to the manual default-apps settings screen below.
+    }
+    try {
+      context.startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+    } catch (e: Exception) {
+      Toast.makeText(context, "Default apps settings not available", Toast.LENGTH_SHORT).show()
     }
   }
 

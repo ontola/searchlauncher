@@ -257,6 +257,18 @@ object DefaultShortcuts {
         aliases =
           "wireless debugging adb wifi debug developers developer options status settings wireless debugging settings",
       ),
+      AppShortcut.Action(
+        id = "launcher_browser_settings",
+        intentUri = "intent:#Intent;action=com.searchlauncher.action.SETTINGS_BROWSER;end",
+        description = "Browser Settings",
+        aliases = "browser settings default browser search engine web history tabs",
+      ),
+      AppShortcut.Action(
+        id = "set_default_browser",
+        intentUri = "intent:#Intent;action=com.searchlauncher.action.SET_DEFAULT_BROWSER;end",
+        description = "Set Default Browser",
+        aliases = "default browser set make browser role open links in browser change browser",
+      ),
     ) + generateSettingsShortcuts()
 
   // User-editable search shortcuts with default aliases

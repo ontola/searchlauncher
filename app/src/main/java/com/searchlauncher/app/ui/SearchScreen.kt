@@ -57,6 +57,7 @@ import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.browser.BrowserActivity
+import com.searchlauncher.app.ui.components.BookmarkDialog
 import com.searchlauncher.app.ui.components.ConsentDialog
 import com.searchlauncher.app.ui.components.FavoritesRow
 import com.searchlauncher.app.ui.components.PrivacyPolicyDialog
@@ -119,6 +120,10 @@ fun SearchScreen(
   var showPrivacyPolicy by remember { mutableStateOf(false) }
   val searchShortcuts by app.searchShortcutRepository.items.collectAsState()
   var showShortcutDialog by remember { mutableStateOf(false) }
+  var bookmarkDialogTarget by remember { mutableStateOf<BookmarkDialogTarget?>(null) }
+  // Bumped after saving a bookmark so the visible results pick up the new title without having to
+  // clear the user's query.
+  var bookmarkRefreshTick by remember { mutableIntStateOf(0) }
   var editingShortcut by remember {
     mutableStateOf<com.searchlauncher.app.data.SearchShortcut?>(null)
   }
@@ -333,7 +338,7 @@ fun SearchScreen(
     }
   }
 
-  LaunchedEffect(query, suggestionsEnabled, isIndexing) {
+  LaunchedEffect(query, suggestionsEnabled, isIndexing, bookmarkRefreshTick) {
     traceSection("SL:SearchScreen.queryEffect") {
       searchRepository.noteInteractiveSearch(query)
       if (query.isEmpty()) {
@@ -872,10 +877,30 @@ fun SearchScreen(
                         } else null,
                       onRemoveBookmark = {
                         scope.launch {
-                          searchRepository.removeBookmark(result.id)
+                          searchRepository.removeBookmark(result.id, result.namespace)
                           onQueryChange("") // Refresh
                         }
                       },
+                      onEditBookmark =
+                        webUrl?.let { url ->
+                          {
+                            bookmarkDialogTarget =
+                              BookmarkDialogTarget(url, result.title, isEditMode = true)
+                          }
+                        },
+                      onAddBookmark =
+                        webUrl?.let { url ->
+                          {
+                            bookmarkDialogTarget =
+                              BookmarkDialogTarget(
+                                url = url,
+                                title = result.title,
+                                isEditMode = false,
+                                replacesHistoryId =
+                                  result.id.takeIf { result.namespace == "web_bookmarks" },
+                              )
+                          }
+                        },
                       onClearSearchResults = { onQueryChange("") },
                       onOpenTab =
                         webUrl?.let { url ->
@@ -1425,6 +1450,31 @@ fun SearchScreen(
     }
   }
 
+  bookmarkDialogTarget?.let { target ->
+    BookmarkDialog(
+      initialTitle = target.title,
+      url = target.url,
+      isEditMode = target.isEditMode,
+      onDismiss = { bookmarkDialogTarget = null },
+      onConfirm = { title ->
+        bookmarkDialogTarget = null
+        scope.launch {
+          val saved = searchRepository.saveBookmark(target.url, title)
+          if (saved) {
+            target.replacesHistoryId?.let { searchRepository.removeBookmark(it, "web_bookmarks") }
+            bookmarkRefreshTick++
+          }
+          Toast.makeText(
+              context,
+              if (saved) "Bookmark saved" else "Could not save bookmark",
+              Toast.LENGTH_SHORT,
+            )
+            .show()
+        }
+      },
+    )
+  }
+
   if (showSnippetDialog) {
     SnippetDialog(
       initialAlias =
@@ -1532,6 +1582,15 @@ internal fun Drawable.toImageBitmap(): ImageBitmap? {
 
 private val SearchResult.stableListKey: String
   get() = "$namespace/$id"
+
+/** A bookmark being created or re-titled from a search result. */
+private data class BookmarkDialogTarget(
+  val url: String,
+  val title: String,
+  val isEditMode: Boolean,
+  /** History entry this bookmark replaces, removed on save so the page isn't listed twice. */
+  val replacesHistoryId: String? = null,
+)
 
 private fun webUrlForResult(
   result: SearchResult,

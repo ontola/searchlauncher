@@ -36,7 +36,8 @@ class SearchResultFactory(
       "app_shortcuts" ->
         createAppShortcutResult(sdoc, rankingScore, saveToDisk, allowIpc, allowDisk)
       "search_shortcuts" -> createSearchShortcutResult(sdoc, rankingScore)
-      "web_bookmarks" -> createWebBookmarkResult(sdoc, rankingScore)
+      "web_bookmarks" -> createWebBookmarkResult(sdoc, rankingScore, saved = false)
+      "web_saved" -> createWebBookmarkResult(sdoc, rankingScore, saved = true)
       "static_shortcuts" ->
         createStaticShortcutResult(sdoc, rankingScore, saveToDisk, allowIpc, allowDisk)
       "contacts" -> createContactResult(sdoc, rankingScore, query, allowIpc)
@@ -137,15 +138,16 @@ class SearchResultFactory(
   private fun createWebBookmarkResult(
     sdoc: SearchableDocument,
     rankingScore: Int,
+    saved: Boolean,
   ): SearchResult.Content {
     val doc = sdoc.doc
     val browserIcon = context.getDrawable(com.searchlauncher.app.R.drawable.ic_globe)
 
     return SearchResult.Content(
       id = doc.id,
-      namespace = "web_bookmarks",
+      namespace = if (saved) "web_saved" else "web_bookmarks",
       title = doc.name,
-      subtitle = "Browser history",
+      subtitle = if (saved) "Bookmark" else "Browser history",
       icon = browserIcon,
       packageName = "com.android.chrome",
       deepLink = doc.intentUri,

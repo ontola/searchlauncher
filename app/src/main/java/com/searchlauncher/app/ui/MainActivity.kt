@@ -377,7 +377,8 @@ class MainActivity : ComponentActivity() {
           pendingSettingsSection = "shortcuts"
         }
         "history",
-        "wallpaper" -> {
+        "wallpaper",
+        "browser" -> {
           currentScreenState = Screen.Settings
           pendingSettingsSection = settingPage
         }

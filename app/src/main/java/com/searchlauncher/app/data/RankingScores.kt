@@ -6,7 +6,7 @@ package com.searchlauncher.app.data
  * Final ordering is by [SearchResult.rankingScore] descending. Two paths feed it:
  * 1. Direct scores - smart actions, custom shortcuts, suggestions, widgets: a literal value chosen
  *    so the result lands at the desired position.
- * 2. Indexed scores - apps, app_shortcuts, snippets, shortcuts, contacts, web_bookmarks:
+ * 2. Indexed scores - apps, app_shortcuts, snippets, shortcuts, contacts, web_saved, web_bookmarks:
  *    FuzzyMatch.calculateScore (0..100) + a namespace boost + optional context boost + usage.
  *
  * Approximate descending order of typical scores: 1200 custom shortcut with explicit search term
@@ -37,6 +37,8 @@ object RankingScores {
   const val NAMESPACE_BOOST_APPS = 150
   const val NAMESPACE_BOOST_APP_SHORTCUTS = 130
   const val NAMESPACE_BOOST_SNIPPETS = 100
+  /** Explicitly saved bookmarks outrank passively-recorded history. */
+  const val NAMESPACE_BOOST_WEB_SAVED = 110
   const val NAMESPACE_BOOST_WEB_BOOKMARKS = 80
   const val NAMESPACE_BOOST_SHORTCUTS = 70
   const val NAMESPACE_BOOST_CONTACTS = 40

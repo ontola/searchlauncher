@@ -8,6 +8,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SwipeLeft
@@ -68,6 +70,7 @@ internal data class BrowserSiteSettings(
   val javaScriptEnabled: Boolean = true,
   val popupsEnabled: Boolean = false,
   val thirdPartyCookiesEnabled: Boolean = false,
+  val adBlockEnabled: Boolean = true,
 )
 
 @Composable
@@ -81,8 +84,11 @@ internal fun BrowserOverflowButton(
   menuContentColor: Color,
   openRequest: Long = 0L,
   onOpenRequestConsumed: () -> Unit = {},
+  onReload: () -> Unit,
   onShare: () -> Unit,
   onCopyUrl: () -> Unit,
+  /** Null in private mode, where nothing is written to the search index. */
+  onSaveBookmark: (() -> Unit)?,
   onToggleDesktopMode: () -> Unit,
   onOpenDownloads: () -> Unit,
   onFindInPage: () -> Unit,
@@ -156,6 +162,24 @@ internal fun BrowserOverflowButton(
             onNextTab()
           },
           leadingIcon = { Icon(Icons.Default.SwipeLeft, contentDescription = null) },
+        )
+      }
+      DropdownMenuItem(
+        text = { Text("Reload") },
+        onClick = {
+          expanded = false
+          onReload()
+        },
+        leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
+      )
+      if (onSaveBookmark != null) {
+        DropdownMenuItem(
+          text = { Text("Save bookmark") },
+          onClick = {
+            expanded = false
+            onSaveBookmark()
+          },
+          leadingIcon = { Icon(Icons.Default.BookmarkAdd, contentDescription = null) },
         )
       }
       DropdownMenuItem(
@@ -446,6 +470,7 @@ internal fun FindInPageBar(
 internal fun BrowserPageSettingsDialog(
   siteLabel: String,
   settings: BrowserSiteSettings,
+  blockedRequestCount: Int,
   onSettingsChange: (BrowserSiteSettings) -> Unit,
   onClearSiteData: () -> Unit,
   onDismiss: () -> Unit,
@@ -503,6 +528,14 @@ internal fun BrowserPageSettingsDialog(
           description = "Allow embedded services to store cookies",
           checked = settings.thirdPartyCookiesEnabled,
           onCheckedChange = { onSettingsChange(settings.copy(thirdPartyCookiesEnabled = it)) },
+        )
+        SiteSettingRow(
+          label = "Block ads",
+          description =
+            if (blockedRequestCount > 0) "Blocked $blockedRequestCount requests on this page"
+            else "Block known ad and tracker domains on this site",
+          checked = settings.adBlockEnabled,
+          onCheckedChange = { onSettingsChange(settings.copy(adBlockEnabled = it)) },
         )
         OutlinedButton(
           onClick = { confirmClearData = true },

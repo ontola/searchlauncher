@@ -20,6 +20,7 @@ internal class BrowserSiteSettingsStore(context: Context, privateMode: Boolean) 
       javaScriptEnabled = prefs.getBoolean(key(origin, "javascript"), true),
       popupsEnabled = prefs.getBoolean(key(origin, "popups"), false),
       thirdPartyCookiesEnabled = prefs.getBoolean(key(origin, "third_party_cookies"), false),
+      adBlockEnabled = prefs.getBoolean(key(origin, "ad_block"), true),
     )
   }
 
@@ -31,6 +32,7 @@ internal class BrowserSiteSettingsStore(context: Context, privateMode: Boolean) 
       ?.putBoolean(key(origin, "javascript"), settings.javaScriptEnabled)
       ?.putBoolean(key(origin, "popups"), settings.popupsEnabled)
       ?.putBoolean(key(origin, "third_party_cookies"), settings.thirdPartyCookiesEnabled)
+      ?.putBoolean(key(origin, "ad_block"), settings.adBlockEnabled)
       ?.apply()
   }
 
@@ -42,6 +44,7 @@ internal class BrowserSiteSettingsStore(context: Context, privateMode: Boolean) 
       ?.remove(key(origin, "javascript"))
       ?.remove(key(origin, "popups"))
       ?.remove(key(origin, "third_party_cookies"))
+      ?.remove(key(origin, "ad_block"))
       ?.apply()
   }
 

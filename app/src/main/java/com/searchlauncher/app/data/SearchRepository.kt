@@ -99,6 +99,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         "static_shortcuts" -> 6
         "search_shortcuts" -> 7
         "snippets" -> 8
+        "web_saved" -> 9
         else -> 0
       }
 
@@ -749,10 +750,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         // Clear document cache (except bookmarks if possible, or just reload)
         synchronized(this) {
-          documentSnapshot = documentSnapshot.filter { it.doc.namespace == "web_bookmarks" }
+          documentSnapshot =
+            documentSnapshot.filter {
+              it.doc.namespace == "web_bookmarks" || it.doc.namespace == "web_saved"
+            }
         }
 
-        // Selective wipe: everything EXCEPT web_bookmarks
+        // Selective wipe: everything EXCEPT web_bookmarks / web_saved
         try {
           val removeSpec =
             SearchSpec.Builder()
@@ -877,6 +881,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               "contacts",
               "snippets",
               "web_bookmarks", // Include web bookmarks for favorites/history
+              "web_saved",
             )
           for (ns in namespaces) {
             try {
@@ -1114,6 +1119,16 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         return@withContext
       }
 
+      // A saved bookmark already represents this page (under a title the user chose); recording it
+      // as history too would show the same page twice in search results.
+      if (
+        documentByNamespaceAndId.containsKey(
+          documentLookupKey("web_saved", savedBookmarkId(trimmedUrl))
+        )
+      ) {
+        return@withContext
+      }
+
       val displayTitle =
         title ?: trimmedUrl.removePrefix("https://").removePrefix("http://").removeSuffix("/")
 
@@ -1150,6 +1165,60 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Exception in indexWebUrl for $trimmedUrl", e)
         Sentry.captureException(e)
+      }
+    }
+
+  /**
+   * Explicitly bookmarks a page from the browser. Unlike [indexWebUrl] this ignores the
+   * store-web-history preference (it's a deliberate user action, not passive tracking) and lands in
+   * its own namespace, so "Remove all web history" leaves saved bookmarks alone.
+   *
+   * Returns false if the bookmark could not be stored.
+   */
+  suspend fun saveBookmark(url: String, title: String? = null): Boolean =
+    withContext(Dispatchers.IO) {
+      val session = appSearchSession ?: return@withContext false
+
+      val trimmedUrl = url.trim()
+      if (trimmedUrl.isEmpty()) return@withContext false
+
+      val displayTitle =
+        title?.takeIf { it.isNotBlank() }
+          ?: trimmedUrl.removePrefix("https://").removePrefix("http://").removeSuffix("/")
+
+      val doc =
+        AppSearchDocument(
+          namespace = "web_saved",
+          id = savedBookmarkId(trimmedUrl),
+          name = displayTitle,
+          score = 1,
+          intentUri = if (!trimmedUrl.startsWith("http")) "https://$trimmedUrl" else trimmedUrl,
+          description = trimmedUrl,
+        )
+
+      try {
+        val request = PutDocumentsRequest.Builder().addDocuments(doc).build()
+        val result = session.putAsync(request).await()
+
+        if (!result.isSuccess) {
+          android.util.Log.e(
+            "SearchRepository",
+            "Failed to save bookmark $trimmedUrl: ${result.failures}",
+          )
+          return@withContext false
+        }
+
+        synchronized(this) {
+          val filtered = documentSnapshot.filter { it.doc.id != doc.id }
+          documentSnapshot = (filtered + wrap(doc)).sortedBy { it.namespaceInt }
+        }
+        saveFastIndexCache()
+        _indexUpdated.emit(Unit)
+        true
+      } catch (e: Exception) {
+        android.util.Log.e("SearchRepository", "Exception saving bookmark $trimmedUrl", e)
+        Sentry.captureException(e)
+        false
       }
     }
 
@@ -1232,14 +1301,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
     }
 
-  suspend fun removeBookmark(id: String) =
+  suspend fun removeBookmark(id: String, namespace: String = "web_bookmarks") =
     withContext(Dispatchers.IO) {
       val session = appSearchSession ?: return@withContext
       try {
         val request =
-          androidx.appsearch.app.RemoveByDocumentIdRequest.Builder("web_bookmarks")
-            .addIds(id)
-            .build()
+          androidx.appsearch.app.RemoveByDocumentIdRequest.Builder(namespace).addIds(id).build()
         val result = session.removeAsync(request).await()
         if (result.isSuccess) {
           android.util.Log.d(
@@ -1255,7 +1322,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         synchronized(this) {
           documentSnapshot =
-            documentSnapshot.filter { !(it.doc.id == id && it.doc.namespace == "web_bookmarks") }
+            documentSnapshot.filter { !(it.doc.id == id && it.doc.namespace == namespace) }
         }
         saveFastIndexCache()
         _indexUpdated.emit(Unit)
@@ -1857,6 +1924,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   private fun documentLookupKey(namespace: String, id: String): String =
     "$namespace$USAGE_KEY_SEPARATOR$id"
+
+  /** Deterministic per-URL id, so re-saving a page updates its bookmark instead of duplicating. */
+  private fun savedBookmarkId(url: String): String = "saved_${url.hashCode()}"
 
   private fun usageKey(namespace: String, id: String): String = "$namespace$USAGE_KEY_SEPARATOR$id"
 
