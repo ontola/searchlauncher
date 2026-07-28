@@ -1,6 +1,8 @@
 package com.searchlauncher.app.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.util.Log
 import androidx.appsearch.app.AppSearchSession
@@ -1104,17 +1106,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       val trimmedUrl = url.trim()
       if (trimmedUrl.isEmpty()) return@withContext
 
-      // Use DataStore for preference
-      val shouldStore =
-        try {
-          context.dataStore.data.map { it[PreferencesKeys.STORE_WEB_HISTORY] ?: true }.first()
-        } catch (e: Exception) {
-          android.util.Log.e("SearchRepository", "Error reading store_web_history pref", e)
-          Sentry.captureException(e)
-          true // Proceed if DataStore fails
-        }
-
-      if (!shouldStore) {
+      if (!isWebHistoryEnabled()) {
         android.util.Log.d("SearchRepository", "Web history storage is disabled in settings")
         return@withContext
       }
@@ -1220,6 +1212,49 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         Sentry.captureException(e)
         false
       }
+    }
+
+  /**
+   * Stores a page's favicon so history and bookmark results can show it instead of a generic globe.
+   *
+   * Honours the web-history preference: writing an icon file for every visited host would leave a
+   * record of browsing on disk that the user asked not to keep. Bookmarked sites are always stored,
+   * since saving them is a deliberate action.
+   */
+  suspend fun saveFavicon(url: String, icon: Bitmap) =
+    withContext(Dispatchers.IO) {
+      val trimmedUrl = url.trim()
+      val host = faviconHost(trimmedUrl) ?: return@withContext
+      val cacheKey = faviconCacheKey(host)
+
+      // onReceivedIcon fires on every page load, so don't rewrite the same file for every page of
+      // a site; refresh only once the stored copy is old enough that the site may have changed it.
+      val cachedAge = iconRepository.diskAgeMillis(cacheKey)
+      if (cachedAge != null && cachedAge < FAVICON_MAX_AGE_MS) return@withContext
+
+      val isBookmarked =
+        documentByNamespaceAndId.containsKey(
+          documentLookupKey("web_saved", savedBookmarkId(trimmedUrl))
+        )
+      if (!isBookmarked && !isWebHistoryEnabled()) return@withContext
+
+      // The WebView owns the bitmap it handed us and may recycle it; keep our own copy.
+      val ownedIcon = runCatching { icon.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
+      if (ownedIcon == null) return@withContext
+
+      val drawable = BitmapDrawable(context.resources, ownedIcon)
+      iconRepository.putMemory(cacheKey, drawable)
+      iconRepository.saveToDisk(cacheKey, drawable, force = true)
+    }
+
+  /** Defaults to enabled if the preference can't be read, matching the setting's own default. */
+  private suspend fun isWebHistoryEnabled(): Boolean =
+    try {
+      context.dataStore.data.map { it[PreferencesKeys.STORE_WEB_HISTORY] ?: true }.first()
+    } catch (e: Exception) {
+      android.util.Log.e("SearchRepository", "Error reading store_web_history pref", e)
+      Sentry.captureException(e)
+      true
     }
 
   suspend fun removeFromIndex(namespace: String, id: String) =
@@ -1342,6 +1377,16 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         synchronized(this) {
           documentSnapshot = documentSnapshot.filter { it.doc.namespace != "web_bookmarks" }
         }
+        // Drop favicons for sites that only history referenced; saved bookmarks keep theirs.
+        iconRepository.clearFavicons(
+          keepKeys =
+            documentSnapshot
+              .asSequence()
+              .filter { it.doc.namespace == "web_saved" }
+              .mapNotNull { it.doc.intentUri?.let(::faviconHost) }
+              .map(::faviconCacheKey)
+              .toSet()
+        )
         saveFastIndexCache()
         _indexUpdated.emit(Unit)
         android.util.Log.d("SearchRepository", "Cleared all web history")

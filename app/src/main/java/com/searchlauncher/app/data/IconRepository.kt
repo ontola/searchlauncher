@@ -92,9 +92,35 @@ class IconRepository(private val context: Context) {
       }
     }
 
+  /** Age of a cached icon file, or null when it isn't cached. */
+  fun diskAgeMillis(id: String): Long? =
+    File(getIconDir(), "${sanitizeId(id)}.png")
+      .takeIf { it.exists() }
+      ?.let { System.currentTimeMillis() - it.lastModified() }
+
+  /**
+   * Clears cached app and shortcut icons, which callers rebuild from the package manager.
+   *
+   * Favicons are kept: nothing can rebuild them, since they only arrive when a page is loaded in
+   * the browser, so wiping them would leave history and bookmarks iconless until every site was
+   * visited again. Use [clearFavicons] to remove those deliberately.
+   */
   fun clearDisk() {
-    getIconDir().deleteRecursively()
-    getIconDir().mkdirs()
+    getIconDir().listFiles()?.forEach { file ->
+      if (!file.name.startsWith(FAVICON_KEY_PREFIX)) file.delete()
+    }
+  }
+
+  /** Removes stored favicons except those in [keepKeys], which are still referenced. */
+  fun clearFavicons(keepKeys: Set<String>) {
+    val keep = keepKeys.mapTo(mutableSetOf(), ::sanitizeId)
+    getIconDir().listFiles()?.forEach { file ->
+      if (file.name.startsWith(FAVICON_KEY_PREFIX) && file.nameWithoutExtension !in keep) {
+        file.delete()
+      }
+    }
+    // The memory cache can't be filtered by key, and dropping app icons only costs a reload.
+    clearMemory()
   }
 
   private fun getIconDir() = File(context.filesDir, "favorite_icons").apply { mkdirs() }

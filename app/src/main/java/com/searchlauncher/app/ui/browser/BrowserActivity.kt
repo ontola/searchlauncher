@@ -730,6 +730,17 @@ private fun BrowserScreen(
                     fullscreenVideoView = null
                     fullscreenVideoCallback = null
                   }
+
+                  // searchRepository is null in private mode, so incognito browsing never writes
+                  // favicons to disk.
+                  override fun onReceivedIcon(view: WebView?, icon: Bitmap?) {
+                    val pageUrl = view?.url ?: return
+                    val pageIcon = icon ?: return
+                    val repository = searchRepository ?: return
+                    (context as BrowserActivity).lifecycleScope.launch {
+                      repository.saveFavicon(pageUrl, pageIcon)
+                    }
+                  }
                 }
               webViewClient =
                 object : WebViewClient() {

@@ -36,8 +36,8 @@ class SearchResultFactory(
       "app_shortcuts" ->
         createAppShortcutResult(sdoc, rankingScore, saveToDisk, allowIpc, allowDisk)
       "search_shortcuts" -> createSearchShortcutResult(sdoc, rankingScore)
-      "web_bookmarks" -> createWebBookmarkResult(sdoc, rankingScore, saved = false)
-      "web_saved" -> createWebBookmarkResult(sdoc, rankingScore, saved = true)
+      "web_bookmarks" -> createWebBookmarkResult(sdoc, rankingScore, saved = false, allowDisk)
+      "web_saved" -> createWebBookmarkResult(sdoc, rankingScore, saved = true, allowDisk)
       "static_shortcuts" ->
         createStaticShortcutResult(sdoc, rankingScore, saveToDisk, allowIpc, allowDisk)
       "contacts" -> createContactResult(sdoc, rankingScore, query, allowIpc)
@@ -139,16 +139,27 @@ class SearchResultFactory(
     sdoc: SearchableDocument,
     rankingScore: Int,
     saved: Boolean,
+    allowDisk: Boolean,
   ): SearchResult.Content {
     val doc = sdoc.doc
-    val browserIcon = context.getDrawable(com.searchlauncher.app.R.drawable.ic_globe)
+    val host = doc.intentUri?.let { faviconHost(it) }
+    val favicon = host?.let { loadCachedIcon(faviconCacheKey(it), allowDisk) }
+
+    // On the fast path a missing favicon yields no icon at all rather than the globe, so the item
+    // asks for a full load; that pass reads the disk cache and falls back to the globe.
+    val icon =
+      when {
+        favicon != null -> favicon
+        allowDisk -> context.getDrawable(R.drawable.ic_globe)
+        else -> null
+      }
 
     return SearchResult.Content(
       id = doc.id,
       namespace = if (saved) "web_saved" else "web_bookmarks",
       title = doc.name,
       subtitle = if (saved) "Bookmark" else "Browser history",
-      icon = browserIcon,
+      icon = icon,
       packageName = "com.android.chrome",
       deepLink = doc.intentUri,
       rankingScore = rankingScore,
