@@ -64,6 +64,7 @@ import com.searchlauncher.app.ui.WidgetHostViewFactory
 import com.searchlauncher.app.ui.dataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -102,9 +103,13 @@ fun WallpaperBackground(
           0
         }
 
-      // Map global infinite index to our desired loop position
-      val targetPage = startIndex - startOffset + targetIndex
-      pagerState.scrollToPage(targetPage)
+      // Already showing the wanted image: re-running this effect (the saved URI is rewritten
+      // whenever the page settles) must not yank the pager back to the canonical page.
+      if (pagerState.currentPage % folderImages.size != targetIndex) {
+        // Map global infinite index to our desired loop position
+        val targetPage = startIndex - startOffset + targetIndex
+        pagerState.scrollToPage(targetPage)
+      }
     }
   }
 
@@ -135,9 +140,9 @@ fun WallpaperBackground(
   // Visibility toggle for widgets
   val showWidgetsFlow =
     remember(context) {
-      context.dataStore.data.map { preferences ->
-        preferences[PreferencesKeys.SHOW_WIDGETS] ?: true
-      }
+      context.dataStore.data
+        .map { preferences -> preferences[PreferencesKeys.SHOW_WIDGETS] ?: true }
+        .distinctUntilChanged()
     }
   val showWidgets by showWidgetsFlow.collectAsState(initial = true)
 

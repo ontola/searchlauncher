@@ -30,6 +30,7 @@ import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -629,15 +630,17 @@ class MainActivity : ComponentActivity() {
 
     // Hoist wallpaper state
     val lastImageUriString by
-      remember { context.dataStore.data.map { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] } }
+      remember {
+          context.dataStore.data
+            .map { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] }
+            .distinctUntilChanged()
+        }
         .collectAsState(initial = null)
 
     val app = context.applicationContext as SearchLauncherApp
+    // Passed straight to the background: mirroring this into local state made it start empty and
+    // briefly render the no-wallpaper branch before the copying effect had run.
     val managedWallpapers by app.wallpaperRepository.wallpapers.collectAsState()
-
-    var folderImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
-
-    LaunchedEffect(managedWallpapers) { folderImages = managedWallpapers }
 
     // Handle back press
     BackHandler(enabled = currentScreenState != Screen.Search) {
@@ -822,7 +825,7 @@ class MainActivity : ComponentActivity() {
               searchRepository = app.searchRepository,
               focusTrigger = focusTrigger,
               showBackgroundImage = true,
-              folderImages = folderImages,
+              folderImages = managedWallpapers,
               lastImageUriString = lastImageUriString,
               onAddWidget = { requestWidgetPick() },
               isActive = currentScreenState == Screen.Search,
