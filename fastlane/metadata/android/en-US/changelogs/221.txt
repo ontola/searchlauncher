@@ -1,0 +1,8 @@
+Browser tabs overview, reachable from the home screen.
+
+- Swipe up on the search bar to see every browser tab as a live preview, with its icon and address. Works in the browser and on the home screen.
+- Flick a tab card up or tap its ✕ to close it, or close them all at once.
+- Swipe the home screen's search bar sideways to slide into your newest tab, and swipe past the last tab to come back.
+- Browser tabs now survive leaving the browser.
+- Search bar autocorrect is off by default, so queries stay literal. Turn it back on under Settings, Search.
+- The search overlay rises with the keyboard and blurs the page behind it.

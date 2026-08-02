@@ -7,7 +7,8 @@ Android app that lets you search everything on your phone, and more.
 - **Direct keyboard access** - Your homescreen now has a keyboard!
 - **Search everything on your phone** - Apps, their shortcuts, device settings, sorted smartly by usage.
 - **Search everything on the web** - Youtube, google, bing, maps, spotify... Or add your own custom shortcuts!
-- **Built-in ad-free browser** - Opens web results in-app, blocking ads and trackers by default. Swipe the search bar sideways to switch tabs, and browse privately in an isolated window.
+- **Built-in ad-free browser** - Opens web results in-app, blocking ads and trackers by default. Browse privately in an isolated window.
+- **Tabs at your thumb** - Swipe the search bar sideways to switch tabs, or up to see them all as live previews. Both work from the home screen too: swipe sideways to drop straight back into your last tab.
 - **Bookmarks & history** - Save any page under a title you choose, then find it back from the search bar. Pages you visit are searchable too, and both show the site's icon.
 - **Speed** - Lightweight, fast!
 - **Swipe Wallpapers** - Your background is an interactive picture album.
