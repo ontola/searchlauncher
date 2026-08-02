@@ -63,6 +63,9 @@ class SearchLauncherApp : Application() {
     if (::searchRepository.isInitialized) {
       searchRepository.trimMemory(level)
     }
+    // Browser tabs outlive their activity so the launcher can swipe back into them; their page
+    // previews are a few megabytes each and are the first thing worth giving back.
+    com.searchlauncher.app.ui.browser.BrowserTabStore.trimSnapshots()
   }
 
   private fun checkConsentAndInitSentry() {

@@ -11,10 +11,14 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.SpeechRecognizer
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -44,8 +48,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -57,6 +63,14 @@ import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.browser.BrowserActivity
+import com.searchlauncher.app.ui.browser.BrowserTabStore
+import com.searchlauncher.app.ui.browser.BrowserTabSwipePreview
+import com.searchlauncher.app.ui.browser.BrowserTabs
+import com.searchlauncher.app.ui.browser.BrowserTabsOverviewLayer
+import com.searchlauncher.app.ui.browser.TAB_CARD_WIDTH_FRACTION
+import com.searchlauncher.app.ui.browser.TAB_STRIP_LABEL_HEIGHT
+import com.searchlauncher.app.ui.browser.browserTabSwipe
+import com.searchlauncher.app.ui.browser.rememberBrowserTabSwipeState
 import com.searchlauncher.app.ui.components.BookmarkDialog
 import com.searchlauncher.app.ui.components.ConsentDialog
 import com.searchlauncher.app.ui.components.FavoritesRow
@@ -91,6 +105,7 @@ fun SearchScreen(
   showBackgroundImage: Boolean = false,
   folderImages: List<Uri> = emptyList(),
   lastImageUriString: String? = null,
+  savedUriResolved: Boolean = true,
   onAddWidget: () -> Unit = {},
   isActive: Boolean = true,
   privateWebResults: Boolean = false,
@@ -98,6 +113,14 @@ fun SearchScreen(
   fixedHint: String? = null,
   onOpenBrowserContext: (() -> Unit)? = null,
   chromeBarColor: Color? = null,
+  /** Home screen only: drag the chrome bar sideways to pull the newest browser tab back in. */
+  browserTabSwipeEnabled: Boolean = false,
+  /**
+   * Let the chrome bar rise with the keyboard instead of reserving its height up front. Right for
+   * the search overlay, which opens as the keyboard comes up; the home screen keeps the space
+   * reserved so its layout doesn't shift underneath the user.
+   */
+  riseWithKeyboard: Boolean = false,
 ) {
   var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
   var isLoading by remember { mutableStateOf(false) }
@@ -142,6 +165,9 @@ fun SearchScreen(
       .collectAsState(initial = false)
   val minIconSizeSetting by
     remember { MinIconSize.flow(context) }.collectAsState(initial = MinIconSize.cached(context))
+  val autocorrectEnabled by
+    remember { context.dataStore.data.map { it[PreferencesKeys.SEARCH_AUTOCORRECT] ?: false } }
+      .collectAsState(initial = false)
   val defaultSearchEngineId by
     remember {
         context.dataStore.data.map { it[PreferencesKeys.DEFAULT_SEARCH_ENGINE] ?: "google" }
@@ -487,14 +513,89 @@ fun SearchScreen(
 
   // The effective padding is the max of current IME or stored IME height
   // In multi-window/floating mode, we ignore stored height to avoid unnecessary gaps
+  val navigationBarBottomPx = WindowInsets.navigationBars.getBottom(density)
   val bottomPadding =
     with(density) {
-      if (isMultiWindow) {
-        imeHeightPx.toDp()
-      } else {
-        kotlin.math.max(imeHeightPx, storedKeyboardHeight).toDp()
+      when {
+        // Tracks the IME inset frame by frame as the keyboard animates in, so the bar travels up
+        // with the keys. Reserving the stored height instead would park it at the final position
+        // before the keyboard has even started to appear. At rest it sits above the navigation
+        // bar, which is where the bar it replaces sits.
+        riseWithKeyboard -> kotlin.math.max(imeHeightPx, navigationBarBottomPx).toDp()
+        isMultiWindow -> imeHeightPx.toDp()
+        else -> kotlin.math.max(imeHeightPx, storedKeyboardHeight).toDp()
       }
     }
+
+  val browserTabSwipe = rememberBrowserTabSwipeState()
+  var chromeBarHeightPx by remember { mutableIntStateOf(0) }
+  var favoritesRowHeightPx by remember { mutableIntStateOf(0) }
+  val favoritesRowVisible = query.isEmpty() && (favorites.isNotEmpty() || historyItems.isNotEmpty())
+  /** Everything pinned to the bottom of the home screen: the favorites row and the chrome bar. */
+  val bottomSectionHeightPx =
+    chromeBarHeightPx + if (favoritesRowVisible) favoritesRowHeightPx else 0
+  // Tabs overview, opened by the same up-swipe on the chrome bar that opens it in the browser.
+  // The tabs are the browser's own live objects, so closing one here closes it there too.
+  var overviewTabs by remember { mutableStateOf<BrowserTabs?>(null) }
+  var tabsOverviewOpen by remember { mutableStateOf(false) }
+  var tabsOverviewRendered by remember { mutableStateOf(false) }
+  val tabsOverviewProgress by
+    animateFloatAsState(
+      targetValue = if (tabsOverviewOpen) 1f else 0f,
+      animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 380f),
+      label = "tabsOverview",
+      finishedListener = { settled -> if (settled == 0f) tabsOverviewRendered = false },
+    )
+
+  fun openTabsOverview() {
+    // Nothing to show when the browser has never run, or its last tab was closed.
+    val stored = BrowserTabStore.tabs?.takeIf { it.items.isNotEmpty() } ?: return
+    overviewTabs = stored
+    tabsOverviewRendered = true
+    tabsOverviewOpen = true
+  }
+
+  fun openBrowserTab(index: Int) {
+    tabsOverviewOpen = false
+    context.startActivity(BrowserActivity.createResumeIntent(context, index))
+  }
+
+  fun closeBrowserTab(index: Int) {
+    val stored = overviewTabs ?: return
+    // The last tab going away means there is no browser left to return to.
+    if (stored.items.size == 1) {
+      BrowserTabStore.clear()
+      tabsOverviewOpen = false
+    } else {
+      stored.close(index)
+    }
+  }
+
+  BackHandler(enabled = tabsOverviewOpen) { tabsOverviewOpen = false }
+
+  // Pressing home while already on the launcher never stops the activity, so the lifecycle reset
+  // below cannot catch it. The launcher bumps this instead whenever a home intent arrives, and
+  // "take me home" has to mean a clean home screen, tab strip included.
+  LaunchedEffect(focusTrigger) { if (focusTrigger != 0L) tabsOverviewOpen = false }
+  // The preview is deliberately left covering the screen while the browser starts, so it has to be
+  // cleared once the launcher is out of sight (or back in front, if the browser never took over).
+  val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+  DisposableEffect(lifecycleOwner) {
+    val observer =
+      androidx.lifecycle.LifecycleEventObserver { _, event ->
+        if (
+          event == androidx.lifecycle.Lifecycle.Event.ON_STOP ||
+            event == androidx.lifecycle.Lifecycle.Event.ON_RESUME
+        ) {
+          browserTabSwipe.reset()
+          // Leaving the launcher ends the overview with it, so coming back later never lands on a
+          // tab strip describing whatever the browser was doing minutes ago.
+          tabsOverviewOpen = false
+        }
+      }
+    lifecycleOwner.lifecycle.addObserver(observer)
+    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+  }
 
   SearchLauncherTheme(
     themeColor = themeColor,
@@ -641,12 +742,17 @@ fun SearchScreen(
           }
         }
 
-      Box(modifier = Modifier.fillMaxSize()) {
+      // The wallpaper, widgets, results and chrome bar all ride the tab swipe together, so the
+      // launcher leaves as one screen rather than as a hole opening around a floating preview.
+      val homeSwipeOffset = Modifier.graphicsLayer { translationX = browserTabSwipe.offsetPx }
+
+      Box(modifier = Modifier.fillMaxSize().then(homeSwipeOffset)) {
         WallpaperBackground(
           showBackgroundImage = showBackgroundImage,
           bottomPadding = bottomPadding,
           folderImages = folderImages,
           lastImageUriString = lastImageUriString,
+          savedUriResolved = savedUriResolved,
           modifier = Modifier.fillMaxSize(),
           onOpenAppDrawer = {
             scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeAppDrawer) }
@@ -737,6 +843,59 @@ fun SearchScreen(
         }
       }
 
+      if (browserTabSwipeEnabled) {
+        BrowserTabSwipePreview(
+          state = browserTabSwipe,
+          chromeHeight = with(density) { chromeBarHeightPx.toDp() },
+        )
+      }
+
+      // Above the wallpaper but below the chrome bar, which keeps working while the strip is up —
+      // exactly how the overview sits in the browser.
+      overviewTabs
+        ?.takeIf { tabsOverviewRendered }
+        ?.let { tabs ->
+          // Cards are sized for the browser's content area, not the launcher's, so a preview here
+          // is the same shape as the one the tab will open into.
+          val statusBarTopPx = WindowInsets.statusBars.getTop(density)
+          val browserChromePx =
+            WindowInsets.navigationBars.getBottom(density) +
+              chromeBarHeightPx +
+              with(density) { 12.dp.roundToPx() }
+          val bottomInset = bottomPadding + with(density) { bottomSectionHeightPx.toDp() } + 12.dp
+          BrowserTabsOverviewLayer(
+            tabs = tabs.items,
+            activeIndex = tabs.activeIndex,
+            progress = { tabsOverviewProgress },
+            // Not quite opaque: the wallpaper stays faintly visible, so the overview reads as a
+            // layer over the home screen rather than as another app.
+            scrimColor = MaterialTheme.colorScheme.background.copy(alpha = 0.94f),
+            contentColor = MaterialTheme.colorScheme.onBackground,
+            cardWidth =
+              with(density) { (browserTabSwipe.viewportWidthPx * TAB_CARD_WIDTH_FRACTION).toDp() },
+            previewAspectRatio =
+              browserTabSwipe.viewportWidthPx.toFloat() /
+                (browserTabSwipe.viewportHeightPx - statusBarTopPx - browserChromePx).coerceAtLeast(
+                  1
+                ),
+            // The launcher's bar sits above the keyboard reserve, leaving the strip less room than
+            // it has in the browser.
+            maxPreviewHeight =
+              with(density) { browserTabSwipe.viewportHeightPx.toDp() } -
+                bottomInset -
+                with(density) { statusBarTopPx.toDp() } -
+                TAB_STRIP_LABEL_HEIGHT,
+            bottomInset = bottomInset,
+            onDismiss = { tabsOverviewOpen = false },
+            onSelect = ::openBrowserTab,
+            onCloseTab = ::closeBrowserTab,
+            onCloseAll = {
+              BrowserTabStore.clear()
+              tabsOverviewOpen = false
+            },
+          )
+        }
+
       if (showBackgroundMenu) {
         DropdownMenu(
           expanded = showBackgroundMenu,
@@ -804,6 +963,7 @@ fun SearchScreen(
       Column(
         modifier =
           Modifier.fillMaxSize()
+            .then(homeSwipeOffset)
             .padding(bottom = bottomPadding) // Push content up by reserved space
             .padding(top = 16.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.Bottom,
@@ -1127,28 +1287,42 @@ fun SearchScreen(
           Spacer(modifier = Modifier.height(4.dp))
         }
 
-        if (query.isEmpty() && (favorites.isNotEmpty() || historyItems.isNotEmpty())) {
-          FavoritesRow(
-            favorites = favorites,
-            history = historyItems,
-            historyLimit = historyLimit,
-            minIconSizeSetting = minIconSizeSetting,
-            onLaunch = { result ->
-              resultLauncher.launch(result, reportUsage = true)
-              onDismiss()
-            },
-            onToggleFavorite = { result -> app.favoritesRepository.toggleFavorite(result.id) },
-            onReorder = { newOrder ->
-              app.favoritesRepository.updateOrder(newOrder)
-              scope.launch { onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites) }
-            },
-            onCapacityChanged = { limit -> searchRepository.updateObservedHistoryLimit(limit) },
-          )
-          Spacer(modifier = Modifier.height(2.dp))
+        // Measured as a block: the tabs overview stacks on top of the whole bottom section, so an
+        // open favorites row has to push the strip up with it rather than be drawn over.
+        if (favoritesRowVisible) {
+          Column(modifier = Modifier.onSizeChanged { favoritesRowHeightPx = it.height }) {
+            FavoritesRow(
+              favorites = favorites,
+              history = historyItems,
+              historyLimit = historyLimit,
+              minIconSizeSetting = minIconSizeSetting,
+              onLaunch = { result ->
+                resultLauncher.launch(result, reportUsage = true)
+                onDismiss()
+              },
+              onToggleFavorite = { result -> app.favoritesRepository.toggleFavorite(result.id) },
+              onReorder = { newOrder ->
+                app.favoritesRepository.updateOrder(newOrder)
+                scope.launch { onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites) }
+              },
+              onCapacityChanged = { limit -> searchRepository.updateObservedHistoryLimit(limit) },
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+          }
         }
 
         SearchChromeBar(
           isIndexing = isIndexing,
+          modifier =
+            Modifier.onSizeChanged { chromeBarHeightPx = it.height }
+              .browserTabSwipe(
+                state = browserTabSwipe,
+                enabled = browserTabSwipeEnabled,
+                onOpenTabsOverview = ::openTabsOverview,
+                onOpenLastTab = {
+                  context.startActivity(BrowserActivity.createResumeIntent(context))
+                },
+              ),
           color = chromeBarColor ?: MaterialTheme.colorScheme.surface,
           contentColor =
             chromeBarColor?.let {
@@ -1257,7 +1431,10 @@ fun SearchScreen(
               },
             textStyle =
               LocalTextStyle.current.copy(fontSize = 16.sp, color = LocalContentColor.current),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+            // Autocorrect off keeps the query literal: package names, commands and URL fragments
+            // are not dictionary words, and a silent rewrite is harder to notice than a typo.
+            keyboardOptions =
+              KeyboardOptions(imeAction = ImeAction.Go, autoCorrectEnabled = autocorrectEnabled),
             keyboardActions =
               KeyboardActions(
                 onGo = {

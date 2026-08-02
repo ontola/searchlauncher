@@ -1,7 +1,11 @@
 package com.searchlauncher.app.ui
 
+import android.animation.ValueAnimator
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -29,6 +33,8 @@ class SearchActivity : ComponentActivity() {
       android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING or
         android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
     )
+
+    animateBackdropBlur()
 
     setContent {
       val context = LocalContext.current
@@ -70,11 +76,46 @@ class SearchActivity : ComponentActivity() {
             }
           } else null,
         chromeBarColor = chromeBarColor,
+        // This overlay always opens together with the keyboard, so the bar rides up with it
+        // rather than appearing already parked above where the keys will land.
+        riseWithKeyboard = true,
       )
     }
   }
 
+  /**
+   * Pushes whatever is behind this translucent window — the web page, the launcher — out of focus,
+   * ramping the radius up so the backdrop settles along with the rest of the overlay instead of
+   * snapping out of focus the instant the search opens.
+   *
+   * Cross-window blur arrived in Android 12 and the system can switch it off at any time (battery
+   * saver, low-end devices, developer setting). Where it is unavailable the overlay simply keeps
+   * the dim it already had.
+   */
+  private fun animateBackdropBlur() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+    if (!windowManager.isCrossWindowBlurEnabled) return
+
+    window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+    val targetRadiusPx = (BACKDROP_BLUR_RADIUS_DP * resources.displayMetrics.density).toInt()
+    ValueAnimator.ofInt(0, targetRadiusPx).apply {
+      duration = BACKDROP_BLUR_DURATION_MS
+      interpolator = DecelerateInterpolator()
+      addUpdateListener { animator ->
+        // Reassigning is what commits the change; mutating the params in place does nothing.
+        window.attributes =
+          window.attributes.apply { blurBehindRadius = animator.animatedValue as Int }
+      }
+      start()
+    }
+  }
+
   companion object {
+    /** Enough to make text behind the overlay unreadable without turning it into a smear. */
+    private const val BACKDROP_BLUR_RADIUS_DP = 16f
+    /** Roughly the keyboard's own entrance, so the two land together. */
+    private const val BACKDROP_BLUR_DURATION_MS = 250L
+
     const val EXTRA_PRIVATE_WEB_RESULTS = "private_web_results"
     const val EXTRA_START_VOICE_SEARCH = "start_voice_search"
     const val EXTRA_BROWSER_SEARCH = "browser_search"

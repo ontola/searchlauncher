@@ -19,6 +19,8 @@ internal class BrowserTab(initialUrl: String) {
   var desktopMode by mutableStateOf(false)
   var pageBackgroundArgb by mutableIntStateOf(0xff000000.toInt())
   var snapshot by mutableStateOf<Bitmap?>(null)
+  /** Site icon as the WebView reported it, shown next to the tab's address in the overview. */
+  var favicon by mutableStateOf<Bitmap?>(null)
   var webViewState: Bundle? = null
   /**
    * Requests the ad blocker rejected for the page currently loaded in this tab. Incremented from
@@ -39,7 +41,7 @@ internal class BrowserTabs(initialUrl: String) {
   fun add(url: String): BrowserTab {
     if (items.size >= MAX_TABS) {
       val removableIndex = items.indices.firstOrNull { it != activeIndex } ?: 0
-      items.removeAt(removableIndex).snapshot?.recycle()
+      items.removeAt(removableIndex)
       if (removableIndex < activeIndex) activeIndex--
     }
     val tab = BrowserTab(url)
@@ -54,13 +56,30 @@ internal class BrowserTabs(initialUrl: String) {
     return active
   }
 
+  /** Used when re-entering the browser from the launcher, which always lands on the newest tab. */
+  fun activateLast() {
+    activeIndex = items.lastIndex
+  }
+
   fun adjacent(direction: Int): BrowserTab? = items.getOrNull(activeIndex + direction)
 
   fun closeActive(): BrowserTab? {
     if (items.size == 1) return null
-    val removed = items.removeAt(activeIndex)
-    removed.snapshot?.recycle()
+    items.removeAt(activeIndex)
     activeIndex = activeIndex.coerceAtMost(items.lastIndex)
+    return active
+  }
+
+  /**
+   * Removes [index], returning the tab that is active afterwards, or null when [index] was the only
+   * remaining tab (the caller decides what "no tabs left" means).
+   */
+  fun close(index: Int): BrowserTab? {
+    if (index !in items.indices || items.size == 1) return null
+    items.removeAt(index)
+    if (index < activeIndex || activeIndex > items.lastIndex) {
+      activeIndex = (activeIndex - 1).coerceIn(0, items.lastIndex)
+    }
     return active
   }
 
@@ -69,14 +88,52 @@ internal class BrowserTabs(initialUrl: String) {
   }
 }
 
+/**
+ * Process-wide home of the (non-private) browser tabs. Tabs used to live in [BrowserActivity]'s
+ * composition, which meant they died with the activity — the launcher home screen could not preview
+ * the last tab, and returning to the browser lost everything. Private browsing runs in its own
+ * process and keeps its tabs activity-local, so it never touches this.
+ */
+internal object BrowserTabStore {
+  var tabs: BrowserTabs? = null
+    private set
+
+  fun adopt(tabs: BrowserTabs) {
+    this.tabs = tabs
+  }
+
+  fun lastTab(): BrowserTab? = tabs?.items?.lastOrNull()
+
+  /** A negative [index] means "the newest tab", which is where a launcher swipe always lands. */
+  fun activate(index: Int) {
+    val current = tabs ?: return
+    if (index < 0) current.activateLast() else current.activate(index)
+  }
+
+  fun clear() {
+    tabs = null
+  }
+
+  /**
+   * Drops every preview except the visible tab's under memory pressure. Snapshots are only a
+   * rendering nicety, and each is a few megabytes; they are dropped rather than recycled because a
+   * composition may still be drawing one.
+   */
+  fun trimSnapshots() {
+    val current = tabs ?: return
+    current.items.forEachIndexed { index, tab ->
+      if (index != current.activeIndex) tab.snapshot = null
+    }
+  }
+}
+
 internal fun saveWebViewIntoTab(webView: WebView, tab: BrowserTab) {
   tab.url = webView.url ?: tab.url
   tab.title = webView.title
   tab.webViewState = Bundle().also(webView::saveState)
-  captureWebViewSnapshot(webView)?.let { snapshot ->
-    tab.snapshot?.takeUnless(Bitmap::isRecycled)?.recycle()
-    tab.snapshot = snapshot
-  }
+  // The replaced snapshot is dropped rather than recycled: the same bitmap may still be on screen
+  // (the tabs overview, a settling swipe), and drawing a recycled bitmap crashes.
+  captureWebViewSnapshot(webView)?.let { snapshot -> tab.snapshot = snapshot }
 }
 
 private fun captureWebViewSnapshot(webView: WebView): Bitmap? {

@@ -36,6 +36,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * The stored wallpaper choice, where a null [uri] means none was saved rather than not yet read.
+ */
+private data class SavedWallpaper(val uri: String?)
+
 class MainActivity : ComponentActivity() {
 
   // Export state
@@ -629,13 +634,17 @@ class MainActivity : ComponentActivity() {
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     // Hoist wallpaper state
-    val lastImageUriString by
+    // Wrapped so that "DataStore hasn't answered yet" is distinguishable from "no wallpaper
+    // saved": both look like null, and treating the former as the latter made the background
+    // open on the first image before correcting itself to the saved one.
+    val savedWallpaper by
       remember {
           context.dataStore.data
-            .map { it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] }
+            .map { SavedWallpaper(it[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI]) }
             .distinctUntilChanged()
         }
         .collectAsState(initial = null)
+    val lastImageUriString = savedWallpaper?.uri
 
     val app = context.applicationContext as SearchLauncherApp
     // Passed straight to the background: mirroring this into local state made it start empty and
@@ -827,8 +836,10 @@ class MainActivity : ComponentActivity() {
               showBackgroundImage = true,
               folderImages = managedWallpapers,
               lastImageUriString = lastImageUriString,
+              savedUriResolved = savedWallpaper != null,
               onAddWidget = { requestWidgetPick() },
               isActive = currentScreenState == Screen.Search,
+              browserTabSwipeEnabled = true,
             )
           }
           Screen.Settings -> {

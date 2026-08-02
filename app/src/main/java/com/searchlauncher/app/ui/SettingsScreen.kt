@@ -580,6 +580,9 @@ private fun DefaultSearchEngineCard() {
       .collectAsState(initial = "google")
   val selectedEngine = engines.firstOrNull { it.id == selectedEngineId } ?: engines.firstOrNull()
   var menuExpanded by remember { mutableStateOf(false) }
+  val autocorrectEnabled by
+    remember { context.dataStore.data.map { it[PreferencesKeys.SEARCH_AUTOCORRECT] ?: false } }
+      .collectAsState(initial = false)
 
   Card(modifier = Modifier.fillMaxWidth()) {
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -618,6 +621,35 @@ private fun DefaultSearchEngineCard() {
             }
           }
         }
+      }
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(text = "Keyboard autocorrect", style = MaterialTheme.typography.bodyMedium)
+          Text(
+            text =
+              "Let the keyboard correct what you type in the search bar. Off keeps queries " +
+                "literal, which suits app names and URLs. Some keyboards still show suggestions " +
+                "above the keys; those only apply when tapped.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Switch(
+          checked = autocorrectEnabled,
+          onCheckedChange = { enabled ->
+            scope.launch {
+              context.dataStore.edit { preferences ->
+                preferences[PreferencesKeys.SEARCH_AUTOCORRECT] = enabled
+              }
+            }
+          },
+        )
       }
     }
   }

@@ -68,6 +68,76 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
+/**
+ * Page of the endlessly looping pager that shows [uriString], defaulting to the first image.
+ *
+ * The loop is centred on the middle of the index space so swiping backwards works from the start.
+ */
+private fun pageShowing(images: List<Uri>, uriString: String?): Int {
+  val startIndex = Int.MAX_VALUE / 2
+  val imageIndex = uriString?.let { images.indexOf(Uri.parse(it)) }?.takeIf { it >= 0 } ?: 0
+  return startIndex - (startIndex % images.size) + imageIndex
+}
+
+@Composable
+private fun WallpaperPager(
+  folderImages: List<Uri>,
+  lastImageUriString: String?,
+  contentModifier: Modifier,
+  onPageChanged: (Uri) -> Unit,
+) {
+  val context = LocalContext.current
+  // Only read when the state is first created, which is why this composable waits for the saved
+  // URI: the pager opens on the right image instead of correcting itself a frame later.
+  val pagerState =
+    rememberPagerState(
+      initialPage = remember { pageShowing(folderImages, lastImageUriString) },
+      pageCount = { Int.MAX_VALUE },
+    )
+
+  // Follow the saved URI when something else changes it, such as adding a wallpaper in settings.
+  LaunchedEffect(folderImages, lastImageUriString) {
+    val targetPage = pageShowing(folderImages, lastImageUriString)
+    // Already showing the wanted image: the saved URI is rewritten whenever a page settles, and
+    // that must not yank the pager back to the canonical page.
+    if (pagerState.currentPage % folderImages.size != targetPage % folderImages.size) {
+      pagerState.scrollToPage(targetPage)
+    }
+  }
+
+  val currentOnPageChanged by androidx.compose.runtime.rememberUpdatedState(onPageChanged)
+
+  // Save current image URI when page changes
+  LaunchedEffect(pagerState, folderImages) {
+    snapshotFlow { pagerState.currentPage }
+      .collect { page ->
+        val currentUri = folderImages[page % folderImages.size]
+        currentOnPageChanged(currentUri)
+
+        if (currentUri.toString() != lastImageUriString) {
+          context.dataStore.edit { prefs ->
+            prefs[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] = currentUri.toString()
+          }
+        }
+      }
+  }
+
+  HorizontalPager(
+    state = pagerState,
+    modifier = Modifier.fillMaxSize(),
+    userScrollEnabled = folderImages.size > 1,
+  ) { page ->
+    Box(modifier = Modifier.fillMaxSize()) {
+      AsyncImage(
+        model = folderImages[page % folderImages.size],
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = contentModifier,
+      )
+    }
+  }
+}
+
 @Composable
 fun WallpaperBackground(
   showBackgroundImage: Boolean,
@@ -81,61 +151,11 @@ fun WallpaperBackground(
   onPageChanged: (Uri) -> Unit = {},
   onSwipeDownLeft: () -> Unit = {},
   onSwipeDownRight: () -> Unit = {},
+  savedUriResolved: Boolean = true,
 ) {
   val context = LocalContext.current
 
   val contentModifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
-  val pagerState =
-    rememberPagerState(pageCount = { if (folderImages.isNotEmpty()) Int.MAX_VALUE else 0 })
-
-  // Scroll to saved page or random page initially when images are loaded
-  LaunchedEffect(folderImages, lastImageUriString) {
-    if (folderImages.isNotEmpty()) {
-      val startIndex = Int.MAX_VALUE / 2
-      val startOffset = startIndex % folderImages.size
-
-      val targetIndex =
-        if (lastImageUriString != null) {
-          val uri = Uri.parse(lastImageUriString)
-          val index = folderImages.indexOf(uri)
-          if (index != -1) index else 0
-        } else {
-          0
-        }
-
-      // Already showing the wanted image: re-running this effect (the saved URI is rewritten
-      // whenever the page settles) must not yank the pager back to the canonical page.
-      if (pagerState.currentPage % folderImages.size != targetIndex) {
-        // Map global infinite index to our desired loop position
-        val targetPage = startIndex - startOffset + targetIndex
-        pagerState.scrollToPage(targetPage)
-      }
-    }
-  }
-
-  val currentOnPageChanged by androidx.compose.runtime.rememberUpdatedState(onPageChanged)
-
-  // Save current image URI when page changes
-  LaunchedEffect(pagerState, folderImages) {
-    snapshotFlow { pagerState.currentPage }
-      .collect { page ->
-        if (folderImages.isNotEmpty()) {
-          val actualIndex = page % folderImages.size
-          val currentUri = folderImages[actualIndex]
-
-          // Only trigger if we are "settled" or it's a genuine change?
-          // snapshotFlow emits whenever currentPage updates (which is usually on snap).
-          // We invoke the callback.
-          currentOnPageChanged(currentUri)
-
-          if (currentUri.toString() != lastImageUriString) {
-            context.dataStore.edit { prefs ->
-              prefs[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] = currentUri.toString()
-            }
-          }
-        }
-      }
-  }
 
   // Visibility toggle for widgets
   val showWidgetsFlow =
@@ -180,22 +200,16 @@ fun WallpaperBackground(
           )
         }
   ) {
-    if (showBackgroundImage && folderImages.isNotEmpty()) {
-      HorizontalPager(
-        state = pagerState,
-        modifier = Modifier.fillMaxSize(),
-        userScrollEnabled = folderImages.size > 1,
-      ) { page ->
-        val imageIndex = page % folderImages.size
-        Box(modifier = Modifier.fillMaxSize()) {
-          AsyncImage(
-            model = folderImages[imageIndex],
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = contentModifier,
-          )
-        }
-      }
+    // Held back until the saved wallpaper is known: starting the pager before then showed the
+    // first image and then jumped to the saved one, which read as the background flickering
+    // between two pictures during start-up.
+    if (showBackgroundImage && folderImages.isNotEmpty() && savedUriResolved) {
+      WallpaperPager(
+        folderImages = folderImages,
+        lastImageUriString = lastImageUriString,
+        contentModifier = contentModifier,
+        onPageChanged = onPageChanged,
+      )
     } else {
       // Show system wallpaper through a transparent background when no custom images are selected
       Box(modifier = contentModifier.background(androidx.compose.ui.graphics.Color.Transparent))

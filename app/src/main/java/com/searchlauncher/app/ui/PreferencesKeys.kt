@@ -26,6 +26,13 @@ object PreferencesKeys {
   val AUTO_THEME_FROM_WALLPAPER = booleanPreferencesKey("auto_theme_from_wallpaper")
   val SEARCH_SHORTCUTS_ENABLED = booleanPreferencesKey("search_shortcuts_enabled")
 
+  /**
+   * Whether the keyboard may autocorrect what is typed into the search bar. Off by default: a query
+   * is usually a name, a command or a URL fragment, and having it silently rewritten into a
+   * dictionary word is worse than a typo the user can see.
+   */
+  val SEARCH_AUTOCORRECT = booleanPreferencesKey("search_autocorrect")
+
   /** Id of the [com.searchlauncher.app.data.SearchShortcut] used by the global search button. */
   val DEFAULT_SEARCH_ENGINE = stringPreferencesKey("default_search_engine")
 
