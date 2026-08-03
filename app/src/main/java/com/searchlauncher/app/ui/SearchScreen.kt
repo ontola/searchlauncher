@@ -386,7 +386,7 @@ fun SearchScreen(
         // Only surface the indexing row when there are no live results to show. Background
         // rebuilds keep the previous snapshot searchable and swap when ready.
         val resultsWithIndexing =
-          if (isIndexing && baseResults.isEmpty()) {
+          if (isIndexing && results.isEmpty()) {
             listOf(SearchResult.IndexingIndicator()) + baseResults
           } else {
             baseResults
