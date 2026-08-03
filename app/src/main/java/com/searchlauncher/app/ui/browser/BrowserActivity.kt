@@ -86,8 +86,10 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.lifecycleScope
 import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.data.FavoriteKeys
 import com.searchlauncher.app.data.FavoritesRepository
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.data.favoriteKey
 import com.searchlauncher.app.ui.MinIconSize
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.SearchActivity
@@ -242,8 +244,11 @@ private fun BrowserScreen(
     remember(rawHistoryItems, favoriteIds, historyLimit) {
       if (historyLimit == 0) emptyList()
       else {
+        val favoriteKeys = favoriteIds.toSet()
         val apps =
-          rawHistoryItems.filterIsInstance<SearchResult.App>().filterNot { it.id in favoriteIds }
+          rawHistoryItems.filterIsInstance<SearchResult.App>().filterNot {
+            it.favoriteKey in favoriteKeys
+          }
         if (historyLimit >= 0) apps.take(historyLimit) else apps
       }
     }
@@ -911,7 +916,7 @@ private fun BrowserScreen(
             if (!privateMode) {
               (context.applicationContext as SearchLauncherApp)
                 .favoritesRepository
-                .toggleFavorite(result.id)
+                .toggleFavorite(result)
             }
           },
           onReorder = { ids ->
@@ -1111,7 +1116,9 @@ private fun favoriteApps(favoriteIds: List<String>): State<List<SearchResult.App
   return produceState(emptyList(), favoriteIds) {
     value =
       withContext(Dispatchers.IO) {
-        favoriteIds.mapNotNull { packageName ->
+        // Browser chrome only shows app favorites (PackageManager resolution).
+        favoriteIds.mapNotNull { key ->
+          val packageName = FavoriteKeys.appPackageName(key) ?: return@mapNotNull null
           val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
           if (launchIntent == null) return@mapNotNull null
           val appInfo =

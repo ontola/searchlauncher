@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.data.favoriteKey
 import com.searchlauncher.app.ui.toImageBitmap
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -89,7 +90,7 @@ fun FavoritesRow(
     var draggedItemId by remember { mutableStateOf<String?>(null) }
     var dragPosition by remember { mutableStateOf(Offset.Zero) }
     var totalDragX by remember { mutableStateOf(0f) }
-    var currentOrder by remember(allItems) { mutableStateOf(allItems.map { it.id }) }
+    var currentOrder by remember(allItems) { mutableStateOf(allItems.map { it.favoriteKey }) }
     var showMenuForIndex by remember { mutableStateOf<Int?>(null) }
     var dragBoundaryIndex by remember(boundaryIndex) { mutableStateOf(boundaryIndex) }
     var initialDragIndex by remember { mutableStateOf(-1) }
@@ -101,7 +102,8 @@ fun FavoritesRow(
       val id = draggedItemId ?: return@LaunchedEffect
       val bestIdx = currentOrder.indexOf(id).coerceAtLeast(0)
       val wasFavorite =
-        boundaryIndex > allItems.indexOfFirst { it.id == id }.let { if (it == -1) 0 else it }
+        boundaryIndex >
+          allItems.indexOfFirst { it.favoriteKey == id }.let { if (it == -1) 0 else it }
 
       dragBoundaryIndex =
         if (wasFavorite) {
@@ -114,7 +116,7 @@ fun FavoritesRow(
 
     // Caching icons to prevent flickering
     val iconBitmaps =
-      remember(allItems) { allItems.associate { it.id to it.icon?.toImageBitmap() } }
+      remember(allItems) { allItems.associate { it.favoriteKey to it.icon?.toImageBitmap() } }
 
     // Calculate layout metrics
     // We reserve space for the divider gap if needed
@@ -171,11 +173,11 @@ fun FavoritesRow(
       }
 
       allItems.forEach { result ->
-        key(result.id) {
-          val id = result.id
+        val itemKey = result.favoriteKey
+        key(itemKey) {
           val currentIndex =
-            currentOrder.indexOf(id).takeIf { it != -1 } ?: allItems.indexOf(result)
-          val isGhost = id == draggedItemId
+            currentOrder.indexOf(itemKey).takeIf { it != -1 } ?: allItems.indexOf(result)
+          val isGhost = itemKey == draggedItemId
 
           // Use static position for the Box receiving gestures to avoid fighting the animation
           val displayIndex = if (isGhost) initialDragIndex else currentIndex
@@ -193,17 +195,17 @@ fun FavoritesRow(
                 .size(finalIconSize)
                 .clip(RoundedCornerShape(12.dp))
                 .graphicsLayer { alpha = if (isGhost) 0f else 1f }
-                .pointerInput(result.id) { detectTapGestures(onTap = { onLaunch(result) }) }
-                .pointerInput(result.id, startX, itemWidthPx) {
+                .pointerInput(itemKey) { detectTapGestures(onTap = { onLaunch(result) }) }
+                .pointerInput(itemKey, startX, itemWidthPx) {
                   detectDragGesturesAfterLongPress(
                     onDragStart = { offset ->
-                      val freshIndex = currentOrder.indexOf(id).takeIf { it != -1 } ?: 0
+                      val freshIndex = currentOrder.indexOf(itemKey).takeIf { it != -1 } ?: 0
                       initialDragIndex = freshIndex
 
                       // Calculate CURRENT visual position for smooth handoff
                       val currentVisualXPx = startX + with(density) { animatedRelativeXDp.toPx() }
 
-                      draggedItemId = id
+                      draggedItemId = itemKey
                       dragPosition = Offset(currentVisualXPx + offset.x, offset.y)
                       totalDragX = 0f
                       haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -246,7 +248,7 @@ fun FavoritesRow(
                         showMenuForIndex = finalIdx
                       } else {
                         // REORDER / MOVE Logic
-                        val wasFavorite = favorites.any { it.id == draggedId }
+                        val wasFavorite = favorites.any { it.favoriteKey == draggedId }
                         val isNowInFavoriteZone = finalIdx < boundaryIndex
 
                         if (!wasFavorite && isNowInFavoriteZone) {
@@ -275,7 +277,7 @@ fun FavoritesRow(
                 },
             contentAlignment = Alignment.Center,
           ) {
-            val imageBitmap = iconBitmaps[id]
+            val imageBitmap = iconBitmaps[itemKey]
             if (imageBitmap != null) {
               Image(
                 bitmap = imageBitmap,
@@ -309,7 +311,7 @@ fun FavoritesRow(
               modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
               properties = PopupProperties(focusable = false),
             ) {
-              val isFavorite = favorites.any { it.id == result.id }
+              val isFavorite = favorites.any { it.favoriteKey == result.favoriteKey }
 
               AppActionsMenuItems(
                 result = result,
@@ -327,7 +329,7 @@ fun FavoritesRow(
     // 2. Drag Overlay
     // Positioned using global coordinates derived from gesture
     draggedItemId?.let { id ->
-      val result = allItems.find { it.id == id } ?: return@let
+      val result = allItems.find { it.favoriteKey == id } ?: return@let
       val imageBitmap = iconBitmaps[id] ?: return@let
 
       Box(modifier = Modifier.fillMaxWidth().height(finalIconSize)) {

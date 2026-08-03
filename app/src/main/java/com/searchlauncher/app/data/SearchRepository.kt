@@ -871,50 +871,45 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   suspend fun getResults(ids: List<String>, limit: Int = 100): List<SearchResult> =
     withContext(Dispatchers.IO) {
       if (ids.isEmpty()) return@withContext emptyList()
-      val targetIds = ids.take(limit)
+      // Accept both namespaced keys (`namespace/id`) and legacy bare app package ids.
+      val targetKeys = ids.take(limit).map { FavoriteKeys.normalize(it) }
+      val parsedKeys = targetKeys.mapNotNull { key -> FavoriteKeys.parse(key)?.let { key to it } }
 
-      // 1. Try Memory Cache
-      val snapshot = documentSnapshot
-      val cachedDocs = targetIds.mapNotNull { id -> snapshot.find { it.doc.id == id }?.doc }
+      // 1. Try Memory Cache (namespace + id)
+      val resolved = linkedMapOf<String, AppSearchDocument>()
+      for ((key, nsAndId) in parsedKeys) {
+        val (namespace, id) = nsAndId
+        documentByNamespaceAndId[documentLookupKey(namespace, id)]?.let { resolved[key] = it.doc }
+      }
 
-      // 2. Fetch missing from DB
-      val finalDocs =
-        if (cachedDocs.size < targetIds.size && appSearchSession != null) {
-          val missingIds = targetIds.filter { id -> cachedDocs.none { it.id == id } }
-          val resolved = mutableListOf<AppSearchDocument>()
-          val namespaces =
-            listOf(
-              "apps",
-              "shortcuts",
-              "static_shortcuts",
-              "search_shortcuts",
-              "app_shortcuts",
-              "contacts",
-              "snippets",
-              "web_bookmarks", // Include web bookmarks for favorites/history
-              "web_saved",
-            )
-          for (ns in namespaces) {
-            try {
-              val req =
-                androidx.appsearch.app.GetByDocumentIdRequest.Builder(ns).addIds(missingIds).build()
-              val resp = appSearchSession?.getByDocumentIdAsync(req)?.await()
-              resp?.successes?.values?.forEach { gDoc ->
-                val doc = gDoc.toDocumentClass(AppSearchDocument::class.java)
-                resolved.add(doc)
+      // 2. Fetch missing from DB, scoped to each key's namespace
+      val missing = parsedKeys.filter { (key, _) -> key !in resolved }
+      if (missing.isNotEmpty() && appSearchSession != null) {
+        val byNamespace = missing.groupBy({ it.second.first }, { it.first to it.second.second })
+        for ((namespace, entries) in byNamespace) {
+          try {
+            val req =
+              androidx.appsearch.app.GetByDocumentIdRequest.Builder(namespace)
+                .addIds(entries.map { it.second })
+                .build()
+            val resp = appSearchSession?.getByDocumentIdAsync(req)?.await()
+            resp?.successes?.forEach { (id, gDoc) ->
+              val doc = gDoc.toDocumentClass(AppSearchDocument::class.java)
+              val key = FavoriteKeys.of(namespace, id)
+              if (key in targetKeys) {
+                resolved[key] = doc
               }
-              if (resolved.size >= missingIds.size) break
-            } catch (e: Exception) {
-              // Ignore failures for specific namespaces
-              Sentry.captureException(e)
             }
+          } catch (e: Exception) {
+            // Ignore failures for specific namespaces
+            Sentry.captureException(e)
           }
-          targetIds.mapNotNull { id ->
-            cachedDocs.find { it.id == id } ?: resolved.find { it.id == id }
-          }
-        } else cachedDocs
+        }
+      }
 
-      finalDocs.map { convertDocumentToResult(wrap(it), 100, saveToDisk = true) }
+      targetKeys.mapNotNull { key ->
+        resolved[key]?.let { convertDocumentToResult(wrap(it), 100, saveToDisk = true) }
+      }
     }
 
   suspend fun getRecentItems(

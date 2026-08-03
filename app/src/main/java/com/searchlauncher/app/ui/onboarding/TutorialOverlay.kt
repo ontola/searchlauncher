@@ -119,13 +119,13 @@ fun TutorialOverlay(
           // overlay
           // For now, let's put a subtle indicator near the top where results appear
           TextHintIndicator(
-            text = "Long press an app to Favorite",
+            text = "Long press a result to Favorite",
             modifier = Modifier.align(Alignment.Center).padding(bottom = 100.dp),
           )
         }
         OnboardingStep.ReorderFavorites -> {
           TextHintIndicator(
-            text = "Hold app icons to change order",
+            text = "Hold favorite icons to change order",
             modifier = Modifier.align(Alignment.Center).padding(bottom = 150.dp),
           )
         }
