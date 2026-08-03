@@ -74,6 +74,7 @@ import com.searchlauncher.app.ui.browser.BrowserActivity
 import com.searchlauncher.app.ui.browser.BrowserTabStore
 import com.searchlauncher.app.ui.browser.BrowserTabSwipePreview
 import com.searchlauncher.app.ui.browser.BrowserTabs
+import com.searchlauncher.app.ui.browser.BrowserTabsButton
 import com.searchlauncher.app.ui.browser.BrowserTabsOverviewLayer
 import com.searchlauncher.app.ui.browser.TAB_CARD_WIDTH_FRACTION
 import com.searchlauncher.app.ui.browser.TAB_STRIP_LABEL_HEIGHT
@@ -552,6 +553,9 @@ fun SearchScreen(
   // Tabs overview, opened by the same up-swipe on the chrome bar that opens it in the browser.
   // The tabs are the browser's own live objects, so closing one here closes it there too.
   var overviewTabs by remember { mutableStateOf<BrowserTabs?>(null) }
+  // Live: the store holds its tab list in Compose state, so opening or closing a tab in the
+  // browser updates this counter without the launcher being touched.
+  val openTabCount = BrowserTabStore.tabs?.items?.size ?: 0
   var tabsOverviewOpen by remember { mutableStateOf(false) }
   var tabsOverviewRendered by remember { mutableStateOf(false) }
   val tabsOverviewProgress by
@@ -1666,6 +1670,15 @@ fun SearchScreen(
                 contentDescription = "Voice Search",
                 tint =
                   if (isListening) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+              )
+            }
+
+            // Only once the browser has tabs to show. Unlike in the browser, where there is always
+            // at least one, a launcher that has never opened a page has nothing to count.
+            if (browserTabSwipeEnabled && openTabCount > 0) {
+              BrowserTabsButton(
+                tabCount = openTabCount,
+                onClick = { if (tabsOverviewOpen) tabsOverviewOpen = false else openTabsOverview() },
               )
             }
 

@@ -64,9 +64,6 @@ fun SearchResultItem(
   onClick: () -> Unit,
 ) {
   var showMenu by remember { mutableStateOf(false) }
-  var showContactActionsMenu by remember { mutableStateOf(false) }
-  var showAppActionsMenu by remember { mutableStateOf(false) }
-  var showWebActionsMenu by remember { mutableStateOf(false) }
   val context = LocalContext.current
   val searchRepository = remember {
     (context.applicationContext as SearchLauncherApp).searchRepository
@@ -93,6 +90,27 @@ fun SearchResultItem(
       }
   }
 
+  // One menu per result, reachable two ways: long-pressing the row and tapping the overflow
+  // button. Both open the same list, so what a result offers never depends on how you asked.
+  val hasMenuItems =
+    result !is SearchResult.IndexingIndicator &&
+      (result is SearchResult.Snippet ||
+        result is SearchResult.App ||
+        contactChatActions.isNotEmpty() ||
+        onToggleFavorite != null ||
+        onEditShortcut != null ||
+        onDeleteShortcut != null ||
+        onRemoveFromIndex != null ||
+        onOpenTab != null ||
+        onOpenPrivate != null ||
+        (result.isWebPage &&
+          (onEditBookmark != null || onAddBookmark != null || onRemoveBookmark != null)) ||
+        (result is SearchResult.BrowserTab &&
+          (onAddBookmark != null ||
+            onCopyUrl != null ||
+            onCloseTab != null ||
+            onCloseAllTabs != null)))
+
   traceSection("SL:SearchResultItem.compose:${result.namespace}") {
     Box {
       Row(
@@ -101,15 +119,7 @@ fun SearchResultItem(
             .then(
               if (result is SearchResult.IndexingIndicator) {
                 Modifier
-              } else if (onToggleFavorite != null) {
-                Modifier.combinedClickable(onClick = onClick, onLongClick = { showMenu = true })
-              } else if (
-                result is SearchResult.Snippet ||
-                  result is SearchResult.App ||
-                  result.isWebPage ||
-                  onEditShortcut != null ||
-                  onDeleteShortcut != null
-              ) {
+              } else if (hasMenuItems) {
                 Modifier.combinedClickable(onClick = onClick, onLongClick = { showMenu = true })
               } else {
                 Modifier.clickable(onClick = onClick)
@@ -197,139 +207,30 @@ fun SearchResultItem(
           }
         }
 
+        // The single most likely thing to do with a contact stays on the row as a one-tap
+        // button; the rest of its chat apps live in the menu with everything else.
         if (
           result is SearchResult.Contact &&
             onContactChatAction != null &&
             contactChatActions.isNotEmpty()
         ) {
-          Row(
-            modifier = Modifier.padding(start = 8.dp).widthIn(min = 48.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.End,
+          ContactChatActionButton(
+            action = contactChatActions.first(),
+            onClick = { onContactChatAction(result, contactChatActions.first()) },
+            modifier = Modifier.padding(start = 8.dp),
+          )
+        }
+
+        if (hasMenuItems) {
+          IconButton(
+            onClick = { showMenu = true },
+            modifier = Modifier.padding(start = 8.dp).size(40.dp),
           ) {
-            ContactChatActionButton(
-              action = contactChatActions.first(),
-              onClick = { onContactChatAction(result, contactChatActions.first()) },
+            Icon(
+              imageVector = Icons.Default.MoreVert,
+              contentDescription = "More actions",
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-
-            if (contactChatActions.size > 1) {
-              Box {
-                IconButton(
-                  onClick = { showContactActionsMenu = true },
-                  modifier = Modifier.size(40.dp),
-                ) {
-                  Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "More contact actions",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                  )
-                }
-
-                if (showContactActionsMenu) {
-                  DropdownMenu(
-                    expanded = showContactActionsMenu,
-                    onDismissRequest = { showContactActionsMenu = false },
-                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
-                    properties = PopupProperties(focusable = false),
-                  ) {
-                    contactChatActions.forEach { action ->
-                      DropdownMenuItem(
-                        text = { Text(action.label) },
-                        onClick = {
-                          onContactChatAction(result, action)
-                          showContactActionsMenu = false
-                        },
-                        leadingIcon = { ContactChatActionIcon(action = action) },
-                      )
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        if (result is SearchResult.App) {
-          Box(modifier = Modifier.padding(start = 8.dp)) {
-            IconButton(onClick = { showAppActionsMenu = true }, modifier = Modifier.size(40.dp)) {
-              Icon(
-                imageVector = Icons.Default.MoreVert,
-                contentDescription = "More app actions",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-
-            DropdownMenu(
-              expanded = showAppActionsMenu,
-              onDismissRequest = { showAppActionsMenu = false },
-              modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
-              properties = PopupProperties(focusable = false),
-            ) {
-              AppActionsMenuItems(
-                result = result,
-                isFavorite = isFavorite,
-                onToggleFavorite = onToggleFavorite,
-                onCloseMenu = { showAppActionsMenu = false },
-                showUninstall = true,
-                onClearSearchResults = onClearSearchResults,
-              )
-            }
-          }
-        }
-
-        val hasTabActions =
-          result is SearchResult.BrowserTab &&
-            (onCloseTab != null || onCloseAllTabs != null || onCopyUrl != null)
-        if (onOpenTab != null || onOpenPrivate != null || hasTabActions) {
-          Box(modifier = Modifier.padding(start = 8.dp)) {
-            IconButton(onClick = { showWebActionsMenu = true }, modifier = Modifier.size(40.dp)) {
-              Icon(
-                imageVector = Icons.Default.MoreVert,
-                contentDescription = "More browser actions",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-
-            DropdownMenu(
-              expanded = showWebActionsMenu,
-              onDismissRequest = { showWebActionsMenu = false },
-              modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
-              properties = PopupProperties(focusable = false),
-            ) {
-              if (onOpenTab != null) {
-                DropdownMenuItem(
-                  text = { Text("Open tab") },
-                  onClick = {
-                    showWebActionsMenu = false
-                    onOpenTab()
-                  },
-                )
-              }
-              if (onOpenPrivate != null) {
-                DropdownMenuItem(
-                  text = { Text("Open private") },
-                  onClick = {
-                    showWebActionsMenu = false
-                    onOpenPrivate()
-                  },
-                )
-              }
-              WebPageMenuItems(
-                result = result,
-                onEditBookmark = onEditBookmark,
-                onAddBookmark = onAddBookmark,
-                onRemoveBookmark = onRemoveBookmark,
-                onCloseMenu = { showWebActionsMenu = false },
-              )
-              BrowserTabMenuItems(
-                result = result,
-                onAddBookmark = onAddBookmark,
-                onCopyUrl = onCopyUrl,
-                onCloseTab = onCloseTab,
-                onCloseAllTabs = onCloseAllTabs,
-                onCloseMenu = { showWebActionsMenu = false },
-              )
-            }
           }
         }
       }
@@ -342,6 +243,39 @@ fun SearchResultItem(
           modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
           properties = PopupProperties(focusable = false),
         ) {
+          if (result is SearchResult.Contact && onContactChatAction != null) {
+            contactChatActions.forEach { action ->
+              DropdownMenuItem(
+                text = { Text(action.label) },
+                onClick = {
+                  onContactChatAction(result, action)
+                  showMenu = false
+                },
+                leadingIcon = { ContactChatActionIcon(action = action) },
+              )
+            }
+          }
+
+          if (onOpenTab != null) {
+            DropdownMenuItem(
+              text = { Text("Open tab") },
+              onClick = {
+                showMenu = false
+                onOpenTab()
+              },
+            )
+          }
+
+          if (onOpenPrivate != null) {
+            DropdownMenuItem(
+              text = { Text("Open private") },
+              onClick = {
+                showMenu = false
+                onOpenPrivate()
+              },
+            )
+          }
+
           if (result is SearchResult.Snippet) {
             DropdownMenuItem(
               text = { Text("Edit") },
@@ -394,17 +328,6 @@ fun SearchResultItem(
             )
           }
 
-          if (onRemoveFromIndex != null) {
-            DropdownMenuItem(
-              text = { Text("Remove from Index") },
-              onClick = {
-                onRemoveFromIndex()
-                showMenu = false
-              },
-              leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-            )
-          }
-
           if (onToggleFavorite != null) {
             AppActionsMenuItems(
               result = result,
@@ -442,6 +365,17 @@ fun SearchResultItem(
             onCloseAllTabs = onCloseAllTabs,
             onCloseMenu = { showMenu = false },
           )
+
+          if (onRemoveFromIndex != null) {
+            DropdownMenuItem(
+              text = { Text("Remove from Index") },
+              onClick = {
+                onRemoveFromIndex()
+                showMenu = false
+              },
+              leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+            )
+          }
         }
       }
     }
@@ -449,9 +383,8 @@ fun SearchResultItem(
 }
 
 /**
- * Actions for a page open in the browser. Shared by the overflow button and the long-press menu so
- * both stay in step. Ordered so the two that discard something sit at the bottom, away from the
- * ones that do not.
+ * Actions for a page open in the browser. Ordered so the two that discard something sit at the
+ * bottom, away from the ones that do not.
  */
 @Composable
 private fun BrowserTabMenuItems(
@@ -507,8 +440,8 @@ private fun BrowserTabMenuItems(
 }
 
 /**
- * Bookmark actions for indexed web pages. Shared by the overflow button and the long-press menu so
- * both stay in step; which items appear depends on whether the page is saved or just history.
+ * Bookmark actions for indexed web pages; which items appear depends on whether the page is saved
+ * or just history.
  */
 @Composable
 private fun WebPageMenuItems(
@@ -554,8 +487,12 @@ private fun WebPageMenuItems(
 }
 
 @Composable
-private fun ContactChatActionButton(action: ContactChatAction, onClick: () -> Unit) {
-  IconButton(onClick = onClick, modifier = Modifier.size(40.dp)) {
+private fun ContactChatActionButton(
+  action: ContactChatAction,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  IconButton(onClick = onClick, modifier = modifier.size(40.dp)) {
     ContactChatActionIcon(action = action)
   }
 }
