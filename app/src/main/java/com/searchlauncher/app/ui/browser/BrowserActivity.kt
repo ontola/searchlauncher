@@ -1507,28 +1507,15 @@ private val DESKTOP_VIEWPORT_SCRIPT =
   """
   (() => {
     const content = '${desktopViewportMetaContent()}';
-    const ensure = () => {
-      if (!document.documentElement) return null;
-      let meta = document.querySelector('meta[name="viewport"]');
-      if (!meta) {
-        meta = document.createElement('meta');
-        meta.setAttribute('name', 'viewport');
-        (document.head || document.documentElement).appendChild(meta);
-      }
-      if (meta.getAttribute('content') !== content) {
-        meta.setAttribute('content', content);
-      }
-      return meta;
-    };
-    const meta = ensure();
-    if (!meta || document.documentElement.dataset.slDesktopViewport === '1') return;
-    document.documentElement.dataset.slDesktopViewport = '1';
-    new MutationObserver(ensure).observe(meta, {
-      attributes: true,
-      attributeFilter: ['content'],
-    });
-    if (document.head) {
-      new MutationObserver(ensure).observe(document.head, { childList: true });
+    if (!document.documentElement) return;
+    let meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.setAttribute('name', 'viewport');
+      (document.head || document.documentElement).appendChild(meta);
+    }
+    if (meta.getAttribute('content') !== content) {
+      meta.setAttribute('content', content);
     }
   })()
   """
