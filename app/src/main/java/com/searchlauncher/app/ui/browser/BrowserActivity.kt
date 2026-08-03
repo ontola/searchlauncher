@@ -45,10 +45,12 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -66,6 +68,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -76,6 +79,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -92,6 +102,7 @@ import androidx.lifecycle.lifecycleScope
 import coil.compose.AsyncImage
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.FavoritesRepository
+import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.MainActivity
 import com.searchlauncher.app.ui.MinIconSize
@@ -106,6 +117,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -117,6 +129,8 @@ open class BrowserActivity : ComponentActivity() {
   private var searchOverlayVisible by mutableStateOf(false)
   private var browserMenuRequest by mutableLongStateOf(0L)
   private var tabActivationRequest by mutableStateOf<TabActivationRequest?>(null)
+  /** Set between launching the search overlay and it taking window focus. */
+  private var pendingSearchLaunch = false
   protected open val isPrivateMode: Boolean = false
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -127,8 +141,11 @@ open class BrowserActivity : ComponentActivity() {
     intent.requestedTabIndex()?.let(BrowserTabStore::activate)
     ContextCompat.registerReceiver(
       this,
-      browserMenuReceiver,
-      IntentFilter(ACTION_SHOW_BROWSER_MENU),
+      browserActionReceiver,
+      IntentFilter().apply {
+        addAction(ACTION_SHOW_BROWSER_MENU)
+        addAction(ACTION_CLOSE_BROWSER)
+      },
       ContextCompat.RECEIVER_NOT_EXPORTED,
     )
     enableEdgeToEdge()
@@ -166,10 +183,26 @@ open class BrowserActivity : ComponentActivity() {
   override fun onResume() {
     super.onResume()
     searchOverlayVisible = false
+    pendingSearchLaunch = false
+  }
+
+  /**
+   * The search overlay is a translucent activity, so this one is never stopped and never learns
+   * directly that it is covered. Losing window focus is the first reliable sign the overlay is
+   * actually up, and that is when the chrome can go: dropping it at the moment of the tap blinked
+   * the bar out for the frames before the overlay drew its own — identical — one, which is what
+   * made opening search feel like a jump rather than a handover.
+   */
+  override fun onWindowFocusChanged(hasFocus: Boolean) {
+    super.onWindowFocusChanged(hasFocus)
+    if (!hasFocus && pendingSearchLaunch) {
+      pendingSearchLaunch = false
+      searchOverlayVisible = true
+    }
   }
 
   override fun onDestroy() {
-    unregisterReceiver(browserMenuReceiver)
+    unregisterReceiver(browserActionReceiver)
     super.onDestroy()
   }
 
@@ -178,9 +211,12 @@ open class BrowserActivity : ComponentActivity() {
     remember(key) { dataStore.data.map { it[key] ?: default } }.collectAsState(initial = default)
 
   private fun openSearch(startVoiceSearch: Boolean, chromeColorArgb: Int) {
-    searchOverlayVisible = true
+    pendingSearchLaunch = true
     startActivity(
       Intent(this, SearchActivity::class.java)
+        // No window transition: the overlay opens onto a bar in the same place and shape as the
+        // one being tapped, so a fade over the top of that only muddies the handover.
+        .addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
         .putExtra(SearchActivity.EXTRA_PRIVATE_WEB_RESULTS, isPrivateMode)
         .putExtra(SearchActivity.EXTRA_START_VOICE_SEARCH, startVoiceSearch)
         .putExtra(SearchActivity.EXTRA_BROWSER_SEARCH, true)
@@ -201,6 +237,12 @@ open class BrowserActivity : ComponentActivity() {
 
   companion object {
     const val ACTION_SHOW_BROWSER_MENU = "com.searchlauncher.app.action.SHOW_BROWSER_MENU"
+
+    /**
+     * Asks a running browser to close itself, sent when the last tab is closed from outside it.
+     * Harmless when no browser is running.
+     */
+    const val ACTION_CLOSE_BROWSER = "com.searchlauncher.app.action.CLOSE_BROWSER"
     private const val EXTRA_URL = "browser_url"
     private const val EXTRA_TAB_INDEX = "browser_tab_index"
     private const val NO_TAB_REQUEST = Int.MIN_VALUE
@@ -234,10 +276,16 @@ open class BrowserActivity : ComponentActivity() {
       }
   }
 
-  private val browserMenuReceiver =
+  private val browserActionReceiver =
     object : BroadcastReceiver() {
       override fun onReceive(context: Context?, intent: Intent?) {
-        browserMenuRequest = System.nanoTime()
+        when (intent?.action) {
+          ACTION_SHOW_BROWSER_MENU -> browserMenuRequest = System.nanoTime()
+          // The launcher closed the last tab. This window is showing a list that no longer exists
+          // anywhere else, and there is nothing left to browse, so it goes with them. Incognito
+          // keeps its own tabs in its own process and is none of this broadcast's business.
+          ACTION_CLOSE_BROWSER -> if (!isPrivateMode) finish()
+        }
       }
     }
 }
@@ -253,6 +301,7 @@ private data class LinkMenuTarget(val linkUrl: String?, val imageUrl: String?)
 /** A bookmark awaiting title confirmation in [BookmarkDialog]. */
 private data class BookmarkDraft(val url: String, val title: String)
 
+@OptIn(ExperimentalLayoutApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun BrowserScreen(
@@ -390,15 +439,26 @@ private fun BrowserScreen(
     )
   val density = LocalDensity.current
   val statusBarTopPx = WindowInsets.statusBars.getTop(density)
-  val webContentBottomInset =
-    with(density) {
-      when {
-        showFindInPage -> findBarHeightPx.toDp()
-        // When the user swiped the chrome away only the small reveal caret remains, floating
-        // over full-bleed web content, so no inset is reserved.
-        showLauncherChrome && !chromeHiddenByUser -> chromeHeightPx.toDp()
-        else -> 0.dp
-      }
+  // The page has to clear the keyboard as well as the browser's own chrome. An edge-to-edge window
+  // is not resized by the IME — the manifest's adjustResize stops applying the moment
+  // enableEdgeToEdge turns off decor fitting — so the inset has to be applied here. Without it a
+  // bottom-anchored input on the page (an AI chat box, a comment field) sits under the keys while
+  // the user types into it.
+  //
+  // This follows the animation's target rather than its current value: every change relays out the
+  // WebView and reflows the page, which is far too expensive to repeat on every frame of the
+  // keyboard's entrance. The page resizes once and the keys slide up over it.
+  val imeInsets = WindowInsets.imeAnimationTarget
+  val webContentInsets =
+    when {
+      // The find bar rides above the keyboard, so the page clears the two of them stacked.
+      showFindInPage -> imeInsets.add(WindowInsets(bottom = findBarHeightPx))
+      // The chrome bar stays put and ends up behind the keyboard rather than above it, so the
+      // taller of the two wins. When the user has swiped the chrome away only the small reveal
+      // caret remains, floating over full-bleed web content, so no inset is reserved for it.
+      showLauncherChrome && !chromeHiddenByUser ->
+        imeInsets.union(WindowInsets(bottom = chromeHeightPx))
+      else -> imeInsets
     }
 
   fun exitFullscreenVideo() {
@@ -471,12 +531,10 @@ private fun BrowserScreen(
   }
 
   /**
-   * Refreshes the active tab's preview from the live WebView. Skipped while a snapshot is still
-   * standing in for the page, because then the WebView holds a half-restored page and the bitmap
-   * being replaced is the one currently on screen.
+   * Refreshes the active tab's preview from the live WebView. Whether there is anything worth
+   * capturing is [captureTabSnapshot]'s call, so every path that leaves a tab can ask freely.
    */
   fun captureActiveTabPreview() {
-    if (restoringSnapshot != null) return
     webView?.let { saveWebViewIntoTab(it, tabs.active) }
   }
 
@@ -588,14 +646,36 @@ private fun BrowserScreen(
     val observer = LifecycleEventObserver { _, event ->
       when (event) {
         Lifecycle.Event.ON_PAUSE -> captureActiveTabPreview()
-        // A swipe out to the launcher parks the page off the edge; put it back now that the
-        // browser is off screen, so returning to it does not start mid-gesture.
-        Lifecycle.Event.ON_STOP -> tabDragOffsetPx = 0f
+        // A swipe out to the launcher parks the page off the edge and hands the launcher control
+        // partway through the settle, so that animation is still running as this arrives —
+        // cancelling it first is what stops it writing the off-screen offset back afterwards and
+        // leaving the browser stuck behind a full-screen launcher stand-in that eats every touch.
+        // Resuming resets again in case the browser was never fully stopped.
+        Lifecycle.Event.ON_STOP,
+        Lifecycle.Event.ON_RESUME -> {
+          settleJob?.cancel()
+          tabDragOffsetPx = 0f
+          // Cleared with it: while this is set no WebView is built at all, so a cancelled settle
+          // would otherwise leave the browser showing nothing but snapshots.
+          tabsInMotion = false
+          fingerOnTabDrag = false
+          dragTabStateSaved = false
+        }
         else -> Unit
       }
     }
     lifecycleOwner.lifecycle.addObserver(observer)
     onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+  }
+
+  // Safety net: a page that never reaches a drawn onPageFinished — hung renderer, stuck load —
+  // must not leave the stale snapshot covering it forever. Keyed on the tab so a late timeout
+  // cannot uncover a different one.
+  LaunchedEffect(activeTab.id, restoringSnapshot) {
+    if (restoringSnapshot != null) {
+      delay(5000)
+      restoringSnapshot = null
+    }
   }
 
   // Loads the cached filter list (downloading it when missing or stale). Pages opened before this
@@ -654,7 +734,6 @@ private fun BrowserScreen(
     BrowserOverflowButton(
       desktopMode = activeTab.desktopMode,
       showFavorites = showFavorites,
-      tabCount = tabs.items.size,
       hasPreviousTab = tabs.activeIndex > 0,
       hasNextTab = tabs.activeIndex < tabs.items.lastIndex,
       menuColor = chromeBarColor,
@@ -705,6 +784,15 @@ private fun BrowserScreen(
   // strip leaves the browser, and swiping back on the launcher's chrome bar returns here. Private
   // browsing is its own task and has no such neighbour.
   val launcherIsNextNeighbour = !privateMode && tabs.activeIndex == tabs.items.lastIndex
+  // Read the same way the launcher reads it, straight off disk, so the stand-in below reserves
+  // exactly the strip the home screen will.
+  val launcherKeyboardReservePx = remember {
+    if (privateMode) 0
+    else
+      context
+        .getSharedPreferences(Prefs.Window.FILE, Context.MODE_PRIVATE)
+        .getInt(Prefs.Window.KEYBOARD_HEIGHT, 0)
+  }
   val launcherWallpaperUri by
     remember(privateMode) {
         if (privateMode) flowOf(null)
@@ -715,6 +803,7 @@ private fun BrowserScreen(
   fun returnToLauncher() {
     context.startActivity(
       Intent(context, MainActivity::class.java)
+        .putExtra(MainActivity.EXTRA_FOCUS_SEARCH, true)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
     )
   }
@@ -750,6 +839,7 @@ private fun BrowserScreen(
     } else {
       dragTabStateSaved = false
     }
+    var launcherStarted = false
     settleJob =
       coroutineScope.launch {
         animate(
@@ -762,9 +852,22 @@ private fun BrowserScreen(
             spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
         ) { value, _ ->
           tabDragOffsetPx = value
+          // Started before the slide finishes rather than after it, so the launcher spends the
+          // tail of the animation waking up, focusing its field and asking for the keyboard. Doing
+          // it at the end meant the swipe landed on a bare wallpaper and everything else — bar,
+          // keyboard — arrived visibly later. Waiting until most of the travel is done keeps the
+          // jump small on the occasions the launcher is ready immediately.
+          if (
+            toLauncher &&
+              !launcherStarted &&
+              abs(value) >= viewportWidthPx * LAUNCHER_HANDOVER_FRACTION
+          ) {
+            launcherStarted = true
+            returnToLauncher()
+          }
         }
         tabsInMotion = false
-        if (toLauncher) returnToLauncher()
+        if (toLauncher && !launcherStarted) returnToLauncher()
       }
   }
 
@@ -809,7 +912,12 @@ private fun BrowserScreen(
           AsyncImage(
             model = uri,
             contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
+            // The launcher holds this much back for the keyboard, so its wallpaper stops short of
+            // the bottom. Drawing it full-bleed here meant the image visibly shrank the instant the
+            // real home screen took over.
+            modifier =
+              Modifier.fillMaxSize()
+                .padding(bottom = with(density) { launcherKeyboardReservePx.toDp() }),
             contentScale = ContentScale.Crop,
           )
         }
@@ -821,7 +929,7 @@ private fun BrowserScreen(
         modifier =
           Modifier.fillMaxSize()
             .statusBarsPadding()
-            .padding(bottom = webContentBottomInset)
+            .windowInsetsPadding(webContentInsets)
             .background(Color(adjacentTab.pageBackgroundArgb))
             .graphicsLayer { translationX = tabDragOffsetPx + adjacentDirection * viewportWidthPx }
       ) {
@@ -830,7 +938,10 @@ private fun BrowserScreen(
             bitmap = snapshot.asImageBitmap(),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.FillBounds,
+            // Never stretched: a capture taken at a different height — behind the keyboard, before
+            // a rotation — keeps its proportions and leaves the tab's colour showing beneath.
+            alignment = Alignment.TopCenter,
+            contentScale = ContentScale.FillWidth,
           )
         }
       }
@@ -844,7 +955,7 @@ private fun BrowserScreen(
           modifier =
             Modifier.fillMaxSize()
               .statusBarsPadding()
-              .padding(bottom = webContentBottomInset)
+              .windowInsetsPadding(webContentInsets)
               .graphicsLayer { translationX = tabDragOffsetPx },
           factory = { viewContext ->
             WebView(viewContext).apply {
@@ -969,6 +1080,7 @@ private fun BrowserScreen(
 
                   override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                     activeTab.url = url
+                    activeTab.pageDrawn = false
                     activeTab.blockedRequestCount.set(0)
                     siteSettings = siteSettingsStore.load(url)
                     view.applySiteSettings(siteSettings)
@@ -1007,7 +1119,27 @@ private fun BrowserScreen(
                       0,
                       object : WebView.VisualStateCallback() {
                         override fun onComplete(requestId: Long) {
-                          restoringSnapshot = null
+                          // Set here rather than below because everything below can be skipped:
+                          // withFrameNanos never resumes while the browser is in the background,
+                          // and the guard drops the rest if the user switches tab first. Leaving
+                          // this false in those cases silently rejected every later capture of the
+                          // tab, so its preview froze on whatever it had.
+                          activeTab.pageDrawn = true
+                          // The callback means the page is *ready* to be drawn, not that it has
+                          // been. Acting on it directly uncovers the WebView while it still shows
+                          // its blank background — the white flash between the outgoing snapshot
+                          // and content identical to it — and captures that blank frame as the new
+                          // preview. Letting a couple of frames pass first means both the uncover
+                          // and the capture see the real page.
+                          coroutineScope.launch {
+                            withFrameNanos {}
+                            withFrameNanos {}
+                            // Bail out if the tab was switched away, or this WebView released, in
+                            // the meantime: neither the cover nor the preview is ours any more.
+                            if (webView !== view) return@launch
+                            captureTabSnapshot(view, activeTab)
+                            restoringSnapshot = null
+                          }
                         }
                       },
                     )
@@ -1034,14 +1166,13 @@ private fun BrowserScreen(
               // Paint the WebView canvas in the tab's color right away — WebView defaults to
               // white, which flashed on blank tabs and dark pages (worst in dark mode).
               setBackgroundColor(activeTab.pageBackgroundArgb)
+              // A rebuilt WebView starts blank whatever the tab last managed to paint.
+              activeTab.pageDrawn = false
               webView = this
               val restored = activeTab.webViewState?.let { restoreState(it) } != null
               suppressCommitVisibleColor = restored
               setDesktopMode(activeTab.desktopMode, phoneUserAgent)
               if (!restored) loadUrl(activeTab.url)
-              // Safety net: if the restore never reaches a drawn onPageFinished (hung renderer,
-              // stuck load), don't leave the stale snapshot covering the page forever.
-              else postDelayed({ restoringSnapshot = null }, 5000)
             }
           },
           onRelease = { releasedWebView ->
@@ -1056,18 +1187,27 @@ private fun BrowserScreen(
       modifier =
         Modifier.fillMaxSize()
           .statusBarsPadding()
-          .padding(bottom = webContentBottomInset)
+          .windowInsetsPadding(webContentInsets)
           .graphicsLayer { translationX = tabDragOffsetPx },
-      enter = if (tabsInMotion) EnterTransition.None else fadeIn(),
-      exit = fadeOut(),
+      // Never fades in: this exists to hide a WebView that has not drawn yet, so easing it in
+      // just means watching the blank page through it.
+      enter = EnterTransition.None,
+      // Short, because by now the page underneath is drawn and identical: this only has to cover
+      // the seam, and a slow dissolve would draw attention to a swap nobody should notice.
+      exit = fadeOut(tween(durationMillis = 120)),
     ) {
       restoringSnapshot?.takeUnless(Bitmap::isRecycled)?.let { snapshot ->
-        Image(
-          bitmap = snapshot.asImageBitmap(),
-          contentDescription = null,
-          modifier = Modifier.fillMaxSize(),
-          contentScale = ContentScale.FillBounds,
-        )
+        // Backed by the page colour, because this is here to hide a WebView that has not drawn: a
+        // capture shorter than the screen must not leave a strip of blank page showing under it.
+        Box(modifier = Modifier.fillMaxSize().background(animatedPageBackground)) {
+          Image(
+            bitmap = snapshot.asImageBitmap(),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            alignment = Alignment.TopCenter,
+            contentScale = ContentScale.FillWidth,
+          )
+        }
       }
     }
 
@@ -1096,6 +1236,14 @@ private fun BrowserScreen(
             (viewportHeightPx - statusBarTopPx - chromeHeightPx).toDp() - TAB_STRIP_LABEL_HEIGHT
           },
         bottomInset = with(density) { chromeHeightPx.toDp() },
+        // Exactly the rect the page occupies, so the card lands where the WebView will draw.
+        expandTarget =
+          Rect(
+            left = 0f,
+            top = statusBarTopPx.toFloat(),
+            right = viewportWidthPx.toFloat(),
+            bottom = (viewportHeightPx - webContentInsets.getBottom(density)).toFloat(),
+          ),
         onDismiss = { tabsOverviewOpen = false },
         onSelect = ::selectTabFromOverview,
         onCloseTab = ::closeTabFromOverview,
@@ -1207,6 +1355,8 @@ private fun BrowserScreen(
     if (showLauncherChrome && !showFindInPage)
       StationaryChromeActions(
         barContentColor = chromeBarContentColor,
+        tabCount = tabs.items.size,
+        onOpenTabs = { if (tabsOverviewOpen) tabsOverviewOpen = false else openTabsOverview() },
         onVoiceSearch = { onOpenSearch(true, pageBackground.toArgb()) },
         overflowMenu = browserOverflowMenu,
         modifier =
@@ -1602,6 +1752,8 @@ private fun RevealBrowserChromeHandle(
 @Composable
 private fun StationaryChromeActions(
   barContentColor: Color,
+  tabCount: Int,
+  onOpenTabs: () -> Unit,
   onVoiceSearch: () -> Unit,
   overflowMenu: @Composable () -> Unit,
   modifier: Modifier = Modifier,
@@ -1619,14 +1771,72 @@ private fun StationaryChromeActions(
             tint = LocalContentColor.current,
           )
         }
+        BrowserTabsButton(tabCount = tabCount, onClick = onOpenTabs)
         overflowMenu()
       }
     }
   }
 }
 
-/** Width of the mic and overflow buttons together, reserved by both chrome layouts. */
-private val CHROME_ACTIONS_WIDTH = 64.dp
+/**
+ * The tab counter: a small outlined square holding the number of open tabs, which opens the
+ * overview. Quiet on purpose — this reports what is open, so it should read as a count rather than
+ * as a notification demanding attention. It is also the only way to reach the overview by tapping;
+ * the up-swipe that opens it is not something anyone would find on their own.
+ */
+@Composable
+private fun BrowserTabsButton(tabCount: Int, onClick: () -> Unit) {
+  IconButton(
+    onClick = onClick,
+    modifier =
+      Modifier.size(32.dp).semantics {
+        contentDescription = if (tabCount == 1) "1 open tab" else "$tabCount open tabs"
+      },
+  ) {
+    Box(
+      modifier =
+        Modifier.size(20.dp)
+          .border(
+            width = 1.5.dp,
+            color = LocalContentColor.current.copy(alpha = 0.7f),
+            shape = RoundedCornerShape(6.dp),
+          ),
+      contentAlignment = Alignment.Center,
+    ) {
+      Text(
+        text = tabCount.toString(),
+        maxLines = 1,
+        // Font padding and the default line box leave uneven space above and below a digit, so
+        // centring the Text still leaves the number sitting low. Trimming both puts the glyph
+        // itself in the middle of the square.
+        style =
+          TextStyle(
+            color = LocalContentColor.current,
+            fontSize = 11.sp,
+            lineHeight = 11.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            platformStyle = PlatformTextStyle(includeFontPadding = false),
+            lineHeightStyle =
+              LineHeightStyle(
+                alignment = LineHeightStyle.Alignment.Center,
+                trim = LineHeightStyle.Trim.Both,
+              ),
+          ),
+      )
+    }
+  }
+}
+
+/**
+ * How far the swipe to the launcher has to travel before the launcher is started underneath it.
+ * Early enough that its cold-start cost overlaps the tail of the animation, late enough that the
+ * remaining travel is small if it draws immediately.
+ */
+private const val LAUNCHER_HANDOVER_FRACTION = 0.85f
+
+/** Width of the mic, tab counter and overflow buttons together, reserved by both chrome layouts. */
+private val CHROME_ACTIONS_WIDTH = 96.dp
 
 private fun openOutsideWebView(context: Context, uri: Uri): Boolean {
   if (uri.scheme == "http" || uri.scheme == "https") return false

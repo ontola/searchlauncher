@@ -76,6 +76,23 @@ sealed class SearchResult {
     val content: String,
   ) : SearchResult()
 
+  /**
+   * A page currently open in the browser. Not indexed like history is — these are read live from
+   * the open tabs, so they come and go as the user browses.
+   */
+  data class BrowserTab(
+    override val id: String,
+    override val namespace: String = "browser_tabs",
+    override val title: String,
+    override val subtitle: String?,
+    override val icon: Drawable?,
+    override val rankingScore: Int = 0,
+    /** Identifies the tab across list changes, unlike its position. */
+    val tabId: Long,
+    /** Reopened as a new tab if this one is gone by the time the result is tapped. */
+    val url: String,
+  ) : SearchResult()
+
   data class IndexingIndicator(
     override val id: String = "indexing_indicator",
     override val namespace: String = "system",

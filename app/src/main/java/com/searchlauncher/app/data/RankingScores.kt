@@ -9,10 +9,11 @@ package com.searchlauncher.app.data
  * 2. Indexed scores - apps, app_shortcuts, snippets, shortcuts, contacts, web_saved, web_bookmarks:
  *    FuzzyMatch.calculateScore (0..100) + a namespace boost + optional context boost + usage.
  *
- * Approximate descending order of typical scores: 1200 custom shortcut with explicit search term
- * ("g cats") 1600 timer smart action ~200-440 indexed hits (varies by namespace, short-query boost,
- * usage) 200 suggestion / widget result 150 custom shortcut bare alias 100 call / email smart
- * action 98-99 sms / url / add-contact smart action
+ * Approximate descending order of typical scores: 1600 timer smart action; 1200 custom shortcut
+ * with explicit search term ("g cats"); ~1070-1100 a page open in the browser; ~200-440 indexed
+ * hits, though usage history can push a well-worn one past 1200 (varies by namespace, short-query
+ * boost, usage); 200 suggestion / widget result; 150 custom shortcut bare alias; 100 call / email
+ * smart action; 98-99 sms / url / add-contact smart action
  *
  * FuzzyMatch's internal 0..100 scale (exact=100, prefix=90, word=85, acronym=80, contains=70,
  * typo=58-68, subsequence=10-60) lives in FuzzyMatch.kt - it's the match-quality signal that gets
@@ -32,6 +33,27 @@ object RankingScores {
   const val CUSTOM_SHORTCUT_TRIGGER_ONLY = 150
   const val SUGGESTION = 200
   const val WIDGET_RESULT = 200
+
+  /**
+   * Base score for a page open in the browser right now, with the FuzzyMatch score added on top.
+   *
+   * A direct score rather than a namespace boost, because "this page is open" says something about
+   * what the user is working with rather than about how well the text matched. On the indexed scale
+   * it lost constantly: anything with usage history behind it collects up to ~1025 from
+   * [usageBoost][GLOBAL_USAGE_SCORE_BOOST] alone, so a bookmark or contact the user had picked
+   * before beat an open tab every time however well the tab matched.
+   *
+   * Sits below [CUSTOM_SHORTCUT_WITH_SEARCH_TERM] so that typing an explicit shortcut search still
+   * wins — "g cats" means search, whatever happens to be open.
+   */
+  const val BROWSER_TAB_BASE = 1000
+
+  /**
+   * Tabs must genuinely contain the query — FuzzyMatch's "contains" grade — rather than merely
+   * fuzzy-match it. With a base score this high, a loose subsequence hit would bury exact matches
+   * from everything else.
+   */
+  const val BROWSER_TAB_MIN_SCORE = 70
 
   // --- Index pipeline: namespace boost added to the FuzzyMatch score ---
   const val NAMESPACE_BOOST_APPS = 150

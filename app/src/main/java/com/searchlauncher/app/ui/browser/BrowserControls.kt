@@ -28,7 +28,6 @@ import androidx.compose.material.icons.filled.SwipeRight
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -77,7 +76,6 @@ internal data class BrowserSiteSettings(
 internal fun BrowserOverflowButton(
   desktopMode: Boolean,
   showFavorites: Boolean,
-  tabCount: Int,
   hasPreviousTab: Boolean,
   hasNextTab: Boolean,
   menuColor: Color,
@@ -118,10 +116,6 @@ internal fun BrowserOverflowButton(
         tint = LocalContentColor.current,
       )
     }
-    if (tabCount > 1) {
-      Badge(modifier = Modifier.align(Alignment.TopEnd)) { Text(tabCount.toString()) }
-    }
-
     AnchoredDropdownMenu(
       expanded = expanded,
       onDismissRequest = { expanded = false },

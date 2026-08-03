@@ -3,6 +3,7 @@ package com.searchlauncher.app
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.os.Build
 import com.searchlauncher.app.data.FavoritesRepository
@@ -64,8 +65,17 @@ class SearchLauncherApp : Application() {
       searchRepository.trimMemory(level)
     }
     // Browser tabs outlive their activity so the launcher can swipe back into them; their page
-    // previews are a few megabytes each and are the first thing worth giving back.
-    com.searchlauncher.app.ui.browser.BrowserTabStore.trimSnapshots()
+    // previews are a few megabytes each and are worth giving back under real memory pressure.
+    //
+    // Only under real pressure, though: TRIM_MEMORY_UI_HIDDEN arrives every single time the app is
+    // backgrounded, so trimming on any level at all meant every trip to the home screen threw away
+    // every preview and the tabs overview came back showing nothing but site icons.
+    val underMemoryPressure =
+      level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE ||
+        level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL
+    if (underMemoryPressure) {
+      com.searchlauncher.app.ui.browser.BrowserTabStore.trimSnapshots()
+    }
   }
 
   private fun checkConsentAndInitSentry() {

@@ -9,6 +9,7 @@ import android.widget.Toast
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.browser.BrowserActivity
+import com.searchlauncher.app.ui.browser.BrowserTabStore
 import com.searchlauncher.app.ui.onboarding.OnboardingManager
 import com.searchlauncher.app.util.CustomActionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -40,14 +41,32 @@ class ResultLauncher(
       }
       is SearchResult.Contact -> launchContact(result)
       is SearchResult.Snippet -> copySnippet(result)
+      is SearchResult.BrowserTab -> launchBrowserTab(result)
       is SearchResult.IndexingIndicator -> {
         // Do nothing
       }
     }
 
-    if (reportUsage && result !is SearchResult.IndexingIndicator) {
+    // Tabs are skipped: their ids last only as long as the tab does, so recording usage against
+    // one teaches the ranker nothing and grows the usage store without bound.
+    if (
+      reportUsage && result !is SearchResult.IndexingIndicator && result !is SearchResult.BrowserTab
+    ) {
       searchRepository.reportUsageAsync(result.namespace, result.id, query, wasFirstResult)
     }
+  }
+
+  /**
+   * Resolves the tab by id rather than trusting the position captured when the result was built:
+   * closing a tab elsewhere shifts every index after it. A tab that has since gone away reopens as
+   * a fresh one, which is still the page the user asked for.
+   */
+  private fun launchBrowserTab(result: SearchResult.BrowserTab) {
+    val index = BrowserTabStore.indexOfTab(result.tabId)
+    context.startActivity(
+      if (index >= 0) BrowserActivity.createResumeIntent(context, index)
+      else BrowserActivity.createIntent(context, result.url)
+    )
   }
 
   private fun launchApp(result: SearchResult.App) {

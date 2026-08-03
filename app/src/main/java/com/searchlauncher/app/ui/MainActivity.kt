@@ -439,7 +439,10 @@ class MainActivity : ComponentActivity() {
       }
     }
 
-    if (intent.hasCategory(Intent.CATEGORY_HOME) && intent.action == Intent.ACTION_MAIN) {
+    if (
+      intent.getBooleanExtra(EXTRA_FOCUS_SEARCH, false) ||
+        (intent.hasCategory(Intent.CATEGORY_HOME) && intent.action == Intent.ACTION_MAIN)
+    ) {
       clearQueryState()
       currentScreenState = Screen.Search
       pendingSettingsSection = null
@@ -916,6 +919,13 @@ class MainActivity : ComponentActivity() {
   }
 
   companion object {
+    /**
+     * Asks for the same clean, focused search screen pressing Home gives. Sent by the browser when
+     * the user swipes back here, so the field is focused and the keyboard on its way up as the
+     * launcher draws rather than a beat afterwards.
+     */
+    const val EXTRA_FOCUS_SEARCH = "focus_search"
+
     private const val KEY_ACTIVE_QUERY = Prefs.ActiveSearch.QUERY
     private const val KEY_ACTIVE_QUERY_TIME = Prefs.ActiveSearch.QUERY_TIME
     private const val ACTIVE_QUERY_RESTORE_WINDOW_MS = 5 * 60 * 1000L

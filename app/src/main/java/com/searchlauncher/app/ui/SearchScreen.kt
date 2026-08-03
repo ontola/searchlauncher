@@ -1,5 +1,7 @@
 package com.searchlauncher.app.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -16,9 +18,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -42,8 +46,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
@@ -144,9 +150,9 @@ fun SearchScreen(
   val searchShortcuts by app.searchShortcutRepository.items.collectAsState()
   var showShortcutDialog by remember { mutableStateOf(false) }
   var bookmarkDialogTarget by remember { mutableStateOf<BookmarkDialogTarget?>(null) }
-  // Bumped after saving a bookmark so the visible results pick up the new title without having to
-  // clear the user's query.
-  var bookmarkRefreshTick by remember { mutableIntStateOf(0) }
+  // Bumped whenever something a result was built from changes — a bookmark's title, a tab being
+  // closed — so the visible list catches up without the user having to clear their query.
+  var resultsRefreshTick by remember { mutableIntStateOf(0) }
   var editingShortcut by remember {
     mutableStateOf<com.searchlauncher.app.data.SearchShortcut?>(null)
   }
@@ -364,7 +370,7 @@ fun SearchScreen(
     }
   }
 
-  LaunchedEffect(query, suggestionsEnabled, isIndexing, bookmarkRefreshTick) {
+  LaunchedEffect(query, suggestionsEnabled, isIndexing, resultsRefreshTick) {
     traceSection("SL:SearchScreen.queryEffect") {
       searchRepository.noteInteractiveSearch(query)
       if (query.isEmpty()) {
@@ -519,9 +525,13 @@ fun SearchScreen(
       when {
         // Tracks the IME inset frame by frame as the keyboard animates in, so the bar travels up
         // with the keys. Reserving the stored height instead would park it at the final position
-        // before the keyboard has even started to appear. At rest it sits above the navigation
-        // bar, which is where the bar it replaces sits.
-        riseWithKeyboard -> kotlin.math.max(imeHeightPx, navigationBarBottomPx).toDp()
+        // before the keyboard has even started to appear. At rest it lands exactly on the bar it
+        // replaces, so the overlay opens without the bar hopping.
+        riseWithKeyboard ->
+          kotlin.math
+            .max(imeHeightPx, navigationBarBottomPx - BROWSER_CHROME_BAR_OFFSET.roundToPx())
+            .coerceAtLeast(0)
+            .toDp()
         isMultiWindow -> imeHeightPx.toDp()
         else -> kotlin.math.max(imeHeightPx, storedKeyboardHeight).toDp()
       }
@@ -548,9 +558,9 @@ fun SearchScreen(
     )
 
   fun openTabsOverview() {
-    // Nothing to show when the browser has never run, or its last tab was closed.
-    val stored = BrowserTabStore.tabs?.takeIf { it.items.isNotEmpty() } ?: return
-    overviewTabs = stored
+    // Opens even with nothing to show — the strip has an empty state, and a gesture that silently
+    // does nothing reads as broken rather than as "no tabs".
+    overviewTabs = BrowserTabStore.tabs?.takeIf { it.items.isNotEmpty() }
     tabsOverviewRendered = true
     tabsOverviewOpen = true
   }
@@ -560,15 +570,18 @@ fun SearchScreen(
     context.startActivity(BrowserActivity.createResumeIntent(context, index))
   }
 
+  fun forgetAllTabs() {
+    BrowserTabStore.clear()
+    closeBrowserWindow(context)
+    // Left open on the empty state, which confirms the tabs are gone instead of dropping the user
+    // back onto the home screen wondering whether the tap registered.
+    overviewTabs = null
+  }
+
   fun closeBrowserTab(index: Int) {
     val stored = overviewTabs ?: return
     // The last tab going away means there is no browser left to return to.
-    if (stored.items.size == 1) {
-      BrowserTabStore.clear()
-      tabsOverviewOpen = false
-    } else {
-      stored.close(index)
-    }
+    if (stored.items.size == 1) forgetAllTabs() else stored.close(index)
   }
 
   BackHandler(enabled = tabsOverviewOpen) { tabsOverviewOpen = false }
@@ -603,14 +616,27 @@ fun SearchScreen(
     chroma = themeSaturation,
     isOled = isOled,
   ) {
+    // Ramped rather than applied outright, so the dim arrives together with the window blur behind
+    // it instead of snapping on a frame before it.
+    val backdropDim = remember { Animatable(if (chromeBarColor != null) 0f else 1f) }
+    LaunchedEffect(chromeBarColor != null) {
+      if (chromeBarColor != null) backdropDim.animateTo(1f, tween(durationMillis = 250))
+    }
+
     Box(
       modifier =
         Modifier.fillMaxSize()
           .then(
             // As a browser overlay, dim the page behind so the search UI reads as a layer above
-            // it even when the page shares its exact color.
+            // it even when the page shares its exact color. Drawn rather than composed so the
+            // ramp costs a redraw instead of recomposing this whole screen every frame.
             if (chromeBarColor != null) {
-              Modifier.background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.35f))
+              Modifier.drawBehind {
+                drawRect(
+                  androidx.compose.ui.graphics.Color.Black,
+                  alpha = 0.35f * backdropDim.value,
+                )
+              }
             } else {
               Modifier
             }
@@ -852,49 +878,55 @@ fun SearchScreen(
 
       // Above the wallpaper but below the chrome bar, which keeps working while the strip is up —
       // exactly how the overview sits in the browser.
-      overviewTabs
-        ?.takeIf { tabsOverviewRendered }
-        ?.let { tabs ->
-          // Cards are sized for the browser's content area, not the launcher's, so a preview here
-          // is the same shape as the one the tab will open into.
-          val statusBarTopPx = WindowInsets.statusBars.getTop(density)
-          val browserChromePx =
-            WindowInsets.navigationBars.getBottom(density) +
-              chromeBarHeightPx +
-              with(density) { 12.dp.roundToPx() }
-          val bottomInset = bottomPadding + with(density) { bottomSectionHeightPx.toDp() } + 12.dp
-          BrowserTabsOverviewLayer(
-            tabs = tabs.items,
-            activeIndex = tabs.activeIndex,
-            progress = { tabsOverviewProgress },
-            // Not quite opaque: the wallpaper stays faintly visible, so the overview reads as a
-            // layer over the home screen rather than as another app.
-            scrimColor = MaterialTheme.colorScheme.background.copy(alpha = 0.94f),
-            contentColor = MaterialTheme.colorScheme.onBackground,
-            cardWidth =
-              with(density) { (browserTabSwipe.viewportWidthPx * TAB_CARD_WIDTH_FRACTION).toDp() },
-            previewAspectRatio =
-              browserTabSwipe.viewportWidthPx.toFloat() /
-                (browserTabSwipe.viewportHeightPx - statusBarTopPx - browserChromePx).coerceAtLeast(
-                  1
-                ),
-            // The launcher's bar sits above the keyboard reserve, leaving the strip less room than
-            // it has in the browser.
-            maxPreviewHeight =
-              with(density) { browserTabSwipe.viewportHeightPx.toDp() } -
-                bottomInset -
-                with(density) { statusBarTopPx.toDp() } -
-                TAB_STRIP_LABEL_HEIGHT,
-            bottomInset = bottomInset,
-            onDismiss = { tabsOverviewOpen = false },
-            onSelect = ::openBrowserTab,
-            onCloseTab = ::closeBrowserTab,
-            onCloseAll = {
-              BrowserTabStore.clear()
-              tabsOverviewOpen = false
-            },
-          )
-        }
+      if (tabsOverviewRendered) {
+        // Null once every tab is gone, which the strip renders as its empty state.
+        val tabs = overviewTabs
+        // Cards are sized for the browser's content area, not the launcher's, so a preview here
+        // is the same shape as the one the tab will open into.
+        val statusBarTopPx = WindowInsets.statusBars.getTop(density)
+        val browserChromePx =
+          WindowInsets.navigationBars.getBottom(density) +
+            chromeBarHeightPx +
+            with(density) { 12.dp.roundToPx() }
+        val bottomInset = bottomPadding + with(density) { bottomSectionHeightPx.toDp() } + 12.dp
+        BrowserTabsOverviewLayer(
+          tabs = tabs?.items.orEmpty(),
+          activeIndex = tabs?.activeIndex ?: 0,
+          progress = { tabsOverviewProgress },
+          // Not quite opaque: the wallpaper stays faintly visible, so the overview reads as a
+          // layer over the home screen rather than as another app.
+          scrimColor = MaterialTheme.colorScheme.background.copy(alpha = 0.94f),
+          contentColor = MaterialTheme.colorScheme.onBackground,
+          cardWidth =
+            with(density) { (browserTabSwipe.viewportWidthPx * TAB_CARD_WIDTH_FRACTION).toDp() },
+          previewAspectRatio =
+            browserTabSwipe.viewportWidthPx.toFloat() /
+              (browserTabSwipe.viewportHeightPx - statusBarTopPx - browserChromePx).coerceAtLeast(
+                1
+              ),
+          // The launcher's bar sits above the keyboard reserve, leaving the strip less room than
+          // it has in the browser.
+          maxPreviewHeight =
+            with(density) { browserTabSwipe.viewportHeightPx.toDp() } -
+              bottomInset -
+              with(density) { statusBarTopPx.toDp() } -
+              TAB_STRIP_LABEL_HEIGHT,
+          bottomInset = bottomInset,
+          // The rect the browser will draw the page into, not the launcher's own layout: the card
+          // is growing towards the browser, so it should arrive already the right shape.
+          expandTarget =
+            Rect(
+              left = 0f,
+              top = statusBarTopPx.toFloat(),
+              right = browserTabSwipe.viewportWidthPx.toFloat(),
+              bottom = (browserTabSwipe.viewportHeightPx - browserChromePx).toFloat(),
+            ),
+          onDismiss = { tabsOverviewOpen = false },
+          onSelect = ::openBrowserTab,
+          onCloseTab = ::closeBrowserTab,
+          onCloseAll = ::forgetAllTabs,
+        )
+      }
 
       if (showBackgroundMenu) {
         DropdownMenu(
@@ -1022,6 +1054,7 @@ fun SearchScreen(
                     key = { index, item -> "$index/${item.stableListKey}" },
                   ) { index, result ->
                     val webUrl = webUrlForResult(result, query, searchShortcuts)
+                    val openTab = result as? SearchResult.BrowserTab
                     SearchResultItem(
                       result = result,
                       isFavorite = favoriteIds.contains(result.id),
@@ -1029,7 +1062,6 @@ fun SearchScreen(
                         if (result is SearchResult.App) {
                           {
                             app.favoritesRepository.toggleFavorite(result.id)
-                            onQueryChange("")
                             scope.launch {
                               onboardingManager.markStepComplete(OnboardingStep.AddFavorite)
                             }
@@ -1038,7 +1070,9 @@ fun SearchScreen(
                       onRemoveBookmark = {
                         scope.launch {
                           searchRepository.removeBookmark(result.id, result.namespace)
-                          onQueryChange("") // Refresh
+                          // Refreshes the list rather than clearing the query: acting on one
+                          // result should not throw away what the user typed to find it.
+                          resultsRefreshTick++
                         }
                       },
                       onEditBookmark =
@@ -1060,7 +1094,33 @@ fun SearchScreen(
                                   result.id.takeIf { result.namespace == "web_bookmarks" },
                               )
                           }
+                        }
+                          ?: openTab?.let { tab ->
+                            {
+                              bookmarkDialogTarget =
+                                BookmarkDialogTarget(
+                                  url = tab.url,
+                                  title = tab.title,
+                                  isEditMode = false,
+                                )
+                            }
+                          },
+                      onCloseTab =
+                        openTab?.let { tab ->
+                          {
+                            if (BrowserTabStore.close(tab.tabId)) closeBrowserWindow(context)
+                            resultsRefreshTick++
+                          }
                         },
+                      onCloseAllTabs =
+                        openTab?.let {
+                          {
+                            BrowserTabStore.clear()
+                            closeBrowserWindow(context)
+                            resultsRefreshTick++
+                          }
+                        },
+                      onCopyUrl = openTab?.let { tab -> { copyUrlToClipboard(context, tab.url) } },
                       onClearSearchResults = { onQueryChange("") },
                       onOpenTab =
                         webUrl?.let { url ->
@@ -1139,6 +1199,7 @@ fun SearchScreen(
                             scope.launch {
                               app.searchShortcutRepository.removeShortcut(result.id)
                               Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT).show()
+                              resultsRefreshTick++
                             }
                           }
                         } else if (result is SearchResult.SearchIntent) {
@@ -1150,6 +1211,7 @@ fun SearchScreen(
                                 app.searchShortcutRepository.removeShortcut(shortcut.id)
                                 Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT)
                                   .show()
+                                resultsRefreshTick++
                               }
                             }
                           }
@@ -1164,6 +1226,7 @@ fun SearchScreen(
                                 app.searchShortcutRepository.removeShortcut(shortcut.id)
                                 Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT)
                                   .show()
+                                resultsRefreshTick++
                               }
                             }
                           }
@@ -1639,7 +1702,7 @@ fun SearchScreen(
           val saved = searchRepository.saveBookmark(target.url, title)
           if (saved) {
             target.replacesHistoryId?.let { searchRepository.removeBookmark(it, "web_bookmarks") }
-            bookmarkRefreshTick++
+            resultsRefreshTick++
           }
           Toast.makeText(
               context,
@@ -1761,6 +1824,23 @@ private val SearchResult.stableListKey: String
   get() = "$namespace/$id"
 
 /** A bookmark being created or re-titled from a search result. */
+/**
+ * Tells a running browser to close, after its tabs have been dropped from the shared store. A
+ * browser activity holds its own reference to that list, so without this it would carry on showing
+ * tabs that no longer exist anywhere else. Harmless when no browser is running.
+ */
+private fun closeBrowserWindow(context: Context) {
+  context.sendBroadcast(
+    Intent(BrowserActivity.ACTION_CLOSE_BROWSER).setPackage(context.packageName)
+  )
+}
+
+private fun copyUrlToClipboard(context: Context, url: String) {
+  val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+  clipboard.setPrimaryClip(ClipData.newPlainText("Page URL", url))
+  Toast.makeText(context, "URL copied", Toast.LENGTH_SHORT).show()
+}
+
 private data class BookmarkDialogTarget(
   val url: String,
   val title: String,
@@ -1768,6 +1848,12 @@ private data class BookmarkDialogTarget(
   /** History entry this bookmark replaces, removed on save so the page isn't listed twice. */
   val replacesHistoryId: String? = null,
 )
+
+/**
+ * How much deeper the launcher's bottom padding is than the browser chrome's, so that the search
+ * overlay comes up on exactly the bar it replaces rather than 8dp above it.
+ */
+private val BROWSER_CHROME_BAR_OFFSET = 8.dp
 
 private fun webUrlForResult(
   result: SearchResult,

@@ -11,6 +11,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
@@ -55,6 +57,9 @@ fun SearchResultItem(
   onClearSearchResults: (() -> Unit)? = null,
   onOpenTab: (() -> Unit)? = null,
   onOpenPrivate: (() -> Unit)? = null,
+  onCloseTab: (() -> Unit)? = null,
+  onCloseAllTabs: (() -> Unit)? = null,
+  onCopyUrl: (() -> Unit)? = null,
   onContactChatAction: ((SearchResult.Contact, ContactChatAction) -> Unit)? = null,
   onClick: () -> Unit,
 ) {
@@ -272,7 +277,10 @@ fun SearchResultItem(
           }
         }
 
-        if (onOpenTab != null || onOpenPrivate != null) {
+        val hasTabActions =
+          result is SearchResult.BrowserTab &&
+            (onCloseTab != null || onCloseAllTabs != null || onCopyUrl != null)
+        if (onOpenTab != null || onOpenPrivate != null || hasTabActions) {
           Box(modifier = Modifier.padding(start = 8.dp)) {
             IconButton(onClick = { showWebActionsMenu = true }, modifier = Modifier.size(40.dp)) {
               Icon(
@@ -311,6 +319,14 @@ fun SearchResultItem(
                 onEditBookmark = onEditBookmark,
                 onAddBookmark = onAddBookmark,
                 onRemoveBookmark = onRemoveBookmark,
+                onCloseMenu = { showWebActionsMenu = false },
+              )
+              BrowserTabMenuItems(
+                result = result,
+                onAddBookmark = onAddBookmark,
+                onCopyUrl = onCopyUrl,
+                onCloseTab = onCloseTab,
+                onCloseAllTabs = onCloseAllTabs,
                 onCloseMenu = { showWebActionsMenu = false },
               )
             }
@@ -417,9 +433,76 @@ fun SearchResultItem(
             onRemoveBookmark = onRemoveBookmark,
             onCloseMenu = { showMenu = false },
           )
+
+          BrowserTabMenuItems(
+            result = result,
+            onAddBookmark = onAddBookmark,
+            onCopyUrl = onCopyUrl,
+            onCloseTab = onCloseTab,
+            onCloseAllTabs = onCloseAllTabs,
+            onCloseMenu = { showMenu = false },
+          )
         }
       }
     }
+  }
+}
+
+/**
+ * Actions for a page open in the browser. Shared by the overflow button and the long-press menu so
+ * both stay in step. Ordered so the two that discard something sit at the bottom, away from the
+ * ones that do not.
+ */
+@Composable
+private fun BrowserTabMenuItems(
+  result: SearchResult,
+  onAddBookmark: (() -> Unit)?,
+  onCopyUrl: (() -> Unit)?,
+  onCloseTab: (() -> Unit)?,
+  onCloseAllTabs: (() -> Unit)?,
+  onCloseMenu: () -> Unit,
+) {
+  if (result !is SearchResult.BrowserTab) return
+
+  if (onAddBookmark != null) {
+    DropdownMenuItem(
+      text = { Text("Create bookmark") },
+      onClick = {
+        onCloseMenu()
+        onAddBookmark()
+      },
+      leadingIcon = { Icon(Icons.Default.BookmarkAdd, contentDescription = null) },
+    )
+  }
+  if (onCopyUrl != null) {
+    DropdownMenuItem(
+      text = { Text("Copy URL") },
+      onClick = {
+        onCloseMenu()
+        onCopyUrl()
+      },
+      leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+    )
+  }
+  if (onCloseTab != null) {
+    DropdownMenuItem(
+      text = { Text("Close tab") },
+      onClick = {
+        onCloseMenu()
+        onCloseTab()
+      },
+      leadingIcon = { Icon(Icons.Default.Close, contentDescription = null) },
+    )
+  }
+  if (onCloseAllTabs != null) {
+    DropdownMenuItem(
+      text = { Text("Close all tabs") },
+      onClick = {
+        onCloseMenu()
+        onCloseAllTabs()
+      },
+      leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+    )
   }
 }
 

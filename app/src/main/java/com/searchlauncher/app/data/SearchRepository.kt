@@ -16,6 +16,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.dataStore
+import com.searchlauncher.app.util.FuzzyMatch
 import com.searchlauncher.app.util.SystemUtils
 import com.searchlauncher.app.util.traceSection
 import io.sentry.Sentry
@@ -1499,7 +1500,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             }
           results.addAll(smartActions)
 
-          // 3. In-memory Index Search (including Apps, Shortcuts, Contacts, Snippets)
+          // 3. Pages open in the browser right now, matched live rather than from the index.
+          results.addAll(traceSection("SL:SearchRepository.openTabs") { searchOpenTabs(query) })
+
+          // 4. In-memory Index Search (including Apps, Shortcuts, Contacts, Snippets)
           val excludedAliases =
             customShortcutResults
               .filterIsInstance<SearchResult.SearchIntent>()
@@ -1512,7 +1516,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             }
           results.addAll(indexResults)
 
-          // 4. Suggestions (only when search shortcuts / suggestions are enabled)
+          // 5. Suggestions (only when search shortcuts / suggestions are enabled)
           if (
             includeSearchShortcuts &&
               includeSuggestions &&
@@ -1570,6 +1574,43 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         }
       }
     }
+
+  /**
+   * Matches [query] against the pages currently open in the browser.
+   *
+   * These are read straight from the live tab list rather than the index: a tab exists only while
+   * it is open, and re-indexing on every navigation to keep up would be both wasteful and wrong
+   * once the tab is closed. Blank tabs have nothing to match on and are skipped.
+   */
+  private fun searchOpenTabs(query: String): List<SearchResult> {
+    val tabs = com.searchlauncher.app.ui.browser.BrowserTabStore.tabs?.items ?: return emptyList()
+    return tabs.mapNotNull { tab ->
+      if (tab.url.startsWith("about:")) return@mapNotNull null
+      val address = tab.url.removePrefix("https://").removePrefix("http://").removeSuffix("/")
+      val title = tab.title?.takeUnless(String::isBlank)
+      // Either the page's name or its address can be what the user remembers it by.
+      val score =
+        maxOf(
+          title?.let { FuzzyMatch.calculateScore(query, it) } ?: 0,
+          FuzzyMatch.calculateScore(query, address),
+        )
+      if (score < RankingScores.BROWSER_TAB_MIN_SCORE) return@mapNotNull null
+
+      SearchResult.BrowserTab(
+        id = "browser_tab_${tab.id}",
+        title = title ?: address,
+        // Says what the result is rather than repeating the address, which the title usually
+        // already conveys and which no other result type shows either.
+        subtitle = "Open tab",
+        icon =
+          tab.favicon?.let { BitmapDrawable(context.resources, it) }
+            ?: context.getDrawable(com.searchlauncher.app.R.drawable.ic_globe),
+        rankingScore = RankingScores.BROWSER_TAB_BASE + score,
+        tabId = tab.id,
+        url = tab.url,
+      )
+    }
+  }
 
   private suspend fun findMatchingCustomShortcut(
     query: String
@@ -1843,6 +1884,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               is SearchResult.Contact -> "Contact"
               is SearchResult.Snippet -> "Snippet"
               is SearchResult.IndexingIndicator -> "IndexingIndicator"
+              // Open tabs are transient and could not be rebuilt from a cache file anyway, so
+              // they are never written to one.
+              is SearchResult.BrowserTab -> return@forEach
             }
           obj.put("type", typeStr)
 
@@ -1866,7 +1910,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               obj.put("alias", res.alias)
               obj.put("content", res.content)
             }
-            is SearchResult.IndexingIndicator -> {
+            is SearchResult.IndexingIndicator,
+            is SearchResult.BrowserTab -> {
               // Nothing to store
             }
           }

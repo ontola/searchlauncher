@@ -207,8 +207,11 @@ internal fun BrowserTabSwipePreview(
               .statusBarsPadding()
               .navigationBarsPadding()
               .padding(bottom = chromeHeight + BROWSER_CHROME_SPACING),
+          // Matched by width from the top rather than zoomed or stretched to fit, so a capture of
+          // a different height — taken behind the keyboard, or before a rotation — keeps its
+          // proportions instead of snapping back to shape when the browser takes over.
           alignment = Alignment.TopCenter,
-          contentScale = ContentScale.Crop,
+          contentScale = ContentScale.FillWidth,
         )
       }
     }
