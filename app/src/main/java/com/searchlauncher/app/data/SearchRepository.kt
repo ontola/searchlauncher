@@ -221,8 +221,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         page = searchResults.nextPageAsync.await()
       }
       if (idsToRemove.isNotEmpty()) {
-        val removeRequest =
-          RemoveByDocumentIdRequest.Builder(namespace).addIds(idsToRemove).build()
+        val removeRequest = RemoveByDocumentIdRequest.Builder(namespace).addIds(idsToRemove).build()
         session.removeAsync(removeRequest).await()
         android.util.Log.d(
           "SearchRepository",
