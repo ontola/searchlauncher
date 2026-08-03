@@ -804,7 +804,8 @@ private fun BrowserScreen(
                     refreshPageBackground(view, allowWhiteFallback = true)
                     activeTab.url = url
                     activeTab.title = view.title
-                    // Sites (and late-injected tags) can rewrite the viewport during load; re-assert
+                    // Sites (and late-injected tags) can rewrite the viewport during load;
+                    // re-assert
                     // the desktop width after the document is complete.
                     view.applyDesktopViewport(activeTab.desktopMode)
                     // Keep the snapshot up until the fully loaded page (CSS and fonts included)
@@ -1431,12 +1432,13 @@ private fun WebView.setDesktopMode(enabled: Boolean, phoneUserAgent: String?) {
 /** Chromium's default desktop layout width when Request Desktop Site ignores viewport meta. */
 internal const val DESKTOP_VIEWPORT_WIDTH = 980
 
-internal fun desktopViewportMetaContent(width: Int = DESKTOP_VIEWPORT_WIDTH): String = "width=$width"
+internal fun desktopViewportMetaContent(width: Int = DESKTOP_VIEWPORT_WIDTH): String =
+  "width=$width"
 
 /**
- * Force a desktop CSS viewport on small devices. UA spoofing alone is not enough: responsive
- * sites with `width=device-width` still match phone media queries. WebView has no API to ignore
- * viewport meta like Chrome RDS, so we rewrite (or create) the tag to a fixed desktop width.
+ * Force a desktop CSS viewport on small devices. UA spoofing alone is not enough: responsive sites
+ * with `width=device-width` still match phone media queries. WebView has no API to ignore viewport
+ * meta like Chrome RDS, so we rewrite (or create) the tag to a fixed desktop width.
  */
 private fun WebView.applyDesktopViewport(enabled: Boolean) {
   if (!enabled) return
