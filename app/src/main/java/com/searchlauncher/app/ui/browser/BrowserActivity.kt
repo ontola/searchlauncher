@@ -86,12 +86,11 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.lifecycleScope
 import com.searchlauncher.app.SearchLauncherApp
-import com.searchlauncher.app.data.FavoriteKeys
-import com.searchlauncher.app.data.FavoritesRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.favoriteKey
 import com.searchlauncher.app.ui.MinIconSize
 import com.searchlauncher.app.ui.PreferencesKeys
+import com.searchlauncher.app.ui.ResultLauncher
 import com.searchlauncher.app.ui.SearchActivity
 import com.searchlauncher.app.ui.components.BookmarkDialog
 import com.searchlauncher.app.ui.components.FavoritesRow
@@ -100,12 +99,9 @@ import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 open class BrowserActivity : ComponentActivity() {
   private var navigationRequest by mutableStateOf<NavigationRequest?>(null)
@@ -137,7 +133,7 @@ open class BrowserActivity : ComponentActivity() {
           showLauncherChrome = !searchOverlayVisible,
           browserMenuRequest = browserMenuRequest,
           onBrowserMenuShown = { browserMenuRequest = 0L },
-          onOpenSearch = ::openSearch,
+          onOpenSearch = { voice, color, query -> openSearch(voice, color, query) },
           onClose = ::finish,
         )
       }
@@ -164,7 +160,11 @@ open class BrowserActivity : ComponentActivity() {
   private fun <T> preference(key: Preferences.Key<T>, default: T): State<T> =
     remember(key) { dataStore.data.map { it[key] ?: default } }.collectAsState(initial = default)
 
-  private fun openSearch(startVoiceSearch: Boolean, chromeColorArgb: Int) {
+  private fun openSearch(
+    startVoiceSearch: Boolean,
+    chromeColorArgb: Int,
+    initialQuery: String = "",
+  ) {
     searchOverlayVisible = true
     startActivity(
       Intent(this, SearchActivity::class.java)
@@ -172,6 +172,7 @@ open class BrowserActivity : ComponentActivity() {
         .putExtra(SearchActivity.EXTRA_START_VOICE_SEARCH, startVoiceSearch)
         .putExtra(SearchActivity.EXTRA_BROWSER_SEARCH, true)
         .putExtra(SearchActivity.EXTRA_CHROME_COLOR, chromeColorArgb)
+        .putExtra(SearchActivity.EXTRA_INITIAL_QUERY, initialQuery)
     )
   }
 
@@ -223,33 +224,29 @@ private fun BrowserScreen(
   showLauncherChrome: Boolean,
   browserMenuRequest: Long,
   onBrowserMenuShown: () -> Unit,
-  onOpenSearch: (Boolean, Int) -> Unit,
+  onOpenSearch: (Boolean, Int, String) -> Unit,
   onClose: () -> Unit,
 ) {
   val context = LocalContext.current
-  val searchRepository =
-    if (privateMode) null else (context.applicationContext as SearchLauncherApp).searchRepository
-  val favoritesRepository = rememberFavoritesRepository(privateMode)
-  val favoriteIds by favoritesRepository.collectAsState()
-  val favoriteApps by favoriteApps(favoriteIds)
-  val rawHistoryItems =
-    if (searchRepository != null) searchRepository.recentItems.collectAsState().value
-    else emptyList()
+  val app = context.applicationContext as SearchLauncherApp
+  // Read the shared favorites/history flows so the browser strip matches search.
+  // Writes (toggle/reorder/usage) stay gated on !privateMode below.
+  val searchRepository = app.searchRepository
+  val favoriteIds by app.favoritesRepository.favoriteIds.collectAsState()
+  val favorites by searchRepository.favorites.collectAsState()
+  val allRecentItems by searchRepository.recentItems.collectAsState()
   val historyLimit by
     remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
       .collectAsState(initial = -1)
   val minIconSizeSetting by
     remember { MinIconSize.flow(context) }.collectAsState(initial = MinIconSize.cached(context))
-  val recentApps =
-    remember(rawHistoryItems, favoriteIds, historyLimit) {
-      if (historyLimit == 0) emptyList()
+  val historyItems =
+    remember(allRecentItems, favoriteIds, historyLimit, privateMode) {
+      if (privateMode || historyLimit == 0) emptyList()
       else {
         val favoriteKeys = favoriteIds.toSet()
-        val apps =
-          rawHistoryItems.filterIsInstance<SearchResult.App>().filterNot {
-            it.favoriteKey in favoriteKeys
-          }
-        if (historyLimit >= 0) apps.take(historyLimit) else apps
+        val filtered = allRecentItems.filter { it.favoriteKey !in favoriteKeys }
+        if (historyLimit >= 0) filtered.take(historyLimit) else filtered
       }
     }
   // Hidden by default while browsing: the page is the focus, and the row is a lot of UI.
@@ -268,6 +265,10 @@ private fun BrowserScreen(
       }
       .collectAsState(initial = true)
   val coroutineScope = rememberCoroutineScope()
+  val resultLauncher =
+    remember(context, searchRepository, coroutineScope) {
+      ResultLauncher(context = context, searchRepository = searchRepository, scope = coroutineScope)
+    }
   val initialNavigationRequest = remember { navigationRequest }
   val defaultPageBackground = MaterialTheme.colorScheme.background
   val tabs = remember {
@@ -384,7 +385,7 @@ private fun BrowserScreen(
           tabDragOffsetPx = value
         }
         tabsInMotion = false
-        onOpenSearch(false, defaultPageBackground.toArgb())
+        onOpenSearch(false, defaultPageBackground.toArgb(), "")
       }
   }
 
@@ -893,39 +894,40 @@ private fun BrowserScreen(
         exit = slideOutVertically { it } + fadeOut(),
       ) {
         BrowserLauncherChrome(
-          favoriteApps = favoriteApps,
-          recentApps = recentApps,
+          favorites = favorites,
+          historyItems = historyItems,
           historyLimit = historyLimit,
           minIconSizeSetting = minIconSizeSetting,
           showFavorites = showFavorites,
           barColor = chromeBarColor,
           barContentColor = chromeBarContentColor,
           overflowMenu = browserOverflowMenu,
-          onOpenSearch = { onOpenSearch(false, pageBackground.toArgb()) },
-          onVoiceSearch = { onOpenSearch(true, pageBackground.toArgb()) },
+          onOpenSearch = { onOpenSearch(false, pageBackground.toArgb(), "") },
+          onVoiceSearch = { onOpenSearch(true, pageBackground.toArgb(), "") },
           onTabDragStart = tabDragStart,
           onTabDrag = tabDrag,
           onTabDragEnd = tabDragEnd,
           onLaunchFavorite = { result ->
-            context.packageManager.getLaunchIntentForPackage(result.packageName)?.let { intent ->
-              intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-              context.startActivity(intent)
+            if (result is SearchResult.SearchIntent) {
+              onOpenSearch(false, pageBackground.toArgb(), result.trigger + " ")
+            } else {
+              resultLauncher.launch(result, reportUsage = !privateMode)
             }
           },
           onToggleFavorite = { result ->
             if (!privateMode) {
-              (context.applicationContext as SearchLauncherApp)
-                .favoritesRepository
-                .toggleFavorite(result)
+              app.favoritesRepository.toggleFavorite(result)
             }
           },
           onReorder = { ids ->
             if (!privateMode) {
-              (context.applicationContext as SearchLauncherApp).favoritesRepository.updateOrder(ids)
+              app.favoritesRepository.updateOrder(ids)
             }
           },
           onHistoryCapacityChanged = { limit ->
-            searchRepository?.updateObservedHistoryLimit(limit)
+            if (!privateMode) {
+              searchRepository.updateObservedHistoryLimit(limit)
+            }
           },
           onHide = { chromeHiddenByUser = true },
           modifier =
@@ -969,8 +971,8 @@ private fun BrowserScreen(
           barColor = chromeBarColor,
           barContentColor = chromeBarContentColor,
           onReveal = { chromeHiddenByUser = false },
-          onSearch = { onOpenSearch(false, pageBackground.toArgb()) },
-          onVoiceSearch = { onOpenSearch(true, pageBackground.toArgb()) },
+          onSearch = { onOpenSearch(false, pageBackground.toArgb(), "") },
+          onVoiceSearch = { onOpenSearch(true, pageBackground.toArgb(), "") },
           onTabDragStart = tabDragStart,
           onTabDrag = tabDrag,
           onTabDragEnd = tabDragEnd,
@@ -1102,44 +1104,9 @@ private fun BrowserScreen(
 }
 
 @Composable
-private fun rememberFavoritesRepository(privateMode: Boolean): StateFlow<List<String>> {
-  val context = LocalContext.current
-  return remember(privateMode) {
-    if (privateMode) FavoritesRepository(context).favoriteIds
-    else (context.applicationContext as SearchLauncherApp).favoritesRepository.favoriteIds
-  }
-}
-
-@Composable
-private fun favoriteApps(favoriteIds: List<String>): State<List<SearchResult.App>> {
-  val context = LocalContext.current
-  return produceState(emptyList(), favoriteIds) {
-    value =
-      withContext(Dispatchers.IO) {
-        // Browser chrome only shows app favorites (PackageManager resolution).
-        favoriteIds.mapNotNull { key ->
-          val packageName = FavoriteKeys.appPackageName(key) ?: return@mapNotNull null
-          val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
-          if (launchIntent == null) return@mapNotNull null
-          val appInfo =
-            runCatching { context.packageManager.getApplicationInfo(packageName, 0) }.getOrNull()
-              ?: return@mapNotNull null
-          SearchResult.App(
-            id = packageName,
-            title = context.packageManager.getApplicationLabel(appInfo).toString(),
-            subtitle = null,
-            icon = context.packageManager.getApplicationIcon(appInfo),
-            packageName = packageName,
-          )
-        }
-      }
-  }
-}
-
-@Composable
 private fun BrowserLauncherChrome(
-  favoriteApps: List<SearchResult.App>,
-  recentApps: List<SearchResult.App>,
+  favorites: List<SearchResult>,
+  historyItems: List<SearchResult>,
   historyLimit: Int,
   minIconSizeSetting: Int,
   showFavorites: Boolean,
@@ -1151,8 +1118,8 @@ private fun BrowserLauncherChrome(
   onTabDragStart: () -> Unit,
   onTabDrag: (Float) -> Unit,
   onTabDragEnd: () -> Unit,
-  onLaunchFavorite: (SearchResult.App) -> Unit,
-  onToggleFavorite: (SearchResult.App) -> Unit,
+  onLaunchFavorite: (SearchResult) -> Unit,
+  onToggleFavorite: (SearchResult) -> Unit,
   onReorder: (List<String>) -> Unit,
   onHistoryCapacityChanged: (Int) -> Unit,
   onHide: () -> Unit,
@@ -1201,18 +1168,18 @@ private fun BrowserLauncherChrome(
         .padding(top = 8.dp, bottom = 4.dp)
   ) {
     AnimatedVisibility(
-      visible = showFavorites && (favoriteApps.isNotEmpty() || recentApps.isNotEmpty()),
+      visible = showFavorites && (favorites.isNotEmpty() || historyItems.isNotEmpty()),
       enter = expandVertically() + fadeIn(),
       exit = shrinkVertically() + fadeOut(),
     ) {
       Column {
         FavoritesRow(
-          favorites = favoriteApps,
-          history = recentApps,
+          favorites = favorites,
+          history = historyItems,
           historyLimit = historyLimit,
           minIconSizeSetting = minIconSizeSetting,
-          onLaunch = { onLaunchFavorite(it as SearchResult.App) },
-          onToggleFavorite = { onToggleFavorite(it as SearchResult.App) },
+          onLaunch = onLaunchFavorite,
+          onToggleFavorite = onToggleFavorite,
           onReorder = onReorder,
           onCapacityChanged = onHistoryCapacityChanged,
         )
