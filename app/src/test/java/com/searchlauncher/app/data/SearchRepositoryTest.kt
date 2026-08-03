@@ -118,6 +118,84 @@ class SearchRepositoryTest {
   }
 
   @Test
+  fun `replaceCollections swaps one namespace while keeping others searchable`() {
+    val app =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "com.test.app",
+        score = 1,
+        name = "Maps",
+        intentUri = "intent://maps",
+        isAction = false,
+        iconResId = 0L,
+      )
+    val oldContact =
+      AppSearchDocument(
+        namespace = "contacts",
+        id = "lookup/1",
+        score = 1,
+        name = "Ada Lovelace",
+        description = "|555",
+        isAction = false,
+        iconResId = 0L,
+      )
+    val newContact =
+      AppSearchDocument(
+        namespace = "contacts",
+        id = "lookup/2",
+        score = 1,
+        name = "Grace Hopper",
+        description = "|555",
+        isAction = false,
+        iconResId = 0L,
+      )
+
+    repository.documentSnapshot =
+      listOf(repository.wrap(app), repository.wrap(oldContact)).sortedBy { it.namespaceInt }
+
+    // Capture the previous snapshot reference before the swap — readers should keep it.
+    val previousSnapshot = repository.documentSnapshot
+    repository.replaceCollections(mapOf("contacts" to listOf(newContact)))
+
+    assertEquals(listOf("com.test.app", "lookup/1"), previousSnapshot.map { it.doc.id })
+    assertEquals(listOf("com.test.app", "lookup/2"), repository.documentSnapshot.map { it.doc.id })
+    assertTrue(
+      "Apps namespace must survive a contacts swap",
+      repository.documentSnapshot.any { it.doc.namespace == "apps" && it.doc.id == app.id },
+    )
+  }
+
+  @Test
+  fun `markIndexingStarted stays silent when a live snapshot already exists`() {
+    val app =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "com.test.app",
+        score = 1,
+        name = "Clock",
+        intentUri = "intent://clock",
+        isAction = false,
+        iconResId = 0L,
+      )
+    repository.documentSnapshot = listOf(repository.wrap(app))
+
+    repository.markIndexingStarted()
+    assertFalse(
+      "Background rebuilds should not expose indexing UI while old results are searchable",
+      repository.isIndexing.value,
+    )
+
+    repository.documentSnapshot = emptyList()
+    repository.markIndexingStarted()
+    assertTrue(
+      "Indexing UI should appear only when there is no live snapshot to search",
+      repository.isIndexing.value,
+    )
+    repository.markIndexingFinished()
+    assertFalse(repository.isIndexing.value)
+  }
+
+  @Test
   fun `snippet search matches both alias and content`() = runBlocking {
     val snippet =
       AppSearchDocument(

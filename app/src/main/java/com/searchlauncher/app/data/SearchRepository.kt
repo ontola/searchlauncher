@@ -38,6 +38,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -75,6 +77,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   private var appSearchSession: AppSearchSession? = null
   @Volatile private var pauseIndexingUntilMs: Long = 0L
+  /** Serializes durable-index rebuilds so load/rebuild never observe mid-wipe state. */
+  private val indexWriteMutex = Mutex()
 
   private fun calculateCharMask(text: String): Long {
     return SearchRanker.calculateCharMask(text)
@@ -146,11 +150,32 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   }
 
   private fun replaceCollection(namespace: String, documents: List<AppSearchDocument>) {
-    val wrapped = documents.map { wrap(it) }
+    replaceCollections(mapOf(namespace to documents))
+  }
+
+  /** Atomically swap one or more namespaces in the live search snapshot. */
+  internal fun replaceCollections(updates: Map<String, List<AppSearchDocument>>) {
+    if (updates.isEmpty()) return
+    val wrappedByNamespace = updates.mapValues { (_, docs) -> docs.map { wrap(it) } }
     synchronized(this) {
-      val filtered = documentSnapshot.filter { it.doc.namespace != namespace }
-      documentSnapshot = (filtered + wrapped).sortedBy { it.namespaceInt }
+      val filtered = documentSnapshot.filter { it.doc.namespace !in updates.keys }
+      documentSnapshot =
+        (filtered + wrappedByNamespace.values.flatten()).sortedBy { it.namespaceInt }
     }
+  }
+
+  /**
+   * Indexing UI is only shown when search cannot serve an existing snapshot. Background rebuilds
+   * keep the old index live and swap when ready, so users should not notice them.
+   */
+  internal fun markIndexingStarted() {
+    if (documentSnapshot.isEmpty()) {
+      _isIndexing.value = true
+    }
+  }
+
+  internal fun markIndexingFinished() {
+    _isIndexing.value = false
   }
 
   fun noteInteractiveSearch(query: String) {
@@ -169,6 +194,44 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       val remainingMs = pauseIndexingUntilMs - System.currentTimeMillis()
       if (remainingMs <= 0) return
       delay(remainingMs.coerceAtMost(INDEXING_INTERACTIVE_SEARCH_POLL_MS))
+    }
+  }
+
+  /**
+   * Removes AppSearch docs in [namespace] whose ids are not in [keepIds]. Used after puts so the
+   * durable store never goes empty while a new collection is building.
+   */
+  private suspend fun removeMissingDocuments(
+    session: AppSearchSession,
+    namespace: String,
+    keepIds: Set<String>,
+  ) {
+    try {
+      val searchSpec =
+        SearchSpec.Builder().addFilterNamespaces(namespace).setResultCountPerPage(1000).build()
+      val searchResults = session.search("", searchSpec)
+      var page = searchResults.nextPageAsync.await()
+      val idsToRemove = mutableListOf<String>()
+      while (page.isNotEmpty()) {
+        page.forEach { result ->
+          val id = result.genericDocument.id
+          if (id !in keepIds) {
+            idsToRemove.add(id)
+          }
+        }
+        page = searchResults.nextPageAsync.await()
+      }
+      if (idsToRemove.isNotEmpty()) {
+        val removeRequest = RemoveByDocumentIdRequest.Builder(namespace).addIds(idsToRemove).build()
+        session.removeAsync(removeRequest).await()
+        android.util.Log.d(
+          "SearchRepository",
+          "Removed ${idsToRemove.size} stale docs from $namespace",
+        )
+      }
+    } catch (e: Exception) {
+      android.util.Log.e("SearchRepository", "Failed to cleanup stale docs in $namespace", e)
+      Sentry.captureException(e)
     }
   }
 
@@ -239,7 +302,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
         loadUsageStats()
-        _isIndexing.value = true
+        markIndexingStarted()
         // Load cached favorites and history immediately for instant UI
         _favorites.value = loadResultsFromCache(true)
         val cachedHistory = loadResultsFromCache(false)
@@ -289,9 +352,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             "SearchRepository",
             "loadFastIndexCache took ${System.currentTimeMillis() - loadStart}ms",
           )
-          // Unblock UI immediately
+          // Unblock UI immediately — keep serving the cache while AppSearch syncs
           _isInitialized.value = true
-          _isIndexing.value = false
+          markIndexingFinished()
 
           android.util.Log.d(
             "SearchRepository",
@@ -308,7 +371,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           )
 
           _isInitialized.value = true
-          _isIndexing.value = false
+          markIndexingFinished()
 
           android.util.Log.d(
             "SearchRepository",
@@ -358,50 +421,53 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             return@launch
           }
 
-          // Don't block UI with _isIndexing = true. Let it happen in bg.
-          _isIndexing.value = true
+          // Rebuild in the background while the live snapshot stays searchable.
+          // Only surface indexing UI when there is no existing index to serve.
+          markIndexingStarted()
           val backgroundStart = System.currentTimeMillis()
 
           try {
-            val appsStart = System.currentTimeMillis()
-            pauseIndexingIfSearchIsActive()
-            indexApps()
-            android.util.Log.d(
-              "SearchRepository",
-              "indexApps took ${System.currentTimeMillis() - appsStart}ms",
-            )
+            indexWriteMutex.withLock {
+              val appsStart = System.currentTimeMillis()
+              pauseIndexingIfSearchIsActive()
+              indexApps()
+              android.util.Log.d(
+                "SearchRepository",
+                "indexApps took ${System.currentTimeMillis() - appsStart}ms",
+              )
 
-            val customStart = System.currentTimeMillis()
-            pauseIndexingIfSearchIsActive()
-            indexCustomShortcuts()
-            android.util.Log.d(
-              "SearchRepository",
-              "indexCustomShortcuts took ${System.currentTimeMillis() - customStart}ms",
-            )
+              val customStart = System.currentTimeMillis()
+              pauseIndexingIfSearchIsActive()
+              indexCustomShortcuts()
+              android.util.Log.d(
+                "SearchRepository",
+                "indexCustomShortcuts took ${System.currentTimeMillis() - customStart}ms",
+              )
 
-            val staticStart = System.currentTimeMillis()
-            pauseIndexingIfSearchIsActive()
-            indexStaticShortcuts()
-            android.util.Log.d(
-              "SearchRepository",
-              "indexStaticShortcuts took ${System.currentTimeMillis() - staticStart}ms",
-            )
+              val staticStart = System.currentTimeMillis()
+              pauseIndexingIfSearchIsActive()
+              indexStaticShortcuts()
+              android.util.Log.d(
+                "SearchRepository",
+                "indexStaticShortcuts took ${System.currentTimeMillis() - staticStart}ms",
+              )
 
-            val contactsStart = System.currentTimeMillis()
-            pauseIndexingIfSearchIsActive()
-            indexContacts()
-            android.util.Log.d(
-              "SearchRepository",
-              "indexContacts took ${System.currentTimeMillis() - contactsStart}ms",
-            )
+              val contactsStart = System.currentTimeMillis()
+              pauseIndexingIfSearchIsActive()
+              indexContacts()
+              android.util.Log.d(
+                "SearchRepository",
+                "indexContacts took ${System.currentTimeMillis() - contactsStart}ms",
+              )
 
-            val snippetsStart = System.currentTimeMillis()
-            pauseIndexingIfSearchIsActive()
-            indexSnippets()
-            android.util.Log.d(
-              "SearchRepository",
-              "indexSnippets took ${System.currentTimeMillis() - snippetsStart}ms",
-            )
+              val snippetsStart = System.currentTimeMillis()
+              pauseIndexingIfSearchIsActive()
+              indexSnippets()
+              android.util.Log.d(
+                "SearchRepository",
+                "indexSnippets took ${System.currentTimeMillis() - snippetsStart}ms",
+              )
+            }
 
             android.util.Log.d(
               "SearchRepository",
@@ -414,7 +480,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               .apply()
             _indexUpdated.emit(Unit)
           } finally {
-            _isIndexing.value = false
+            markIndexingFinished()
           }
         }
       }
@@ -424,28 +490,39 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     withContext(Dispatchers.IO) {
       val session = appSearchSession ?: return@withContext
       try {
-        val searchSpec =
-          SearchSpec.Builder()
-            .setTermMatch(SearchSpec.TERM_MATCH_PREFIX)
-            .setResultCountPerPage(1000)
-            .build()
+        indexWriteMutex.withLock {
+          val searchSpec =
+            SearchSpec.Builder()
+              .setTermMatch(SearchSpec.TERM_MATCH_PREFIX)
+              .setResultCountPerPage(1000)
+              .build()
 
-        val searchResults = session.search("", searchSpec)
-        val allDocs = mutableListOf<AppSearchDocument>()
+          val searchResults = session.search("", searchSpec)
+          val allDocs = mutableListOf<AppSearchDocument>()
 
-        var page = searchResults.nextPageAsync.await()
-        while (page.isNotEmpty()) {
-          allDocs.addAll(
-            page.mapNotNull { it.genericDocument.toDocumentClass(AppSearchDocument::class.java) }
-          )
-          page = searchResults.nextPageAsync.await()
+          var page = searchResults.nextPageAsync.await()
+          while (page.isNotEmpty()) {
+            allDocs.addAll(
+              page.mapNotNull { it.genericDocument.toDocumentClass(AppSearchDocument::class.java) }
+            )
+            page = searchResults.nextPageAsync.await()
+          }
+
+          // Never clobber a usable live snapshot with an empty durable read (e.g. mid-rebuild).
+          if (allDocs.isEmpty() && documentSnapshot.isNotEmpty()) {
+            android.util.Log.w(
+              "SearchRepository",
+              "Ignoring empty AppSearch load; keeping live search snapshot",
+            )
+            return@withLock
+          }
+
+          documentSnapshot = allDocs.map { wrap(it) }.sortedBy { it.namespaceInt }
+          updateAppsCache()
+          saveFastIndexCache()
+          _indexUpdated.emit(Unit)
+          android.util.Log.d("SearchRepository", "Loaded ${allDocs.size} documents from index")
         }
-
-        documentSnapshot = allDocs.map { wrap(it) }.sortedBy { it.namespaceInt }
-        updateAppsCache()
-        saveFastIndexCache()
-        _indexUpdated.emit(Unit)
-        android.util.Log.d("SearchRepository", "Loaded ${allDocs.size} documents from index")
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Failed to load from index", e)
         Sentry.captureException(e)
@@ -520,11 +597,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       android.util.Log.d("SearchRepository", "Indexing apps...")
       val session = appSearchSession ?: return@withContext
 
-      // Note: We NO LONGER clear the entire 'apps' namespace here.
-      // Clearing the namespace also wipes usage stats (history).
-      // Instead, we put new documents (updates existing ones) and later
-      // we could implement a cleanup for apps that were uninstalled.
-
+      // Build against the live snapshot; put first, then remove stale ids, then atomic swap.
+      // The old in-memory apps collection stays searchable until replaceCollection runs.
       val apps = appIndexer.buildDocuments(::pauseIndexingIfSearchIsActive)
 
       if (apps.isNotEmpty()) {
@@ -539,37 +613,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           }
         }
 
-        // Cleanup: Remove apps from AppSearch that are no longer in our current 'apps' list.
-        try {
-          val currentPackageNames = apps.map { it.id }.toSet()
-          val searchSpec =
-            SearchSpec.Builder().addFilterNamespaces("apps").setResultCountPerPage(1000).build()
-          val searchResults = session.search("", searchSpec)
-          var page = searchResults.nextPageAsync.await()
-          val idsToRemove = mutableListOf<String>()
-          while (page.isNotEmpty()) {
-            page.forEach {
-              val id = it.genericDocument.id
-              if (!currentPackageNames.contains(id)) {
-                idsToRemove.add(id)
-              }
-            }
-            page = searchResults.nextPageAsync.await()
-          }
-          if (idsToRemove.isNotEmpty()) {
-            val removeRequest =
-              RemoveByDocumentIdRequest.Builder("apps").addIds(idsToRemove).build()
-            session.removeAsync(removeRequest).await()
-            android.util.Log.d(
-              "SearchRepository",
-              "Removed ${idsToRemove.size} zombie apps from index",
-            )
-          }
-        } catch (e: Exception) {
-          android.util.Log.e("SearchRepository", "Failed to cleanup zombie apps", e)
-          Sentry.captureException(e)
-        }
-
+        removeMissingDocuments(session, "apps", apps.map { it.id }.toSet())
         replaceCollection("apps", apps)
       } else {
         android.util.Log.w(
@@ -600,37 +644,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         packageNames
           ?: documentSnapshot.filter { it.namespaceInt == 1 }.map { it.doc.id }.distinct()
 
-      if (isFullReindex) {
-        try {
-          val removeSpec = SearchSpec.Builder().addFilterNamespaces("shortcuts").build()
-          session.removeAsync("", removeSpec).await()
-        } catch (e: Exception) {
-          android.util.Log.e("SearchRepository", "Failed to clear shortcuts namespace", e)
-          Sentry.captureException(e)
-        }
-      } else {
-        // Remove only the existing shortcut entries for these packages
-        val staleIds =
-          documentSnapshot
-            .filter { sdoc ->
-              sdoc.doc.namespace == "shortcuts" && packages.any { sdoc.doc.id.startsWith("$it/") }
-            }
-            .map { it.doc.id }
-        if (staleIds.isNotEmpty()) {
-          try {
-            val removeRequest =
-              RemoveByDocumentIdRequest.Builder("shortcuts").addIds(staleIds).build()
-            session.removeAsync(removeRequest).await()
-          } catch (e: Exception) {
-            android.util.Log.e(
-              "SearchRepository",
-              "Failed to remove stale shortcuts for packages",
-              e,
-            )
-          }
-        }
-      }
-
+      // Build first while the live snapshot still serves the previous shortcuts.
       val newShortcuts =
         shortcutIndexer.buildDynamicDocuments(packages, ::pauseIndexingIfSearchIsActive)
           ?: return@withContext
@@ -647,8 +661,32 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
 
       if (isFullReindex) {
+        removeMissingDocuments(session, "shortcuts", newShortcuts.map { it.id }.toSet())
         replaceCollection("shortcuts", newShortcuts)
       } else {
+        val previousIds =
+          documentSnapshot
+            .asSequence()
+            .filter { sdoc ->
+              sdoc.doc.namespace == "shortcuts" && packages.any { sdoc.doc.id.startsWith("$it/") }
+            }
+            .map { it.doc.id }
+            .toSet()
+        val keepIds = newShortcuts.map { it.id }.toSet()
+        val staleIds = previousIds - keepIds
+        if (staleIds.isNotEmpty()) {
+          try {
+            val removeRequest =
+              RemoveByDocumentIdRequest.Builder("shortcuts").addIds(staleIds).build()
+            session.removeAsync(removeRequest).await()
+          } catch (e: Exception) {
+            android.util.Log.e(
+              "SearchRepository",
+              "Failed to remove stale shortcuts for packages",
+              e,
+            )
+          }
+        }
         synchronized(this@SearchRepository) {
           val filtered =
             documentSnapshot.filter { sdoc ->
@@ -666,30 +704,27 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       pauseIndexingIfSearchIsActive()
       val session = appSearchSession ?: return@withContext
 
-      // Remove old shortcuts first to prevent zombies
-      try {
-        val removeSpec =
-          SearchSpec.Builder().addFilterNamespaces("search_shortcuts", "app_shortcuts").build()
-        session.removeAsync("", removeSpec).await()
-      } catch (e: Exception) {
-        e.printStackTrace()
-        Sentry.captureException(e)
-      }
-
+      // Build first; put; remove stale; then atomically swap both namespaces in memory.
       val allDocs = shortcutIndexer.buildCustomDocuments()
+      pauseIndexingIfSearchIsActive()
       if (allDocs.isNotEmpty()) {
-        pauseIndexingIfSearchIsActive()
         val putRequest = PutDocumentsRequest.Builder().addDocuments(allDocs).build()
         session.putAsync(putRequest).await()
-        // Special case for custom shortcuts: they have two namespaces
-        synchronized(this@SearchRepository) {
-          val filtered =
-            documentSnapshot.filter {
-              it.doc.namespace != "search_shortcuts" && it.doc.namespace != "app_shortcuts"
-            }
-          documentSnapshot = (filtered + allDocs.map { wrap(it) }).sortedBy { it.namespaceInt }
-        }
       }
+
+      val searchShortcutIds =
+        allDocs.asSequence().filter { it.namespace == "search_shortcuts" }.map { it.id }.toSet()
+      val appShortcutIds =
+        allDocs.asSequence().filter { it.namespace == "app_shortcuts" }.map { it.id }.toSet()
+      removeMissingDocuments(session, "search_shortcuts", searchShortcutIds)
+      removeMissingDocuments(session, "app_shortcuts", appShortcutIds)
+
+      replaceCollections(
+        mapOf(
+          "search_shortcuts" to allDocs.filter { it.namespace == "search_shortcuts" },
+          "app_shortcuts" to allDocs.filter { it.namespace == "app_shortcuts" },
+        )
+      )
     }
 
   suspend fun indexStaticShortcuts() =
@@ -698,21 +733,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       val session = appSearchSession ?: return@withContext
       val docs = shortcutIndexer.buildStaticDocuments(::pauseIndexingIfSearchIsActive)
 
-      // Clear old entries
       pauseIndexingIfSearchIsActive()
-      try {
-        val removeSpec = SearchSpec.Builder().addFilterNamespaces("static_shortcuts").build()
-        session.removeAsync("", removeSpec).await()
-      } catch (e: Exception) {
-        android.util.Log.e("SearchRepository", "Failed to clear static_shortcuts namespace", e)
-        Sentry.captureException(e)
-      }
-
       if (docs.isNotEmpty()) {
-        pauseIndexingIfSearchIsActive()
         val putRequest = PutDocumentsRequest.Builder().addDocuments(docs).build()
         session.putAsync(putRequest).await()
       }
+      removeMissingDocuments(session, "static_shortcuts", docs.map { it.id }.toSet())
       replaceCollection("static_shortcuts", docs)
     }
 
@@ -734,74 +760,53 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         android.util.Log.d("SearchRepository", "Indexed ${contacts.size} contacts")
         val putRequest = PutDocumentsRequest.Builder().addDocuments(contacts).build()
         session.putAsync(putRequest).await()
+        removeMissingDocuments(session, "contacts", contacts.map { it.id }.toSet())
         replaceCollection("contacts", contacts)
       } else {
+        // Keep the previous contacts snapshot if the provider returns nothing — avoids wiping
+        // on transient provider failures while a background rebuild is running.
         android.util.Log.d("SearchRepository", "No contacts found to index")
       }
     }
 
   suspend fun resetIndex() =
     withContext(Dispatchers.IO) {
-      val session = appSearchSession ?: return@withContext
+      if (appSearchSession == null) return@withContext
       try {
-        withContext(Dispatchers.Main) { _isIndexing.value = true }
+        // Keep serving the existing snapshot while the new index builds; only show the
+        // indexing indicator when there is nothing searchable yet.
+        withContext(Dispatchers.Main) { markIndexingStarted() }
 
         // Clear manual usage persistence
         resetUsageStats()
         getFavoritesCacheFile().delete()
         _favorites.value = emptyList() // Explicitly clear favorites
 
-        // Clear document cache (except bookmarks if possible, or just reload)
-        synchronized(this) {
-          documentSnapshot =
-            documentSnapshot.filter {
-              it.doc.namespace == "web_bookmarks" || it.doc.namespace == "web_saved"
-            }
-        }
-
-        // Selective wipe: everything EXCEPT web_bookmarks / web_saved
-        try {
-          val removeSpec =
-            SearchSpec.Builder()
-              .addFilterNamespaces(
-                "apps",
-                "shortcuts",
-                "static_shortcuts",
-                "search_shortcuts",
-                "app_shortcuts",
-                "contacts",
-                "snippets",
-              )
-              .build()
-          session.removeAsync("", removeSpec).await()
-          android.util.Log.d("SearchRepository", "Selectively cleared index (excluding bookmarks)")
-        } catch (e: Exception) {
-          android.util.Log.e("SearchRepository", "Failed to selectively clear index", e)
-          Sentry.captureException(e)
-        }
-
         // Clear timestamp to ensure future "fresh" checks fail until we are done
         val prefs = context.getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
         prefs.edit().remove(Prefs.Launcher.LAST_REINDEX_TIMESTAMP).apply()
 
-        // Re-index everything (indexApps etc. will re-populate documentCache)
-        indexApps()
-        indexCustomShortcuts()
-        indexStaticShortcuts()
-        indexContacts()
-        indexSnippets()
-
-        // warmupCache() - Removed
+        // Rebuild in place: each indexer puts new docs, removes stale ones, then atomically
+        // swaps its namespace in the live snapshot. Bookmarks/web_saved are left untouched.
+        indexWriteMutex.withLock {
+          indexApps()
+          indexCustomShortcuts()
+          indexStaticShortcuts()
+          indexContacts()
+          indexSnippets()
+        }
 
         prefs
           .edit()
           .putLong(Prefs.Launcher.LAST_REINDEX_TIMESTAMP, System.currentTimeMillis())
           .apply()
+        saveFastIndexCache()
+        _indexUpdated.emit(Unit)
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error during resetIndex", e)
         Sentry.captureException(e)
       } finally {
-        withContext(Dispatchers.Main) { _isIndexing.value = false }
+        withContext(Dispatchers.Main) { markIndexingFinished() }
       }
     }
 
@@ -809,6 +814,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     withContext(Dispatchers.IO) {
       val session = appSearchSession ?: return@withContext
       try {
+        // Full wipe intentionally clears the live snapshot; indexing UI is expected here.
         withContext(Dispatchers.Main) { _isIndexing.value = true }
 
         // Clear all local state
@@ -828,19 +834,22 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         _favorites.value = emptyList()
         _recentItems.value = emptyList()
         documentSnapshot = emptyList()
+        File(context.cacheDir, "fast_index_cache.json").delete()
 
-        // Full AppSearch wipe
-        val setSchemaRequest = SetSchemaRequest.Builder().setForceOverride(true).build()
-        session.setSchemaAsync(setSchemaRequest).await()
+        indexWriteMutex.withLock {
+          // Full AppSearch wipe
+          val setSchemaRequest = SetSchemaRequest.Builder().setForceOverride(true).build()
+          session.setSchemaAsync(setSchemaRequest).await()
 
-        val initSchemaRequest =
-          SetSchemaRequest.Builder().addDocumentClasses(AppSearchDocument::class.java).build()
-        session.setSchemaAsync(initSchemaRequest).await()
+          val initSchemaRequest =
+            SetSchemaRequest.Builder().addDocumentClasses(AppSearchDocument::class.java).build()
+          session.setSchemaAsync(initSchemaRequest).await()
 
-        // Re-index core only
-        indexApps()
-        indexCustomShortcuts()
-        indexStaticShortcuts()
+          // Re-index core only
+          indexApps()
+          indexCustomShortcuts()
+          indexStaticShortcuts()
+        }
 
         // Reset first run flag and clear wallpaper URI to reveal system wallpaper
         context.dataStore.edit { preferences ->
@@ -856,7 +865,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         android.util.Log.e("SearchRepository", "Error during resetAppData", e)
         Sentry.captureException(e)
       } finally {
-        withContext(Dispatchers.Main) { _isIndexing.value = false }
+        withContext(Dispatchers.Main) { markIndexingFinished() }
       }
     }
 
@@ -1406,13 +1415,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
       try {
         val docs = snippetIndexer.buildDocuments()
-
         if (docs.isNotEmpty()) {
           val putRequest = PutDocumentsRequest.Builder().addDocuments(docs).build()
           session.putAsync(putRequest).await()
-          replaceCollection("snippets", docs)
-          android.util.Log.d("SearchRepository", "Indexed ${docs.size} snippets")
         }
+        removeMissingDocuments(session, "snippets", docs.map { it.id }.toSet())
+        replaceCollection("snippets", docs)
+        android.util.Log.d("SearchRepository", "Indexed ${docs.size} snippets")
       } catch (e: Exception) {
         e.printStackTrace()
         android.util.Log.e("SearchRepository", "Failed to index snippets", e)

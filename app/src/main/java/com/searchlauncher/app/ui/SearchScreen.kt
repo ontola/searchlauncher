@@ -415,8 +415,10 @@ fun SearchScreen(
           }
         isFallbackMode = results.isEmpty()
 
+        // Only surface the indexing row when there are no live results to show. Background
+        // rebuilds keep the previous snapshot searchable and swap when ready.
         val resultsWithIndexing =
-          if (isIndexing) {
+          if (isIndexing && baseResults.isEmpty()) {
             listOf(SearchResult.IndexingIndicator()) + baseResults
           } else {
             baseResults

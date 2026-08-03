@@ -48,6 +48,13 @@ class BrowserNavigationTest {
   }
 
   @Test
+  fun desktopViewportMetaUsesChromiumDefaultWidth() {
+    assertEquals(980, DESKTOP_VIEWPORT_WIDTH)
+    assertEquals("width=980", desktopViewportMetaContent())
+    assertEquals("width=1280", desktopViewportMetaContent(1280))
+  }
+
+  @Test
   fun managesBrowserTabOrderAndActiveTab() {
     val tabs = BrowserTabs("https://one.example")
     tabs.add("https://two.example")
