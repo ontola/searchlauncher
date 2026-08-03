@@ -229,12 +229,13 @@ private fun BrowserScreen(
 ) {
   val context = LocalContext.current
   val app = context.applicationContext as SearchLauncherApp
-  // Read the shared favorites/history flows so the browser strip matches search.
-  // Writes (toggle/reorder/usage) stay gated on !privateMode below.
-  val searchRepository = app.searchRepository
+  // Always read the shared favorites flow so the browser strip matches search.
+  // Keep searchRepository null in private mode so browsing never writes index/history/favicons.
+  val sharedSearchRepository = app.searchRepository
+  val searchRepository = if (privateMode) null else sharedSearchRepository
   val favoriteIds by app.favoritesRepository.favoriteIds.collectAsState()
-  val favorites by searchRepository.favorites.collectAsState()
-  val allRecentItems by searchRepository.recentItems.collectAsState()
+  val favorites by sharedSearchRepository.favorites.collectAsState()
+  val allRecentItems by sharedSearchRepository.recentItems.collectAsState()
   val historyLimit by
     remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
       .collectAsState(initial = -1)
@@ -266,8 +267,12 @@ private fun BrowserScreen(
       .collectAsState(initial = true)
   val coroutineScope = rememberCoroutineScope()
   val resultLauncher =
-    remember(context, searchRepository, coroutineScope) {
-      ResultLauncher(context = context, searchRepository = searchRepository, scope = coroutineScope)
+    remember(context, sharedSearchRepository, coroutineScope) {
+      ResultLauncher(
+        context = context,
+        searchRepository = sharedSearchRepository,
+        scope = coroutineScope,
+      )
     }
   val initialNavigationRequest = remember { navigationRequest }
   val defaultPageBackground = MaterialTheme.colorScheme.background
@@ -925,9 +930,7 @@ private fun BrowserScreen(
             }
           },
           onHistoryCapacityChanged = { limit ->
-            if (!privateMode) {
-              searchRepository.updateObservedHistoryLimit(limit)
-            }
+            searchRepository?.updateObservedHistoryLimit(limit)
           },
           onHide = { chromeHiddenByUser = true },
           modifier =
