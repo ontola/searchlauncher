@@ -103,7 +103,10 @@ internal class BrowserTabs(initialUrl: String) {
  * process and keeps its tabs activity-local, so it never touches this.
  */
 internal object BrowserTabStore {
-  var tabs: BrowserTabs? = null
+  // Compose state rather than a plain field: the launcher shows a live count of these in its own
+  // search bar, so it has to recompose when the browser — a different activity in this process —
+  // opens or closes tabs.
+  var tabs: BrowserTabs? by mutableStateOf(null)
     private set
 
   fun adopt(tabs: BrowserTabs) {

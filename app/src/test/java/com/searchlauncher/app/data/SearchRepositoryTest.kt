@@ -166,6 +166,60 @@ class SearchRepositoryTest {
   }
 
   @Test
+  fun `getResults resolves namespaced favorite keys in order`() = runBlocking {
+    // Same bare id in two namespaces — resolution must use the namespace from the key.
+    val app =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "shared",
+        score = 1,
+        name = "Shared App",
+        intentUri = "intent://shared",
+        isAction = false,
+        iconResId = 0L,
+      )
+    val snippet =
+      AppSearchDocument(
+        namespace = "snippets",
+        id = "shared",
+        score = 1,
+        name = "Shared Snippet",
+        description = "hello",
+        isAction = false,
+        iconResId = 0L,
+      )
+    val otherApp =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "com.test.other",
+        score = 1,
+        name = "Other",
+        intentUri = "intent://other",
+        isAction = false,
+        iconResId = 0L,
+      )
+
+    repository.documentSnapshot =
+      listOf(repository.wrap(app), repository.wrap(snippet), repository.wrap(otherApp)).sortedBy {
+        it.namespaceInt
+      }
+
+    val results =
+      repository.getResults(
+        listOf(
+          "snippets/shared",
+          "com.test.other", // legacy bare app id
+          "apps/shared",
+        )
+      )
+
+    assertEquals(listOf("shared", "com.test.other", "shared"), results.map { it.id })
+    assertEquals(listOf("snippets", "apps", "apps"), results.map { it.namespace })
+    assertTrue(results[0] is SearchResult.Snippet)
+    assertTrue(results[2] is SearchResult.App)
+  }
+
+  @Test
   fun `markIndexingStarted stays silent when a live snapshot already exists`() {
     val app =
       AppSearchDocument(

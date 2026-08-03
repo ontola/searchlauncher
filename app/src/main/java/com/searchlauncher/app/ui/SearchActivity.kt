@@ -38,7 +38,7 @@ class SearchActivity : ComponentActivity() {
 
     setContent {
       val context = LocalContext.current
-      val query = remember { mutableStateOf("") }
+      val query = remember { mutableStateOf(intent.getStringExtra(EXTRA_INITIAL_QUERY).orEmpty()) }
       val browserSearchMode = intent.getBooleanExtra(EXTRA_BROWSER_SEARCH, false)
       val chromeBarColor =
         intent
@@ -120,5 +120,6 @@ class SearchActivity : ComponentActivity() {
     const val EXTRA_START_VOICE_SEARCH = "start_voice_search"
     const val EXTRA_BROWSER_SEARCH = "browser_search"
     const val EXTRA_CHROME_COLOR = "chrome_color"
+    const val EXTRA_INITIAL_QUERY = "initial_query"
   }
 }

@@ -45,7 +45,6 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -81,11 +80,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.LineHeightStyle
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -104,9 +99,11 @@ import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.FavoritesRepository
 import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.data.favoriteKey
 import com.searchlauncher.app.ui.MainActivity
 import com.searchlauncher.app.ui.MinIconSize
 import com.searchlauncher.app.ui.PreferencesKeys
+import com.searchlauncher.app.ui.ResultLauncher
 import com.searchlauncher.app.ui.SearchActivity
 import com.searchlauncher.app.ui.components.BookmarkDialog
 import com.searchlauncher.app.ui.components.FavoritesRow
@@ -115,14 +112,12 @@ import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 open class BrowserActivity : ComponentActivity() {
   private var navigationRequest by mutableStateOf<NavigationRequest?>(null)
@@ -164,7 +159,7 @@ open class BrowserActivity : ComponentActivity() {
           browserMenuRequest = browserMenuRequest,
           onBrowserMenuShown = { browserMenuRequest = 0L },
           tabActivationRequest = tabActivationRequest,
-          onOpenSearch = ::openSearch,
+          onOpenSearch = { voice, color, query -> openSearch(voice, color, query) },
           onClose = ::finish,
         )
       }
@@ -210,7 +205,11 @@ open class BrowserActivity : ComponentActivity() {
   private fun <T> preference(key: Preferences.Key<T>, default: T): State<T> =
     remember(key) { dataStore.data.map { it[key] ?: default } }.collectAsState(initial = default)
 
-  private fun openSearch(startVoiceSearch: Boolean, chromeColorArgb: Int) {
+  private fun openSearch(
+    startVoiceSearch: Boolean,
+    chromeColorArgb: Int,
+    initialQuery: String = "",
+  ) {
     pendingSearchLaunch = true
     startActivity(
       Intent(this, SearchActivity::class.java)
@@ -221,6 +220,7 @@ open class BrowserActivity : ComponentActivity() {
         .putExtra(SearchActivity.EXTRA_START_VOICE_SEARCH, startVoiceSearch)
         .putExtra(SearchActivity.EXTRA_BROWSER_SEARCH, true)
         .putExtra(SearchActivity.EXTRA_CHROME_COLOR, chromeColorArgb)
+        .putExtra(SearchActivity.EXTRA_INITIAL_QUERY, initialQuery)
     )
   }
 
@@ -311,30 +311,30 @@ private fun BrowserScreen(
   browserMenuRequest: Long,
   onBrowserMenuShown: () -> Unit,
   tabActivationRequest: TabActivationRequest?,
-  onOpenSearch: (Boolean, Int) -> Unit,
+  onOpenSearch: (Boolean, Int, String) -> Unit,
   onClose: () -> Unit,
 ) {
   val context = LocalContext.current
-  val searchRepository =
-    if (privateMode) null else (context.applicationContext as SearchLauncherApp).searchRepository
-  val favoritesRepository = rememberFavoritesRepository(privateMode)
-  val favoriteIds by favoritesRepository.collectAsState()
-  val favoriteApps by favoriteApps(favoriteIds)
-  val rawHistoryItems =
-    if (searchRepository != null) searchRepository.recentItems.collectAsState().value
-    else emptyList()
+  val app = context.applicationContext as SearchLauncherApp
+  // Always read the shared favorites flow so the browser strip matches search.
+  // Keep searchRepository null in private mode so browsing never writes index/history/favicons.
+  val sharedSearchRepository = app.searchRepository
+  val searchRepository = if (privateMode) null else sharedSearchRepository
+  val favoriteIds by app.favoritesRepository.favoriteIds.collectAsState()
+  val favorites by sharedSearchRepository.favorites.collectAsState()
+  val allRecentItems by sharedSearchRepository.recentItems.collectAsState()
   val historyLimit by
     remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
       .collectAsState(initial = -1)
   val minIconSizeSetting by
     remember { MinIconSize.flow(context) }.collectAsState(initial = MinIconSize.cached(context))
-  val recentApps =
-    remember(rawHistoryItems, favoriteIds, historyLimit) {
-      if (historyLimit == 0) emptyList()
+  val historyItems =
+    remember(allRecentItems, favoriteIds, historyLimit, privateMode) {
+      if (privateMode || historyLimit == 0) emptyList()
       else {
-        val apps =
-          rawHistoryItems.filterIsInstance<SearchResult.App>().filterNot { it.id in favoriteIds }
-        if (historyLimit >= 0) apps.take(historyLimit) else apps
+        val favoriteKeys = favoriteIds.toSet()
+        val filtered = allRecentItems.filter { it.favoriteKey !in favoriteKeys }
+        if (historyLimit >= 0) filtered.take(historyLimit) else filtered
       }
     }
   // Hidden by default while browsing: the page is the focus, and the row is a lot of UI.
@@ -353,6 +353,14 @@ private fun BrowserScreen(
       }
       .collectAsState(initial = true)
   val coroutineScope = rememberCoroutineScope()
+  val resultLauncher =
+    remember(context, sharedSearchRepository, coroutineScope) {
+      ResultLauncher(
+        context = context,
+        searchRepository = sharedSearchRepository,
+        scope = coroutineScope,
+      )
+    }
   val initialNavigationRequest = remember { navigationRequest }
   val defaultPageBackground = MaterialTheme.colorScheme.background
   // Private browsing keeps its tabs in the composition (its process is torn down with the window
@@ -509,7 +517,7 @@ private fun BrowserScreen(
           tabDragOffsetPx = value
         }
         tabsInMotion = false
-        onOpenSearch(false, defaultPageBackground.toArgb())
+        onOpenSearch(false, defaultPageBackground.toArgb(), "")
       }
   }
 
@@ -1272,33 +1280,32 @@ private fun BrowserScreen(
         exit = fadeOut(),
       ) {
         BrowserLauncherChrome(
-          favoriteApps = favoriteApps,
-          recentApps = recentApps,
+          favorites = favorites,
+          historyItems = historyItems,
           historyLimit = historyLimit,
           minIconSizeSetting = minIconSizeSetting,
           showFavorites = showFavorites,
           barColor = chromeBarColor,
           barContentColor = chromeBarContentColor,
-          onOpenSearch = { onOpenSearch(false, pageBackground.toArgb()) },
+          onOpenSearch = { onOpenSearch(false, pageBackground.toArgb(), "") },
           onTabDragStart = tabDragStart,
           onTabDrag = tabDrag,
           onTabDragEnd = tabDragEnd,
           onLaunchFavorite = { result ->
-            context.packageManager.getLaunchIntentForPackage(result.packageName)?.let { intent ->
-              intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-              context.startActivity(intent)
+            if (result is SearchResult.SearchIntent) {
+              onOpenSearch(false, pageBackground.toArgb(), result.trigger + " ")
+            } else {
+              resultLauncher.launch(result, reportUsage = !privateMode)
             }
           },
           onToggleFavorite = { result ->
             if (!privateMode) {
-              (context.applicationContext as SearchLauncherApp)
-                .favoritesRepository
-                .toggleFavorite(result.id)
+              app.favoritesRepository.toggleFavorite(result)
             }
           },
           onReorder = { ids ->
             if (!privateMode) {
-              (context.applicationContext as SearchLauncherApp).favoritesRepository.updateOrder(ids)
+              app.favoritesRepository.updateOrder(ids)
             }
           },
           onHistoryCapacityChanged = { limit ->
@@ -1349,7 +1356,7 @@ private fun BrowserScreen(
           barColor = chromeBarColor,
           barContentColor = chromeBarContentColor,
           onReveal = { chromeHiddenByUser = false },
-          onSearch = { onOpenSearch(false, pageBackground.toArgb()) },
+          onSearch = { onOpenSearch(false, pageBackground.toArgb(), "") },
           onTabDragStart = tabDragStart,
           onTabDrag = tabDrag,
           onTabDragEnd = tabDragEnd,
@@ -1364,7 +1371,7 @@ private fun BrowserScreen(
         barContentColor = chromeBarContentColor,
         tabCount = tabs.items.size,
         onOpenTabs = { if (tabsOverviewOpen) tabsOverviewOpen = false else openTabsOverview() },
-        onVoiceSearch = { onOpenSearch(true, pageBackground.toArgb()) },
+        onVoiceSearch = { onOpenSearch(true, pageBackground.toArgb(), "") },
         overflowMenu = browserOverflowMenu,
         modifier =
           Modifier.align(Alignment.BottomEnd).graphicsLayer { translationX = chromeDragOffsetPx },
@@ -1493,42 +1500,9 @@ private fun BrowserScreen(
 }
 
 @Composable
-private fun rememberFavoritesRepository(privateMode: Boolean): StateFlow<List<String>> {
-  val context = LocalContext.current
-  return remember(privateMode) {
-    if (privateMode) FavoritesRepository(context).favoriteIds
-    else (context.applicationContext as SearchLauncherApp).favoritesRepository.favoriteIds
-  }
-}
-
-@Composable
-private fun favoriteApps(favoriteIds: List<String>): State<List<SearchResult.App>> {
-  val context = LocalContext.current
-  return produceState(emptyList(), favoriteIds) {
-    value =
-      withContext(Dispatchers.IO) {
-        favoriteIds.mapNotNull { packageName ->
-          val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
-          if (launchIntent == null) return@mapNotNull null
-          val appInfo =
-            runCatching { context.packageManager.getApplicationInfo(packageName, 0) }.getOrNull()
-              ?: return@mapNotNull null
-          SearchResult.App(
-            id = packageName,
-            title = context.packageManager.getApplicationLabel(appInfo).toString(),
-            subtitle = null,
-            icon = context.packageManager.getApplicationIcon(appInfo),
-            packageName = packageName,
-          )
-        }
-      }
-  }
-}
-
-@Composable
 private fun BrowserLauncherChrome(
-  favoriteApps: List<SearchResult.App>,
-  recentApps: List<SearchResult.App>,
+  favorites: List<SearchResult>,
+  historyItems: List<SearchResult>,
   historyLimit: Int,
   minIconSizeSetting: Int,
   showFavorites: Boolean,
@@ -1538,8 +1512,8 @@ private fun BrowserLauncherChrome(
   onTabDragStart: () -> Unit,
   onTabDrag: (Float) -> Unit,
   onTabDragEnd: () -> Unit,
-  onLaunchFavorite: (SearchResult.App) -> Unit,
-  onToggleFavorite: (SearchResult.App) -> Unit,
+  onLaunchFavorite: (SearchResult) -> Unit,
+  onToggleFavorite: (SearchResult) -> Unit,
   onReorder: (List<String>) -> Unit,
   onHistoryCapacityChanged: (Int) -> Unit,
   onHide: () -> Unit,
@@ -1613,18 +1587,18 @@ private fun BrowserLauncherChrome(
         .padding(top = 8.dp, bottom = 4.dp)
   ) {
     AnimatedVisibility(
-      visible = showFavorites && (favoriteApps.isNotEmpty() || recentApps.isNotEmpty()),
+      visible = showFavorites && (favorites.isNotEmpty() || historyItems.isNotEmpty()),
       enter = expandVertically() + fadeIn(),
       exit = shrinkVertically() + fadeOut(),
     ) {
       Column {
         FavoritesRow(
-          favorites = favoriteApps,
-          history = recentApps,
+          favorites = favorites,
+          history = historyItems,
           historyLimit = historyLimit,
           minIconSizeSetting = minIconSizeSetting,
-          onLaunch = { onLaunchFavorite(it as SearchResult.App) },
-          onToggleFavorite = { onToggleFavorite(it as SearchResult.App) },
+          onLaunch = onLaunchFavorite,
+          onToggleFavorite = onToggleFavorite,
           onReorder = onReorder,
           onCapacityChanged = onHistoryCapacityChanged,
         )
@@ -1784,63 +1758,6 @@ private fun StationaryChromeActions(
     }
   }
 }
-
-/**
- * The tab counter: a small outlined square holding the number of open tabs, which opens the
- * overview. Quiet on purpose — this reports what is open, so it should read as a count rather than
- * as a notification demanding attention. It is also the only way to reach the overview by tapping;
- * the up-swipe that opens it is not something anyone would find on their own.
- */
-@Composable
-private fun BrowserTabsButton(tabCount: Int, onClick: () -> Unit) {
-  IconButton(
-    onClick = onClick,
-    modifier =
-      Modifier.size(32.dp).semantics {
-        contentDescription = if (tabCount == 1) "1 open tab" else "$tabCount open tabs"
-      },
-  ) {
-    Box(
-      modifier =
-        Modifier.size(20.dp)
-          .border(
-            width = 1.5.dp,
-            color = LocalContentColor.current.copy(alpha = 0.7f),
-            shape = RoundedCornerShape(6.dp),
-          ),
-      contentAlignment = Alignment.Center,
-    ) {
-      Text(
-        text = tabCount.toString(),
-        maxLines = 1,
-        // Font padding and the default line box leave uneven space above and below a digit, so
-        // centring the Text still leaves the number sitting low. Trimming both puts the glyph
-        // itself in the middle of the square.
-        style =
-          TextStyle(
-            color = LocalContentColor.current,
-            fontSize = 11.sp,
-            lineHeight = 11.sp,
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center,
-            platformStyle = PlatformTextStyle(includeFontPadding = false),
-            lineHeightStyle =
-              LineHeightStyle(
-                alignment = LineHeightStyle.Alignment.Center,
-                trim = LineHeightStyle.Trim.Both,
-              ),
-          ),
-      )
-    }
-  }
-}
-
-/**
- * How far the swipe to the launcher has to travel before the launcher is started underneath it.
- * Early enough that its cold-start cost overlaps the tail of the animation, late enough that the
- * remaining travel is small if it draws immediately.
- */
-private const val LAUNCHER_HANDOVER_FRACTION = 0.85f
 
 /** Width of the mic, tab counter and overflow buttons together, reserved by both chrome layouts. */
 private val CHROME_ACTIONS_WIDTH = 96.dp

@@ -68,6 +68,8 @@ import androidx.datastore.preferences.core.edit
 import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.data.favoriteKey
+import com.searchlauncher.app.data.isFavoritable
 import com.searchlauncher.app.ui.browser.BrowserActivity
 import com.searchlauncher.app.ui.browser.BrowserTabStore
 import com.searchlauncher.app.ui.browser.BrowserTabSwipePreview
@@ -187,7 +189,8 @@ fun SearchScreen(
     remember(rawHistoryItems, favoriteIds, historyLimit) {
       if (historyLimit == 0) emptyList()
       else {
-        val filtered = rawHistoryItems.filter { !favoriteIds.contains(it.id) }
+        val favoriteKeys = favoriteIds.toSet()
+        val filtered = rawHistoryItems.filter { it.favoriteKey !in favoriteKeys }
         if (historyLimit >= 0) filtered.take(historyLimit) else filtered
       }
     }
@@ -1059,11 +1062,12 @@ fun SearchScreen(
                     val openTab = result as? SearchResult.BrowserTab
                     SearchResultItem(
                       result = result,
-                      isFavorite = favoriteIds.contains(result.id),
+                      isFavorite = app.favoritesRepository.isFavorite(result),
                       onToggleFavorite =
-                        if (result is SearchResult.App) {
+                        if (result.isFavoritable()) {
                           {
-                            app.favoritesRepository.toggleFavorite(result.id)
+                            app.favoritesRepository.toggleFavorite(result)
+                            onQueryChange("")
                             scope.launch {
                               onboardingManager.markStepComplete(OnboardingStep.AddFavorite)
                             }
@@ -1362,10 +1366,15 @@ fun SearchScreen(
               historyLimit = historyLimit,
               minIconSizeSetting = minIconSizeSetting,
               onLaunch = { result ->
-                resultLauncher.launch(result, reportUsage = true)
-                onDismiss()
+                if (result is SearchResult.SearchIntent) {
+                  searchRepository.reportUsageAsync(result.namespace, result.id)
+                  onQueryChange(result.trigger + " ")
+                } else {
+                  resultLauncher.launch(result, reportUsage = true)
+                  onDismiss()
+                }
               },
-              onToggleFavorite = { result -> app.favoritesRepository.toggleFavorite(result.id) },
+              onToggleFavorite = { result -> app.favoritesRepository.toggleFavorite(result) },
               onReorder = { newOrder ->
                 app.favoritesRepository.updateOrder(newOrder)
                 scope.launch { onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites) }

@@ -68,6 +68,15 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.util.lerp
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.unit.sp
 import java.net.URI
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -482,3 +491,60 @@ private fun tabAddress(url: String): String? =
 
 /** How far up a card must travel before letting go closes it rather than snapping it back. */
 private const val DISMISS_FRACTION = 0.25f
+
+/**
+ * The tab counter: a small outlined square holding the number of open tabs, which opens the
+ * overview. Quiet on purpose — this reports what is open, so it should read as a count rather than
+ * as a notification demanding attention. It is also the only way to reach the overview by tapping;
+ * the up-swipe that opens it is not something anyone would find on their own.
+ */
+@Composable
+internal fun BrowserTabsButton(tabCount: Int, onClick: () -> Unit) {
+  IconButton(
+    onClick = onClick,
+    modifier =
+      Modifier.size(32.dp).semantics {
+        contentDescription = if (tabCount == 1) "1 open tab" else "$tabCount open tabs"
+      },
+  ) {
+    Box(
+      modifier =
+        Modifier.size(20.dp)
+          .border(
+            width = 1.5.dp,
+            color = LocalContentColor.current.copy(alpha = 0.7f),
+            shape = RoundedCornerShape(6.dp),
+          ),
+      contentAlignment = Alignment.Center,
+    ) {
+      Text(
+        text = tabCount.toString(),
+        maxLines = 1,
+        // Font padding and the default line box leave uneven space above and below a digit, so
+        // centring the Text still leaves the number sitting low. Trimming both puts the glyph
+        // itself in the middle of the square.
+        style =
+          TextStyle(
+            color = LocalContentColor.current,
+            fontSize = 11.sp,
+            lineHeight = 11.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            platformStyle = PlatformTextStyle(includeFontPadding = false),
+            lineHeightStyle =
+              LineHeightStyle(
+                alignment = LineHeightStyle.Alignment.Center,
+                trim = LineHeightStyle.Trim.Both,
+              ),
+          ),
+      )
+    }
+  }
+}
+
+/**
+ * How far the swipe to the launcher has to travel before the launcher is started underneath it.
+ * Early enough that its cold-start cost overlaps the tail of the animation, late enough that the
+ * remaining travel is small if it draws immediately.
+ */
+internal const val LAUNCHER_HANDOVER_FRACTION = 0.85f

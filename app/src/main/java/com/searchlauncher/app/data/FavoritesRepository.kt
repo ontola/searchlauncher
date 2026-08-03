@@ -11,6 +11,7 @@ class FavoritesRepository(context: Context) {
     context.getSharedPreferences(Prefs.Favorites.FILE, Context.MODE_PRIVATE)
 
   private val _favoriteIds = MutableStateFlow<List<String>>(emptyList())
+  /** Ordered list of namespaced favorite keys (`namespace/id`). */
   val favoriteIds: StateFlow<List<String>> = _favoriteIds
 
   init {
@@ -25,9 +26,13 @@ class FavoritesRepository(context: Context) {
         val array = JSONArray(jsonString)
         val list = mutableListOf<String>()
         for (i in 0 until array.length()) {
-          list.add(array.getString(i))
+          list.add(FavoriteKeys.normalize(array.getString(i)))
         }
         _favoriteIds.value = list
+        // Persist migration from bare package ids → namespaced keys
+        if (list != (0 until array.length()).map { array.getString(it) }) {
+          saveFavorites(list)
+        }
         return
       } catch (e: Exception) {
         e.printStackTrace()
@@ -36,22 +41,33 @@ class FavoritesRepository(context: Context) {
 
     // Migration path: load from the old Set if JSON is missing
     val favoritesSet = prefs.getStringSet(Prefs.Favorites.IDS, emptySet()) ?: emptySet()
-    _favoriteIds.value = favoritesSet.toList()
+    val migrated = favoritesSet.map { FavoriteKeys.normalize(it) }
+    _favoriteIds.value = migrated
+    if (migrated.isNotEmpty()) {
+      saveFavorites(migrated)
+    }
   }
 
-  fun toggleFavorite(id: String) {
+  fun toggleFavorite(result: SearchResult) {
+    toggleFavorite(result.namespace, result.id)
+  }
+
+  fun toggleFavorite(namespace: String, id: String) {
+    val key = FavoriteKeys.of(namespace, id)
     val currentFavorites = _favoriteIds.value.toMutableList()
-    if (currentFavorites.contains(id)) {
-      currentFavorites.remove(id)
+    if (currentFavorites.contains(key)) {
+      currentFavorites.remove(key)
     } else {
-      currentFavorites.add(id)
+      currentFavorites.add(key)
     }
     _favoriteIds.value = currentFavorites
     saveFavorites(currentFavorites)
   }
 
-  fun isFavorite(id: String): Boolean {
-    return _favoriteIds.value.contains(id)
+  fun isFavorite(result: SearchResult): Boolean = isFavorite(result.namespace, result.id)
+
+  fun isFavorite(namespace: String, id: String): Boolean {
+    return _favoriteIds.value.contains(FavoriteKeys.of(namespace, id))
   }
 
   private fun saveFavorites(favorites: List<String>) {
@@ -63,8 +79,9 @@ class FavoritesRepository(context: Context) {
   }
 
   fun updateOrder(newOrder: List<String>) {
-    _favoriteIds.value = newOrder
-    saveFavorites(newOrder)
+    val normalized = newOrder.map { FavoriteKeys.normalize(it) }
+    _favoriteIds.value = normalized
+    saveFavorites(normalized)
   }
 
   fun getFavoriteIds(): List<String> {
@@ -72,8 +89,9 @@ class FavoritesRepository(context: Context) {
   }
 
   fun replaceAll(favorites: List<String>) {
-    _favoriteIds.value = favorites
-    saveFavorites(favorites)
+    val normalized = favorites.map { FavoriteKeys.normalize(it) }
+    _favoriteIds.value = normalized
+    saveFavorites(normalized)
   }
 
   fun clear() {
