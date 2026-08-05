@@ -58,6 +58,8 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -349,6 +351,9 @@ private fun TabCard(
   // button reads as a shortcut for the gesture rather than as a separate mechanism.
   val dismissOffsetPx = remember { Animatable(0f) }
   var cardHeightPx by remember { mutableIntStateOf(1) }
+  val dismissVelocity = remember { VelocityTracker() }
+  // The same speed that commits a tab swipe, so a flick means the same thing everywhere.
+  val flingVelocityPx = with(LocalDensity.current) { TAB_FLING_VELOCITY.toPx() }
   var dismissing by remember { mutableStateOf(false) }
 
   fun dismiss() {
@@ -372,8 +377,22 @@ private fun TabCard(
         }
         .pointerInput(tab.id) {
           detectVerticalDragGestures(
+            onDragStart = { dismissVelocity.resetTracking() },
             onDragEnd = {
-              if (-dismissOffsetPx.value >= cardHeightPx * DISMISS_FRACTION) dismiss()
+              // Distance or speed, by the same rule the tab swipe uses: a card thrown upwards is
+              // closed however far it got, and only a slow drag has to cover the ground. Asking for
+              // a quarter of the card's height whatever the speed made flicking one away feel like
+              // it had been ignored.
+              val closing =
+                shouldCommitTabSwipe(
+                  offsetPx = dismissOffsetPx.value,
+                  velocityPxPerSecond = dismissVelocity.calculateVelocity().y,
+                  viewportWidthPx = cardHeightPx,
+                  commitFraction = DISMISS_FRACTION,
+                  commitDistanceCapPx = cardHeightPx * DISMISS_FRACTION,
+                  flingVelocityPx = flingVelocityPx,
+                )
+              if (closing) dismiss()
               else
                 scope.launch { dismissOffsetPx.animateTo(0f, spring(Spring.DampingRatioNoBouncy)) }
             },
@@ -382,6 +401,7 @@ private fun TabCard(
             },
             onVerticalDrag = { change, dragAmount ->
               if (!dismissing) {
+                dismissVelocity.addPointerInputChange(change)
                 // Upward only: dragging down would fight the strip's own resting position.
                 scope.launch {
                   dismissOffsetPx.snapTo((dismissOffsetPx.value + dragAmount).coerceAtMost(0f))

@@ -222,4 +222,28 @@ class BrowserNavigationTest {
     assertEquals(0, indexOfTabShowing(listOf("about:blank"), "about:blank"))
     assertEquals(-1, indexOfTabShowing(listOf("about:blank"), "https://example.com"))
   }
+
+  // Closing a card in the tab strip uses the same rule, with the card's height standing in for the
+  // viewport: a quarter of the card, or a flick.
+  private fun cardCloses(draggedUpPx: Float, velocityPxPerSecond: Float = 0f) =
+    shouldCommitTabSwipe(
+      offsetPx = -draggedUpPx,
+      velocityPxPerSecond = velocityPxPerSecond,
+      viewportWidthPx = 1000,
+      commitFraction = 0.25f,
+      commitDistanceCapPx = 250f,
+      flingVelocityPx = 400f * 3.25f,
+    )
+
+  @Test
+  fun aFlickClosesACardThatBarelyMoved() {
+    // Thrown upwards, a fraction of the way: closed.
+    assertEquals(true, cardCloses(draggedUpPx = 40f, velocityPxPerSecond = -2000f))
+    // Dragged the same distance and let go gently: it goes back.
+    assertEquals(false, cardCloses(draggedUpPx = 40f, velocityPxPerSecond = -100f))
+    // A slow drag still closes it once it has covered the ground.
+    assertEquals(true, cardCloses(draggedUpPx = 260f))
+    // And a flick back down does not close it.
+    assertEquals(false, cardCloses(draggedUpPx = 40f, velocityPxPerSecond = 2000f))
+  }
 }
