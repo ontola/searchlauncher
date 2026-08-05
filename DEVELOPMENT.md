@@ -62,6 +62,49 @@ For best testing experience:
 2. Enable Developer Options and USB Debugging
 3. Test launcher, widget, search, and settings flows
 
+#### Wireless debugging
+Android's built-in "Wireless debugging" pairing is unreliable on some vendor
+ROMs (notably Xiaomi HyperOS), which tear down the listener when the screen
+sleeps. Use `scripts/adb-wifi.sh` instead: bootstrap once over USB (or over a
+live wireless-debugging session) and it switches adbd to a fixed `tcp:5555`
+listener that needs no mDNS or pairing state.
+
+```bash
+scripts/adb-wifi.sh          # connect / reconnect
+scripts/adb-wifi.sh watch    # auto-reconnect in the background
+```
+
+The fixed-port listener survives Wi-Fi drops and screen-off, but is lost on
+reboot — re-bootstrap over USB after restarting the phone.
+
+### Known issue: white frame swiping launcher → browser
+
+On a Xiaomi phone (HyperOS), swiping from the home screen back into the browser
+shows one full-screen near-white frame (~80 ms) before the page appears, then a
+~130 ms crossfade into it. A Galaxy Tab S9+ does not show it. Measured in light
+mode on a `color-scheme: dark` page, the frame is `#FFF7FE` — it tracks the
+system light/dark theme, not the page colour.
+
+Ruled out by measurement, so don't re-try these:
+
+- **Browser `windowBackground`** — set to red in `Theme.SearchLauncher.Browser`;
+  zero red frames.
+- **Launcher `windowBackground`** — set to green in `Theme.SearchLauncher`;
+  zero green frames.
+- **Runtime `window.setBackgroundDrawable`** — the window background does follow
+  the page colour now (see `BrowserActivity`), and the frame is unaffected.
+- **Window animation** — `createResumeIntent` already sets
+  `FLAG_ACTIVITY_NO_ANIMATION`.
+- **`windowDisablePreview`** — already set; suppresses the cold-start window
+  only, and this path resumes an activity that already exists (`onCreate` does
+  not run).
+
+That leaves a surface drawn by the system during the *task* switch — the browser
+has its own `taskAffinity`, so this is a task change, and HyperOS animates those
+itself. Untried angles: the Android 12 `windowSplashScreenBackground` /
+SplashScreen API, `setTaskDescription`, or removing the task switch altogether by
+hosting the browser in the launcher's task.
+
 ## Code Style
 
 - Follow [Kotlin Coding Conventions](https://kotlinlang.org/docs/coding-conventions.html)
