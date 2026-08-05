@@ -39,6 +39,12 @@ fun FavoritesRow(
   onToggleFavorite: (SearchResult) -> Unit,
   onReorder: (List<String>) -> Unit,
   onCapacityChanged: (Int) -> Unit,
+  /**
+   * What long-pressing an item offers. Supplied by callers that can answer for a result in full —
+   * the search screen hands over the same one its results list uses, which is what makes the two
+   * menus identical. Left out, an item offers only what this row can do by itself.
+   */
+  menuActions: ((SearchResult) -> ResultMenuActions)? = null,
 ) {
   if (favorites.isEmpty() && history.isEmpty()) return
 
@@ -312,13 +318,18 @@ fun FavoritesRow(
               properties = PopupProperties(focusable = false),
             ) {
               val isFavorite = favorites.any { it.favoriteKey == result.favoriteKey }
-
-              AppActionsMenuItems(
+              // The favourite entry is the one thing that reads differently here — an item in this
+              // row is already a favourite, so it offers to remove rather than to add — and that
+              // comes out of isFavorite rather than out of a different menu.
+              val actions =
+                menuActions?.invoke(result)
+                  ?: ResultMenuActions(onToggleFavorite = { onToggleFavorite(result) })
+              ResultContextMenuItems(
                 result = result,
                 isFavorite = isFavorite,
-                onToggleFavorite = { onToggleFavorite(result) },
+                actions = actions,
+                contactChatActions = rememberContactChatActions(result, actions),
                 onCloseMenu = { showMenuForIndex = null },
-                favoriteAddLabel = "Add Favorite",
               )
             }
           }

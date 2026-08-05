@@ -9,12 +9,9 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.BookmarkAdd
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.automirrored.filled.Message
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,39 +25,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
 import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.data.ContactActionGlyph
 import com.searchlauncher.app.data.ContactChatAction
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.toImageBitmap
 import com.searchlauncher.app.util.traceSection
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-
-/** Web pages in the index: passively recorded history, and explicitly saved bookmarks. */
-private val SearchResult.isWebPage: Boolean
-  get() = namespace == "web_bookmarks" || namespace == "web_saved"
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SearchResultItem(
   result: SearchResult,
   isFavorite: Boolean = false,
-  onToggleFavorite: (() -> Unit)? = null,
-  onEditSnippet: (() -> Unit)? = null,
-  onCreateSnippet: (() -> Unit)? = null,
-  onEditShortcut: (() -> Unit)? = null,
-  onDeleteShortcut: (() -> Unit)? = null,
-  onRemoveFromIndex: (() -> Unit)? = null,
-  onRemoveBookmark: (() -> Unit)? = null,
-  onEditBookmark: (() -> Unit)? = null,
-  onAddBookmark: (() -> Unit)? = null,
-  onClearSearchResults: (() -> Unit)? = null,
-  onOpenTab: (() -> Unit)? = null,
-  onOpenPrivate: (() -> Unit)? = null,
-  onCloseTab: (() -> Unit)? = null,
-  onCloseAllTabs: (() -> Unit)? = null,
-  onCopyUrl: (() -> Unit)? = null,
-  onContactChatAction: ((SearchResult.Contact, ContactChatAction) -> Unit)? = null,
+  actions: ResultMenuActions = ResultMenuActions(),
   onClick: () -> Unit,
 ) {
   var showMenu by remember { mutableStateOf(false) }
@@ -69,9 +45,8 @@ fun SearchResultItem(
     (context.applicationContext as SearchLauncherApp).searchRepository
   }
   var iconState by remember(result.id) { mutableStateOf<Drawable?>(result.icon) }
-  var contactChatActions by
-    remember(result.id) { mutableStateOf<List<ContactChatAction>>(emptyList()) }
-
+  // Results that arrive without one — a contact's photo is read off the provider, not the index —
+  // fetch it here. Without this they render as a blank space where the icon should be.
   LaunchedEffect(result.id) {
     if (iconState == null && result !is SearchResult.IndexingIndicator) {
       iconState =
@@ -80,36 +55,11 @@ fun SearchResultItem(
         }
     }
   }
-
-  LaunchedEffect(result.id, onContactChatAction) {
-    contactChatActions =
-      if (result is SearchResult.Contact && onContactChatAction != null) {
-        searchRepository.getContactChatActions(result)
-      } else {
-        emptyList()
-      }
-  }
+  val contactChatActions = rememberContactChatActions(result, actions)
 
   // One menu per result, reachable two ways: long-pressing the row and tapping the overflow
   // button. Both open the same list, so what a result offers never depends on how you asked.
-  val hasMenuItems =
-    result !is SearchResult.IndexingIndicator &&
-      (result is SearchResult.Snippet ||
-        result is SearchResult.App ||
-        contactChatActions.isNotEmpty() ||
-        onToggleFavorite != null ||
-        onEditShortcut != null ||
-        onDeleteShortcut != null ||
-        onRemoveFromIndex != null ||
-        onOpenTab != null ||
-        onOpenPrivate != null ||
-        (result.isWebPage &&
-          (onEditBookmark != null || onAddBookmark != null || onRemoveBookmark != null)) ||
-        (result is SearchResult.BrowserTab &&
-          (onAddBookmark != null ||
-            onCopyUrl != null ||
-            onCloseTab != null ||
-            onCloseAllTabs != null)))
+  val hasMenuItems = actions.hasItemsFor(result, contactChatActions)
 
   traceSection("SL:SearchResultItem.compose:${result.namespace}") {
     Box {
@@ -209,14 +159,13 @@ fun SearchResultItem(
 
         // The single most likely thing to do with a contact stays on the row as a one-tap
         // button; the rest of its chat apps live in the menu with everything else.
+        val onChatAction = actions.onContactChatAction
         if (
-          result is SearchResult.Contact &&
-            onContactChatAction != null &&
-            contactChatActions.isNotEmpty()
+          result is SearchResult.Contact && onChatAction != null && contactChatActions.isNotEmpty()
         ) {
           ContactChatActionButton(
             action = contactChatActions.first(),
-            onClick = { onContactChatAction(result, contactChatActions.first()) },
+            onClick = { onChatAction(result, contactChatActions.first()) },
             modifier = Modifier.padding(start = 8.dp),
           )
         }
@@ -235,254 +184,30 @@ fun SearchResultItem(
         }
       }
 
-      if (showMenu) {
-        val context = LocalContext.current
-        DropdownMenu(
-          expanded = showMenu,
-          onDismissRequest = { showMenu = false },
-          modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
-          properties = PopupProperties(focusable = false),
-        ) {
-          if (result is SearchResult.Contact && onContactChatAction != null) {
-            contactChatActions.forEach { action ->
-              DropdownMenuItem(
-                text = { Text(action.label) },
-                onClick = {
-                  onContactChatAction(result, action)
-                  showMenu = false
-                },
-                leadingIcon = { ContactChatActionIcon(action = action) },
-              )
-            }
-          }
-
-          if (onOpenTab != null) {
-            DropdownMenuItem(
-              text = { Text("Open tab") },
-              onClick = {
-                showMenu = false
-                onOpenTab()
-              },
-            )
-          }
-
-          if (onOpenPrivate != null) {
-            DropdownMenuItem(
-              text = { Text("Open private") },
-              onClick = {
-                showMenu = false
-                onOpenPrivate()
-              },
-            )
-          }
-
-          if (result is SearchResult.Snippet) {
-            DropdownMenuItem(
-              text = { Text("Edit") },
-              onClick = {
-                onEditSnippet?.invoke()
-                showMenu = false
-              },
-              leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-            )
-            DropdownMenuItem(
-              text = { Text("Delete") },
-              onClick = {
-                val app = context.applicationContext as com.searchlauncher.app.SearchLauncherApp
-                CoroutineScope(Dispatchers.IO).launch {
-                  app.snippetsRepository.deleteItem(result.alias)
-                }
-                showMenu = false
-              },
-              leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-            )
-            DropdownMenuItem(
-              text = { Text("Create New") },
-              onClick = {
-                onCreateSnippet?.invoke()
-                showMenu = false
-              },
-              leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
-            )
-          }
-
-          if (onEditShortcut != null) {
-            DropdownMenuItem(
-              text = { Text("Edit Shortcut") },
-              onClick = {
-                onEditShortcut.invoke()
-                showMenu = false
-              },
-              leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-            )
-          }
-
-          if (onDeleteShortcut != null) {
-            DropdownMenuItem(
-              text = { Text("Remove Shortcut") },
-              onClick = {
-                onDeleteShortcut.invoke()
-                showMenu = false
-              },
-              leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-            )
-          }
-
-          if (onToggleFavorite != null) {
-            AppActionsMenuItems(
+      // A zero-size anchor at the trailing edge, where the overflow button is. A DropdownMenu
+      // opens from whatever it is nested in, so leaving it at the row level put it a screen-width
+      // from the button that opens it. Long-pressing the row lands here too, which is the same
+      // menu arriving in the same place however it was asked for.
+      Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+        if (showMenu) {
+          val context = LocalContext.current
+          DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false },
+            modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
+            properties = PopupProperties(focusable = false),
+          ) {
+            ResultContextMenuItems(
               result = result,
               isFavorite = isFavorite,
-              onToggleFavorite = onToggleFavorite,
+              actions = actions,
+              contactChatActions = contactChatActions,
               onCloseMenu = { showMenu = false },
-              showAppInfo = false,
-            )
-          }
-
-          if (result is SearchResult.App) {
-            AppActionsMenuItems(
-              result = result,
-              isFavorite = isFavorite,
-              onToggleFavorite = null,
-              onCloseMenu = { showMenu = false },
-              showUninstall = true,
-              onClearSearchResults = onClearSearchResults,
-            )
-          }
-
-          WebPageMenuItems(
-            result = result,
-            onEditBookmark = onEditBookmark,
-            onAddBookmark = onAddBookmark,
-            onRemoveBookmark = onRemoveBookmark,
-            onCloseMenu = { showMenu = false },
-          )
-
-          BrowserTabMenuItems(
-            result = result,
-            onAddBookmark = onAddBookmark,
-            onCopyUrl = onCopyUrl,
-            onCloseTab = onCloseTab,
-            onCloseAllTabs = onCloseAllTabs,
-            onCloseMenu = { showMenu = false },
-          )
-
-          if (onRemoveFromIndex != null) {
-            DropdownMenuItem(
-              text = { Text("Remove from Index") },
-              onClick = {
-                onRemoveFromIndex()
-                showMenu = false
-              },
-              leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
             )
           }
         }
       }
     }
-  }
-}
-
-/**
- * Actions for a page open in the browser. Ordered so the two that discard something sit at the
- * bottom, away from the ones that do not.
- */
-@Composable
-private fun BrowserTabMenuItems(
-  result: SearchResult,
-  onAddBookmark: (() -> Unit)?,
-  onCopyUrl: (() -> Unit)?,
-  onCloseTab: (() -> Unit)?,
-  onCloseAllTabs: (() -> Unit)?,
-  onCloseMenu: () -> Unit,
-) {
-  if (result !is SearchResult.BrowserTab) return
-
-  if (onAddBookmark != null) {
-    DropdownMenuItem(
-      text = { Text("Create bookmark") },
-      onClick = {
-        onCloseMenu()
-        onAddBookmark()
-      },
-      leadingIcon = { Icon(Icons.Default.BookmarkAdd, contentDescription = null) },
-    )
-  }
-  if (onCopyUrl != null) {
-    DropdownMenuItem(
-      text = { Text("Copy URL") },
-      onClick = {
-        onCloseMenu()
-        onCopyUrl()
-      },
-      leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
-    )
-  }
-  if (onCloseTab != null) {
-    DropdownMenuItem(
-      text = { Text("Close tab") },
-      onClick = {
-        onCloseMenu()
-        onCloseTab()
-      },
-      leadingIcon = { Icon(Icons.Default.Close, contentDescription = null) },
-    )
-  }
-  if (onCloseAllTabs != null) {
-    DropdownMenuItem(
-      text = { Text("Close all tabs") },
-      onClick = {
-        onCloseMenu()
-        onCloseAllTabs()
-      },
-      leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-    )
-  }
-}
-
-/**
- * Bookmark actions for indexed web pages; which items appear depends on whether the page is saved
- * or just history.
- */
-@Composable
-private fun WebPageMenuItems(
-  result: SearchResult,
-  onEditBookmark: (() -> Unit)?,
-  onAddBookmark: (() -> Unit)?,
-  onRemoveBookmark: (() -> Unit)?,
-  onCloseMenu: () -> Unit,
-) {
-  if (!result.isWebPage) return
-  val isSavedBookmark = result.namespace == "web_saved"
-
-  if (isSavedBookmark && onEditBookmark != null) {
-    DropdownMenuItem(
-      text = { Text("Edit bookmark") },
-      onClick = {
-        onCloseMenu()
-        onEditBookmark()
-      },
-      leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-    )
-  }
-  if (!isSavedBookmark && onAddBookmark != null) {
-    DropdownMenuItem(
-      text = { Text("Add as bookmark") },
-      onClick = {
-        onCloseMenu()
-        onAddBookmark()
-      },
-      leadingIcon = { Icon(Icons.Default.BookmarkAdd, contentDescription = null) },
-    )
-  }
-  if (onRemoveBookmark != null) {
-    DropdownMenuItem(
-      text = { Text(if (isSavedBookmark) "Remove bookmark" else "Remove from history") },
-      onClick = {
-        onCloseMenu()
-        onRemoveBookmark()
-      },
-      leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-    )
   }
 }
 
@@ -498,7 +223,27 @@ private fun ContactChatActionButton(
 }
 
 @Composable
-private fun ContactChatActionIcon(action: ContactChatAction) {
+internal fun ContactChatActionIcon(action: ContactChatAction) {
+  // Call, SMS and email are the phone's own capabilities, so they get a Material glyph tinted to
+  // the current content colour — legible on either theme and the same weight as every other icon
+  // in the list. An installed app's icon is its own artwork and is drawn untouched.
+  val glyph =
+    when (action.glyph) {
+      ContactActionGlyph.CALL -> Icons.Default.Call
+      ContactActionGlyph.MESSAGE -> Icons.AutoMirrored.Filled.Message
+      ContactActionGlyph.EMAIL -> Icons.Default.Email
+      null -> null
+    }
+  if (glyph != null) {
+    Icon(
+      imageVector = glyph,
+      contentDescription = action.label,
+      modifier = Modifier.size(24.dp),
+      tint = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    return
+  }
+
   val imageBitmap =
     remember(action.icon) {
       traceSection("SL:SearchResultItem.contactChatIcon") { action.icon?.toImageBitmap() }
