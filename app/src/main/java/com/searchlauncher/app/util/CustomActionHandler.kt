@@ -25,22 +25,6 @@ object CustomActionHandler {
         restartLauncher(context)
         true
       }
-      "com.searchlauncher.action.REBOOT" -> {
-        rebootPhone(context)
-        true
-      }
-      "com.searchlauncher.action.LOCK_SCREEN" -> {
-        lockScreen(context)
-        true
-      }
-      "com.searchlauncher.action.POWER_MENU" -> {
-        openPowerMenu(context)
-        true
-      }
-      "com.searchlauncher.action.SCREENSHOT" -> {
-        takeScreenshot(context)
-        true
-      }
       "com.searchlauncher.action.TOGGLE_DARK_MODE" -> {
         toggleDarkMode(context)
         true
@@ -165,22 +149,6 @@ object CustomActionHandler {
       e.printStackTrace()
       Toast.makeText(context, "Cloud not restart: ${e.message}", Toast.LENGTH_SHORT).show()
     }
-  }
-
-  private fun rebootPhone(context: Context) {
-    openPowerMenu(context)
-  }
-
-  private fun openPowerMenu(context: Context) {
-    Toast.makeText(context, "Power menu action is no longer available", Toast.LENGTH_SHORT).show()
-  }
-
-  private fun lockScreen(context: Context) {
-    Toast.makeText(context, "Lock screen action is no longer available", Toast.LENGTH_SHORT).show()
-  }
-
-  private fun takeScreenshot(context: Context) {
-    Toast.makeText(context, "Screenshot action is no longer available", Toast.LENGTH_SHORT).show()
   }
 
   private fun toggleDarkMode(context: Context) {

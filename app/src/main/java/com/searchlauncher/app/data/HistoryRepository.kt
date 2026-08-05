@@ -47,14 +47,6 @@ class HistoryRepository(context: Context) {
     saveHistory(truncatedHistory)
   }
 
-  fun removeHistoryItem(id: String) {
-    val currentHistory = _historyIds.value.toMutableList()
-    if (currentHistory.remove(id)) {
-      _historyIds.value = currentHistory
-      saveHistory(currentHistory)
-    }
-  }
-
   private fun saveHistory(history: List<String>) {
     val array = JSONArray()
     history.forEach { array.put(it) }

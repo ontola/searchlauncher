@@ -79,31 +79,10 @@ class SearchShortcutRepository(context: Context) {
       }
     }
 
-  suspend fun updateAlias(shortcutId: String, newAlias: String) =
-    withContext(Dispatchers.IO) {
-      val currentItems = _items.value.toMutableList()
-      val index = currentItems.indexOfFirst { it.id == shortcutId }
-      if (index != -1) {
-        currentItems[index] = currentItems[index].copy(alias = newAlias)
-        saveItems(currentItems)
-      }
-    }
-
   suspend fun addShortcut(shortcut: SearchShortcut) =
     withContext(Dispatchers.IO) {
       val currentItems = _items.value.toMutableList()
       currentItems.add(shortcut)
-      saveItems(currentItems)
-    }
-
-  suspend fun addShortcutAt(index: Int, shortcut: SearchShortcut) =
-    withContext(Dispatchers.IO) {
-      val currentItems = _items.value.toMutableList()
-      if (index in 0..currentItems.size) {
-        currentItems.add(index, shortcut)
-      } else {
-        currentItems.add(shortcut)
-      }
       saveItems(currentItems)
     }
 

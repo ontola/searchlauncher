@@ -23,7 +23,6 @@ import io.sentry.Sentry
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
@@ -235,7 +234,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     }
   }
 
-  private val executor = Executors.newSingleThreadExecutor()
   private val smartActionManager = SmartActionManager(context)
   private val contactActionsRepository = ContactActionsRepository(context)
   private val iconGenerator = SearchIconGenerator(context)
@@ -254,9 +252,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   private val _indexUpdated = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(replay = 1)
   val indexUpdated: kotlinx.coroutines.flow.SharedFlow<Unit> = _indexUpdated
-
-  private val _packageUpdated = kotlinx.coroutines.flow.MutableSharedFlow<String?>(replay = 0)
-  val packageUpdated: kotlinx.coroutines.flow.SharedFlow<String?> = _packageUpdated
 
   private val _favorites = kotlinx.coroutines.flow.MutableStateFlow<List<SearchResult>>(emptyList())
   val favorites: kotlinx.coroutines.flow.StateFlow<List<SearchResult>> = _favorites
@@ -341,7 +336,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         appSearchSession?.setSchemaAsync(setSchemaRequest)?.await()
 
         // Trigger history metadata refresh IMMEDIATELY.
-        // getRecentItems will fetch by ID directly from DB, skipping the full scan.
         _indexUpdated.emit(Unit)
 
         val loadStart = System.currentTimeMillis()
@@ -913,31 +907,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
     }
 
-  suspend fun getRecentItems(
-    limit: Int = 10,
-    excludedIds: Set<String> = emptySet(),
-  ): List<SearchResult> =
-    withContext(Dispatchers.IO) {
-      val historyIds =
-        (context.applicationContext as SearchLauncherApp).historyRepository.historyIds.value
-
-      if (historyIds.isEmpty()) {
-        _recentItems.value = emptyList()
-        return@withContext emptyList()
-      }
-
-      // Filter out already favorited apps and take limit
-      val filteredIds = historyIds.filter { !excludedIds.contains(it) }
-      val results = getResults(filteredIds, limit)
-
-      // We keep a bit more in memory/cache than visible for smooth scrolling or rotations
-      val safeLimit = (observedHistoryLimit + 10).coerceAtMost(50)
-      val cappedResults = results.take(safeLimit)
-      _recentItems.value = cappedResults
-      saveResultsToCache(cappedResults, false)
-      return@withContext results
-    }
-
   suspend fun getSearchShortcuts(limit: Int = 100): List<SearchResult> =
     withContext(Dispatchers.IO) {
       try {
@@ -1007,21 +976,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       "google" -> 2
       "playstore" -> 1
       else -> 0
-    }
-
-  suspend fun getFavorites(favoriteIds: List<String>): List<SearchResult> =
-    withContext(Dispatchers.IO) {
-      if (favoriteIds.isEmpty()) {
-        _favorites.value = emptyList()
-        saveResultsToCache(emptyList(), true)
-        return@withContext emptyList()
-      }
-
-      val freshResults = getResults(favoriteIds)
-      // Update flow and cache with fresh data (including potential new icons or labels)
-      _favorites.value = freshResults
-      saveResultsToCache(freshResults, true)
-      freshResults
     }
 
   suspend fun reportUsage(
@@ -1262,35 +1216,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       true
     }
 
-  suspend fun removeFromIndex(namespace: String, id: String) =
-    withContext(Dispatchers.IO) {
-      val session = appSearchSession ?: return@withContext
-      try {
-        val request =
-          androidx.appsearch.app.RemoveByDocumentIdRequest.Builder(namespace).addIds(id).build()
-        session.removeAsync(request).await()
-        synchronized(this) {
-          documentSnapshot =
-            documentSnapshot.filter { !(it.doc.namespace == namespace && it.doc.id == id) }
-        }
-        saveFastIndexCache()
-        _indexUpdated.emit(Unit)
-      } catch (e: Exception) {
-        android.util.Log.e("SearchRepository", "Error removing from index", e)
-        Sentry.captureException(e)
-      }
-    }
-
   private val scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO)
 
   private val launcherCallback =
     object : android.content.pm.LauncherApps.Callback() {
       override fun onPackageRemoved(packageName: String, user: android.os.UserHandle) {
         android.util.Log.d("SearchRepository", "onPackageRemoved: $packageName")
-        scope.launch {
-          indexApps()
-          _packageUpdated.emit(packageName)
-        }
+        scope.launch { indexApps() }
       }
 
       override fun onPackageAdded(packageName: String, user: android.os.UserHandle) {
@@ -1298,7 +1230,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         scope.launch {
           indexApps()
           iconRepository.cacheAppIcon(packageName)
-          _packageUpdated.emit(null) // null means generic update
         }
       }
 
@@ -1306,7 +1237,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         scope.launch {
           indexApps()
           iconRepository.cacheAppIcon(packageName)
-          _packageUpdated.emit(null)
         }
       }
 
@@ -1315,10 +1245,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         user: android.os.UserHandle,
         replacing: Boolean,
       ) {
-        scope.launch {
-          indexApps()
-          _packageUpdated.emit(null)
-        }
+        scope.launch { indexApps() }
       }
 
       override fun onPackagesUnavailable(
@@ -1326,10 +1253,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         user: android.os.UserHandle,
         replacing: Boolean,
       ) {
-        scope.launch {
-          indexApps()
-          _packageUpdated.emit(null)
-        }
+        scope.launch { indexApps() }
       }
 
       override fun onShortcutsChanged(
@@ -1448,13 +1372,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         }
       }
     _allApps.emit(apps)
-  }
-
-  suspend fun getAllApps(): List<SearchResult> {
-    if (_allApps.value.isEmpty()) {
-      updateAppsCache()
-    }
-    return _allApps.value
   }
 
   /**
@@ -1806,9 +1723,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     return appSearchResults
   }
 
-  suspend fun searchContent(): List<SearchResult.Content> =
-    withContext(Dispatchers.IO) { emptyList() }
-
   private suspend fun fetchSuggestions(urlTemplate: String, query: String): List<String> =
     withContext(Dispatchers.IO) {
       val suggestions = mutableListOf<String>()
@@ -1837,11 +1751,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
       suggestions
     }
-
-  fun close() {
-    appSearchSession?.close()
-    executor.shutdown()
-  }
 
   fun trimMemory(level: Int) {
     if (

@@ -33,14 +33,6 @@ class FavoriteKeysTest {
   }
 
   @Test
-  fun `appPackageName only returns apps`() {
-    assertEquals("com.whatsapp", FavoriteKeys.appPackageName("apps/com.whatsapp"))
-    assertEquals("com.whatsapp", FavoriteKeys.appPackageName("com.whatsapp"))
-    assertNull(FavoriteKeys.appPackageName("contacts/lookup/1"))
-    assertNull(FavoriteKeys.appPackageName("snippets/alias"))
-  }
-
-  @Test
   fun `isFavoritable covers durable result types`() {
     assertTrue(
       SearchResult.App(

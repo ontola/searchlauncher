@@ -24,7 +24,6 @@ sealed class AppShortcut {
     override val description: String,
     override val packageName: String? = null,
     val aliases: String? = null,
-    val extras: Map<String, String>? = null,
   ) : AppShortcut()
 }
 
@@ -205,20 +204,19 @@ object DefaultShortcuts {
         id = "launcher_wallpaper",
         description = "Wallpaper Management",
         aliases = "wallpapers backgrounds manage wallpaper background",
-        intentUri = "com.searchlauncher.action.SETTINGS_PAGE",
-        extras = mapOf("page" to "wallpaper"),
+        intentUri = "intent:#Intent;action=com.searchlauncher.action.SETTINGS_WALLPAPER;end",
       ),
       AppShortcut.Action(
         id = "launcher_add_wallpaper",
         description = "Add Wallpapers",
         aliases = "upload wallpaper background import",
-        intentUri = "com.searchlauncher.action.ADD_WALLPAPER",
+        intentUri = "intent:#Intent;action=com.searchlauncher.action.ADD_WALLPAPER;end",
       ),
       AppShortcut.Action(
         id = "launcher_remove_current_wallpaper",
         description = "Remove Current Wallpaper",
         aliases = "delete background trash current wallpaper",
-        intentUri = "com.searchlauncher.action.REMOVE_CURRENT_WALLPAPER",
+        intentUri = "intent:#Intent;action=com.searchlauncher.action.REMOVE_CURRENT_WALLPAPER;end",
       ),
       AppShortcut.Action(
         id = "launcher_export_backup",

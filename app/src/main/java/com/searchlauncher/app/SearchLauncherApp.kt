@@ -1,16 +1,12 @@
 package com.searchlauncher.app
 
 import android.app.Application
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.ComponentCallbacks2
 import android.content.Context
-import android.os.Build
 import com.searchlauncher.app.data.FavoritesRepository
 import com.searchlauncher.app.data.HistoryRepository
 import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.data.SearchRepository
-import com.searchlauncher.app.data.SearchShortcutRepository
 import com.searchlauncher.app.data.SnippetsRepository
 import com.searchlauncher.app.data.WallpaperRepository
 import kotlinx.coroutines.CoroutineScope
@@ -55,7 +51,6 @@ class SearchLauncherApp : Application() {
     historyRepository = HistoryRepository(this)
     CoroutineScope(Dispatchers.IO).launch { wallpaperRepository.normalizeStoredWallpapers() }
     CoroutineScope(Dispatchers.IO).launch { searchRepository.initialize() }
-    createNotificationChannel()
     checkConsentAndInitSentry()
   }
 
@@ -128,28 +123,7 @@ class SearchLauncherApp : Application() {
     }
   }
 
-  private fun createNotificationChannel() {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      val channel =
-        NotificationChannel(
-            NOTIFICATION_CHANNEL_ID,
-            "SearchLauncher Service",
-            NotificationManager.IMPORTANCE_LOW,
-          )
-          .apply {
-            description = "Keeps SearchLauncher running in the background"
-            setShowBadge(false)
-          }
-
-      val notificationManager =
-        getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-      notificationManager.createNotificationChannel(channel)
-    }
-  }
-
   companion object {
-    const val NOTIFICATION_CHANNEL_ID = "searchlauncher_service"
-    const val NOTIFICATION_ID = 1001
     private const val PREFS_NAME = Prefs.Privacy.FILE
     private const val KEY_CONSENT_GRANTED = Prefs.Privacy.CONSENT_GRANTED
     private const val KEY_ASKED_DEFAULT_LAUNCHER = Prefs.Privacy.ASKED_DEFAULT_LAUNCHER

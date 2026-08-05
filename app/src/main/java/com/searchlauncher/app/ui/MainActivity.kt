@@ -66,34 +66,7 @@ class MainActivity : ComponentActivity() {
   lateinit var appWidgetManager: android.appwidget.AppWidgetManager
   lateinit var appWidgetHost: android.appwidget.AppWidgetHost
   private val APPWIDGET_HOST_ID = 1002
-  private val REQUEST_CREATE_APPWIDGET = 5
-  private val REQUEST_PICK_APPWIDGET = 9
   private val REQUEST_CONFIGURE_APPWIDGET = 10
-
-  private val createWidgetLauncher =
-    registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-      if (result.resultCode == RESULT_OK) {
-        val data = result.data
-        val extras = data?.extras
-        val appWidgetId =
-          extras?.getInt(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
-        if (appWidgetId != -1) {
-          lifecycleScope.launch {
-            (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
-            dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
-          }
-        }
-      } else {
-        // If cancelled, delete the allocated ID
-        val data = result.data
-        val extras = data?.extras
-        val appWidgetId =
-          extras?.getInt(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
-        if (appWidgetId != -1) {
-          appWidgetHost.deleteAppWidgetId(appWidgetId)
-        }
-      }
-    }
 
   private val pickWallpapersLauncher =
     registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->

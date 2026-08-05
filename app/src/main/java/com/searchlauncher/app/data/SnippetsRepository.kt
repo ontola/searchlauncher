@@ -77,14 +77,6 @@ class SnippetsRepository(context: Context) {
     prefs.edit().putString(Prefs.Snippets.ITEMS, jsonArray.toString()).apply()
   }
 
-  fun searchItems(query: String): List<SnippetItem> {
-    if (query.isEmpty()) return _items.value
-    val lowerQuery = query.lowercase()
-    return _items.value.filter { item ->
-      item.alias.lowercase().contains(lowerQuery) || item.content.lowercase().contains(lowerQuery)
-    }
-  }
-
   fun clearAll() {
     _items.value = emptyList()
     prefs.edit().remove("items").apply()
