@@ -68,7 +68,7 @@ class ContactActionsRepository(private val context: Context) {
             label = "SMS",
             packageName = SMS_ACTION_KEY,
             phoneNumber = phoneNumber,
-            icon = context.getDrawable(android.R.drawable.sym_action_chat),
+            glyph = ContactActionGlyph.MESSAGE,
           ),
         )
         actionsByPackage.putIfAbsent(
@@ -77,7 +77,7 @@ class ContactActionsRepository(private val context: Context) {
             label = "Call",
             packageName = CALL_ACTION_KEY,
             phoneNumber = phoneNumber,
-            icon = context.getDrawable(android.R.drawable.ic_menu_call),
+            glyph = ContactActionGlyph.CALL,
           ),
         )
       }
@@ -89,7 +89,7 @@ class ContactActionsRepository(private val context: Context) {
             label = "Email",
             packageName = EMAIL_ACTION_KEY,
             phoneNumber = emailAddress,
-            icon = context.getDrawable(android.R.drawable.ic_dialog_email),
+            glyph = ContactActionGlyph.EMAIL,
           ),
         )
       }

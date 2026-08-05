@@ -40,6 +40,18 @@ class SearchLauncherApp : Application() {
   lateinit var historyRepository: HistoryRepository
     private set
 
+  /**
+   * The repositories above exist only in the main process. The private browser runs in
+   * `:incognito`, where [onCreate] returns before constructing any of them, so anything that can be
+   * composed in either process has to ask through these rather than touch the `lateinit` properties
+   * and crash on the way in.
+   */
+  val searchRepositoryOrNull: SearchRepository?
+    get() = if (::searchRepository.isInitialized) searchRepository else null
+
+  val favoritesRepositoryOrNull: FavoritesRepository?
+    get() = if (::favoritesRepository.isInitialized) favoritesRepository else null
+
   override fun onCreate() {
     super.onCreate()
     // The private browser gets an isolated WebView process/profile and must not initialize the

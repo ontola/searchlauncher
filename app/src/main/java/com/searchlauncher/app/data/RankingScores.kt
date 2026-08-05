@@ -10,10 +10,13 @@ package com.searchlauncher.app.data
  *    FuzzyMatch.calculateScore (0..100) + a namespace boost + optional context boost + usage.
  *
  * Approximate descending order of typical scores: 1600 timer smart action; 1200 custom shortcut
- * with explicit search term ("g cats"); ~1070-1100 a page open in the browser; ~200-440 indexed
- * hits, though usage history can push a well-worn one past 1200 (varies by namespace, short-query
- * boost, usage); 200 suggestion / widget result; 150 custom shortcut bare alias; 100 call / email
- * smart action; 98-99 sms / url / add-contact smart action
+ * with explicit search term ("g cats"); ~450-480 a page open in the browser; ~150-250 indexed hits,
+ * which usage history lifts to ~525 at most (varies by namespace, short-query boost, usage); 200
+ * suggestion / widget result; 150 custom shortcut bare alias; 100 call / email smart action; 98-99
+ * sms / url / add-contact smart action
+ *
+ * Learning is deliberately kept within one order of magnitude of the structural signals, so that
+ * having picked something once at one exact query nudges the order rather than dictating it.
  *
  * FuzzyMatch's internal 0..100 scale (exact=100, prefix=90, word=85, acronym=80, contains=70,
  * typo=58-68, subsequence=10-60) lives in FuzzyMatch.kt - it's the match-quality signal that gets
@@ -39,14 +42,18 @@ object RankingScores {
    *
    * A direct score rather than a namespace boost, because "this page is open" says something about
    * what the user is working with rather than about how well the text matched. On the indexed scale
-   * it lost constantly: anything with usage history behind it collects up to ~1025 from
-   * [usageBoost][GLOBAL_USAGE_SCORE_BOOST] alone, so a bookmark or contact the user had picked
-   * before beat an open tab every time however well the tab matched.
+   * it lost constantly: anything with usage history behind it beat an open tab however well the tab
+   * matched.
+   *
+   * Tracks the usage ceiling, which is what it has to clear to mean anything: an open tab lands
+   * around 450-480, above an ordinary indexed hit (~250) and a partly-learned one, but below a
+   * result the user has picked at this exact query before (~525). Lowering [QUERY_USAGE_SCORE_MAX]
+   * without lowering this in step would make an open tab unbeatable.
    *
    * Sits below [CUSTOM_SHORTCUT_WITH_SEARCH_TERM] so that typing an explicit shortcut search still
    * wins — "g cats" means search, whatever happens to be open.
    */
-  const val BROWSER_TAB_BASE = 1000
+  const val BROWSER_TAB_BASE = 380
 
   /**
    * Tabs must genuinely contain the query — FuzzyMatch's "contains" grade — rather than merely
@@ -85,11 +92,28 @@ object RankingScores {
   const val LEARNED_CONTACT_SHORT_QUERY_MAX_LENGTH = 2
   const val LEARNED_CONTACT_SHORT_QUERY_BOOST = 320
 
-  // --- Usage-based boost: globalUsage * GLOBAL_BOOST + queryUsagePoints * QUERY_BOOST ---
+  // --- Usage-based boost: globalUsage * GLOBAL_BOOST + scaled query-usage points ---
   const val GLOBAL_USAGE_SCORE_BOOST = 5
   const val GLOBAL_USAGE_SCORE_CAP = 5
-  const val QUERY_USAGE_POINT_SCORE_BOOST = 2
+
+  /**
+   * Points stored per query→result association. Picking a result records [QUERY_USAGE_POINTS_CAP]
+   * against the exact query typed, and a fraction of it against each prefix of that query.
+   */
   const val QUERY_USAGE_POINTS_CAP = 500
+
+  /**
+   * Score a fully-learned query→result association is worth, with fewer points scaled down
+   * proportionally.
+   *
+   * Deliberately the same order of magnitude as the namespace boosts (80-150) and the FuzzyMatch
+   * scale (0-100) rather than several times larger. It used to be worth 1000, which meant a single
+   * pick at one exact query outweighed every structural signal combined: typing "tesla" put a
+   * history entry above the Tesla app, because the app had only ever been picked at "tesl" and so
+   * had learned nothing about the longer string. Learning should reorder near-equals, not overrule
+   * an exact name match.
+   */
+  const val QUERY_USAGE_SCORE_MAX = 250
 
   // --- Filtering ---
   /** Documents whose finalScore is at or below this threshold are dropped before ranking. */
