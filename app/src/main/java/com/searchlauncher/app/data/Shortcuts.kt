@@ -10,7 +10,11 @@ data class SearchShortcut(
   val suggestionUrl: String? = null,
   val color: Long? = null,
   val shortLabel: String? = null,
-)
+) {
+  /** Fills [urlTemplate]'s `%s` placeholder with an encoded [query]. */
+  fun urlForQuery(query: String): String =
+    urlTemplate.replace("%s", java.net.URLEncoder.encode(query, "UTF-8"))
+}
 
 /** App-defined shortcuts that are not user-editable */
 sealed class AppShortcut {

@@ -1454,11 +1454,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                 suggestions.forEach { suggestion ->
                   val icon =
                     iconGenerator.getColoredSearchIcon(matchedShortcut.color, matchedShortcut.alias)
-                  val urlFormatted =
-                    String.format(
-                      matchedShortcut.urlTemplate,
-                      java.net.URLEncoder.encode(suggestion, "UTF-8"),
-                    )
+                  val urlFormatted = matchedShortcut.urlForQuery(suggestion)
 
                   results.add(
                     SearchResult.Content(
@@ -1614,7 +1610,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     val results = mutableListOf<SearchResult>()
     val icon = iconGenerator.getColoredSearchIcon(shortcut.color, shortcut.alias)
 
-    val url = String.format(shortcut.urlTemplate, java.net.URLEncoder.encode(searchTerm, "UTF-8"))
+    val url = shortcut.urlForQuery(searchTerm)
 
     // Determine UX based on match type
     val isExactMatch = parts.size == 1 // e.g. "y"
@@ -1727,7 +1723,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     withContext(Dispatchers.IO) {
       val suggestions = mutableListOf<String>()
       try {
-        val urlString = String.format(urlTemplate, java.net.URLEncoder.encode(query, "UTF-8"))
+        val urlString = urlTemplate.replace("%s", java.net.URLEncoder.encode(query, "UTF-8"))
         val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
         connection.requestMethod = "GET"

@@ -4,8 +4,6 @@ import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -107,6 +105,7 @@ import com.searchlauncher.app.ui.components.FavoritesRow
 import com.searchlauncher.app.ui.components.SearchChromeBar
 import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
+import com.searchlauncher.app.util.SystemUtils
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
@@ -270,6 +269,9 @@ open class BrowserActivity : ComponentActivity() {
         putExtra(EXTRA_URL, url)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       }
+
+    fun createLaunchIntent(context: Context, url: String, private: Boolean): Intent =
+      if (private) createPrivateIntent(context, url) else createIntent(context, url)
   }
 
   private val browserActionReceiver =
@@ -1788,10 +1790,7 @@ private fun shareUrl(context: Context, url: String, title: String?) {
 }
 
 private fun copyUrl(context: Context, url: String) {
-  if (url.isBlank()) return
-  val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-  clipboard.setPrimaryClip(ClipData.newPlainText("Webpage URL", url))
-  Toast.makeText(context, "URL copied", Toast.LENGTH_SHORT).show()
+  SystemUtils.copyUrlToClipboard(context, url, label = "Webpage URL")
 }
 
 private fun downloadImage(context: Context, url: String) {

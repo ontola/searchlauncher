@@ -1,5 +1,6 @@
 package com.searchlauncher.app.ui.components
 
+import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -17,6 +18,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+
+fun loadPrivacyPolicyText(context: Context): String {
+  return try {
+    context.assets.open("PRIVACY.md").bufferedReader().use { it.readText() }
+  } catch (e: Exception) {
+    "Privacy policy not found."
+  }
+}
 
 private sealed class MdBlock {
   data class Heading(val level: Int, val content: String) : MdBlock()
