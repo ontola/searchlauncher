@@ -996,18 +996,31 @@ fun SearchScreen(
    * to the browser, and from the instant that is decided the keyboard is on its way out; it should
    * be leaving during the animation rather than snapping away once the browser is already up.
    */
-  fun forgetAllTabs() {
+  /**
+   * [returnHome] when the tabs went because the user threw the last one away, rather than because
+   * they asked for all of them to go.
+   *
+   * Close all is a deliberate bulk action, and leaving the strip up on its empty state confirms it
+   * happened instead of dropping the user onto the home screen wondering whether the tap
+   * registered. Flicking the last card away is the opposite: it is a gesture for getting rid of
+   * something, and what it left behind was a placeholder low on the screen under a near-opaque
+   * scrim, which reads as an empty screen rather than as an answer.
+   */
+  fun forgetAllTabs(returnHome: Boolean = false) {
     BrowserTabStore.clear()
     closeBrowserWindow(context)
-    // Left open on the empty state, which confirms the tabs are gone instead of dropping the user
-    // back onto the home screen wondering whether the tap registered.
     overviewTabs = null
+    if (!returnHome) return
+    tabsOverviewOpen = false
+    // The strip can be raised from either side; if it was raised from the browser then the browser
+    // is still holding the screen and has to be shown out.
+    if (browserOpen) slideBrowserOut() else browserTabSwipe.reset()
   }
 
   fun closeBrowserTab(index: Int) {
     val stored = overviewTabs ?: return
     // The last tab going away means there is no browser left to return to.
-    if (stored.items.size == 1) forgetAllTabs() else stored.close(index)
+    if (stored.items.size == 1) forgetAllTabs(returnHome = true) else stored.close(index)
   }
 
   BackHandler(enabled = tabsOverviewOpen) { tabsOverviewOpen = false }
