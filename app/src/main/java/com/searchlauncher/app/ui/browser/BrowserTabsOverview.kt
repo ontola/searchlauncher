@@ -104,6 +104,13 @@ internal fun BrowserTabsOverviewLayer(
   /** Where a tapped card grows to: the area the page it opens will occupy, in root coordinates. */
   expandTarget: Rect,
   onDismiss: () -> Unit,
+  /**
+   * Fired the instant a card is tapped, before the growth starts. [onSelect] is the end of that
+   * animation, which is too late for anything the user should see respond to their tap — the
+   * launcher retracts its keyboard here so the two movements run together, and the browser starts
+   * the bars on their way to the colour of the tab being opened.
+   */
+  onSelectStart: (Int) -> Unit = {},
   onSelect: (Int) -> Unit,
   onCloseTab: (Int) -> Unit,
   onCloseAll: () -> Unit,
@@ -121,9 +128,13 @@ internal fun BrowserTabsOverviewLayer(
     Box(
       modifier =
         Modifier.fillMaxSize()
-          // Faded out by the growth as well as by the overview's own progress, so the scrim is
-          // gone by the time the card fills the screen rather than lingering over the page.
-          .graphicsLayer { alpha = progress() * (1f - expandProgress.value) }
+          // Only the overview's own progress. It used to fade with the card's growth as well, on
+          // the grounds that the scrim should be gone by the time the card fills the screen — but
+          // what that actually looks like is the backdrop dissolving underneath a card that is
+          // still travelling, which reads as two things happening rather than one. The strip is
+          // being replaced by the page it grew from; the backdrop it sat on should hold still and
+          // then go with it.
+          .graphicsLayer { alpha = progress() }
           .background(scrimColor)
           // Also swallows touches meant for whatever is underneath, which is still live.
           .clickable(
@@ -144,11 +155,12 @@ internal fun BrowserTabsOverviewLayer(
           val tab = tabs.getOrNull(index)
           if (expanding == null && tab != null) {
             expanding = ExpandingCard(tab.snapshot, tab.pageBackgroundArgb, bounds)
+            onSelectStart(index)
             scope.launch {
               expandProgress.snapTo(0f)
               expandProgress.animateTo(
                 1f,
-                tween(durationMillis = 260, easing = FastOutSlowInEasing),
+                tween(durationMillis = TAB_EXPAND_DURATION_MS, easing = FastOutSlowInEasing),
               )
               // Deliberately left in place: whatever the selection starts — a WebView here, a
               // browser window on the launcher — needs a moment to draw, and the overlay is
@@ -173,6 +185,13 @@ internal fun BrowserTabsOverviewLayer(
     }
   }
 }
+
+/**
+ * How long a tapped card takes to grow into the page. Shared, because anything else that should
+ * look like part of the same movement — the bars changing to the opening tab's colour — has to run
+ * for exactly as long, and a second copy of the number would eventually stop matching.
+ */
+internal const val TAB_EXPAND_DURATION_MS = 260
 
 /** A card caught mid-flight between its place in the strip and the page it is becoming. */
 private data class ExpandingCard(val snapshot: Bitmap?, val backgroundArgb: Int, val start: Rect)
