@@ -20,11 +20,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,11 +38,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -71,19 +73,28 @@ import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.favoriteKey
 import com.searchlauncher.app.data.isFavoritable
 import com.searchlauncher.app.ui.browser.BrowserActivity
+import com.searchlauncher.app.ui.browser.BrowserScreen
 import com.searchlauncher.app.ui.browser.BrowserTabStore
 import com.searchlauncher.app.ui.browser.BrowserTabSwipePreview
 import com.searchlauncher.app.ui.browser.BrowserTabs
 import com.searchlauncher.app.ui.browser.BrowserTabsButton
 import com.searchlauncher.app.ui.browser.BrowserTabsOverviewLayer
+import com.searchlauncher.app.ui.browser.NavigationRequest
 import com.searchlauncher.app.ui.browser.TAB_CARD_WIDTH_FRACTION
+import com.searchlauncher.app.ui.browser.TAB_COMMIT_FRACTION
+import com.searchlauncher.app.ui.browser.TAB_COMMIT_MAX_DISTANCE
+import com.searchlauncher.app.ui.browser.TAB_FLING_VELOCITY
 import com.searchlauncher.app.ui.browser.TAB_STRIP_LABEL_HEIGHT
+import com.searchlauncher.app.ui.browser.TabActivationRequest
 import com.searchlauncher.app.ui.browser.browserTabSwipe
+import com.searchlauncher.app.ui.browser.indexOfTabShowing
 import com.searchlauncher.app.ui.browser.rememberBrowserTabSwipeState
+import com.searchlauncher.app.ui.browser.shouldCommitTabSwipe
 import com.searchlauncher.app.ui.components.BookmarkDialog
 import com.searchlauncher.app.ui.components.ConsentDialog
 import com.searchlauncher.app.ui.components.FavoritesRow
 import com.searchlauncher.app.ui.components.PrivacyPolicyDialog
+import com.searchlauncher.app.ui.components.ResultMenuActions
 import com.searchlauncher.app.ui.components.SearchChromeBar
 import com.searchlauncher.app.ui.components.SearchResultItem
 import com.searchlauncher.app.ui.components.ShortcutDialog
@@ -124,6 +135,10 @@ fun SearchScreen(
   chromeBarColor: Color? = null,
   /** Home screen only: drag the chrome bar sideways to pull the newest browser tab back in. */
   browserTabSwipeEnabled: Boolean = false,
+  /** A page to open in the hosted browser, forwarded by a window that has no browser of its own. */
+  openUrlRequest: NavigationRequest? = null,
+  /** Moves only on a real home intent; [focusTrigger] also moves on any return of focus. */
+  homeTrigger: Long = 0L,
   /**
    * Let the chrome bar rise with the keyboard instead of reserving its height up front. Right for
    * the search overlay, which opens as the keyboard comes up; the home screen keeps the space
@@ -224,6 +239,386 @@ fun SearchScreen(
 
   // Onboarding Logic
   val onboardingManager = remember { OnboardingManager(context) }
+
+  val browserTabSwipe = rememberBrowserTabSwipeState()
+  var openingTab by remember { mutableStateOf(false) }
+
+  val view = LocalView.current
+  val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+
+  // Use InputMethodManager for more reliable keyboard control
+  val imm = remember {
+    context.getSystemService(Context.INPUT_METHOD_SERVICE)
+      as android.view.inputmethod.InputMethodManager
+  }
+
+  fun retractKeyboardForTab() {
+    openingTab = true
+    // Focus goes with it. Asking only the keyboard to leave was right when the browser was another
+    // activity — the launcher was on its way to the background and the field's focus went with it.
+    // Hosted, the launcher never leaves, and this window is set to show the IME whenever it is
+    // resumed: a focused field is then all it takes for the keyboard to come straight back, which
+    // is what happened when a result was picked from the in-tab search and the page opened with the
+    // keyboard still up.
+    focusManager.clearFocus()
+    // Straight to the IMM like the rest of this screen's keyboard handling: the field keeps focus
+    // (the launcher is still the foreground app until the browser arrives), so only the keyboard
+    // itself is asked to go.
+    imm.hideSoftInputFromWindow(view.windowToken, 0)
+  }
+
+  // The browser is a screen of this composition rather than an activity of its own. It used to be
+  // the latter, in its own task, and every way into it cost a task change: the system drew its own
+  // surface over the top for a frame or two — the white flash — and animated it the way it moves
+  // any new app, in from the right, which is backwards for something the launcher keeps to its
+  // left. Hosted here there is no window to hand over and the movement is ours to choose.
+  //
+  // Private browsing is still its own activity: it runs in a separate process on purpose, and that
+  // is a real handover to another instance rather than an artificial one.
+  var browserOpen by remember { mutableStateOf(false) }
+  /**
+   * Set for the length of the browser's exit. The offset says the browser is still on screen for
+   * all of it, which is true but not the point: from the moment home is asked for it is home that
+   * is arriving, and the keyboard belongs to home.
+   */
+  var browserLeaving by remember { mutableStateOf(false) }
+  /**
+   * Kept composed one screen to the left, ready, without being on its way anywhere yet. Set the
+   * moment a sideways drag is recognised so that the cost of building it lands before the finger
+   * has moved, rather than five frames into the movement — which is where it showed as the home
+   * screen losing its wallpaper.
+   */
+  var browserWarm by remember { mutableStateOf(false) }
+  /**
+   * Whether the browser is on screen to any degree — open, or part way in under a finger. Derived
+   * so that a swipe, which moves the offset every frame, only wakes anything watching this when the
+   * answer actually changes.
+   */
+  val browserShowing by remember {
+    derivedStateOf { browserOpen || browserTabSwipe.offsetPx > 0.5f }
+  }
+  var browserNavigation by remember { mutableStateOf<NavigationRequest?>(null) }
+  var browserTabActivation by remember { mutableStateOf<TabActivationRequest?>(null) }
+
+  /**
+   * Brings the browser across from the left, which is where the launcher keeps it and the direction
+   * the swipe already pulls it in from. Driven by the swipe's own offset so that arriving by tap
+   * and arriving by gesture are the same movement, and so that a tap landing mid-swipe carries on
+   * from wherever the finger left it rather than restarting.
+   */
+  var tabsOverviewOpen by remember { mutableStateOf(false) }
+  var tabsOverviewRendered by remember { mutableStateOf(false) }
+
+  /**
+   * Builds the browser one screen to the left, without moving it. Expensive — it owns a WebView —
+   * and paying that on the first frame of a movement ate the movement: the main thread was busy
+   * while the animation ran, so the browser simply appeared at the end of it. Done here, off
+   * screen, the cost lands where there is nothing to see.
+   */
+  suspend fun warmBrowserOffScreen() {
+    if (browserTabSwipe.offsetPx <= 0.5f) {
+      browserTabSwipe.offsetPx = 1f
+      withFrameNanos {}
+      withFrameNanos {}
+    }
+  }
+
+  fun slideBrowserIn() {
+    // The keyboard goes as the browser arrives, not once it has: this also sets openingTab, which
+    // is what stops the request loop below from asking for it back mid-slide.
+    retractKeyboardForTab()
+    scope.launch {
+      warmBrowserOffScreen()
+      animate(
+        initialValue = browserTabSwipe.offsetPx,
+        targetValue = browserTabSwipe.viewportWidthPx.toFloat(),
+        animationSpec =
+          spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+      ) { value, _ ->
+        browserTabSwipe.offsetPx = value
+      }
+      browserOpen = true
+    }
+  }
+
+  /**
+   * The overview's own card carries the movement here — it grows into the page — so the browser
+   * only has to be ready underneath by the time it lands. Started when the card starts rather than
+   * when it finishes, which is what left the bar arriving a beat after the screen it belongs to.
+   */
+  fun prepareBrowserForOverviewTab(index: Int) {
+    retractKeyboardForTab()
+    browserTabActivation = TabActivationRequest(index, System.nanoTime())
+    scope.launch { warmBrowserOffScreen() }
+  }
+
+  /** The card has landed on it; nothing left to animate. */
+  fun revealBrowserFromOverview() {
+    // Taken down rather than faded. Closing the strip normally animates it away, which is right
+    // when it is being dismissed back to the home screen — but here the card has just become the
+    // page, and animating the strip out on top of that page leaves its card labels sliding about
+    // in the gap above the search bar, reading as some other window moving behind the new one.
+    // The growth was the transition; there is nothing left for the strip to do but go.
+    tabsOverviewRendered = false
+    tabsOverviewOpen = false
+    browserTabSwipe.offsetPx = browserTabSwipe.viewportWidthPx.toFloat()
+    browserOpen = true
+  }
+
+  /**
+   * Sends the browser back where it came from: off to the left, with the home screen arriving from
+   * the right. The mirror of [slideBrowserIn], and the reason both are written in terms of the same
+   * offset — a gesture and a button press should leave by the same door.
+   */
+  /**
+   * Both requests are cleared with the browser, because [BrowserScreen] is disposed along with it
+   * and forgets which ones it has already acted on. A request left standing is therefore read as
+   * new by the next browser to be composed — which is why swiping back to the last tab opened a
+   * second copy of the page rather than the tab that was already there.
+   */
+  fun forgetBrowserRequests() {
+    browserNavigation = null
+    browserTabActivation = null
+    browserWarm = false
+  }
+
+  fun slideBrowserOut() {
+    forgetBrowserRequests()
+    scope.launch {
+      // Stated rather than assumed. While the browser is open its position comes from `browserOpen`
+      // and not from the offset, so nothing keeps the offset honest in the meantime — the lifecycle
+      // reset below zeroes it on any resume, and then this animation would have run from 0 to 0 and
+      // the browser would have vanished on the spot. A full screen is where it is; say so.
+      browserTabSwipe.offsetPx = browserTabSwipe.viewportWidthPx.toFloat()
+      browserOpen = false
+      // Both from the instant the exit is decided rather than when it lands, so the keyboard rises
+      // with the home screen instead of appearing on top of it once everything has stopped moving.
+      // The same reasoning as retractKeyboardForTab, which lets the keyboard leave during the trip
+      // out rather than snapping away at the end of it.
+      openingTab = false
+      browserLeaving = true
+      animate(
+        initialValue = browserTabSwipe.offsetPx,
+        targetValue = 0f,
+        animationSpec =
+          spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+      ) { value, _ ->
+        browserTabSwipe.offsetPx = value
+      }
+      browserTabSwipe.reset()
+      browserLeaving = false
+    }
+  }
+
+  fun openBrowserTab(index: Int) {
+    tabsOverviewOpen = false
+    browserTabActivation = TabActivationRequest(index, System.nanoTime())
+    slideBrowserIn()
+  }
+
+  /** Opens [url] in the hosted browser, as a new tab or in the empty one already showing. */
+  fun openInBrowser(url: String) {
+    // Only the launcher hosts a browser. Asked from the search overlay — its own translucent
+    // activity, with no browser in it — this hands the page to the launcher instead, which used to
+    // happen by starting the browser activity and is the last thing that would have brought the
+    // task switch back.
+    if (!browserTabSwipeEnabled) {
+      context.startActivity(
+        Intent(context, MainActivity::class.java)
+          .putExtra(MainActivity.EXTRA_OPEN_URL, url)
+          .addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+              Intent.FLAG_ACTIVITY_CLEAR_TOP or
+              Intent.FLAG_ACTIVITY_NO_ANIMATION
+          )
+      )
+      onDismiss()
+      return
+    }
+    // A page already open is somewhere to go back to, not something to open a second copy of —
+    // which is what tapping the same favourite twice used to do. Tabs are capped and evict the
+    // oldest to make room, so the duplicates cost real tabs, and switching is what tapping an
+    // open-tab result already does; a bookmark for the same page should not disagree with it.
+    val openTab =
+      BrowserTabStore.tabs?.items?.let { items -> indexOfTabShowing(items.map { it.url }, url) }
+    if (openTab != null && openTab >= 0) {
+      openBrowserTab(openTab)
+      return
+    }
+    // Sequenced rather than merely set, because BrowserScreen has to tell a fresh request from the
+    // same one arriving again through a recomposition.
+    browserNavigation = NavigationRequest(url, System.nanoTime())
+    slideBrowserIn()
+  }
+
+  // Home means home, including out of the browser — but only a home intent means home.
+  LaunchedEffect(homeTrigger) { if (homeTrigger != 0L && browserOpen) slideBrowserOut() }
+
+  LaunchedEffect(openUrlRequest?.sequence) { openUrlRequest?.let { openInBrowser(it.url) } }
+
+  // One description of what a result can do, built in a single place and handed to every list that
+  // shows results. The favourites bar used to assemble its own much shorter menu, so the same app
+  // offered a dozen actions in the results and two in the favourites bar; sharing this is what
+  // keeps the two honest. [index] is only read for usage reporting, where -1 means "not from the
+  // results list, so never the top hit".
+  val menuActionsFor: (SearchResult, Int) -> ResultMenuActions = { result, index ->
+    val webUrl = webUrlForResult(result, query, searchShortcuts)
+    val openTab = result as? SearchResult.BrowserTab
+    ResultMenuActions(
+      onToggleFavorite =
+        if (result.isFavoritable()) {
+          {
+            app.favoritesRepository.toggleFavorite(result)
+            onQueryChange("")
+            scope.launch { onboardingManager.markStepComplete(OnboardingStep.AddFavorite) }
+          }
+        } else null,
+      onRemoveBookmark = {
+        scope.launch {
+          searchRepository.removeBookmark(result.id, result.namespace)
+          // Refreshes the list rather than clearing the query: acting on one
+          // result should not throw away what the user typed to find it.
+          resultsRefreshTick++
+        }
+      },
+      onEditBookmark =
+        webUrl?.let { url ->
+          { bookmarkDialogTarget = BookmarkDialogTarget(url, result.title, isEditMode = true) }
+        },
+      onAddBookmark =
+        webUrl?.let { url ->
+          {
+            bookmarkDialogTarget =
+              BookmarkDialogTarget(
+                url = url,
+                title = result.title,
+                isEditMode = false,
+                replacesHistoryId = result.id.takeIf { result.namespace == "web_bookmarks" },
+              )
+          }
+        }
+          ?: openTab?.let { tab ->
+            {
+              bookmarkDialogTarget =
+                BookmarkDialogTarget(url = tab.url, title = tab.title, isEditMode = false)
+            }
+          },
+      onCloseTab =
+        openTab?.let { tab ->
+          {
+            if (BrowserTabStore.close(tab.tabId)) closeBrowserWindow(context)
+            resultsRefreshTick++
+          }
+        },
+      onCloseAllTabs =
+        openTab?.let {
+          {
+            BrowserTabStore.clear()
+            closeBrowserWindow(context)
+            resultsRefreshTick++
+          }
+        },
+      onCopyUrl = openTab?.let { tab -> { copyUrlToClipboard(context, tab.url) } },
+      onClearSearchResults = { onQueryChange("") },
+      onOpenTab =
+        webUrl?.let { url ->
+          {
+            openInBrowser(url)
+            searchRepository.reportUsageAsync(result.namespace, result.id, query, index == 0)
+            onDismiss()
+          }
+        },
+      onOpenPrivate =
+        webUrl?.let { url ->
+          {
+            context.startActivity(BrowserActivity.createPrivateIntent(context, url))
+            onDismiss()
+          }
+        },
+      onContactChatAction = { contact, action ->
+        if (searchRepository.launchContactChatAction(contact, action)) {
+          searchRepository.reportUsageAsync(contact.namespace, contact.id, query, index == 0)
+          onDismiss()
+        } else {
+          Toast.makeText(context, "Cannot open ${action.label}", Toast.LENGTH_SHORT).show()
+        }
+      },
+      onEditSnippet =
+        if (result is SearchResult.Snippet) {
+          {
+            snippetItemToEdit = result
+            snippetEditMode = true
+            showSnippetDialog = true
+          }
+        } else null,
+      onEditShortcut =
+        if (result is SearchResult.Shortcut) {
+          {
+            val shortcut = searchShortcuts.find { it.id == result.id }
+            if (shortcut != null) {
+              editingShortcut = shortcut
+              showShortcutDialog = true
+            }
+          }
+        } else if (result is SearchResult.SearchIntent) {
+          {
+            val shortcut = searchShortcuts.find { it.alias == result.trigger }
+            if (shortcut != null) {
+              editingShortcut = shortcut
+              showShortcutDialog = true
+            }
+          }
+        } else if (result is SearchResult.Content && result.namespace == "search_shortcuts") {
+          {
+            val alias = result.id.removePrefix("shortcut_")
+            val shortcut = searchShortcuts.find { it.alias == alias }
+            if (shortcut != null) {
+              editingShortcut = shortcut
+              showShortcutDialog = true
+            }
+          }
+        } else null,
+      onDeleteShortcut =
+        if (result is SearchResult.Shortcut) {
+          {
+            scope.launch {
+              app.searchShortcutRepository.removeShortcut(result.id)
+              Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT).show()
+              resultsRefreshTick++
+            }
+          }
+        } else if (result is SearchResult.SearchIntent) {
+          {
+            scope.launch {
+              // Find the shortcut first to get its ID
+              val shortcut = searchShortcuts.find { it.alias == result.trigger }
+              if (shortcut != null) {
+                app.searchShortcutRepository.removeShortcut(shortcut.id)
+                Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT).show()
+                resultsRefreshTick++
+              }
+            }
+          }
+        } else if (result is SearchResult.Content && result.namespace == "search_shortcuts") {
+          {
+            scope.launch {
+              val alias = result.id.removePrefix("shortcut_")
+              val shortcut = searchShortcuts.find { it.alias == alias }
+              if (shortcut != null) {
+                app.searchShortcutRepository.removeShortcut(shortcut.id)
+                Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT).show()
+                resultsRefreshTick++
+              }
+            }
+          }
+        } else null,
+      onCreateSnippet = {
+        snippetEditMode = false
+        snippetInitialContent = ""
+        showSnippetDialog = true
+      },
+    )
+  }
   val completedSteps by onboardingManager.completedSteps.collectAsState(initial = null)
   val resultLauncher =
     remember(context, searchRepository, scope, onQueryChange, onAddWidget, onboardingManager) {
@@ -243,6 +638,10 @@ fun SearchScreen(
         },
         onAddWidgetSearch = onAddWidget,
         onboardingManager = onboardingManager,
+        // Tapping a result was the last way into the browser still going through an activity, which
+        // is why it kept arriving from the right while the swipe came from the left.
+        onOpenInBrowser = { url -> openInBrowser(url) },
+        onOpenBrowserTab = { index -> openBrowserTab(index) },
       )
     }
 
@@ -335,20 +734,15 @@ fun SearchScreen(
     }
   }
 
-  val view = LocalView.current
-
-  // Use InputMethodManager for more reliable keyboard control
-  val imm = remember {
-    context.getSystemService(Context.INPUT_METHOD_SERVICE)
-      as android.view.inputmethod.InputMethodManager
-  }
-
   // Ask for the keyboard on activation. The IME can only be shown once the window actually
   // holds focus — returning to the home screen often delivers focus late, so wait for it
   // instead of guessing with fixed retries, then keep asking until the IME is really visible.
   val windowInfo = androidx.compose.ui.platform.LocalWindowInfo.current
-  LaunchedEffect(isActive, focusTrigger) {
-    if (isActive) {
+  LaunchedEffect(isActive, focusTrigger, browserShowing, openingTab, browserLeaving) {
+    // Also on the browser closing. The launcher used to be restarted on the way back, which asked
+    // for the keyboard as a side effect of arriving; hosting the browser means this window never
+    // went anywhere, so the request has to be made explicitly.
+    if (isActive && !openingTab && (!browserShowing || browserLeaving)) {
       snapshotFlow { windowInfo.isWindowFocused }.first { it }
       repeat(10) {
         focusRequester.requestFocus()
@@ -513,6 +907,12 @@ fun SearchScreen(
 
   val isMultiWindow = (context as? android.app.Activity)?.isInMultiWindowMode == true
 
+  /**
+   * Set the moment a tab is tapped in the overview, which is when the launcher stops holding space
+   * for a keyboard it is dismissing. Until then the home screen reserves that height whether the
+   * IME is up or not, so releasing it is what lets the chrome bar travel down with the keys rather
+   * than sitting in mid-air until the browser finally takes over.
+   */
   LaunchedEffect(imeHeightPx) {
     if (imeHeightPx > 100 && !isMultiWindow) {
       // Wait for animation to settle (debounce)
@@ -539,11 +939,29 @@ fun SearchScreen(
             .coerceAtLeast(0)
             .toDp()
         isMultiWindow -> imeHeightPx.toDp()
+        // Follows the IME down frame by frame while a tab opens, so the bar rides the keyboard
+        // out instead of dropping once it has gone.
+        openingTab -> imeHeightPx.toDp()
         else -> kotlin.math.max(imeHeightPx, storedKeyboardHeight).toDp()
       }
     }
 
-  val browserTabSwipe = rememberBrowserTabSwipeState()
+  /**
+   * What the wallpaper reserves at the bottom, which is not what the chrome bar reserves.
+   *
+   * The bar follows the keyboard down frame by frame as a tab opens, so that it rides the keyboard
+   * out rather than dropping once it has gone. A full-screen picture cannot do that: the same
+   * padding shrinking under it resizes the image, and the wallpaper visibly grows during the very
+   * transition that is meant to be carrying it off to one side. So it keeps holding the keyboard's
+   * room throughout, exactly as it does at rest.
+   */
+  val wallpaperBottomPadding =
+    if (openingTab) {
+      with(density) { kotlin.math.max(imeHeightPx, storedKeyboardHeight).toDp() }
+    } else {
+      bottomPadding
+    }
+
   var chromeBarHeightPx by remember { mutableIntStateOf(0) }
   var favoritesRowHeightPx by remember { mutableIntStateOf(0) }
   val favoritesRowVisible = query.isEmpty() && (favorites.isNotEmpty() || historyItems.isNotEmpty())
@@ -556,8 +974,6 @@ fun SearchScreen(
   // Live: the store holds its tab list in Compose state, so opening or closing a tab in the
   // browser updates this counter without the launcher being touched.
   val openTabCount = BrowserTabStore.tabs?.items?.size ?: 0
-  var tabsOverviewOpen by remember { mutableStateOf(false) }
-  var tabsOverviewRendered by remember { mutableStateOf(false) }
   val tabsOverviewProgress by
     animateFloatAsState(
       targetValue = if (tabsOverviewOpen) 1f else 0f,
@@ -574,11 +990,12 @@ fun SearchScreen(
     tabsOverviewOpen = true
   }
 
-  fun openBrowserTab(index: Int) {
-    tabsOverviewOpen = false
-    context.startActivity(BrowserActivity.createResumeIntent(context, index))
-  }
-
+  /**
+   * Run at the moment a tab is committed to — the tap in the overview, the lift at the end of a
+   * swipe — rather than when the animation that follows it lands. Both are handing the screen over
+   * to the browser, and from the instant that is decided the keyboard is on its way out; it should
+   * be leaving during the animation rather than snapping away once the browser is already up.
+   */
   fun forgetAllTabs() {
     BrowserTabStore.clear()
     closeBrowserWindow(context)
@@ -598,7 +1015,15 @@ fun SearchScreen(
   // Pressing home while already on the launcher never stops the activity, so the lifecycle reset
   // below cannot catch it. The launcher bumps this instead whenever a home intent arrives, and
   // "take me home" has to mean a clean home screen, tab strip included.
-  LaunchedEffect(focusTrigger) { if (focusTrigger != 0L) tabsOverviewOpen = false }
+  LaunchedEffect(focusTrigger) {
+    if (focusTrigger != 0L) {
+      tabsOverviewOpen = false
+      openingTab = false
+      // Including the browser, now that it is a screen of this composition rather than another
+      // task the system would have switched away from. Without this, home left the page up and
+      // merely raised the launcher's own bar and keyboard over the top of it.
+    }
+  }
   // The preview is deliberately left covering the screen while the browser starts, so it has to be
   // cleared once the launcher is out of sight (or back in front, if the browser never took over).
   val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -609,10 +1034,18 @@ fun SearchScreen(
           event == androidx.lifecycle.Lifecycle.Event.ON_STOP ||
             event == androidx.lifecycle.Lifecycle.Event.ON_RESUME
         ) {
-          browserTabSwipe.reset()
+          // Not while the browser is up. This clears the leftover swipe once the launcher is out
+          // of sight, which was safe when the browser was another activity — the launcher really
+          // had gone. Hosted, the offset is also what holds the home screen off to the right, so
+          // zeroing it here marched the favourites row and search bar back over the top of the
+          // page. Any resume did it: closing the search overlay, waking the screen.
+          if (!browserOpen) browserTabSwipe.reset()
           // Leaving the launcher ends the overview with it, so coming back later never lands on a
           // tab strip describing whatever the browser was doing minutes ago.
           tabsOverviewOpen = false
+          // The tab either opened or it did not; either way the home screen is a home screen again
+          // and goes back to holding space for its keyboard.
+          openingTab = false
         }
       }
     lifecycleOwner.lifecycle.addObserver(observer)
@@ -784,7 +1217,7 @@ fun SearchScreen(
       Box(modifier = Modifier.fillMaxSize().then(homeSwipeOffset)) {
         WallpaperBackground(
           showBackgroundImage = showBackgroundImage,
-          bottomPadding = bottomPadding,
+          bottomPadding = wallpaperBottomPadding,
           folderImages = folderImages,
           lastImageUriString = lastImageUriString,
           savedUriResolved = savedUriResolved,
@@ -879,10 +1312,155 @@ fun SearchScreen(
       }
 
       if (browserTabSwipeEnabled) {
-        BrowserTabSwipePreview(
-          state = browserTabSwipe,
-          chromeHeight = with(density) { chromeBarHeightPx.toDp() },
+        // Measured here rather than inside the preview, which is only composed while the browser is
+        // not. The browser's position is one screen minus this, so a placeholder width put it at
+        // roughly zero — covering everything in the page's own colour for the few frames before the
+        // real width arrived, which is the black flash at the start of the swipe. This box is
+        // composed either way, so the width is known before anything needs it.
+        Box(
+          modifier =
+            Modifier.fillMaxSize().onSizeChanged {
+              browserTabSwipe.viewportWidthPx = it.width.coerceAtLeast(1)
+              browserTabSwipe.viewportHeightPx = it.height.coerceAtLeast(1)
+            }
         )
+        // Composed only while it is on screen or on its way there — it owns a WebView, which is far
+        // too expensive to keep alive behind the home screen.
+        // Composing the browser is what *creates* the tab list, so it must not happen on the
+        // strength of a drag alone: with no tabs to pull in, the gesture gives a little and springs
+        // back — but building the browser behind it left a real about:blank tab that outlived the
+        // swipe. It comes on screen only once there is something to show, which is a tab already
+        // there or a page on its way to one.
+        // Derived rather than read straight, because the offset moves every frame of a swipe and
+        // this is a composition-phase read: taken plainly it recomposed this screen — and with it
+        // the whole browser hanging below — sixty times a second, for a value that changes twice.
+        // The offset still drives the movement, but it does so in the graphicsLayer below, where a
+        // change costs a redraw rather than a recomposition.
+        val browserOnScreen by remember {
+          derivedStateOf {
+            // Kept composed whenever there is a tab for it, not only once it is wanted. Building it
+            // means building a WebView, which costs about five frames of stalled main thread — and
+            // paid during a gesture, that is the home screen losing its wallpaper for exactly that
+            // long, the window showing through in whichever colour the theme paints it. There is no
+            // moment inside a swipe early enough to absorb it, so it is paid once, while nothing is
+            // moving. Nor is it a new cost: before the browser was hosted here it was a separate
+            // activity, and it sat in its own task with its WebView alive the whole time the
+            // launcher was in front.
+            val hasTabs = BrowserTabStore.tabs?.items?.isNotEmpty() == true
+            browserOpen || hasTabs || browserNavigation != null
+          }
+        }
+        if (browserOnScreen) {
+          Box(
+            modifier =
+              Modifier.fillMaxSize().graphicsLayer {
+                // Open, it sits flush; mid-swipe it is exactly as far in as the finger has pulled
+                // it. One screen to the left at rest, which is the side the gesture comes from.
+                // One number decides where both screens are: home sits at the offset, the browser
+                // a screen to its left. Open is simply the offset being a full screen, so there is
+                // no separate case for it — and a drag can move the pair without either of them
+                // needing to know whether it counts as open yet.
+                translationX = browserTabSwipe.offsetPx - browserTabSwipe.viewportWidthPx
+              }
+          ) {
+            BrowserScreen(
+              navigationRequest = browserNavigation,
+              privateMode = false,
+              showLauncherChrome = true,
+              browserMenuRequest = 0L,
+              onBrowserMenuShown = {},
+              tabActivationRequest = browserTabActivation,
+              // The same translucent overlay the browser has always opened, dressed in the page's
+              // colour so it arrives onto a bar the same shape and place as the one just tapped.
+              // Hosting the browser changed where it is drawn, not what its search bar means, and
+              // the stub left here in the meantime made it do nothing at all.
+              onOpenSearch = { startVoiceSearch, chromeColorArgb, initialQuery ->
+                context.startActivity(
+                  Intent(context, SearchActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                    .putExtra(SearchActivity.EXTRA_PRIVATE_WEB_RESULTS, false)
+                    .putExtra(SearchActivity.EXTRA_START_VOICE_SEARCH, startVoiceSearch)
+                    .putExtra(SearchActivity.EXTRA_BROWSER_SEARCH, true)
+                    .putExtra(SearchActivity.EXTRA_CHROME_COLOR, chromeColorArgb)
+                    .putExtra(SearchActivity.EXTRA_INITIAL_QUERY, initialQuery)
+                )
+              },
+              onClose = {
+                browserOpen = false
+                forgetBrowserRequests()
+              },
+              // Finished, not animated. The home button has nothing moving when it is pressed, so
+              // it needs slideBrowserOut to carry the browser away; this swipe has already spent
+              // its whole gesture doing exactly that, and running the host's animation on top
+              // played the same exit twice. Both still end the same way — the browser gone to the
+              // left, home in its place, keyboard on its way up — which is what agreeing means
+              // here; it does not mean animating something that has already arrived.
+              // The drag out of the leftmost tab moves this offset, which is the same offset the
+              // swipe in from home moves — so leaving and arriving are one gesture read in two
+              // directions, and the real home screen travels under the finger rather than a
+              // wallpaper standing in for it.
+              leaving = browserLeaving,
+              onLauncherDrag = { delta ->
+                browserTabSwipe.offsetPx =
+                  (browserTabSwipe.offsetPx + delta).coerceIn(
+                    0f,
+                    browserTabSwipe.viewportWidthPx.toFloat(),
+                  )
+              },
+              onLauncherDragEnd = { velocity ->
+                val viewport = browserTabSwipe.viewportWidthPx.toFloat()
+                // How far it has come towards home, signed the way the finger went, so the same
+                // rule that decides a swipe in decides this one.
+                val travelled = browserTabSwipe.offsetPx - viewport
+                val leaving =
+                  shouldCommitTabSwipe(
+                    offsetPx = travelled,
+                    velocityPxPerSecond = velocity,
+                    viewportWidthPx = browserTabSwipe.viewportWidthPx,
+                    commitFraction = TAB_COMMIT_FRACTION,
+                    commitDistanceCapPx = with(density) { TAB_COMMIT_MAX_DISTANCE.toPx() },
+                    flingVelocityPx = with(density) { TAB_FLING_VELOCITY.toPx() },
+                  )
+                if (leaving) {
+                  forgetBrowserRequests()
+                  openingTab = false
+                  browserLeaving = true
+                }
+                scope.launch {
+                  animate(
+                    initialValue = browserTabSwipe.offsetPx,
+                    targetValue = if (leaving) 0f else viewport,
+                    animationSpec =
+                      spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                      ),
+                  ) { value, _ ->
+                    browserTabSwipe.offsetPx = value
+                  }
+                  if (leaving) {
+                    browserOpen = false
+                    browserTabSwipe.reset()
+                    browserLeaving = false
+                  }
+                }
+              },
+              onReturnToLauncher = {
+                forgetBrowserRequests()
+                browserOpen = false
+                browserTabSwipe.reset()
+                // Home is arriving, so the keyboard is home's again from this instant.
+                openingTab = false
+                browserLeaving = false
+              },
+            )
+          }
+        } else {
+          BrowserTabSwipePreview(
+            state = browserTabSwipe,
+            chromeHeight = with(density) { chromeBarHeightPx.toDp() },
+          )
+        }
       }
 
       // Above the wallpaper but below the chrome bar, which keeps working while the strip is up —
@@ -931,7 +1509,8 @@ fun SearchScreen(
               bottom = (browserTabSwipe.viewportHeightPx - browserChromePx).toFloat(),
             ),
           onDismiss = { tabsOverviewOpen = false },
-          onSelect = ::openBrowserTab,
+          onSelectStart = ::prepareBrowserForOverviewTab,
+          onSelect = { revealBrowserFromOverview() },
           onCloseTab = ::closeBrowserTab,
           onCloseAll = ::forgetAllTabs,
         )
@@ -1062,190 +1641,10 @@ fun SearchScreen(
                     searchResults,
                     key = { index, item -> "$index/${item.stableListKey}" },
                   ) { index, result ->
-                    val webUrl = webUrlForResult(result, query, searchShortcuts)
-                    val openTab = result as? SearchResult.BrowserTab
                     SearchResultItem(
                       result = result,
                       isFavorite = app.favoritesRepository.isFavorite(result),
-                      onToggleFavorite =
-                        if (result.isFavoritable()) {
-                          {
-                            app.favoritesRepository.toggleFavorite(result)
-                            onQueryChange("")
-                            scope.launch {
-                              onboardingManager.markStepComplete(OnboardingStep.AddFavorite)
-                            }
-                          }
-                        } else null,
-                      onRemoveBookmark = {
-                        scope.launch {
-                          searchRepository.removeBookmark(result.id, result.namespace)
-                          // Refreshes the list rather than clearing the query: acting on one
-                          // result should not throw away what the user typed to find it.
-                          resultsRefreshTick++
-                        }
-                      },
-                      onEditBookmark =
-                        webUrl?.let { url ->
-                          {
-                            bookmarkDialogTarget =
-                              BookmarkDialogTarget(url, result.title, isEditMode = true)
-                          }
-                        },
-                      onAddBookmark =
-                        webUrl?.let { url ->
-                          {
-                            bookmarkDialogTarget =
-                              BookmarkDialogTarget(
-                                url = url,
-                                title = result.title,
-                                isEditMode = false,
-                                replacesHistoryId =
-                                  result.id.takeIf { result.namespace == "web_bookmarks" },
-                              )
-                          }
-                        }
-                          ?: openTab?.let { tab ->
-                            {
-                              bookmarkDialogTarget =
-                                BookmarkDialogTarget(
-                                  url = tab.url,
-                                  title = tab.title,
-                                  isEditMode = false,
-                                )
-                            }
-                          },
-                      onCloseTab =
-                        openTab?.let { tab ->
-                          {
-                            if (BrowserTabStore.close(tab.tabId)) closeBrowserWindow(context)
-                            resultsRefreshTick++
-                          }
-                        },
-                      onCloseAllTabs =
-                        openTab?.let {
-                          {
-                            BrowserTabStore.clear()
-                            closeBrowserWindow(context)
-                            resultsRefreshTick++
-                          }
-                        },
-                      onCopyUrl = openTab?.let { tab -> { copyUrlToClipboard(context, tab.url) } },
-                      onClearSearchResults = { onQueryChange("") },
-                      onOpenTab =
-                        webUrl?.let { url ->
-                          {
-                            context.startActivity(BrowserActivity.createIntent(context, url))
-                            searchRepository.reportUsageAsync(
-                              result.namespace,
-                              result.id,
-                              query,
-                              index == 0,
-                            )
-                            onDismiss()
-                          }
-                        },
-                      onOpenPrivate =
-                        webUrl?.let { url ->
-                          {
-                            context.startActivity(BrowserActivity.createPrivateIntent(context, url))
-                            onDismiss()
-                          }
-                        },
-                      onContactChatAction = { contact, action ->
-                        if (searchRepository.launchContactChatAction(contact, action)) {
-                          searchRepository.reportUsageAsync(
-                            contact.namespace,
-                            contact.id,
-                            query,
-                            index == 0,
-                          )
-                          onDismiss()
-                        } else {
-                          Toast.makeText(context, "Cannot open ${action.label}", Toast.LENGTH_SHORT)
-                            .show()
-                        }
-                      },
-                      onEditSnippet =
-                        if (result is SearchResult.Snippet) {
-                          {
-                            snippetItemToEdit = result
-                            snippetEditMode = true
-                            showSnippetDialog = true
-                          }
-                        } else null,
-                      onEditShortcut =
-                        if (result is SearchResult.Shortcut) {
-                          {
-                            val shortcut = searchShortcuts.find { it.id == result.id }
-                            if (shortcut != null) {
-                              editingShortcut = shortcut
-                              showShortcutDialog = true
-                            }
-                          }
-                        } else if (result is SearchResult.SearchIntent) {
-                          {
-                            val shortcut = searchShortcuts.find { it.alias == result.trigger }
-                            if (shortcut != null) {
-                              editingShortcut = shortcut
-                              showShortcutDialog = true
-                            }
-                          }
-                        } else if (
-                          result is SearchResult.Content && result.namespace == "search_shortcuts"
-                        ) {
-                          {
-                            val alias = result.id.removePrefix("shortcut_")
-                            val shortcut = searchShortcuts.find { it.alias == alias }
-                            if (shortcut != null) {
-                              editingShortcut = shortcut
-                              showShortcutDialog = true
-                            }
-                          }
-                        } else null,
-                      onDeleteShortcut =
-                        if (result is SearchResult.Shortcut) {
-                          {
-                            scope.launch {
-                              app.searchShortcutRepository.removeShortcut(result.id)
-                              Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT).show()
-                              resultsRefreshTick++
-                            }
-                          }
-                        } else if (result is SearchResult.SearchIntent) {
-                          {
-                            scope.launch {
-                              // Find the shortcut first to get its ID
-                              val shortcut = searchShortcuts.find { it.alias == result.trigger }
-                              if (shortcut != null) {
-                                app.searchShortcutRepository.removeShortcut(shortcut.id)
-                                Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT)
-                                  .show()
-                                resultsRefreshTick++
-                              }
-                            }
-                          }
-                        } else if (
-                          result is SearchResult.Content && result.namespace == "search_shortcuts"
-                        ) {
-                          {
-                            scope.launch {
-                              val alias = result.id.removePrefix("shortcut_")
-                              val shortcut = searchShortcuts.find { it.alias == alias }
-                              if (shortcut != null) {
-                                app.searchShortcutRepository.removeShortcut(shortcut.id)
-                                Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT)
-                                  .show()
-                                resultsRefreshTick++
-                              }
-                            }
-                          }
-                        } else null,
-                      onCreateSnippet = {
-                        snippetEditMode = false
-                        snippetInitialContent = ""
-                        showSnippetDialog = true
-                      },
+                      actions = menuActionsFor(result, index),
                       onClick = {
                         if (result is SearchResult.SearchIntent) {
                           // If the title implies a direct search (or we
@@ -1277,13 +1676,13 @@ fun SearchScreen(
                                     "%s",
                                     java.net.URLEncoder.encode(query, "UTF-8"),
                                   )
-                                context.startActivity(
-                                  if (privateWebResults) {
+                                if (privateWebResults) {
+                                  context.startActivity(
                                     BrowserActivity.createPrivateIntent(context, url)
-                                  } else {
-                                    BrowserActivity.createIntent(context, url)
-                                  }
-                                )
+                                  )
+                                } else {
+                                  openInBrowser(url)
+                                }
                                 if (!privateWebResults) {
                                   searchRepository.reportUsageAsync(
                                     result.namespace,
@@ -1384,6 +1783,9 @@ fun SearchScreen(
                 scope.launch { onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites) }
               },
               onCapacityChanged = { limit -> searchRepository.updateObservedHistoryLimit(limit) },
+              // The same menu the results list offers, so long-pressing an app here and long-
+              // pressing it in the results are the same gesture with the same answer.
+              menuActions = { result -> menuActionsFor(result, -1) },
             )
             Spacer(modifier = Modifier.height(2.dp))
           }
@@ -1396,10 +1798,17 @@ fun SearchScreen(
               .browserTabSwipe(
                 state = browserTabSwipe,
                 enabled = browserTabSwipeEnabled,
+                tabsOverviewOpen = tabsOverviewOpen,
                 onOpenTabsOverview = ::openTabsOverview,
-                onOpenLastTab = {
-                  context.startActivity(BrowserActivity.createResumeIntent(context))
-                },
+                onCloseTabsOverview = { tabsOverviewOpen = false },
+                onCommitLastTab = ::retractKeyboardForTab,
+                // No activity to start any more: the browser is already composed at the end of the
+                // swipe, so committing it is just letting go of the offset.
+                onOpenLastTab = { browserOpen = true },
+                // Built while the finger is still still, so the drag itself has nothing left to do
+                // but move. Only ever with a tab to show — see the gesture, which checks.
+                onSidewaysDragStart = { browserWarm = true },
+                onSidewaysDragAbandoned = { browserWarm = false },
               ),
           color = chromeBarColor ?: MaterialTheme.colorScheme.surface,
           contentColor =
@@ -1537,13 +1946,13 @@ fun SearchScreen(
                                 "%s",
                                 java.net.URLEncoder.encode(query, "UTF-8"),
                               )
-                            context.startActivity(
-                              if (privateWebResults) {
+                            if (privateWebResults) {
+                              context.startActivity(
                                 BrowserActivity.createPrivateIntent(context, url)
-                              } else {
-                                BrowserActivity.createIntent(context, url)
-                              }
-                            )
+                              )
+                            } else {
+                              openInBrowser(url)
+                            }
                             if (!privateWebResults) {
                               searchRepository.reportUsageAsync(
                                 topResult.namespace,
@@ -1624,31 +2033,108 @@ fun SearchScreen(
           )
 
           if (query.isNotEmpty()) {
-            IconButton(
-              onClick = {
-                val engine =
-                  (searchShortcuts + com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts)
-                    .firstOrNull {
-                      it.id == defaultSearchEngineId && it.urlTemplate.startsWith("http")
-                    }
-                    ?: com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.first {
-                      it.id == "google"
-                    }
-                val url =
-                  engine.urlTemplate.replace("%s", java.net.URLEncoder.encode(query, "UTF-8"))
-                context.startActivity(
-                  if (privateWebResults) BrowserActivity.createPrivateIntent(context, url)
-                  else BrowserActivity.createIntent(context, url)
+            // Resolved once and shared by the badge, the tap and the menu, so what the button
+            // shows, what it does and what the menu ticks cannot drift apart.
+            val engines =
+              remember(searchShortcuts) {
+                (com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts + searchShortcuts)
+                  .filter { it.urlTemplate.startsWith("http") }
+                  .distinctBy { it.id }
+              }
+            val engine =
+              remember(engines, defaultSearchEngineId) {
+                engines.firstOrNull { it.id == defaultSearchEngineId }
+                  ?: engines.firstOrNull { it.id == "google" }
+                  ?: engines.first()
+              }
+            var engineMenuOpen by remember { mutableStateOf(false) }
+
+            Box {
+              // Drawn here rather than scaled down from the generator's 40dp bitmap, which at this
+              // size rounded off into a circle. Same recipe as the badges in the result list — the
+              // engine's colour, its alias on it — at a fifth of the side, which is the corner they
+              // are drawn with, so the two read as the same shape.
+              Surface(
+                color = Color(engine.color ?: 0xFF808080),
+                shape = RoundedCornerShape(percent = 20),
+                modifier =
+                  Modifier.size(24.dp)
+                    .combinedClickable(
+                      onClick = {
+                        val url =
+                          engine.urlTemplate.replace(
+                            "%s",
+                            java.net.URLEncoder.encode(query, "UTF-8"),
+                          )
+                        if (privateWebResults) {
+                          context.startActivity(BrowserActivity.createPrivateIntent(context, url))
+                        } else {
+                          openInBrowser(url)
+                        }
+                        onDismiss()
+                      },
+                      onLongClick = { engineMenuOpen = true },
+                    ),
+              ) {
+                Box(contentAlignment = Alignment.Center) {
+                  Text(
+                    text = engine.alias.uppercase(),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    maxLines = 1,
+                  )
+                }
+              }
+
+              // The same list the settings page offers, written to the same preference, so changing
+              // it here is changing it there.
+              DropdownMenu(
+                expanded = engineMenuOpen,
+                onDismissRequest = { engineMenuOpen = false },
+              ) {
+                Text(
+                  text = "Set default search engine",
+                  style = MaterialTheme.typography.labelMedium,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
-                onDismiss()
-              },
-              modifier = Modifier.size(32.dp).padding(4.dp),
-            ) {
-              Icon(
-                imageVector = Icons.Default.Public,
-                contentDescription = "Search the web",
-                tint = LocalContentColor.current,
-              )
+                engines.forEach { candidate ->
+                  DropdownMenuItem(
+                    text = { Text(candidate.shortLabel ?: candidate.description) },
+                    onClick = {
+                      engineMenuOpen = false
+                      scope.launch {
+                        context.dataStore.edit { preferences ->
+                          preferences[PreferencesKeys.DEFAULT_SEARCH_ENGINE] = candidate.id
+                        }
+                      }
+                    },
+                    leadingIcon = {
+                      Surface(
+                        color = Color(candidate.color ?: 0xFF808080),
+                        shape = RoundedCornerShape(percent = 20),
+                        modifier = Modifier.size(24.dp),
+                      ) {
+                        Box(contentAlignment = Alignment.Center) {
+                          Text(
+                            text = candidate.alias.uppercase(),
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            maxLines = 1,
+                          )
+                        }
+                      }
+                    },
+                    trailingIcon = {
+                      if (candidate.id == engine.id) {
+                        Icon(Icons.Default.Check, contentDescription = "Current default")
+                      }
+                    },
+                  )
+                }
+              }
             }
             IconButton(
               onClick = { onQueryChange("") },

@@ -28,6 +28,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.lifecycleScope
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.Prefs
+import com.searchlauncher.app.ui.browser.NavigationRequest
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -361,6 +362,16 @@ class MainActivity : ComponentActivity() {
       }
     }
 
+  private var browserUrlRequest by mutableStateOf<NavigationRequest?>(null)
+
+  /**
+   * Bumped only by an actual home intent, unlike [focusTrigger], which also moves whenever the
+   * launcher merely regains focus — closing the search overlay, waking the screen. Hosting the
+   * browser gave "go home" something to close, and hanging that off the broader signal meant a page
+   * opened from the overlay was sent home the instant the overlay handed it over.
+   */
+  private var homeTrigger by mutableStateOf(0L)
+
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
@@ -368,6 +379,14 @@ class MainActivity : ComponentActivity() {
   }
 
   private fun handleIntent(intent: Intent) {
+    // Ahead of the home reset below: this intent asks for a page, not for a clean home screen, and
+    // the two would otherwise cancel out — the browser opening and being sent straight back.
+    intent.getStringExtra(EXTRA_OPEN_URL)?.let { url ->
+      currentScreenState = Screen.Search
+      browserUrlRequest = NavigationRequest(url, System.nanoTime())
+      return
+    }
+
     // Check if we should open settings directly
     if (intent.getBooleanExtra("open_settings", false)) {
       currentScreenState = Screen.Settings
@@ -447,6 +466,7 @@ class MainActivity : ComponentActivity() {
       currentScreenState = Screen.Search
       pendingSettingsSection = null
       focusTrigger = System.currentTimeMillis()
+      homeTrigger = System.currentTimeMillis()
     }
   }
 
@@ -843,6 +863,8 @@ class MainActivity : ComponentActivity() {
               onAddWidget = { requestWidgetPick() },
               isActive = currentScreenState == Screen.Search,
               browserTabSwipeEnabled = true,
+              openUrlRequest = browserUrlRequest,
+              homeTrigger = homeTrigger,
             )
           }
           Screen.Settings -> {
@@ -925,6 +947,12 @@ class MainActivity : ComponentActivity() {
      * launcher draws rather than a beat afterwards.
      */
     const val EXTRA_FOCUS_SEARCH = "focus_search"
+
+    /**
+     * A URL for the hosted browser, sent by whichever window could not open it itself — the search
+     * overlay runs in its own translucent activity and has no browser to put a page into.
+     */
+    const val EXTRA_OPEN_URL = "open_url"
 
     private const val KEY_ACTIVE_QUERY = Prefs.ActiveSearch.QUERY
     private const val KEY_ACTIVE_QUERY_TIME = Prefs.ActiveSearch.QUERY_TIME
