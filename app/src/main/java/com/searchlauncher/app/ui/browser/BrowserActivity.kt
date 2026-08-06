@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
@@ -30,9 +31,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -69,9 +72,13 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -110,6 +117,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -129,6 +137,13 @@ open class BrowserActivity : ComponentActivity() {
     // Applied before the first composition so the browser is built around the right tab instead
     // of building a WebView for the previous one and switching a frame later.
     intent.requestedTabIndex()?.let(BrowserTabStore::activate)
+    // The theme suppresses the starting window, but this one still paints in the window
+    // background for the frames between here and Compose's first draw. Dressing it in the tab's
+    // own colour means those frames look like the page arriving early rather than a white gap in
+    // the middle of the handover.
+    BrowserTabStore.tabs?.active?.pageBackgroundArgb?.let {
+      window.setBackgroundDrawable(ColorDrawable(it))
+    }
     ContextCompat.registerReceiver(
       this,
       browserActionReceiver,
@@ -269,9 +284,6 @@ open class BrowserActivity : ComponentActivity() {
         putExtra(EXTRA_URL, url)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       }
-
-    fun createLaunchIntent(context: Context, url: String, private: Boolean): Intent =
-      if (private) createPrivateIntent(context, url) else createIntent(context, url)
   }
 
   private val browserActionReceiver =
@@ -288,10 +300,10 @@ open class BrowserActivity : ComponentActivity() {
     }
 }
 
-private data class NavigationRequest(val url: String, val sequence: Long)
+data class NavigationRequest(val url: String, val sequence: Long)
 
 /** A request to bring an already-running browser to a particular tab; -1 means the newest one. */
-private data class TabActivationRequest(val index: Int, val sequence: Long)
+internal data class TabActivationRequest(val index: Int, val sequence: Long)
 
 /** Target of a long-press on web content: a link, an image, or a link wrapping an image. */
 private data class LinkMenuTarget(val linkUrl: String?, val imageUrl: String?)
@@ -302,7 +314,7 @@ private data class BookmarkDraft(val url: String, val title: String)
 @OptIn(ExperimentalLayoutApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun BrowserScreen(
+internal fun BrowserScreen(
   navigationRequest: NavigationRequest?,
   privateMode: Boolean,
   showLauncherChrome: Boolean,
@@ -311,16 +323,43 @@ private fun BrowserScreen(
   tabActivationRequest: TabActivationRequest?,
   onOpenSearch: (Boolean, Int, String) -> Unit,
   onClose: () -> Unit,
+  /**
+   * Set when the launcher is hosting this screen itself rather than running it as its own activity.
+   * Leaving for the launcher is then a state change in the same composition instead of a task
+   * change, so there is no window handover to see and the slide direction is ours to choose.
+   */
+  onReturnToLauncher: (() -> Unit)? = null,
+  /**
+   * Given the drag that leads out of the leftmost tab, when the launcher is hosting this screen.
+   * The browser used to answer that drag by sliding its own page off the edge and drawing a
+   * stand-in launcher beside it, because the real one was in another task. Hosted, the real home
+   * screen is a sibling — it is simply held a screen to the right — so the honest thing is to hand
+   * the drag over and let one movement carry both.
+   */
+  /**
+   * True while the host is carrying this screen away. The keyboard it is raising belongs to the
+   * home screen arriving behind, not to this page, so the page stops reserving room for it — a
+   * reflow on the way out is a visible step in something that should simply be leaving.
+   */
+  leaving: Boolean = false,
+  onLauncherDrag: ((Float) -> Unit)? = null,
+  /** The finger left during such a drag, travelling at this many pixels a second. */
+  onLauncherDragEnd: ((Float) -> Unit)? = null,
 ) {
   val context = LocalContext.current
   val app = context.applicationContext as SearchLauncherApp
-  // Always read the shared favorites flow so the browser strip matches search.
-  // Keep searchRepository null in private mode so browsing never writes index/history/favicons.
-  val sharedSearchRepository = app.searchRepository
+  // Read the shared favorites flow so the browser strip matches search — but only when there is
+  // one to read. The private browser is a separate process with no repositories at all, so these
+  // are absent there rather than merely read-only, and the strip falls back to empty.
+  val sharedSearchRepository = app.searchRepositoryOrNull
+  // Null in private mode so browsing never writes index/history/favicons.
   val searchRepository = if (privateMode) null else sharedSearchRepository
-  val favoriteIds by app.favoritesRepository.favoriteIds.collectAsState()
-  val favorites by sharedSearchRepository.favorites.collectAsState()
-  val allRecentItems by sharedSearchRepository.recentItems.collectAsState()
+  val favoritesRepository = app.favoritesRepositoryOrNull
+  val noIds = remember { MutableStateFlow(emptyList<String>()) }
+  val noResults = remember { MutableStateFlow(emptyList<SearchResult>()) }
+  val favoriteIds by (favoritesRepository?.favoriteIds ?: noIds).collectAsState()
+  val favorites by (sharedSearchRepository?.favorites ?: noResults).collectAsState()
+  val allRecentItems by (sharedSearchRepository?.recentItems ?: noResults).collectAsState()
   val historyLimit by
     remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
       .collectAsState(initial = -1)
@@ -353,11 +392,9 @@ private fun BrowserScreen(
   val coroutineScope = rememberCoroutineScope()
   val resultLauncher =
     remember(context, sharedSearchRepository, coroutineScope) {
-      ResultLauncher(
-        context = context,
-        searchRepository = sharedSearchRepository,
-        scope = coroutineScope,
-      )
+      sharedSearchRepository?.let {
+        ResultLauncher(context = context, searchRepository = it, scope = coroutineScope)
+      }
     }
   val initialNavigationRequest = remember { navigationRequest }
   val defaultPageBackground = MaterialTheme.colorScheme.background
@@ -405,6 +442,9 @@ private fun BrowserScreen(
   }
   var restoringSnapshot by remember { mutableStateOf(activeTab.snapshot) }
   var tabDragOffsetPx by remember { mutableFloatStateOf(0f) }
+  // Set while a tapped card in the overview is growing into the page, so the bars can travel with
+  // it rather than after it.
+  var tabExpanding by remember { mutableStateOf(false) }
   // Set when the outgoing tab's state and snapshot were already captured at drag start, so the
   // commit path at the end of the swipe stays free of bitmap work.
   var dragTabStateSaved by remember { mutableStateOf(false) }
@@ -413,6 +453,8 @@ private fun BrowserScreen(
   // waiting on WebView construction.
   var tabsInMotion by remember { mutableStateOf(false) }
   var fingerOnTabDrag by remember { mutableStateOf(false) }
+  /** Set while a sideways drag is being answered by the host rather than by this screen. */
+  var launcherDragActive by remember { mutableStateOf(false) }
   var settleJob by remember { mutableStateOf<Job?>(null) }
   // A restored tab reloads its page, which would re-sample the background pre-CSS (usually
   // white) and make the persisted per-tab color flicker. Skip the early sample for restores;
@@ -435,14 +477,55 @@ private fun BrowserScreen(
       label = "tabsOverview",
       finishedListener = { settled -> if (settled == 0f) tabsOverviewRendered = false },
     )
-  // During tab motion the color snaps almost instantly — each tab keeps its own persisted color
-  // and the slide itself is the transition. The slow tween is for in-page color changes only.
-  val animatedPageBackground by
+  // The launcher sits one screen to the right of the newest tab: swiping past the end of the tab
+  // strip leaves the browser, and swiping back on the launcher's chrome bar returns here. Private
+  // browsing is its own task and has no such neighbour.
+  val launcherIsNextNeighbour = !privateMode && tabs.activeIndex == tabs.items.lastIndex
+  val adjacentDirection =
+    when {
+      tabDragOffsetPx < 0f -> 1
+      tabDragOffsetPx > 0f -> -1
+      else -> 0
+    }
+  val adjacentTab = if (adjacentDirection == 0) null else tabs.adjacent(adjacentDirection)
+
+  // In-page color changes ease; a swipe does not use this at all. Snapping during motion is what
+  // lets the blend below hand back to it at the end of a settle without the color stepping.
+  val settledPageBackground by
     animateColorAsState(
       pageBackground,
-      tween(durationMillis = if (tabsInMotion) 80 else 450),
+      when {
+        tabsInMotion -> snap()
+        // Borrowed wholesale from the growing card so the two are one movement. Selecting a tab
+        // used to leave the bars on the old tab's color for the whole growth and only start them
+        // once it had finished, which read as the page arriving and the frame around it catching
+        // up afterwards.
+        tabExpanding -> tween(durationMillis = TAB_EXPAND_DURATION_MS, easing = FastOutSlowInEasing)
+        else -> tween(durationMillis = 450)
+      },
       label = "pageBackground",
     )
+  // How far the neighbouring tab has come across, 0 to 1.
+  val tabSwipeProgress =
+    if (viewportWidthPx <= 0) 0f else (abs(tabDragOffsetPx) / viewportWidthPx).coerceIn(0f, 1f)
+  val neighbourBackground =
+    adjacentTab?.let { Color(it.pageBackgroundArgb) }
+      // Swiping off the end hands over to the home screen, which is on the theme background.
+      ?: defaultPageBackground.takeIf { launcherIsNextNeighbour && tabDragOffsetPx < 0f }
+  // Driven by where the swipe is rather than by a clock of its own. A duration to match the slide
+  // would only ever be approximately right — the slide is a spring, and the same gesture settles
+  // differently depending on how it was released — whereas position is exactly right for free, and
+  // tracks the finger during the drag too instead of waiting for the release.
+  //
+  // Continuous across the commit in the middle of a swipe, where the active tab becomes the
+  // neighbour and the offset is rebased a screen over: both sides of that swap describe the same
+  // blend of the same two colors, so nothing steps.
+  val animatedPageBackground =
+    if (neighbourBackground != null && tabSwipeProgress > 0f) {
+      lerp(pageBackground, neighbourBackground, tabSwipeProgress)
+    } else {
+      settledPageBackground
+    }
   val density = LocalDensity.current
   val statusBarTopPx = WindowInsets.statusBars.getTop(density)
   // The page has to clear the keyboard as well as the browser's own chrome. An edge-to-edge window
@@ -454,7 +537,8 @@ private fun BrowserScreen(
   // This follows the animation's target rather than its current value: every change relays out the
   // WebView and reflows the page, which is far too expensive to repeat on every frame of the
   // keyboard's entrance. The page resizes once and the keys slide up over it.
-  val imeInsets = WindowInsets.imeAnimationTarget
+  // Ignored on the way out: see [leaving]. The keyboard rising then is the launcher's.
+  val imeInsets = if (leaving) WindowInsets(bottom = 0) else WindowInsets.imeAnimationTarget
   val webContentInsets =
     when {
       // The find bar rides above the keyboard, so the page clears the two of them stacked.
@@ -553,7 +637,17 @@ private fun BrowserScreen(
     tabsOverviewOpen = true
   }
 
+  /**
+   * The tap itself, before the card has grown. Only the color is settled here — the selection
+   * proper waits for the growth to finish — because this is the part the user watches happen.
+   */
+  fun startTabSelection(index: Int) {
+    tabs.items.getOrNull(index)?.let { pageBackground = Color(it.pageBackgroundArgb) }
+    tabExpanding = true
+  }
+
   fun selectTabFromOverview(index: Int) {
+    tabExpanding = false
     activateTab(index)
     tabsOverviewOpen = false
   }
@@ -688,11 +782,25 @@ private fun BrowserScreen(
   // finishes simply aren't filtered; nothing blocks on it.
   LaunchedEffect(adBlockEnabled) { if (adBlockEnabled) AdBlocker.ensureLoaded(context) }
 
+  // Kept in step with the page rather than set once, because the window background is what the
+  // system paints whenever it presents this activity — and it presents it again on every return
+  // from the launcher.
+  val windowBackground = remember { ColorDrawable(pageBackground.toArgb()) }
+  LaunchedEffect(Unit) {
+    (context as ComponentActivity).window.setBackgroundDrawable(windowBackground)
+  }
+
   LaunchedEffect(animatedPageBackground) {
-    (context as BrowserActivity).let { activity ->
+    (context as ComponentActivity).let { activity ->
       val isLightBackground = animatedPageBackground.luminance() > 0.5f
       activity.window.navigationBarColor = animatedPageBackground.toArgb()
       activity.window.isNavigationBarContrastEnforced = false
+      // The onCreate attempt at this cannot work on a cold start: the tab store is adopted from
+      // inside the composition, so it is still empty that early and the window keeps the theme's
+      // light background. Compose then draws the right colour over it and everything looks fine —
+      // until the browser is swiped back to from the launcher, when the system shows the window
+      // itself for a few frames before the content composites, and that stale white is the flash.
+      windowBackground.color = animatedPageBackground.toArgb()
       WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
         isAppearanceLightStatusBars = isLightBackground
         isAppearanceLightNavigationBars = isLightBackground
@@ -701,7 +809,7 @@ private fun BrowserScreen(
   }
 
   LaunchedEffect(fullscreenVideoView != null) {
-    val window = (context as BrowserActivity).window
+    val window = (context as ComponentActivity).window
     val insetsController = WindowCompat.getInsetsController(window, window.decorView)
     if (fullscreenVideoView != null) {
       insetsController.systemBarsBehavior =
@@ -786,10 +894,6 @@ private fun BrowserScreen(
     )
   }
 
-  // The launcher sits one screen to the right of the newest tab: swiping past the end of the tab
-  // strip leaves the browser, and swiping back on the launcher's chrome bar returns here. Private
-  // browsing is its own task and has no such neighbour.
-  val launcherIsNextNeighbour = !privateMode && tabs.activeIndex == tabs.items.lastIndex
   // Read the same way the launcher reads it, straight off disk, so the stand-in below reserves
   // exactly the strip the home screen will.
   val launcherKeyboardReservePx = remember {
@@ -807,6 +911,18 @@ private fun BrowserScreen(
       .collectAsState(initial = null)
 
   fun returnToLauncher() {
+    onReturnToLauncher?.let {
+      // Parking the page off the left edge was for the activity handover: it had to stay there
+      // until this activity stopped, or a frame of the browser showed before the launcher took
+      // over. Hosted, nothing stops — the launcher slides this whole screen out itself — so the
+      // parked offset would simply remain, and the next visit would arrive to find the page still
+      // a screen to the left and nothing but the background where it should be.
+      settleJob?.cancel()
+      tabDragOffsetPx = 0f
+      tabsInMotion = false
+      it()
+      return
+    }
     context.startActivity(
       Intent(context, MainActivity::class.java)
         .putExtra(MainActivity.EXTRA_FOCUS_SEARCH, true)
@@ -815,75 +931,102 @@ private fun BrowserScreen(
   }
 
   // Tab-swipe handlers shared by the full chrome and the minimal pill.
+  val tabDragVelocity = remember { VelocityTracker() }
   val tabDragStart = {
     settleJob?.cancel()
     tabsInMotion = true
     fingerOnTabDrag = true
+    tabDragVelocity.resetTracking()
     webView?.let { saveWebViewIntoTab(it, tabs.active) }
     dragTabStateSaved = true
   }
-  val tabDrag = { delta: Float ->
+  val tabDrag = { change: PointerInputChange, delta: Float ->
+    tabDragVelocity.addPointerInputChange(change)
     val proposed = tabDragOffsetPx + delta
     val direction = if (proposed < 0f) 1 else -1
-    val hasNeighbour =
-      tabs.adjacent(direction) != null || (direction == 1 && launcherIsNextNeighbour)
-    tabDragOffsetPx += if (hasNeighbour) delta else delta * 0.16f
+    // Past the last tab there is the launcher, and when it is hosting this screen it moves itself
+    // rather than being impersonated. This screen then stays exactly where it is: the host slides
+    // it, so moving here as well would be the same journey made twice.
+    val leavingForHost =
+      onLauncherDrag != null &&
+        direction == 1 &&
+        launcherIsNextNeighbour &&
+        tabs.adjacent(1) == null &&
+        tabDragOffsetPx <= 0f
+    if (leavingForHost) {
+      launcherDragActive = true
+      onLauncherDrag.invoke(delta)
+    } else {
+      val hasNeighbour =
+        tabs.adjacent(direction) != null || (direction == 1 && launcherIsNextNeighbour)
+      tabDragOffsetPx += if (hasNeighbour) delta else delta * 0.16f
+    }
   }
   val tabDragEnd = {
     fingerOnTabDrag = false
-    val startOffset = tabDragOffsetPx
-    val direction = if (startOffset < 0f) 1 else -1
-    val farEnough = abs(startOffset) >= viewportWidthPx * 0.18f
-    val commit = tabs.adjacent(direction) != null && farEnough
-    val toLauncher = direction == 1 && launcherIsNextNeighbour && farEnough
-    if (commit) {
-      // Switch the model immediately and rebase the offset so the new active tab keeps its
-      // current on-screen position; the next swipe can start right away instead of waiting
-      // for the settle animation.
-      activateTab(tabs.activeIndex + direction)
-      tabDragOffsetPx = startOffset + direction * viewportWidthPx
-    } else {
+    if (launcherDragActive) {
+      launcherDragActive = false
+      tabsInMotion = false
       dragTabStateSaved = false
-    }
-    var launcherStarted = false
-    settleJob =
-      coroutineScope.launch {
-        animate(
-          // Leaving for the launcher carries on off the edge instead of settling back, and the
-          // offset stays there until this activity stops, so no frame of the browser shows
-          // between the swipe and the launcher taking over.
-          initialValue = tabDragOffsetPx,
-          targetValue = if (toLauncher) -viewportWidthPx.toFloat() else 0f,
-          animationSpec =
-            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
-        ) { value, _ ->
-          tabDragOffsetPx = value
-          // Started before the slide finishes rather than after it, so the launcher spends the
-          // tail of the animation waking up, focusing its field and asking for the keyboard. Doing
-          // it at the end meant the swipe landed on a bare wallpaper and everything else — bar,
-          // keyboard — arrived visibly later. Waiting until most of the travel is done keeps the
-          // jump small on the occasions the launcher is ready immediately.
-          if (
-            toLauncher &&
-              !launcherStarted &&
-              abs(value) >= viewportWidthPx * LAUNCHER_HANDOVER_FRACTION
-          ) {
-            launcherStarted = true
-            returnToLauncher()
-          }
-        }
-        tabsInMotion = false
-        if (toLauncher && !launcherStarted) returnToLauncher()
+      onLauncherDragEnd?.invoke(tabDragVelocity.calculateVelocity().x)
+      Unit
+    } else {
+      val startOffset = tabDragOffsetPx
+      val direction = if (startOffset < 0f) 1 else -1
+      val farEnough =
+        shouldCommitTabSwipe(
+          offsetPx = startOffset,
+          velocityPxPerSecond = tabDragVelocity.calculateVelocity().x,
+          viewportWidthPx = viewportWidthPx,
+          commitFraction = TAB_COMMIT_FRACTION,
+          commitDistanceCapPx = with(density) { TAB_COMMIT_MAX_DISTANCE.toPx() },
+          flingVelocityPx = with(density) { TAB_FLING_VELOCITY.toPx() },
+        )
+      val commit = tabs.adjacent(direction) != null && farEnough
+      val toLauncher = direction == 1 && launcherIsNextNeighbour && farEnough
+      if (commit) {
+        // Switch the model immediately and rebase the offset so the new active tab keeps its
+        // current on-screen position; the next swipe can start right away instead of waiting
+        // for the settle animation.
+        activateTab(tabs.activeIndex + direction)
+        tabDragOffsetPx = startOffset + direction * viewportWidthPx
+      } else {
+        dragTabStateSaved = false
       }
+      var launcherStarted = false
+      settleJob =
+        coroutineScope.launch {
+          animate(
+            // Leaving for the launcher carries on off the edge instead of settling back, and the
+            // offset stays there until this activity stops, so no frame of the browser shows
+            // between the swipe and the launcher taking over.
+            initialValue = tabDragOffsetPx,
+            targetValue = if (toLauncher) -viewportWidthPx.toFloat() else 0f,
+            animationSpec =
+              spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+          ) { value, _ ->
+            tabDragOffsetPx = value
+            // Started before the slide finishes rather than after it, so the launcher spends the
+            // tail of the animation waking up, focusing its field and asking for the keyboard.
+            // Doing
+            // it at the end meant the swipe landed on a bare wallpaper and everything else — bar,
+            // keyboard — arrived visibly later. Waiting until most of the travel is done keeps the
+            // jump small on the occasions the launcher is ready immediately.
+            if (
+              toLauncher &&
+                !launcherStarted &&
+                abs(value) >= viewportWidthPx * LAUNCHER_HANDOVER_FRACTION
+            ) {
+              launcherStarted = true
+              returnToLauncher()
+            }
+          }
+          tabsInMotion = false
+          if (toLauncher && !launcherStarted) returnToLauncher()
+        }
+    }
   }
 
-  val adjacentDirection =
-    when {
-      tabDragOffsetPx < 0f -> 1
-      tabDragOffsetPx > 0f -> -1
-      else -> 0
-    }
-  val adjacentTab = if (adjacentDirection == 0) null else tabs.adjacent(adjacentDirection)
   // The chrome bar is the same on every tab, so instead of following the post-commit rebased
   // offset (which would jump it across the screen) it wraps around: slides out one side and
   // back in from the other.
@@ -904,10 +1047,15 @@ private fun BrowserScreen(
         viewportHeightPx = it.height
       }
   ) {
-    // Standing in for the launcher itself, which lives in another task and cannot be captured:
-    // its wallpaper on its theme background is close enough that the swipe reads as the home
-    // screen sliding back in.
-    if (launcherIsNextNeighbour && tabDragOffsetPx < -0.5f) {
+    // Standing in for the launcher itself: its wallpaper on its theme background, close enough
+    // that the swipe reads as the home screen sliding back in.
+    //
+    // Still needed when the launcher hosts this screen, though it looks as if it should not be.
+    // The real home screen is a sibling of this one, but while the browser is open the host holds
+    // it a full screen to the right — so during the drag there is nothing beside the page but this
+    // screen's own background, and removing this left exactly that: a colour where the home screen
+    // should be, until the swipe finished and it appeared all at once.
+    if (onLauncherDrag == null && launcherIsNextNeighbour && tabDragOffsetPx < -0.5f) {
       Box(
         modifier =
           Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).graphicsLayer {
@@ -1054,7 +1202,7 @@ private fun BrowserScreen(
                     activeTab.favicon =
                       runCatching { pageIcon.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
                     val repository = searchRepository ?: return
-                    (context as BrowserActivity).lifecycleScope.launch {
+                    (context as ComponentActivity).lifecycleScope.launch {
                       repository.saveFavicon(pageUrl, pageIcon)
                     }
                   }
@@ -1071,15 +1219,23 @@ private fun BrowserScreen(
                     pageBackground = Color(argb)
                   }
 
-                  private fun refreshPageBackground(view: WebView, allowWhiteFallback: Boolean) {
+                  /**
+                   * [allowDrawnFallback] is for the one moment the page is known to have been
+                   * painted: only then is there anything to read a colour back off.
+                   */
+                  private fun refreshPageBackground(view: WebView, allowDrawnFallback: Boolean) {
                     view.evaluateJavascript(PAGE_BACKGROUND_SCRIPT) { result ->
                       val parsed = parseCssColor(result)
                       if (parsed != null) {
                         applyPageBackground(view, parsed)
-                      } else if (allowWhiteFallback && view.url != "about:blank") {
-                        // A fully loaded page with a transparent background is unstyled and
-                        // assumes a white canvas (default black text).
-                        applyPageBackground(view, 0xFFFFFFFF.toInt())
+                      } else if (allowDrawnFallback && view.url != "about:blank") {
+                        // The page sets no background of its own, so it is sitting on whichever
+                        // canvas Chromium chose for it — and script cannot tell us which, since a
+                        // white canvas and a `color-scheme: dark` one both compute to transparent.
+                        // Reading it off the painted page is the only way to get this right; the
+                        // old guess of white washed the bars around every such dark page white.
+                        // Null means no colour dominates the page, and the current one stands.
+                        sampleDrawnBackgroundColor(view)?.let { applyPageBackground(view, it) }
                       }
                     }
                   }
@@ -1108,18 +1264,49 @@ private fun BrowserScreen(
                   }
 
                   override fun onPageCommitVisible(view: WebView, url: String) {
-                    if (suppressCommitVisibleColor) {
+                    val restoring = suppressCommitVisibleColor
+                    if (restoring) {
                       suppressCommitVisibleColor = false
                     } else {
-                      refreshPageBackground(view, allowWhiteFallback = false)
+                      refreshPageBackground(view, allowDrawnFallback = false)
                     }
                     // Apply as soon as the document is usable so responsive CSS doesn't briefly
                     // lay out at the phone width before onPageFinished.
                     view.applyDesktopViewport(activeTab.desktopMode)
+                    val needsSnapshot = activeTab.snapshot == null
+                    coroutineScope.launch {
+                      // The commit means the paint is ready, not that it has landed: read or
+                      // capture on the callback itself and you get the frame before the page.
+                      withFrameNanos {}
+                      withFrameNanos {}
+                      if (webView !== view) return@launch
+                      // First paint is the earliest the page can be read off the screen, and a
+                      // page with no background of its own has nothing else to offer. Waiting for
+                      // onPageFinished instead left it sitting on the previous colour for the
+                      // whole of the load — the bars around a dark page staying light until it
+                      // completed. A restore keeps its persisted colour and re-reads at the end.
+                      if (!restoring) refreshPageBackground(view, allowDrawnFallback = true)
+                      // Unconditionally, because this is simply the truth as of this frame: the
+                      // page has been painted. onPageStarted clears it on every navigation and
+                      // only a completed load used to restore it, so a tab whose page renders but
+                      // never finishes — an SPA holding a connection open, a stalled third-party
+                      // script — sat at false indefinitely, and captureTabSnapshot refuses every
+                      // capture while it is. That is what left previews showing the page before
+                      // last: even the one taken on the way out at ON_PAUSE was dropped.
+                      activeTab.pageDrawn = true
+                      // A tab with no preview at all has nothing to cover its WebView when the
+                      // user comes back to it, so it reloads in full view — the white flash. First
+                      // paint fills that gap; the fully-loaded capture in onPageFinished still
+                      // replaces it with a better one.
+                      if (needsSnapshot) captureTabSnapshot(view, activeTab)
+                    }
                   }
 
                   override fun onPageFinished(view: WebView, url: String) {
-                    refreshPageBackground(view, allowWhiteFallback = true)
+                    // Styled pages settle their colour here, off CSS alone. Pages with no
+                    // background of their own need a painted frame to read one off, so they wait
+                    // for the visual state callback below rather than being guessed at now.
+                    refreshPageBackground(view, allowDrawnFallback = false)
                     activeTab.url = url
                     activeTab.title = view.title
                     // Sites (and late-injected tags) can rewrite the viewport during load;
@@ -1150,6 +1337,9 @@ private fun BrowserScreen(
                             // Bail out if the tab was switched away, or this WebView released, in
                             // the meantime: neither the cover nor the preview is ours any more.
                             if (webView !== view) return@launch
+                            // The page is on screen now, so a page that gave CSS nothing to go on
+                            // can finally have its colour read off the pixels it actually drew.
+                            refreshPageBackground(view, allowDrawnFallback = true)
                             captureTabSnapshot(view, activeTab)
                             restoringSnapshot = null
                           }
@@ -1160,7 +1350,7 @@ private fun BrowserScreen(
                       searchRepository != null &&
                         (url.startsWith("https://") || url.startsWith("http://"))
                     ) {
-                      (context as BrowserActivity).lifecycleScope.launch {
+                      (context as ComponentActivity).lifecycleScope.launch {
                         searchRepository.indexWebUrl(url, view.title)
                       }
                     }
@@ -1258,6 +1448,7 @@ private fun BrowserScreen(
             bottom = (viewportHeightPx - webContentInsets.getBottom(density)).toFloat(),
           ),
         onDismiss = { tabsOverviewOpen = false },
+        onSelectStart = ::startTabSelection,
         onSelect = ::selectTabFromOverview,
         onCloseTab = ::closeTabFromOverview,
         onCloseAll = ::closeAllTabs,
@@ -1293,17 +1484,17 @@ private fun BrowserScreen(
             if (result is SearchResult.SearchIntent) {
               onOpenSearch(false, pageBackground.toArgb(), result.trigger + " ")
             } else {
-              resultLauncher.launch(result, reportUsage = !privateMode)
+              resultLauncher?.launch(result, reportUsage = !privateMode)
             }
           },
           onToggleFavorite = { result ->
             if (!privateMode) {
-              app.favoritesRepository.toggleFavorite(result)
+              favoritesRepository?.toggleFavorite(result)
             }
           },
           onReorder = { ids ->
             if (!privateMode) {
-              app.favoritesRepository.updateOrder(ids)
+              favoritesRepository?.updateOrder(ids)
             }
           },
           onHistoryCapacityChanged = { limit ->
@@ -1508,7 +1699,7 @@ private fun BrowserLauncherChrome(
   barContentColor: Color,
   onOpenSearch: () -> Unit,
   onTabDragStart: () -> Unit,
-  onTabDrag: (Float) -> Unit,
+  onTabDrag: (PointerInputChange, Float) -> Unit,
   onTabDragEnd: () -> Unit,
   onLaunchFavorite: (SearchResult) -> Unit,
   onToggleFavorite: (SearchResult) -> Unit,
@@ -1573,7 +1764,7 @@ private fun BrowserLauncherChrome(
                 if (horizontalGesture == true && !tabsOverviewOpen) onTabDragStart()
               }
               if (horizontalGesture == true && !tabsOverviewOpen) {
-                onTabDrag(dragAmount.x)
+                onTabDrag(change, dragAmount.x)
               } else {
                 if (dragAmount.y > 0f) downwardDrag += dragAmount.y else upwardDrag -= dragAmount.y
               }
@@ -1644,7 +1835,7 @@ private fun RevealBrowserChromeHandle(
   onReveal: () -> Unit,
   onSearch: () -> Unit,
   onTabDragStart: () -> Unit,
-  onTabDrag: (Float) -> Unit,
+  onTabDrag: (PointerInputChange, Float) -> Unit,
   onTabDragEnd: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
@@ -1687,7 +1878,7 @@ private fun RevealBrowserChromeHandle(
                   if (horizontalGesture == true) onTabDragStart()
                 }
                 if (horizontalGesture == true) {
-                  onTabDrag(dragAmount.x)
+                  onTabDrag(change, dragAmount.x)
                 } else if (dragAmount.y < 0f) {
                   upwardDrag -= dragAmount.y
                 }
@@ -1841,17 +2032,49 @@ private fun WebView.setDesktopMode(enabled: Boolean, phoneUserAgent: String?) {
 /** Chromium's default desktop layout width when Request Desktop Site ignores viewport meta. */
 internal const val DESKTOP_VIEWPORT_WIDTH = 980
 
-internal fun desktopViewportMetaContent(width: Int = DESKTOP_VIEWPORT_WIDTH): String =
-  "width=$width"
+/** Below this the page would be clamped back up by the default floor and overflow again. */
+private const val DEFAULT_MINIMUM_SCALE = 0.25f
+
+/**
+ * The zoom that fits a [width]-CSS-px desktop layout into a viewport [viewportWidthPx] device px
+ * across at [density]. Never above 1: a screen already wide enough shows the page at its own size
+ * rather than magnifying it.
+ */
+internal fun desktopViewportScale(
+  viewportWidthPx: Int,
+  density: Float,
+  width: Int = DESKTOP_VIEWPORT_WIDTH,
+): Float {
+  if (viewportWidthPx <= 0 || density <= 0f || width <= 0) return 1f
+  return ((viewportWidthPx / density) / width).coerceAtMost(1f)
+}
+
+/**
+ * Carries a scale as well as a width, because the two settings that would otherwise supply it —
+ * `useWideViewPort` and `loadWithOverviewMode` — only zoom to fit at page load, and this tag is
+ * rewritten afterwards. Without it the page lays out 980 px wide and stays at 1:1, leaving the user
+ * on the top-left corner of a page they asked to see the whole of.
+ */
+internal fun desktopViewportMetaContent(
+  width: Int = DESKTOP_VIEWPORT_WIDTH,
+  scale: Float = 1f,
+): String {
+  val fit = (scale * 1000).roundToInt() / 1000f
+  // Lowered only when the fit is under the default floor, so wide screens keep the usual room to
+  // pinch out. Pinching in is unaffected either way.
+  val minimum = minOf(fit, DEFAULT_MINIMUM_SCALE)
+  return "width=$width, initial-scale=$fit, minimum-scale=$minimum"
+}
 
 /**
  * Force a desktop CSS viewport on small devices. UA spoofing alone is not enough: responsive sites
  * with `width=device-width` still match phone media queries. WebView has no API to ignore viewport
- * meta like Chrome RDS, so we rewrite (or create) the tag to a fixed desktop width.
+ * meta like Chrome RDS, so we rewrite (or create) the tag to a fixed desktop width, zoomed to fit.
  */
 private fun WebView.applyDesktopViewport(enabled: Boolean) {
   if (!enabled) return
-  evaluateJavascript(DESKTOP_VIEWPORT_SCRIPT, null)
+  val scale = desktopViewportScale(width, resources.displayMetrics.density)
+  evaluateJavascript(desktopViewportScript(desktopViewportMetaContent(scale = scale)), null)
 }
 
 internal fun desktopUserAgent(phoneUserAgent: String): String =
@@ -1909,6 +2132,26 @@ internal const val TAB_CARD_WIDTH_FRACTION = 0.42f
 /** Room the strip's own header, title and address lines take beside a preview. */
 internal val TAB_STRIP_LABEL_HEIGHT = 100.dp
 
+/**
+ * How far a slow drag carries a tab before it switches on release, as a share of the viewport.
+ * Proportional so the gesture stays in step with the travel the user can see.
+ */
+internal const val TAB_COMMIT_FRACTION = 0.18f
+
+/**
+ * The ceiling on that distance, and deliberately what [TAB_COMMIT_FRACTION] already works out to on
+ * a phone — a 400 dp-wide screen gives 72 dp. So phones keep the gesture they have, and anything
+ * wider stops the threshold growing with the glass instead of asking for a reach across a tablet.
+ */
+internal val TAB_COMMIT_MAX_DISTANCE = 72.dp
+
+/**
+ * Fling speed, in dp per second, past which a swipe switches tabs however short it was. Matches the
+ * minimum fling ViewPager and the photo viewers built on it use, so a flick here costs what a flick
+ * costs everywhere else on the device.
+ */
+internal val TAB_FLING_VELOCITY = 400.dp
+
 private const val PAGE_BACKGROUND_SCRIPT =
   """
   (() => {
@@ -1919,10 +2162,10 @@ private const val PAGE_BACKGROUND_SCRIPT =
   })()
   """
 
-private val DESKTOP_VIEWPORT_SCRIPT =
+private fun desktopViewportScript(metaContent: String) =
   """
   (() => {
-    const content = '${desktopViewportMetaContent()}';
+    const content = '$metaContent';
     if (!document.documentElement) return;
     let meta = document.querySelector('meta[name="viewport"]');
     if (!meta) {

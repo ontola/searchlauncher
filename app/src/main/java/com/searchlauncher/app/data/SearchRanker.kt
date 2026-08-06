@@ -179,8 +179,10 @@ object SearchRanker {
   private fun usageBoost(globalUsage: Int, queryUsagePoints: Int): Int =
     (globalUsage.coerceAtMost(RankingScores.GLOBAL_USAGE_SCORE_CAP) *
       RankingScores.GLOBAL_USAGE_SCORE_BOOST) +
+      // Scaled rather than clamped, so partially-learned associations keep their gradient instead
+      // of every entry above a threshold arriving at the same score.
       (queryUsagePoints.coerceAtMost(RankingScores.QUERY_USAGE_POINTS_CAP) *
-        RankingScores.QUERY_USAGE_POINT_SCORE_BOOST)
+        RankingScores.QUERY_USAGE_SCORE_MAX / RankingScores.QUERY_USAGE_POINTS_CAP)
 
   private fun getGlobalUsageCount(
     usageStats: Map<String, Int>,

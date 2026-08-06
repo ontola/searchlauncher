@@ -62,6 +62,41 @@ For best testing experience:
 2. Enable Developer Options and USB Debugging
 3. Test launcher, widget, search, and settings flows
 
+#### Wireless debugging
+Android's built-in "Wireless debugging" pairing is unreliable on some vendor
+ROMs (notably Xiaomi HyperOS), which tear down the listener when the screen
+sleeps. Use `scripts/adb-wifi.sh` instead: bootstrap once over USB (or over a
+live wireless-debugging session) and it switches adbd to a fixed `tcp:5555`
+listener that needs no mDNS or pairing state.
+
+```bash
+scripts/adb-wifi.sh          # connect / reconnect
+scripts/adb-wifi.sh watch    # auto-reconnect in the background
+```
+
+The fixed-port listener survives Wi-Fi drops and screen-off, but is lost on
+reboot — re-bootstrap over USB after restarting the phone.
+
+### Solved: white frame swiping launcher → browser
+
+Swiping from the home screen back into the browser used to show one near-white
+frame (~80 ms) before the page appeared. It tracked the system light/dark theme
+rather than the page colour, which sent the investigation after the window
+background, memory pressure and the wallpaper's own drawing in turn — all
+measured and all wrong.
+
+The cause was that the WebView was destroyed and rebuilt on **every** swipe.
+Building it is one ~81 ms frame (`Recomposer:recompose` 47 ms, with
+`WebViewChromium.init` inside `Compose:applyChanges`), and during that frame the
+home content is not redrawn, so the window shows through in whatever colour the
+theme paints it. The browser is now kept composed while a tab exists, so it is
+built once while nothing is moving. Janky frames over a swipe went from 9.2% to
+1.5%, 90th percentile 46 ms to 24 ms.
+
+Worth remembering if something similar appears: a flash whose colour follows the
+theme is the window showing through, which means *nothing drew*, not that
+something was painted over the top.
+
 ## Code Style
 
 - Follow [Kotlin Coding Conventions](https://kotlinlang.org/docs/coding-conventions.html)

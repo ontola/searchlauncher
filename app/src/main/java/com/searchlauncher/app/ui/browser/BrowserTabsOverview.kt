@@ -58,6 +58,8 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -104,6 +106,13 @@ internal fun BrowserTabsOverviewLayer(
   /** Where a tapped card grows to: the area the page it opens will occupy, in root coordinates. */
   expandTarget: Rect,
   onDismiss: () -> Unit,
+  /**
+   * Fired the instant a card is tapped, before the growth starts. [onSelect] is the end of that
+   * animation, which is too late for anything the user should see respond to their tap — the
+   * launcher retracts its keyboard here so the two movements run together, and the browser starts
+   * the bars on their way to the colour of the tab being opened.
+   */
+  onSelectStart: (Int) -> Unit = {},
   onSelect: (Int) -> Unit,
   onCloseTab: (Int) -> Unit,
   onCloseAll: () -> Unit,
@@ -121,9 +130,13 @@ internal fun BrowserTabsOverviewLayer(
     Box(
       modifier =
         Modifier.fillMaxSize()
-          // Faded out by the growth as well as by the overview's own progress, so the scrim is
-          // gone by the time the card fills the screen rather than lingering over the page.
-          .graphicsLayer { alpha = progress() * (1f - expandProgress.value) }
+          // Only the overview's own progress. It used to fade with the card's growth as well, on
+          // the grounds that the scrim should be gone by the time the card fills the screen — but
+          // what that actually looks like is the backdrop dissolving underneath a card that is
+          // still travelling, which reads as two things happening rather than one. The strip is
+          // being replaced by the page it grew from; the backdrop it sat on should hold still and
+          // then go with it.
+          .graphicsLayer { alpha = progress() }
           .background(scrimColor)
           // Also swallows touches meant for whatever is underneath, which is still live.
           .clickable(
@@ -144,11 +157,12 @@ internal fun BrowserTabsOverviewLayer(
           val tab = tabs.getOrNull(index)
           if (expanding == null && tab != null) {
             expanding = ExpandingCard(tab.snapshot, tab.pageBackgroundArgb, bounds)
+            onSelectStart(index)
             scope.launch {
               expandProgress.snapTo(0f)
               expandProgress.animateTo(
                 1f,
-                tween(durationMillis = 260, easing = FastOutSlowInEasing),
+                tween(durationMillis = TAB_EXPAND_DURATION_MS, easing = FastOutSlowInEasing),
               )
               // Deliberately left in place: whatever the selection starts — a WebView here, a
               // browser window on the launcher — needs a moment to draw, and the overlay is
@@ -173,6 +187,13 @@ internal fun BrowserTabsOverviewLayer(
     }
   }
 }
+
+/**
+ * How long a tapped card takes to grow into the page. Shared, because anything else that should
+ * look like part of the same movement — the bars changing to the opening tab's colour — has to run
+ * for exactly as long, and a second copy of the number would eventually stop matching.
+ */
+internal const val TAB_EXPAND_DURATION_MS = 260
 
 /** A card caught mid-flight between its place in the strip and the page it is becoming. */
 private data class ExpandingCard(val snapshot: Bitmap?, val backgroundArgb: Int, val start: Rect)
@@ -330,6 +351,9 @@ private fun TabCard(
   // button reads as a shortcut for the gesture rather than as a separate mechanism.
   val dismissOffsetPx = remember { Animatable(0f) }
   var cardHeightPx by remember { mutableIntStateOf(1) }
+  val dismissVelocity = remember { VelocityTracker() }
+  // The same speed that commits a tab swipe, so a flick means the same thing everywhere.
+  val flingVelocityPx = with(LocalDensity.current) { TAB_FLING_VELOCITY.toPx() }
   var dismissing by remember { mutableStateOf(false) }
 
   fun dismiss() {
@@ -353,8 +377,22 @@ private fun TabCard(
         }
         .pointerInput(tab.id) {
           detectVerticalDragGestures(
+            onDragStart = { dismissVelocity.resetTracking() },
             onDragEnd = {
-              if (-dismissOffsetPx.value >= cardHeightPx * DISMISS_FRACTION) dismiss()
+              // Distance or speed, by the same rule the tab swipe uses: a card thrown upwards is
+              // closed however far it got, and only a slow drag has to cover the ground. Asking for
+              // a quarter of the card's height whatever the speed made flicking one away feel like
+              // it had been ignored.
+              val closing =
+                shouldCommitTabSwipe(
+                  offsetPx = dismissOffsetPx.value,
+                  velocityPxPerSecond = dismissVelocity.calculateVelocity().y,
+                  viewportWidthPx = cardHeightPx,
+                  commitFraction = DISMISS_FRACTION,
+                  commitDistanceCapPx = cardHeightPx * DISMISS_FRACTION,
+                  flingVelocityPx = flingVelocityPx,
+                )
+              if (closing) dismiss()
               else
                 scope.launch { dismissOffsetPx.animateTo(0f, spring(Spring.DampingRatioNoBouncy)) }
             },
@@ -363,6 +401,7 @@ private fun TabCard(
             },
             onVerticalDrag = { change, dragAmount ->
               if (!dismissing) {
+                dismissVelocity.addPointerInputChange(change)
                 // Upward only: dragging down would fight the strip's own resting position.
                 scope.launch {
                   dismissOffsetPx.snapTo((dismissOffsetPx.value + dragAmount).coerceAtMost(0f))

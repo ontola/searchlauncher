@@ -25,6 +25,14 @@ class ResultLauncher(
   private val onBindWidgetIntent: ((Intent) -> Boolean)? = null,
   private val onAddWidgetSearch: (() -> Unit)? = null,
   private val onboardingManager: OnboardingManager? = null,
+  /**
+   * Set when the launcher is hosting the browser itself. Opening a page is then a move within one
+   * window, which it can animate in the direction the browser actually lies — to the left of home —
+   * rather than an activity start the system slides in from the right like any other app.
+   */
+  private val onOpenInBrowser: ((String) -> Unit)? = null,
+  /** As [onOpenInBrowser], for a tab that already exists. */
+  private val onOpenBrowserTab: ((Int) -> Unit)? = null,
 ) {
   fun launch(
     result: SearchResult,
@@ -63,6 +71,17 @@ class ResultLauncher(
    */
   private fun launchBrowserTab(result: SearchResult.BrowserTab) {
     val index = BrowserTabStore.indexOfTab(result.tabId)
+    if (index >= 0) {
+      onOpenBrowserTab?.let {
+        it(index)
+        return
+      }
+    } else {
+      onOpenInBrowser?.let {
+        it(result.url)
+        return
+      }
+    }
     context.startActivity(
       if (index >= 0) BrowserActivity.createResumeIntent(context, index)
       else BrowserActivity.createIntent(context, result.url)
@@ -165,7 +184,8 @@ class ResultLauncher(
               uri != null &&
               (uri.scheme == "http" || uri.scheme == "https")
           ) {
-            context.startActivity(BrowserActivity.createIntent(context, uri.toString()))
+            onOpenInBrowser?.invoke(uri.toString())
+              ?: context.startActivity(BrowserActivity.createIntent(context, uri.toString()))
           } else {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)

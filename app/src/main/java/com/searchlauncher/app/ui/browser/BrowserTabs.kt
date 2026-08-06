@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.abs
 
 internal class BrowserTab(initialUrl: String) {
   val id: Long = System.nanoTime()
@@ -146,14 +147,24 @@ internal object BrowserTabStore {
   }
 
   /**
-   * Drops every preview except the visible tab's under memory pressure. Snapshots are only a
-   * rendering nicety, and each is a few megabytes; they are dropped rather than recycled because a
-   * composition may still be drawing one.
+   * Shrinks every preview except the visible tab's under memory pressure, giving back ~97% of what
+   * they hold while leaving something to draw.
+   *
+   * These used to be dropped outright, which cost more than memory: a tab with no preview has
+   * nothing to cover its WebView while it reloads, so coming back to one meant watching it repaint
+   * from blank. A thumbnail is a poor picture of a page but a perfectly good screenful of its
+   * colours, which is all the cover has to be for the couple of hundred milliseconds it is up.
+   *
+   * The old bitmap is dropped rather than recycled because a composition may still be drawing it.
    */
   fun trimSnapshots() {
     val current = tabs ?: return
     current.items.forEachIndexed { index, tab ->
-      if (index != current.activeIndex) tab.snapshot = null
+      if (index == current.activeIndex) return@forEachIndexed
+      val snapshot = tab.snapshot ?: return@forEachIndexed
+      // Already trimmed: re-scaling every time the system asks would grind them to nothing.
+      if (snapshot.width <= TRIMMED_SNAPSHOT_WIDTH_PX) return@forEachIndexed
+      tab.snapshot = snapshot.scaledToWidth(TRIMMED_SNAPSHOT_WIDTH_PX) ?: snapshot
     }
   }
 }
@@ -184,7 +195,11 @@ internal fun captureTabSnapshot(webView: WebView, tab: BrowserTab) {
   // than that; a tab with nothing yet takes it, since a partial preview still beats a bare icon.
   if (tab.snapshot != null && webView.isKeyboardVisible()) return
   val snapshot = captureWebViewSnapshot(webView) ?: return
-  if (tab.snapshot != null && snapshot.isOneFlatColor()) return
+  // Refused outright, even for a tab holding nothing: a near-empty capture is the frame between a
+  // page's first paint and its content, and storing one is worse than storing none. It becomes the
+  // card in the overview and the cover behind a tab switch, so the user taps a white rectangle and
+  // then watches it stay white — the flash the cover exists to prevent, served from cache.
+  if (snapshot.isMostlyBlank()) return
   tab.snapshot = snapshot
 }
 
@@ -192,22 +207,121 @@ internal fun captureTabSnapshot(webView: WebView, tab: BrowserTab) {
 private fun WebView.isKeyboardVisible(): Boolean =
   ViewCompat.getRootWindowInsets(this)?.isVisible(WindowInsetsCompat.Type.ime()) == true
 
-/** Samples a coarse grid rather than every pixel; a real page differs somewhere within 8 steps. */
-private fun Bitmap.isOneFlatColor(): Boolean {
-  val corner = getPixel(0, 0)
-  val stepX = (width / 8).coerceAtLeast(1)
-  val stepY = (height / 8).coerceAtLeast(1)
+/**
+ * Whether almost every sampled pixel matches the background, which is what a page that has not
+ * finished rendering looks like.
+ *
+ * Deliberately a proportion rather than "is it all one colour": a half-rendered page is rarely
+ * uniform — a Google results page paints its logo and header long before any results — and a single
+ * differing pixel used to be enough to pass a blank capture as a real one. Sampled finely enough
+ * that a loaded page of text lands well under the threshold, which a coarse grid would not.
+ */
+private fun Bitmap.isMostlyBlank(): Boolean {
+  val stepX = (width / BLANK_SAMPLE_STEPS).coerceAtLeast(1)
+  val stepY = (height / BLANK_SAMPLE_STEPS).coerceAtLeast(1)
+  val background = getPixel(0, 0)
+  var sampled = 0
+  var matching = 0
   var x = 0
   while (x < width) {
     var y = 0
     while (y < height) {
-      if (getPixel(x, y) != corner) return false
+      sampled++
+      if (getPixel(x, y).matchesWithinTolerance(background)) matching++
       y += stepY
     }
     x += stepX
   }
-  return true
+  return sampled == 0 || matching >= sampled * BLANK_UNIFORM_FRACTION
 }
+
+/**
+ * Compared with a little slack rather than exactly, so that the faint gradients and off-white
+ * panels a blank page is often made of still read as background — and so that RGB_565's coarser
+ * colour steps do not turn one flat area into several.
+ */
+private fun Int.matchesWithinTolerance(other: Int): Boolean =
+  abs((this shr 16 and 0xFF) - (other shr 16 and 0xFF)) <= COLOR_TOLERANCE &&
+    abs((this shr 8 and 0xFF) - (other shr 8 and 0xFF)) <= COLOR_TOLERANCE &&
+    abs((this and 0xFF) - (other and 0xFF)) <= COLOR_TOLERANCE
+
+private const val BLANK_SAMPLE_STEPS = 32
+private const val COLOR_TOLERANCE = 12
+
+/**
+ * How uniform a capture has to be before it counts as blank.
+ *
+ * Near 1 because blank means one flat colour, and real pages get closer to that than they look:
+ * measured over this grid, a dense page of text scores 0.89, a dark article 0.95, and a heading
+ * with a line under it 0.98 — while an unpainted capture is uniform by construction. At the 0.95
+ * this used to sit at, the cut ran straight through the middle of that range and threw away
+ * captures of perfectly good sparse pages. Since the tab keeps its previous preview when one is
+ * refused, the cost was a preview stuck several navigations behind, which is far worse than briefly
+ * showing a page that was still filling in — that gets replaced by the next capture, whereas
+ * staleness does not clear itself. [BrowserTab.pageDrawn] is the real guard against unpainted
+ * captures now that it is set at first paint, leaving this as a backstop for hardware-rendered
+ * content drawing flat.
+ */
+private const val BLANK_UNIFORM_FRACTION = 0.995f
+
+/**
+ * The colour [webView] is actually painted on, read back off a real draw of it.
+ *
+ * Needed because CSS cannot be asked. A page that sets no background of its own is painted on a
+ * canvas Chromium picks: white normally, but dark for anything opting into `color-scheme: dark` —
+ * and `getComputedStyle` reports `rgba(0, 0, 0, 0)` for both, so the two are indistinguishable from
+ * script. Assuming white there washed the bars around a dark page white a moment after it rendered.
+ *
+ * The answer is the most common colour in the draw rather than a corner pixel, which lands on a
+ * header as often as on the page. Scaling down first is what makes that work: it averages text into
+ * its background, leaving flat areas as the only exactly-repeated colour. A page with no colour
+ * that common — a full-bleed photo, a map — returns null so the caller can keep what it has, which
+ * is a better answer than the average of a picture.
+ */
+internal fun sampleDrawnBackgroundColor(webView: WebView): Int? {
+  if (webView.width <= 0 || webView.height <= 0) return null
+  val scale = (BACKGROUND_SAMPLE_WIDTH_PX.toFloat() / webView.width).coerceAtMost(1f)
+  val width = (webView.width * scale).toInt().coerceAtLeast(1)
+  val height = (webView.height * scale).toInt().coerceAtLeast(1)
+  // ARGB_8888 rather than the snapshots' RGB_565: this colour goes on to fill the bars beside the
+  // page, where 565's coarser steps show up as a visible seam against the page's own background.
+  val bitmap =
+    runCatching {
+        Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+          Canvas(bitmap).apply {
+            scale(scale, scale)
+            webView.draw(this)
+          }
+        }
+      }
+      .getOrNull() ?: return null
+
+  val counts = HashMap<Int, Int>()
+  var dominant = 0
+  var dominantCount = 0
+  for (y in 0 until height) {
+    for (x in 0 until width) {
+      val pixel = bitmap.getPixel(x, y) or (0xFF shl 24)
+      val count = (counts[pixel] ?: 0) + 1
+      counts[pixel] = count
+      if (count > dominantCount) {
+        dominantCount = count
+        dominant = pixel
+      }
+    }
+  }
+  bitmap.recycle()
+  return dominant.takeIf { dominantCount >= width * height * BACKGROUND_DOMINANT_FRACTION }
+}
+
+/** Coarse enough that text dissolves into the page, fine enough to still see a header apart. */
+private const val BACKGROUND_SAMPLE_WIDTH_PX = 64
+
+/**
+ * How much of the page one colour has to cover to count as its background. Low, because the parts
+ * of a page that are *not* background — text, images, cards — routinely add up to most of it.
+ */
+private const val BACKGROUND_DOMINANT_FRACTION = 0.25f
 
 private fun captureWebViewSnapshot(webView: WebView): Bitmap? {
   if (webView.width <= 0 || webView.height <= 0) return null
@@ -232,3 +346,16 @@ private fun captureWebViewSnapshot(webView: WebView): Bitmap? {
 // swipe's incoming page, but only while it is moving; the overview draws its cards well under half
 // width anyway.
 private const val SNAPSHOT_WIDTH_PX = 540
+
+/**
+ * What a preview is reduced to under memory pressure: about 30 KB rather than 1.3 MB, which is
+ * blurry in the overview but still the right shape and colours behind a reloading page.
+ */
+private const val TRIMMED_SNAPSHOT_WIDTH_PX = 96
+
+/** Null rather than throwing if the allocation fails — the caller keeps what it already had. */
+private fun Bitmap.scaledToWidth(targetWidth: Int): Bitmap? {
+  val targetHeight = (height.toFloat() * targetWidth / width).toInt().coerceAtLeast(1)
+  return runCatching { Bitmap.createScaledBitmap(this, targetWidth, targetHeight, true) }
+    .getOrNull()
+}

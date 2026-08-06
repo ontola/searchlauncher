@@ -1,4 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.SearchLauncher" parent="Theme.Material3.DayNight.NoActionBar" />
+
+    <!--
+      The browser opens into its own task, so the system draws a starting window for it before any
+      of the app's own code runs. That window is painted in the theme's background colour — white
+      on a light theme — over the top of the launcher, which is deliberately still holding the
+      tab's preview on screen until the browser draws. That flash is the whole reason this theme
+      exists: with no starting window the preview stays visible until there is real content to
+      replace it, which is what the handover was designed to look like.
+
+      Note that this only ever mattered for the standalone browser: the launcher hosts the browser
+      in its own composition now, so the swipe between them changes no window at all.
+    -->
+    <style name="Theme.SearchLauncher.Browser" parent="Theme.SearchLauncher">
+        <item name="android:windowDisablePreview">true</item>
+    </style>
 </resources>
