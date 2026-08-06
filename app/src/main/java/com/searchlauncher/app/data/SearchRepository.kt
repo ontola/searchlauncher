@@ -403,16 +403,33 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           val prefs = context.getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
           val lastReindex = prefs.getLong(Prefs.Launcher.LAST_REINDEX_TIMESTAMP, 0L)
           val currentTime = System.currentTimeMillis()
+
+          val currentVersionCode =
+            try {
+              context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
+            } catch (e: Exception) {
+              0L
+            }
+          val lastIndexedVersion = prefs.getLong(Prefs.Launcher.LAST_INDEXED_VERSION_CODE, 0L)
+          val versionChanged = currentVersionCode != lastIndexedVersion
+
           // Re-index only if empty or older than 4 hours
           val isStale = (currentTime - lastReindex) > (12 * 60 * 60 * 1000)
           val hasDocs = documentSnapshot.isNotEmpty()
 
-          if (hasDocs && !isStale) {
+          if (hasDocs && !isStale && !versionChanged) {
             android.util.Log.d(
               "SearchRepository",
               "Index is fresh (last: $lastReindex), skipping re-index",
             )
             return@launch
+          }
+
+          if (versionChanged) {
+            android.util.Log.d(
+              "SearchRepository",
+              "App version changed (old: $lastIndexedVersion, new: $currentVersionCode), forcing re-index",
+            )
           }
 
           // Rebuild in the background while the live snapshot stays searchable.
@@ -468,9 +485,16 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               "Background Re-indexing took ${System.currentTimeMillis() - backgroundStart}ms",
             )
             saveFastIndexCache()
+            val currentVersionCode =
+              try {
+                context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
+              } catch (e: Exception) {
+                0L
+              }
             prefs
               .edit()
               .putLong(Prefs.Launcher.LAST_REINDEX_TIMESTAMP, System.currentTimeMillis())
+              .putLong(Prefs.Launcher.LAST_INDEXED_VERSION_CODE, currentVersionCode)
               .apply()
             _indexUpdated.emit(Unit)
           } finally {
@@ -790,9 +814,16 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           indexSnippets()
         }
 
+        val currentVersionCode =
+          try {
+            context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
+          } catch (e: Exception) {
+            0L
+          }
         prefs
           .edit()
           .putLong(Prefs.Launcher.LAST_REINDEX_TIMESTAMP, System.currentTimeMillis())
+          .putLong(Prefs.Launcher.LAST_INDEXED_VERSION_CODE, currentVersionCode)
           .apply()
         saveFastIndexCache()
         _indexUpdated.emit(Unit)
