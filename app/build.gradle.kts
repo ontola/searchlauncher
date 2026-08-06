@@ -7,24 +7,24 @@ plugins {
   id("com.diffplug.spotless") version "6.25.0"
 }
 
+// Falls back to an empty string rather than failing configuration, so building outside a git
+// checkout — from a source tarball, say — still works.
 fun runGit(vararg args: String): String =
-  providers
-    .exec {
-      commandLine("git", *args)
-      workingDir = projectDir
+  runCatching {
+      providers
+        .exec {
+          commandLine("git", *args)
+          workingDir = projectDir
+        }
+        .standardOutput
+        .asText
+        .get()
+        .trim()
     }
-    .standardOutput
-    .asText
-    .get()
-    .trim()
+    .getOrDefault("")
 
-val gitCommitCount = runGit("rev-list", "--count", "HEAD").toIntOrNull() ?: 1
-val gitHash = runGit("rev-parse", "--short", "HEAD")
-val gitDescribe = runGit("describe", "--tags", "--always")
-val buildDate: String = runGit("log", "-1", "--format=%cs")
-val releaseVersionCode =
-  providers.gradleProperty("searchLauncherVersionCode").orNull?.toIntOrNull() ?: gitCommitCount
-val releaseVersionName = providers.gradleProperty("searchLauncherVersionName").orNull ?: gitDescribe
+val gitHash = runGit("rev-parse", "--short", "HEAD").ifEmpty { "unknown" }
+val buildDate = runGit("log", "-1", "--format=%cs").ifEmpty { "unknown" }
 val releaseKeyStorePath = System.getenv("SIGNING_KEY_STORE_PATH") ?: "upload.jks"
 val releaseKeyStoreFile = file(releaseKeyStorePath)
 val hasReleaseSigning = releaseKeyStoreFile.exists()
@@ -37,8 +37,11 @@ android {
     applicationId = "com.searchlauncher.app"
     minSdk = 29
     targetSdk = 36
-    versionCode = releaseVersionCode
-    versionName = releaseVersionName
+    // F-Droid greps these two literals out of this file to notice new release tags, so
+    // they have to stay plain literals and be bumped in the commit that gets tagged.
+    // 250 clears 242, the highest versionCode the old commit-count scheme ever shipped.
+    versionCode = 250
+    versionName = "0.0.12"
 
     buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
     buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")

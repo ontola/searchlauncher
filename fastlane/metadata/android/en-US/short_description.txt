@@ -1,1 +1,1 @@
-Keyboard-first launcher for apps, contacts, snippets, shortcuts, and web search
+Search apps, contacts and the web, and open results in an ad-free browser

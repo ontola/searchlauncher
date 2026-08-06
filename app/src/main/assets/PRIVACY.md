@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated: Feb 10th 2026**
+**Last updated: August 2026**
 
 This Privacy Policy describes how Ontola, the company behind SearchLauncher ("we", "us", or "our") collects, uses, and shares information when you use our mobile application.
 
@@ -19,6 +19,18 @@ Additionally, some shortcuts provide **live search suggestions** as you type. Wh
 These requests are made directly from your device to the third-party service. We do not proxy, intercept, or store this data on our servers. The third-party service's own privacy policy governs how they handle your data.
 
 **You are in control:** Search suggestions can be disabled at any time in **Settings → Privacy**. When disabled, no autocomplete queries are sent to external services as you type. Search shortcuts themselves remain available since they only send data when you explicitly perform a search.
+
+### Built-in Browser
+
+SearchLauncher can open web results in its own browser instead of handing them to another app. Everything that browser remembers stays on your device:
+
+- **History and bookmarks** are stored locally so you can search them from the search bar. You can clear history and remove bookmarks in **Settings → Browser**.
+- **Site icons** are saved from the pages you visit; they are not requested from any third-party icon service.
+- **Cookies and site data** are handled by Android's system WebView. A private window keeps its cookies and storage in a separate area and wipes them when you close it.
+
+Pages you open naturally contact the servers of the sites you are visiting, exactly as any browser would. Those sites' own privacy policies apply.
+
+**Ad and tracker blocking** is on by default. To do it, the app downloads a public blocklist (the StevenBlack unified hosts list) about once a week and stores it on your device. That download tells GitHub your IP address, and nothing about what you browse — the matching happens entirely on your device. You can turn blocking off, or allow it per site, in **Settings → Browser**.
 
 ### Error Logs and Diagnostics
 We collect error logs and crash reports to identify and fix issues in the application. This data helps us improve the stability and performance of the app.

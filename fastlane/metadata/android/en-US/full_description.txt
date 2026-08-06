@@ -1,7 +1,11 @@
-SearchLauncher replaces browsing through your phone with fast, keyboard-centric search.
+SearchLauncher replaces browsing through your phone with fast, keyboard-centric search. Your home screen opens with a keyboard, and one bar finds everything: what is on your phone, and what is on the web.
 
 Features:
 * Search apps, app shortcuts, contacts, settings, snippets, and custom actions
+* Open web results in the built-in browser, which blocks ads and trackers by default
+* Swipe the search bar sideways to switch browser tabs, or up to see them all as live previews
+* Reach your tabs straight from the home screen, without opening the browser first
+* Save bookmarks under a title you choose, and find visited pages back from the search bar
 * Use it as your default launcher or as a home screen widget
 * Launch web searches through configurable shortcuts
 * Keep frequently used apps close with favorites and usage-aware history
@@ -12,4 +16,5 @@ Features:
 Privacy notes:
 * Web shortcuts and search suggestions are optional
 * They may contact third-party search providers when enabled
+* The browser's blocklist is downloaded from the StevenBlack hosts project
 * Crash reporting is opt-in only

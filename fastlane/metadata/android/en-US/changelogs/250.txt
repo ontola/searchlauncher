@@ -1,0 +1,6 @@
+First release on F-Droid.
+
+- Flick a tab card up to close it, or tap its ✕.
+- Closing the last tab takes you home instead of leaving you on an empty browser.
+- The search screen stays put underneath settings, so closing settings no longer resets it.
+- Versions are now pinned in the build file rather than derived from git, so every release builds reproducibly from source.

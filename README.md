@@ -1,6 +1,6 @@
 # SearchLauncher
 
-Android app that lets you search everything on your phone, and more.
+Android app that lets you search everything on your phone and on the web, and opens what you find in its own ad-blocking browser.
 
 ## Features
 
@@ -76,6 +76,13 @@ cd searchlauncher
 # Install signed APK
 ./gradlew installRelease
 ```
+
+### Releasing
+
+`versionCode` and `versionName` are plain literals in `app/build.gradle.kts` because F-Droid
+parses them straight out of that file. Bump both, add a changelog under
+`fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`, then tag. See
+[DISTRIBUTION.md](DISTRIBUTION.md).
 
 ## Known Limitations
 

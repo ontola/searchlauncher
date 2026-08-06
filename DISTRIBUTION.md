@@ -15,39 +15,51 @@ The release bundle has been generated at:
 
 ## F-Droid
 
-### 1. Prerequisites
-F-Droid builds from source. Ensure your repository is public and the release commit is tagged.
+F-Droid builds from source, so a release is a public tag plus one YAML file in
+[fdroiddata](https://gitlab.com/fdroid/fdroiddata).
 
-The metadata in `fdroid/com.searchlauncher.app.yml` currently targets:
+### What lives where
 
-- Version: `0.0.4`
-- Version code: `192`
-- Commit/tag: `v0.0.4`
+Only the build recipe goes into fdroiddata. Everything a user reads — the name, summary,
+description, changelogs and screenshots — is pulled from `fastlane/metadata/android/en-US/` in
+this repository at build time. Sending those to fdroiddata as well is what got the [first
+attempt](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/39312) rejected.
 
-### 2. Submission Process
-1. Fork the [fdroiddata repository](https://gitlab.com/fdroid/fdroiddata).
-2. **Run the preparation script**:
-   ```bash
-   ./prepare_fdroid.sh
-   ```
-   This will create a `fdroid_submission/` directory with the correct structure.
+| What | Where |
+| --- | --- |
+| Build recipe (`Builds`, categories, anti-features) | `fdroid/com.searchlauncher.app.yml` |
+| Name, summary, description | `fastlane/metadata/android/en-US/{title,short_description,full_description}.txt` |
+| Changelog per release | `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` |
+| Screenshots | `fastlane/metadata/android/en-US/images/phoneScreenshots/` |
 
-3. **Copy files to your fork**:
-   Run the following command (replace `/path/to/fdroiddata` with the actual path to your fork):
-   ```bash
-   cp -R fdroid_submission/metadata/* /path/to/fdroiddata/metadata/
-   ```
-   *Note: This will merge your new files into the existing folder without deleting other files.*
+The summary has to stay under 80 characters and must not end in punctuation, or `fdroid lint`
+fails.
 
-4. **Validate in fdroiddata**:
+### Cutting a release
+
+1. Bump `versionCode` and `versionName` in `app/build.gradle.kts`. They are plain literals on
+   purpose: F-Droid greps them out of the file to notice new tags, so a computed value means
+   `fdroid checkupdates` cannot tell that a release happened.
+2. Add `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`, under 500 characters.
+3. Commit, then tag and push: `git tag v<versionName> && git push origin v<versionName>`.
+
+### First submission
+
+Only the first release needs a hand-written merge request. After that `AutoUpdateMode: Version`
+picks up new tags on its own.
+
+1. Fork and clone [fdroiddata](https://gitlab.com/fdroid/fdroiddata).
+2. Point the build block in `fdroid/com.searchlauncher.app.yml` at the release, then run
+   `./prepare_fdroid.sh`. It resolves the tag to a full commit hash (F-Droid rejects tag names)
+   and refuses to run if the tag is missing or disagrees with the metadata.
+3. `cp fdroid_submission/metadata/com.searchlauncher.app.yml /path/to/fdroiddata/metadata/`
+4. Reproduce the fdroiddata pipeline locally — these are the jobs that have to be green:
    ```bash
    cd /path/to/fdroiddata
    fdroid readmeta
-   fdroid rewritemeta com.searchlauncher.app
+   fdroid rewritemeta com.searchlauncher.app && git diff --exit-code  # formatting/field order
    fdroid lint com.searchlauncher.app
-   fdroid build com.searchlauncher.app
+   fdroid checkupdates --allow-dirty com.searchlauncher.app           # tag parsing
+   fdroid build com.searchlauncher.app:<versionCode>
    ```
-
-5. Submit a Merge Request to the `fdroiddata` repository.
-
-For a new release, update the build block in `fdroid/com.searchlauncher.app.yml`, add a matching Fastlane changelog under `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`, tag the release commit, and push the tag before submitting the fdroiddata update.
+5. Open the merge request with the **App Inclusion** template and tick its boxes.
