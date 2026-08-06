@@ -44,12 +44,6 @@ object FavoriteKeys {
     }
     return of("apps", raw)
   }
-
-  /** Package name when [key] refers to an app favorite; otherwise null. */
-  fun appPackageName(key: String): String? {
-    val (namespace, id) = parse(normalize(key)) ?: return null
-    return id.takeIf { namespace == "apps" }
-  }
 }
 
 /** Stable key used for favorites storage, list identity, and reorder. */

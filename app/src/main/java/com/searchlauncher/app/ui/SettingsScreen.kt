@@ -53,7 +53,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -84,6 +83,8 @@ import coil.compose.AsyncImage
 import com.searchlauncher.app.R
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.ui.browser.AdBlocker
+import com.searchlauncher.app.ui.components.PrivacyPolicyDialog
+import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
 import com.searchlauncher.app.util.CustomActionHandler
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -442,111 +443,85 @@ private fun SnippetsCard() {
   var editingItem by remember { mutableStateOf<com.searchlauncher.app.data.SnippetItem?>(null) }
   var isExpanded by remember { mutableStateOf(false) }
 
-  Card(modifier = Modifier.fillMaxWidth()) {
-    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+  ExpandableSettingsCard(
+    title = "Snippets",
+    subtitle = "Quick access to frequently used text snippets",
+    isExpanded = isExpanded,
+    onToggle = { isExpanded = !isExpanded },
+    addButton = {
+      Button(
+        onClick = {
+          editingItem = null
+          showDialog = true
+        }
       ) {
-        Row(
-          modifier = Modifier.weight(1f).clickable { isExpanded = !isExpanded },
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          Icon(
-            imageVector =
-              if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-          )
-          Spacer(Modifier.width(8.dp))
-          Column {
-            Text(text = "Snippets", style = MaterialTheme.typography.titleMedium)
-            Text(
-              text = "Quick access to frequently used text snippets",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-          }
-        }
-        Button(
-          onClick = {
-            editingItem = null
-            showDialog = true
-          }
-        ) {
-          Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-          Spacer(Modifier.width(8.dp))
-          Text("Add")
-        }
+        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("Add")
       }
-
-      AnimatedVisibility(
-        visible = isExpanded,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
-      ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-          if (snippetItems.value.isNotEmpty()) {
-            snippetItems.value.forEach { item ->
-              Card(
-                modifier =
-                  Modifier.fillMaxWidth().clickable {
-                    editingItem = item
-                    showDialog = true
-                  },
-                colors =
-                  CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                  ),
+    },
+  ) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      if (snippetItems.value.isNotEmpty()) {
+        snippetItems.value.forEach { item ->
+          Card(
+            modifier =
+              Modifier.fillMaxWidth().clickable {
+                editingItem = item
+                showDialog = true
+              },
+            colors =
+              CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+              ),
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth().padding(12.dp),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Column(modifier = Modifier.weight(1f)) {
+                Text(
+                  text = item.alias,
+                  style = MaterialTheme.typography.bodyLarge,
+                  fontWeight = FontWeight.Bold,
+                )
+                Text(
+                  text = item.content.take(50) + if (item.content.length > 50) "..." else "",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+              }
+              IconButton(
+                onClick = { scope.launch { app.snippetsRepository.deleteItem(item.alias) } }
               ) {
-                Row(
-                  modifier = Modifier.fillMaxWidth().padding(12.dp),
-                  horizontalArrangement = Arrangement.SpaceBetween,
-                  verticalAlignment = Alignment.CenterVertically,
-                ) {
-                  Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                      text = item.alias,
-                      style = MaterialTheme.typography.bodyLarge,
-                      fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                      text = item.content.take(50) + if (item.content.length > 50) "..." else "",
-                      style = MaterialTheme.typography.bodySmall,
-                      color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                  }
-                  IconButton(
-                    onClick = { scope.launch { app.snippetsRepository.deleteItem(item.alias) } }
-                  ) {
-                    Icon(
-                      imageVector = Icons.Default.Close,
-                      contentDescription = "Delete",
-                      tint = MaterialTheme.colorScheme.error,
-                    )
-                  }
-                }
+                Icon(
+                  imageVector = Icons.Default.Close,
+                  contentDescription = "Delete",
+                  tint = MaterialTheme.colorScheme.error,
+                )
               }
             }
-          } else {
-            Text(
-              text = "No snippets added yet.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              modifier = Modifier.padding(vertical = 8.dp),
-            )
           }
         }
+      } else {
+        Text(
+          text = "No snippets added yet.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(vertical = 8.dp),
+        )
       }
     }
   }
 
   if (showDialog) {
-    SnippetDialog(
-      item = editingItem,
+    com.searchlauncher.app.ui.components.SnippetDialog(
+      initialAlias = editingItem?.alias ?: "",
+      initialContent = editingItem?.content ?: "",
+      isEditMode = editingItem != null,
       onDismiss = { showDialog = false },
-      onSave = { alias, content ->
+      onConfirm = { alias, content ->
         scope.launch {
           if (editingItem != null) {
             app.snippetsRepository.updateItem(editingItem!!.alias, alias, content)
@@ -857,111 +832,83 @@ private fun CustomShortcutsCard() {
   }
   var isExpanded by remember { mutableStateOf(false) }
 
-  Card(modifier = Modifier.fillMaxWidth()) {
-    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+  ExpandableSettingsCard(
+    title = "Custom Shortcuts",
+    subtitle = "Keywords for search (e.g., 'y' for YouTube)",
+    isExpanded = isExpanded,
+    onToggle = { isExpanded = !isExpanded },
+    addButton = {
+      Button(
+        onClick = {
+          editingShortcut = null
+          showDialog = true
+        }
       ) {
-        Row(
-          modifier = Modifier.weight(1f).clickable { isExpanded = !isExpanded },
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          Icon(
-            imageVector =
-              if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-          )
-          Spacer(Modifier.width(8.dp))
-          Column {
-            Text(text = "Custom Shortcuts", style = MaterialTheme.typography.titleMedium)
-            Text(
-              text = "Keywords for search (e.g., 'y' for YouTube)",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-          }
-        }
-        Button(
-          onClick = {
-            editingShortcut = null
-            showDialog = true
-          }
-        ) {
-          Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-          Spacer(Modifier.width(8.dp))
-          Text("Add")
-        }
+        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("Add")
+      }
+    },
+  ) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      TextButton(
+        onClick = { scope.launch { app.searchShortcutRepository.resetToDefaults() } },
+        modifier = Modifier.align(Alignment.End),
+      ) {
+        Text("Reset Defaults")
       }
 
-      AnimatedVisibility(
-        visible = isExpanded,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
-      ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-          TextButton(
-            onClick = { scope.launch { app.searchShortcutRepository.resetToDefaults() } },
-            modifier = Modifier.align(Alignment.End),
+      if (shortcuts.isNotEmpty()) {
+        shortcuts.forEach { shortcut ->
+          Card(
+            modifier =
+              Modifier.fillMaxWidth().clickable {
+                editingShortcut = shortcut
+                showDialog = true
+              },
+            colors =
+              CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+              ),
           ) {
-            Text("Reset Defaults")
-          }
-
-          if (shortcuts.isNotEmpty()) {
-            shortcuts.forEach { shortcut ->
-              Card(
-                modifier =
-                  Modifier.fillMaxWidth().clickable {
-                    editingShortcut = shortcut
-                    showDialog = true
-                  },
-                colors =
-                  CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                  ),
-              ) {
-                Row(
-                  modifier = Modifier.fillMaxWidth().padding(12.dp),
-                  horizontalArrangement = Arrangement.SpaceBetween,
-                  verticalAlignment = Alignment.CenterVertically,
-                ) {
-                  Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                      text = shortcut.description,
-                      style = MaterialTheme.typography.bodyLarge,
-                      fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                      text = "Alias: ${shortcut.alias}",
-                      style = MaterialTheme.typography.bodySmall,
-                      color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                  }
-                  IconButton(
-                    onClick = {
-                      scope.launch { app.searchShortcutRepository.removeShortcut(shortcut.id) }
-                    }
-                  ) {
-                    Icon(
-                      imageVector = Icons.Default.Close,
-                      contentDescription = "Delete",
-                      tint = MaterialTheme.colorScheme.error,
-                    )
-                  }
+            Row(
+              modifier = Modifier.fillMaxWidth().padding(12.dp),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Column(modifier = Modifier.weight(1f)) {
+                Text(
+                  text = shortcut.description,
+                  style = MaterialTheme.typography.bodyLarge,
+                  fontWeight = FontWeight.Bold,
+                )
+                Text(
+                  text = "Alias: ${shortcut.alias}",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+              }
+              IconButton(
+                onClick = {
+                  scope.launch { app.searchShortcutRepository.removeShortcut(shortcut.id) }
                 }
+              ) {
+                Icon(
+                  imageVector = Icons.Default.Close,
+                  contentDescription = "Delete",
+                  tint = MaterialTheme.colorScheme.error,
+                )
               }
             }
-          } else {
-            Text(
-              text = "No custom shortcuts yet.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              modifier = Modifier.padding(vertical = 8.dp),
-            )
           }
         }
+      } else {
+        Text(
+          text = "No custom shortcuts yet.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(vertical = 8.dp),
+        )
       }
     }
   }
@@ -989,53 +936,53 @@ private fun CustomShortcutsCard() {
 }
 
 @Composable
-private fun SnippetDialog(
-  item: com.searchlauncher.app.data.SnippetItem?,
-  onDismiss: () -> Unit,
-  onSave: (String, String) -> Unit,
+private fun ExpandableSettingsCard(
+  title: String,
+  subtitle: String,
+  isExpanded: Boolean,
+  onToggle: () -> Unit,
+  addButton: @Composable () -> Unit,
+  content: @Composable () -> Unit,
 ) {
-  var alias by remember { mutableStateOf(item?.alias ?: "") }
-  var content by remember { mutableStateOf(item?.content ?: "") }
-
-  AlertDialog(
-    onDismissRequest = onDismiss,
-    title = { Text(if (item != null) "Edit Snippet" else "Add Snippet") },
-    text = {
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-          value = alias,
-          onValueChange = { alias = it },
-          label = { Text("Alias") },
-          placeholder = { Text("e.g., 'bank', 'meet'") },
-          modifier = Modifier.fillMaxWidth(),
-          singleLine = true,
-        )
-
-        OutlinedTextField(
-          value = content,
-          onValueChange = { content = it },
-          label = { Text("Content") },
-          placeholder = { Text("The text to copy") },
-          modifier = Modifier.fillMaxWidth(),
-          minLines = 3,
-          maxLines = 6,
-        )
-      }
-    },
-    confirmButton = {
-      Button(
-        onClick = {
-          if (alias.isNotBlank() && content.isNotBlank()) {
-            onSave(alias.trim(), content.trim())
-          }
-        },
-        enabled = alias.isNotBlank() && content.isNotBlank(),
+  Card(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
       ) {
-        Text("Save")
+        Row(
+          modifier = Modifier.weight(1f).clickable(onClick = onToggle),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Icon(
+            imageVector =
+              if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+            contentDescription = null,
+            modifier = Modifier.size(24.dp),
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          Column {
+            Text(text = title, style = MaterialTheme.typography.titleMedium)
+            Text(
+              text = subtitle,
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+        }
+        addButton()
       }
-    },
-    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-  )
+
+      AnimatedVisibility(
+        visible = isExpanded,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
+      ) {
+        content()
+      }
+    }
+  }
 }
 
 @Composable
@@ -1065,107 +1012,77 @@ private fun WallpaperManagementCard() {
 
   var isExpanded by remember { mutableStateOf(false) }
 
-  Card(modifier = Modifier.fillMaxWidth()) {
-    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+  ExpandableSettingsCard(
+    title = "Wallpapers",
+    subtitle = "Manage your launcher background collection",
+    isExpanded = isExpanded,
+    onToggle = { isExpanded = !isExpanded },
+    addButton = {
+      Button(
+        onClick = {
+          launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        }
       ) {
-        Row(
-          modifier = Modifier.weight(1f).clickable { isExpanded = !isExpanded },
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          Icon(
-            imageVector =
-              if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-          )
-          Spacer(Modifier.width(8.dp))
-          Column {
-            Text(text = "Wallpapers", style = MaterialTheme.typography.titleMedium)
-            Text(
-              text = "Manage your launcher background collection",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-          }
-        }
-        Button(
-          onClick = {
-            launcher.launch(
-              PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-            )
-          }
-        ) {
-          Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-          Spacer(Modifier.width(8.dp))
-          Text("Add")
-        }
+        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("Add")
       }
-
-      AnimatedVisibility(
-        visible = isExpanded,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
-      ) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-          if (wallpapers.isNotEmpty()) {
-            wallpapers.chunked(3).forEach { rowWallpapers: List<Uri> ->
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+    },
+  ) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+      if (wallpapers.isNotEmpty()) {
+        wallpapers.chunked(3).forEach { rowWallpapers: List<Uri> ->
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            rowWallpapers.forEach { wallpaperUri: Uri ->
+              Box(
+                modifier =
+                  Modifier.weight(1f)
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
               ) {
-                rowWallpapers.forEach { wallpaperUri: Uri ->
-                  Box(
-                    modifier =
-                      Modifier.weight(1f)
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                  ) {
-                    AsyncImage(
-                      model = wallpaperUri,
-                      contentDescription = null,
-                      contentScale = ContentScale.Crop,
-                      modifier = Modifier.fillMaxSize(),
-                    )
+                AsyncImage(
+                  model = wallpaperUri,
+                  contentDescription = null,
+                  contentScale = ContentScale.Crop,
+                  modifier = Modifier.fillMaxSize(),
+                )
 
-                    IconButton(
-                      onClick = {
-                        scope.launch { app.wallpaperRepository.removeWallpaper(wallpaperUri) }
-                      },
-                      modifier =
-                        Modifier.align(Alignment.TopEnd)
-                          .padding(4.dp)
-                          .size(24.dp)
-                          .background(
-                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f),
-                            RoundedCornerShape(12.dp),
-                          ),
-                    ) {
-                      Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Remove",
-                        tint = androidx.compose.ui.graphics.Color.White,
-                        modifier = Modifier.size(16.dp),
-                      )
-                    }
-                  }
+                IconButton(
+                  onClick = {
+                    scope.launch { app.wallpaperRepository.removeWallpaper(wallpaperUri) }
+                  },
+                  modifier =
+                    Modifier.align(Alignment.TopEnd)
+                      .padding(4.dp)
+                      .size(24.dp)
+                      .background(
+                        androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f),
+                        RoundedCornerShape(12.dp),
+                      ),
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Remove",
+                    tint = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.size(16.dp),
+                  )
                 }
-                repeat(3 - rowWallpapers.size) { Spacer(modifier = Modifier.weight(1f)) }
               }
             }
-          } else {
-            Text(
-              text = "No custom wallpapers added. Using defaults.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              modifier = Modifier.padding(vertical = 8.dp),
-            )
+            repeat(3 - rowWallpapers.size) { Spacer(modifier = Modifier.weight(1f)) }
           }
         }
+      } else {
+        Text(
+          text = "No custom wallpapers added. Using defaults.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(vertical = 8.dp),
+        )
       }
     }
   }
@@ -1247,17 +1164,8 @@ private fun PrivacyCard() {
   }
 
   if (showPrivacyPolicy) {
-    val policyText = remember {
-      try {
-        context.assets.open("PRIVACY.md").bufferedReader().use { it.readText() }
-      } catch (e: Exception) {
-        "Privacy policy not found."
-      }
-    }
-    com.searchlauncher.app.ui.components.PrivacyPolicyDialog(
-      onDismiss = { showPrivacyPolicy = false },
-      policyText = policyText,
-    )
+    val policyText = remember { loadPrivacyPolicyText(context) }
+    PrivacyPolicyDialog(onDismiss = { showPrivacyPolicy = false }, policyText = policyText)
   }
 }
 

@@ -19,8 +19,4 @@ abstract class BaseRepository {
       Result.failure(e)
     }
   }
-
-  protected fun logException(tag: String, message: String, e: Throwable) {
-    SystemUtils.logError(tag, message, e)
-  }
 }

@@ -67,34 +67,7 @@ class MainActivity : ComponentActivity() {
   lateinit var appWidgetManager: android.appwidget.AppWidgetManager
   lateinit var appWidgetHost: android.appwidget.AppWidgetHost
   private val APPWIDGET_HOST_ID = 1002
-  private val REQUEST_CREATE_APPWIDGET = 5
-  private val REQUEST_PICK_APPWIDGET = 9
   private val REQUEST_CONFIGURE_APPWIDGET = 10
-
-  private val createWidgetLauncher =
-    registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-      if (result.resultCode == RESULT_OK) {
-        val data = result.data
-        val extras = data?.extras
-        val appWidgetId =
-          extras?.getInt(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
-        if (appWidgetId != -1) {
-          lifecycleScope.launch {
-            (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
-            dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
-          }
-        }
-      } else {
-        // If cancelled, delete the allocated ID
-        val data = result.data
-        val extras = data?.extras
-        val appWidgetId =
-          extras?.getInt(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
-        if (appWidgetId != -1) {
-          appWidgetHost.deleteAppWidgetId(appWidgetId)
-        }
-      }
-    }
 
   private val pickWallpapersLauncher =
     registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
@@ -162,10 +135,7 @@ class MainActivity : ComponentActivity() {
               } catch (e: android.content.ActivityNotFoundException) {
                 android.util.Log.e("MainActivity", "Configuration activity not found", e)
                 // Widget's configure activity doesn't exist - just add the widget without config
-                lifecycleScope.launch {
-                  (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
-                  dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
-                }
+                persistAddedWidget(appWidgetId)
                 Toast.makeText(
                     this,
                     "Widget added (no configuration available)",
@@ -175,10 +145,7 @@ class MainActivity : ComponentActivity() {
               } catch (e: SecurityException) {
                 android.util.Log.e("MainActivity", "Security exception launching config", e)
                 // Permission issue - just add the widget
-                lifecycleScope.launch {
-                  (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
-                  dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
-                }
+                persistAddedWidget(appWidgetId)
                 Toast.makeText(this, "Widget added (configuration not allowed)", Toast.LENGTH_SHORT)
                   .show()
               } catch (e: Exception) {
@@ -187,10 +154,7 @@ class MainActivity : ComponentActivity() {
                   "Config failed: ${e.javaClass.simpleName}: ${e.message}",
                   e,
                 )
-                lifecycleScope.launch {
-                  (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
-                  dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
-                }
+                persistAddedWidget(appWidgetId)
                 Toast.makeText(
                     this,
                     "Widget added (config error: ${e.message})",
@@ -282,6 +246,13 @@ class MainActivity : ComponentActivity() {
   // Track widget ID being configured for onActivityResult handling
   private var pendingConfigAppWidgetId = -1
 
+  private fun persistAddedWidget(appWidgetId: Int) {
+    lifecycleScope.launch {
+      (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
+      dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
+    }
+  }
+
   private fun configureWidget(appWidgetId: Int) {
     val appWidgetInfo = appWidgetManager.getAppWidgetInfo(appWidgetId)
     if (appWidgetInfo?.configure != null) {
@@ -303,10 +274,7 @@ class MainActivity : ComponentActivity() {
         android.util.Log.e("MainActivity", "Failed to start widget config activity", e)
         // Fallback: add widget without configuration
         pendingConfigAppWidgetId = -1
-        lifecycleScope.launch {
-          (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
-          dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
-        }
+        persistAddedWidget(appWidgetId)
         Toast.makeText(this, "Widget added (config error: ${e.message})", Toast.LENGTH_SHORT).show()
       }
     } else {
@@ -314,10 +282,7 @@ class MainActivity : ComponentActivity() {
         "MainActivity",
         "Widget $appWidgetId has no configuration, adding directly",
       )
-      lifecycleScope.launch {
-        (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
-        dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
-      }
+      persistAddedWidget(appWidgetId)
     }
   }
 
@@ -628,10 +593,7 @@ class MainActivity : ComponentActivity() {
           "MainActivity",
           "Widget $appWidgetId configured successfully, adding to repository",
         )
-        lifecycleScope.launch {
-          (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
-          dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
-        }
+        persistAddedWidget(appWidgetId)
       } else if (appWidgetId != -1) {
         android.util.Log.d(
           "MainActivity",
@@ -969,23 +931,26 @@ class MainActivity : ComponentActivity() {
   }
 }
 
+private fun MainActivity.createBackupManager(): com.searchlauncher.app.data.BackupManager {
+  val app = applicationContext as SearchLauncherApp
+  return com.searchlauncher.app.data.BackupManager(
+    context = this,
+    snippetsRepository = app.snippetsRepository,
+    searchShortcutRepository = app.searchShortcutRepository,
+    favoritesRepository = app.favoritesRepository,
+    historyRepository = app.historyRepository,
+    wallpaperRepository = app.wallpaperRepository,
+    widgetRepository = app.widgetRepository,
+  )
+}
+
 private suspend fun MainActivity.performExport(uri: android.net.Uri) {
   withContext(Dispatchers.Main) {
     Toast.makeText(this@performExport, "Exporting backup...", Toast.LENGTH_SHORT).show()
   }
   withContext(Dispatchers.IO) {
     try {
-      val app = applicationContext as SearchLauncherApp
-      val backupManager =
-        com.searchlauncher.app.data.BackupManager(
-          context = this@performExport,
-          snippetsRepository = app.snippetsRepository,
-          searchShortcutRepository = app.searchShortcutRepository,
-          favoritesRepository = app.favoritesRepository,
-          historyRepository = app.historyRepository,
-          wallpaperRepository = app.wallpaperRepository,
-          widgetRepository = app.widgetRepository,
-        )
+      val backupManager = createBackupManager()
 
       contentResolver.openOutputStream(uri)?.use { outputStream ->
         val result = backupManager.exportBackup(outputStream, exportIncludeWallpapers)
@@ -1052,18 +1017,7 @@ private suspend fun MainActivity.performImport(uri: android.net.Uri) {
   }
   withContext(Dispatchers.IO) {
     try {
-      val app = applicationContext as SearchLauncherApp
-
-      val backupManager =
-        com.searchlauncher.app.data.BackupManager(
-          context = this@performImport,
-          snippetsRepository = app.snippetsRepository,
-          searchShortcutRepository = app.searchShortcutRepository,
-          favoritesRepository = app.favoritesRepository,
-          historyRepository = app.historyRepository,
-          wallpaperRepository = app.wallpaperRepository,
-          widgetRepository = app.widgetRepository,
-        )
+      val backupManager = createBackupManager()
 
       contentResolver.openInputStream(uri)?.use { inputStream ->
         val result = backupManager.importBackup(inputStream)

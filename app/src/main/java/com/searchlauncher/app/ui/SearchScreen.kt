@@ -1,7 +1,5 @@
 package com.searchlauncher.app.ui
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -70,6 +68,7 @@ import androidx.datastore.preferences.core.edit
 import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.data.SearchShortcut
 import com.searchlauncher.app.data.favoriteKey
 import com.searchlauncher.app.data.isFavoritable
 import com.searchlauncher.app.ui.browser.BrowserActivity
@@ -100,11 +99,13 @@ import com.searchlauncher.app.ui.components.SearchResultItem
 import com.searchlauncher.app.ui.components.ShortcutDialog
 import com.searchlauncher.app.ui.components.SnippetDialog
 import com.searchlauncher.app.ui.components.WallpaperBackground
+import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
 import com.searchlauncher.app.ui.onboarding.OnboardingManager
 import com.searchlauncher.app.ui.onboarding.OnboardingStep
 import com.searchlauncher.app.ui.onboarding.TutorialOverlay
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import com.searchlauncher.app.util.MathEvaluator
+import com.searchlauncher.app.util.SystemUtils
 import com.searchlauncher.app.util.traceSection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -1326,7 +1327,7 @@ fun SearchScreen(
         if (showPrivacyPolicy) {
           PrivacyPolicyDialog(
             onDismiss = { showPrivacyPolicy = false },
-            policyText = getPrivacyPolicyText(context),
+            policyText = loadPrivacyPolicyText(context),
           )
         }
       }
@@ -1690,36 +1691,17 @@ fun SearchScreen(
                                 .find { it.alias == result.trigger }
 
                             if (shortcut != null) {
-                              try {
-                                val url =
-                                  shortcut.urlTemplate.replace(
-                                    "%s",
-                                    java.net.URLEncoder.encode(query, "UTF-8"),
-                                  )
-                                if (privateWebResults) {
-                                  context.startActivity(
-                                    BrowserActivity.createPrivateIntent(context, url)
-                                  )
-                                } else {
-                                  openInBrowser(url)
-                                }
-                                if (!privateWebResults) {
-                                  searchRepository.reportUsageAsync(
-                                    result.namespace,
-                                    result.id,
-                                    query,
-                                    index == 0,
-                                  )
-                                }
-                                onDismiss()
-                              } catch (e: Exception) {
-                                Toast.makeText(
-                                    context,
-                                    "Cannot open: ${result.title}",
-                                    Toast.LENGTH_SHORT,
-                                  )
-                                  .show()
-                              }
+                              launchShortcutSearch(
+                                context = context,
+                                searchRepository = searchRepository,
+                                shortcut = shortcut,
+                                result = result,
+                                query = query,
+                                privateWebResults = privateWebResults,
+                                wasFirstResult = index == 0,
+                                openInBrowser = { openInBrowser(it) },
+                                onDismiss = onDismiss,
+                              )
                             }
                           } else {
                             // Enter sub-search mode (append trigger)
@@ -1741,20 +1723,15 @@ fun SearchScreen(
                                 ?.let { Uri.decode(it) } ?: ""
                             showSnippetDialog = true
                           } else {
-                            val privateUrl =
-                              if (privateWebResults) webUrlForResult(result, query, searchShortcuts)
-                              else null
-                            if (privateUrl != null) {
-                              context.startActivity(
-                                BrowserActivity.createPrivateIntent(context, privateUrl)
-                              )
-                            } else {
-                              resultLauncher.launch(
-                                result,
-                                query = query,
-                                wasFirstResult = index == 0,
-                              )
-                            }
+                            launchResultPreferringPrivateBrowser(
+                              context = context,
+                              result = result,
+                              query = query,
+                              searchShortcuts = searchShortcuts,
+                              privateWebResults = privateWebResults,
+                              resultLauncher = resultLauncher,
+                              wasFirstResult = index == 0,
+                            )
                             val keepSearchOpen =
                               result is SearchResult.Content &&
                                 (result.deepLink ==
@@ -1960,36 +1937,17 @@ fun SearchScreen(
                           }
 
                         if (shortcut != null) {
-                          try {
-                            val url =
-                              shortcut.urlTemplate.replace(
-                                "%s",
-                                java.net.URLEncoder.encode(query, "UTF-8"),
-                              )
-                            if (privateWebResults) {
-                              context.startActivity(
-                                BrowserActivity.createPrivateIntent(context, url)
-                              )
-                            } else {
-                              openInBrowser(url)
-                            }
-                            if (!privateWebResults) {
-                              searchRepository.reportUsageAsync(
-                                topResult.namespace,
-                                topResult.id,
-                                query,
-                                true,
-                              )
-                            }
-                            onDismiss()
-                          } catch (e: Exception) {
-                            Toast.makeText(
-                                context,
-                                "Cannot open: ${topResult.title}",
-                                Toast.LENGTH_SHORT,
-                              )
-                              .show()
-                          }
+                          launchShortcutSearch(
+                            context = context,
+                            searchRepository = searchRepository,
+                            shortcut = shortcut,
+                            result = topResult,
+                            query = query,
+                            privateWebResults = privateWebResults,
+                            wasFirstResult = true,
+                            openInBrowser = { openInBrowser(it) },
+                            onDismiss = onDismiss,
+                          )
                         } else {
                           // Should not happen if data
                           // integrity is good, but
@@ -2002,17 +1960,15 @@ fun SearchScreen(
                         onQueryChange(topResult.trigger + " ")
                       }
                     } else {
-                      val privateUrl =
-                        if (privateWebResults) {
-                          webUrlForResult(topResult, query, searchShortcuts)
-                        } else null
-                      if (privateUrl != null) {
-                        context.startActivity(
-                          BrowserActivity.createPrivateIntent(context, privateUrl)
-                        )
-                      } else {
-                        resultLauncher.launch(topResult, query = query, wasFirstResult = true)
-                      }
+                      launchResultPreferringPrivateBrowser(
+                        context = context,
+                        result = topResult,
+                        query = query,
+                        searchShortcuts = searchShortcuts,
+                        privateWebResults = privateWebResults,
+                        resultLauncher = resultLauncher,
+                        wasFirstResult = true,
+                      )
                       onDismiss()
                     }
                   }
@@ -2081,15 +2037,8 @@ fun SearchScreen(
                   Modifier.size(24.dp)
                     .combinedClickable(
                       onClick = {
-                        val url =
-                          engine.urlTemplate.replace(
-                            "%s",
-                            java.net.URLEncoder.encode(query, "UTF-8"),
-                          )
-                        if (privateWebResults) {
-                          context.startActivity(BrowserActivity.createPrivateIntent(context, url))
-                        } else {
-                          openInBrowser(url)
+                        openBrowser(context, engine.urlForQuery(query), privateWebResults) {
+                          openInBrowser(it)
                         }
                         onDismiss()
                       },
@@ -2366,9 +2315,63 @@ private fun closeBrowserWindow(context: Context) {
 }
 
 private fun copyUrlToClipboard(context: Context, url: String) {
-  val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-  clipboard.setPrimaryClip(ClipData.newPlainText("Page URL", url))
-  Toast.makeText(context, "URL copied", Toast.LENGTH_SHORT).show()
+  SystemUtils.copyUrlToClipboard(context, url, label = "Page URL")
+}
+
+/**
+ * Opens [url]. A private page gets its own browser activity; an ordinary one goes to
+ * [openInBrowser], the browser the launcher hosts itself, so it does not become a task of its own.
+ */
+private fun openBrowser(
+  context: Context,
+  url: String,
+  private: Boolean,
+  openInBrowser: (String) -> Unit,
+) {
+  if (private) {
+    context.startActivity(BrowserActivity.createPrivateIntent(context, url))
+  } else {
+    openInBrowser(url)
+  }
+}
+
+private fun launchShortcutSearch(
+  context: Context,
+  searchRepository: SearchRepository,
+  shortcut: SearchShortcut,
+  result: SearchResult.SearchIntent,
+  query: String,
+  privateWebResults: Boolean,
+  wasFirstResult: Boolean,
+  openInBrowser: (String) -> Unit,
+  onDismiss: () -> Unit,
+) {
+  try {
+    openBrowser(context, shortcut.urlForQuery(query), privateWebResults, openInBrowser)
+    if (!privateWebResults) {
+      searchRepository.reportUsageAsync(result.namespace, result.id, query, wasFirstResult)
+    }
+    onDismiss()
+  } catch (e: Exception) {
+    Toast.makeText(context, "Cannot open: ${result.title}", Toast.LENGTH_SHORT).show()
+  }
+}
+
+private fun launchResultPreferringPrivateBrowser(
+  context: Context,
+  result: SearchResult,
+  query: String,
+  searchShortcuts: List<SearchShortcut>,
+  privateWebResults: Boolean,
+  resultLauncher: ResultLauncher,
+  wasFirstResult: Boolean,
+) {
+  val privateUrl = if (privateWebResults) webUrlForResult(result, query, searchShortcuts) else null
+  if (privateUrl != null) {
+    context.startActivity(BrowserActivity.createPrivateIntent(context, privateUrl))
+  } else {
+    resultLauncher.launch(result, query = query, wasFirstResult = wasFirstResult)
+  }
 }
 
 private data class BookmarkDialogTarget(
@@ -2403,7 +2406,7 @@ private fun webUrlForResult(
   }
 
   val shortcut = searchShortcuts.find { it.alias == result.trigger } ?: return null
-  return shortcut.urlTemplate.replace("%s", java.net.URLEncoder.encode(query, "UTF-8"))
+  return shortcut.urlForQuery(query)
 }
 
 private fun createSnippetFallbackResult(context: Context, query: String): SearchResult.Content {
@@ -2425,13 +2428,5 @@ private const val LIVE_SEARCH_SHORTCUT_LIMIT = 6
 private const val FALLBACK_SEARCH_SHORTCUT_LIMIT = 100
 
 // FavoritesRow extracted to components/FavoritesRow.kt
-
-private fun getPrivacyPolicyText(context: Context): String {
-  return try {
-    context.assets.open("PRIVACY.md").bufferedReader().use { it.readText() }
-  } catch (e: Exception) {
-    "Privacy policy not found."
-  }
-}
 
 // SnippetDialog extracted to components/SnippetDialog.kt
