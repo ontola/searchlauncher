@@ -465,6 +465,9 @@ class MainActivity : ComponentActivity() {
       clearQueryState()
       currentScreenState = Screen.Search
       pendingSettingsSection = null
+      // Home means home: a page requested earlier must not still be pending, or the next fresh
+      // composition of the search screen would replay it and land in the browser instead.
+      browserUrlRequest = null
       focusTrigger = System.currentTimeMillis()
       homeTrigger = System.currentTimeMillis()
     }
@@ -831,52 +834,58 @@ class MainActivity : ComponentActivity() {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-      // Layer 1: Base Content (Search, Settings, etc.)
-      // When AppList is open, we want the base layer to be Search
-      val baseState =
-        if (currentScreenState == Screen.AppList) Screen.Search else currentScreenState
-
-      androidx.compose.animation.AnimatedContent(
-        targetState = baseState,
-        transitionSpec = {
-          androidx.compose.animation.fadeIn() togetherWith androidx.compose.animation.fadeOut()
+      // Layer 1: the search screen, always composed. Settings used to be the other branch of
+      // an AnimatedContent, which disposed this screen — and with it the hosted browser's WebView
+      // and the wallpaper — on every settings visit. Coming back rebuilt the WebView, a stalled
+      // frame during which nothing here draws and the window shows through: the wallpaper going
+      // plain for a moment. The app list already worked as an overlay above a live search screen;
+      // settings now does the same.
+      SearchScreen(
+        query = queryState,
+        onQueryChange = { updateQueryState(it) },
+        onDismiss = { clearQueryState() },
+        onOpenSettings = {
+          keyboardController?.hide()
+          currentScreenState = Screen.Settings
         },
-        label = "BaseScreenTransition",
-      ) { targetState ->
-        when (targetState) {
-          Screen.Search -> {
-            SearchScreen(
-              query = queryState,
-              onQueryChange = { updateQueryState(it) },
-              onDismiss = { clearQueryState() },
-              onOpenSettings = {
-                keyboardController?.hide()
-                currentScreenState = Screen.Settings
-              },
-              onOpenAppDrawer = { currentScreenState = Screen.AppList },
-              searchRepository = app.searchRepository,
-              focusTrigger = focusTrigger,
-              showBackgroundImage = true,
-              folderImages = managedWallpapers,
-              lastImageUriString = lastImageUriString,
-              savedUriResolved = savedWallpaper != null,
-              onAddWidget = { requestWidgetPick() },
-              isActive = currentScreenState == Screen.Search,
-              browserTabSwipeEnabled = true,
-              openUrlRequest = browserUrlRequest,
-              homeTrigger = homeTrigger,
-            )
-          }
-          Screen.Settings -> {
-            SettingsScreen(
-              onBack = { currentScreenState = Screen.Search },
-              initialHighlightSection = pendingSettingsSection,
-              onExportBackup = { initiateExportBackup() },
-            )
-          }
-          else -> {
-            /* No-op */
-          }
+        onOpenAppDrawer = { currentScreenState = Screen.AppList },
+        searchRepository = app.searchRepository,
+        focusTrigger = focusTrigger,
+        showBackgroundImage = true,
+        folderImages = managedWallpapers,
+        lastImageUriString = lastImageUriString,
+        savedUriResolved = savedWallpaper != null,
+        onAddWidget = { requestWidgetPick() },
+        isActive = currentScreenState == Screen.Search,
+        browserTabSwipeEnabled = true,
+        openUrlRequest = browserUrlRequest,
+        // Consumed on delivery. The request outlives the search screen on purpose — it may
+        // arrive before the screen exists — but an unconsumed request is replayed by every
+        // fresh composition, which is how returning from settings used to land in the
+        // browser: the launch effect ran again and re-opened a page asked for minutes ago.
+        onOpenUrlHandled = { browserUrlRequest = null },
+        homeTrigger = homeTrigger,
+      )
+      // Layer 1b: Settings overlay. A fade, as the old screen switch was.
+      androidx.compose.animation.AnimatedVisibility(
+        visible = currentScreenState == Screen.Settings,
+        enter = androidx.compose.animation.fadeIn(),
+        exit = androidx.compose.animation.fadeOut(),
+        modifier = Modifier.fillMaxSize(),
+      ) {
+        // On its own opaque sheet: the settings cards do not paint edge to edge, and the search
+        // screen is alive underneath now rather than disposed, so without this the wallpaper and
+        // widgets showed through the gaps.
+        Box(
+          modifier =
+            Modifier.fillMaxSize()
+              .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
+        ) {
+          SettingsScreen(
+            onBack = { currentScreenState = Screen.Search },
+            initialHighlightSection = pendingSettingsSection,
+            onExportBackup = { initiateExportBackup() },
+          )
         }
       }
 

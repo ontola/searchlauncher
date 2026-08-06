@@ -137,6 +137,8 @@ fun SearchScreen(
   browserTabSwipeEnabled: Boolean = false,
   /** A page to open in the hosted browser, forwarded by a window that has no browser of its own. */
   openUrlRequest: NavigationRequest? = null,
+  /** Fired once the request has been acted on, so the owner can stop offering it. */
+  onOpenUrlHandled: () -> Unit = {},
   /** Moves only on a real home intent; [focusTrigger] also moves on any return of focus. */
   homeTrigger: Long = 0L,
   /**
@@ -454,7 +456,12 @@ fun SearchScreen(
   // Home means home, including out of the browser — but only a home intent means home.
   LaunchedEffect(homeTrigger) { if (homeTrigger != 0L && browserOpen) slideBrowserOut() }
 
-  LaunchedEffect(openUrlRequest?.sequence) { openUrlRequest?.let { openInBrowser(it.url) } }
+  LaunchedEffect(openUrlRequest?.sequence) {
+    openUrlRequest?.let {
+      openInBrowser(it.url)
+      onOpenUrlHandled()
+    }
+  }
 
   // One description of what a result can do, built in a single place and handed to every list that
   // shows results. The favourites bar used to assemble its own much shorter menu, so the same app
