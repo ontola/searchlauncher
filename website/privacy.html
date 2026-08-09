@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — SearchLauncher</title>
+  <meta name="description" content="Privacy policy for SearchLauncher by Ontola.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #102018;
+      --ink-soft: #3a4a40;
+      --muted: #5c6b62;
+      --paper: #f3f6f2;
+      --line: rgba(16, 32, 24, 0.12);
+      --accent: #0f7a5a;
+      --font-display: "Sora", system-ui, sans-serif;
+      --font-body: "Source Sans 3", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-body);
+      color: var(--ink);
+      background:
+        radial-gradient(900px 500px at 10% -10%, #c9e0d4 0%, transparent 55%),
+        linear-gradient(180deg, #eef4ef 0%, var(--paper) 40%, #f7faf7 100%);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); }
+    .wrap { width: min(100% - 2.5rem, 720px); margin: 0 auto; padding: 2rem 0 4rem; }
+    .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2.5rem; }
+    .brand { font-family: var(--font-display); font-weight: 700; color: var(--ink); text-decoration: none; letter-spacing: -0.03em; }
+    .back { color: var(--muted); text-decoration: none; font-size: 0.95rem; }
+    .back:hover { color: var(--ink); }
+    h1 { font-family: var(--font-display); font-size: clamp(2rem, 5vw, 2.75rem); letter-spacing: -0.03em; margin-bottom: 0.5rem; }
+    .updated { color: var(--muted); margin-bottom: 2rem; }
+    h2 { font-family: var(--font-display); font-size: 1.25rem; letter-spacing: -0.02em; margin: 2rem 0 0.75rem; }
+    h3 { font-size: 1.05rem; margin: 1.25rem 0 0.5rem; }
+    p, li { color: var(--ink-soft); margin-bottom: 0.85rem; }
+    ul { padding-left: 1.2rem; margin-bottom: 1rem; }
+    strong { color: var(--ink); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <a class="brand" href="index.html">SearchLauncher</a>
+      <a class="back" href="index.html">← Back</a>
+    </div>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: June 2025</p>
+    <p>This Privacy Policy describes how Ontola, the company behind SearchLauncher ("we", "us", or "our") collects, uses, and shares information when you use our mobile application.</p>
+
+    <h2>Information Collection and Use</h2>
+    <h3>Search Shortcuts &amp; Suggestions</h3>
+    <p>SearchLauncher includes <strong>search shortcuts</strong> — custom keywords (e.g., "g" for Google, "y" for YouTube) that let you quickly search third-party websites. When you use a search shortcut and press enter, your <strong>search query is sent directly to the corresponding third-party service</strong> (such as Google, YouTube, DuckDuckGo, Wikipedia, etc.). This is a user-initiated action — it only happens when you explicitly perform a search.</p>
+    <p>Additionally, some shortcuts provide <strong>live search suggestions</strong> as you type. When enabled, your partial query is sent to the suggestion provider (e.g., Google's suggestion API) in real time to display autocomplete results. Unlike shortcuts, <strong>suggestions are sent automatically</strong> as you type, without requiring you to press enter.</p>
+    <p><strong>What is shared with third parties when using shortcuts or suggestions:</strong></p>
+    <ul>
+      <li>Your search query text (or partial query for suggestions)</li>
+      <li>Standard HTTP request metadata (IP address, user agent, etc.)</li>
+    </ul>
+    <p>These requests are made directly from your device to the third-party service. We do not proxy, intercept, or store this data on our servers. The third-party service's own privacy policy governs how they handle your data.</p>
+    <p><strong>You are in control:</strong> Web shortcuts and search suggestions are optional. You can enable or disable them during onboarding or at any time in <strong>Settings → Privacy</strong>. When disabled, SearchLauncher hides web shortcut results and does not send autocomplete queries to external services as you type.</p>
+
+    <h3>Error Logs and Diagnostics</h3>
+    <p>We collect error logs and crash reports to identify and fix issues in the application. This data helps us improve the stability and performance of the app.</p>
+    <p>We use <strong>GlitchTip</strong> (a Sentry-compatible service) to collect this information. The data collected involves:</p>
+    <ul>
+      <li>Stack traces of crashes</li>
+      <li>Device information (model, OS version)</li>
+      <li>App version</li>
+    </ul>
+    <p>We <strong>do not</strong> collect:</p>
+    <ul>
+      <li>Personally Identifiable Information (PII) such as your name, email, or phone number.</li>
+      <li>Search queries.</li>
+      <li>Any other user inputs.</li>
+    </ul>
+
+    <h2>User Consent</h2>
+    <ul>
+      <li><strong>Error logging</strong> is optional. You will be asked for permission to enable this feature when you first open the app. You can change your preference at any time in <strong>Settings → Privacy</strong>.</li>
+      <li><strong>Web shortcuts and search suggestions</strong> are optional. You will be asked whether to enable them when you first open the app. You can change your preference at any time in <strong>Settings → Privacy</strong>.</li>
+    </ul>
+
+    <h2>Contact Us</h2>
+    <p>If you have any questions about this Privacy Policy, please contact us at <a href="mailto:info@ontola.io">info@ontola.io</a>.</p>
+  </div>
+</body>
+</html>
