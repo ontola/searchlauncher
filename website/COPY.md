@@ -64,14 +64,14 @@ Refinements from v3: tighter hero support (one sentence), sharper section leads,
 
 ### Meta
 - **Title:** SearchLauncher — Your homescreen has a keyboard
-- **Description:** Keyboard-first Android launcher. Search apps, contacts, settings, snippets, and the web. Built-in ad-blocking browser with tabs. Free and open source on Play and F-Droid.
+- **Description:** Keyboard-first Android launcher. Search apps, contacts, settings, snippets, and the web. Built-in ad-blocking browser with tabs. Free and open source.
 
 ### Links
-- Play: `https://github.com/ontola/searchlauncher/releases/latest`
-- F-Droid: `https://github.com/ontola/searchlauncher`
+- Releases: `https://github.com/ontola/searchlauncher/releases/latest`
 - GitHub: `https://github.com/ontola/searchlauncher`
-- Privacy: `/privacy` or repo `PRIVACY.md` / in-app policy
+- Privacy: `privacy.html`
 - Contact: `mailto:info@ontola.io`
+- Note: Play Store and F-Droid listings are not live yet; site CTAs use GitHub Releases.
 
 ### Nav
 SearchLauncher · Features · Privacy · Download
