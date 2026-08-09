@@ -67,9 +67,9 @@ Refinements from v3: tighter hero support (one sentence), sharper section leads,
 - **Description:** Keyboard-first Android launcher. Search apps, contacts, settings, snippets, and the web. Built-in ad-blocking browser with tabs. Free and open source on Play and F-Droid.
 
 ### Links
-- Play: `https://play.google.com/store/apps/details?id=com.searchlauncher.app`
-- F-Droid: `https://f-droid.org/packages/com.searchlauncher.app`
-- GitHub: `https://github.com/joepio/searchlauncher`
+- Play: `https://github.com/ontola/searchlauncher/releases/latest`
+- F-Droid: `https://github.com/ontola/searchlauncher`
+- GitHub: `https://github.com/ontola/searchlauncher`
 - Privacy: `/privacy` or repo `PRIVACY.md` / in-app policy
 - Contact: `mailto:info@ontola.io`
 
@@ -80,7 +80,8 @@ SearchLauncher · Features · Privacy · Download
 - **Brand:** SearchLauncher
 - **Headline:** Your homescreen has a keyboard.
 - **Support:** Type to launch apps, call contacts, run shortcuts, or open the web — from one always-ready bar.
-- **Primary CTA:** Get SearchLauncher
+- **Primary CTA:** Download SearchLauncher (GitHub Releases)
+- **Secondary CTA:** View source
 - **Secondary line:** Free · Open source · Android 10+
 - **Alt micro-line (optional under CTA):** Use it as your launcher, or as a widget on any home screen.
 
@@ -148,15 +149,15 @@ SearchLauncher · Features · Privacy · Download
 - Web searches go straight to the provider you chose
 - Suggestions and crash reports are optional
 - In-browser ads and trackers blocked by default
-- On Google Play and F-Droid
+- MIT-licensed source on GitHub
 
 ### Closing CTA
 **Headline:** Stop scrolling. Start executing.
-**Support:** Free on Google Play and F-Droid. Android 10 or newer.
-**CTA:** Download SearchLauncher
+**Support:** Free on GitHub. Android 10 or newer.
+**CTA:** Download latest release
 
 ### Footer
-Made with love by Ontola · GitHub · Privacy · Play · F-Droid · info@ontola.io
+Made with love by Ontola · GitHub · Privacy · Releases · Source · info@ontola.io
 
 ### Alternate lines bank (unused but strong)
 - Stop hunting icons.
