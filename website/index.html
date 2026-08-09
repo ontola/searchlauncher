@@ -1,339 +1,731 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SearchLauncher - Command your Android</title>
-    <meta name="description" content="The launcher that thinks like you do. Keyboard ready instantly. Search apps, contacts, settings and the web without leaving the home screen, and open results in a built-in browser that blocks ads and trackers.">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg-color: #000000;
-            --text-color: #ffffff;
-            --accent-color: #333333;
-            --highlight-color: #ffffff;
-            --text-secondary: #a1a1a1;
-            --font-main: 'Inter', sans-serif;
-            --max-width: 1200px;
-            --spacing-section: 120px;
-        }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SearchLauncher — Your homescreen has a keyboard</title>
+  <meta name="description" content="Keyboard-first Android launcher. Search apps, contacts, settings, snippets, and the web. Built-in ad-blocking browser with tabs. Free and open source on Play and F-Droid.">
+  <meta property="og:title" content="SearchLauncher — Your homescreen has a keyboard">
+  <meta property="og:description" content="Type to launch apps, call contacts, run shortcuts, or open the web — from one always-ready bar.">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Source+Sans+3:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #102018;
+      --ink-soft: #3a4a40;
+      --muted: #5c6b62;
+      --paper: #f3f6f2;
+      --paper-2: #e7eee8;
+      --mist: #d5e4dc;
+      --line: rgba(16, 32, 24, 0.12);
+      --accent: #0f7a5a;
+      --accent-deep: #0a5a42;
+      --accent-glow: rgba(15, 122, 90, 0.18);
+      --phone-frame: #1a1f1c;
+      --max: 1120px;
+      --font-display: "Sora", system-ui, sans-serif;
+      --font-body: "Source Sans 3", system-ui, sans-serif;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
-        body {
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            font-family: var(--font-main);
-            line-height: 1.6;
-            -webkit-font-smoothing: antialiased;
-            overflow-x: hidden;
-        }
+    html { scroll-behavior: smooth; }
 
-        a {
-            text-decoration: none;
-            color: inherit;
-        }
+    body {
+      font-family: var(--font-body);
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 700px at 12% -10%, #c9e0d4 0%, transparent 55%),
+        radial-gradient(900px 600px at 100% 8%, #dce8df 0%, transparent 50%),
+        linear-gradient(180deg, #eef4ef 0%, var(--paper) 28%, #f7faf7 100%);
+      background-attachment: fixed;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
 
-        .container {
-            max-width: var(--max-width);
-            margin: 0 auto;
-            padding: 0 24px;
-        }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.035;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      z-index: 0;
+    }
 
-        /* Typography */
-        h1, h2, h3 {
-            font-weight: 700;
-            letter-spacing: -0.02em;
-            line-height: 1.2;
-        }
+    a { color: inherit; text-decoration: none; }
+    img { display: block; max-width: 100%; height: auto; }
 
-        h1 {
-            font-size: clamp(3rem, 8vw, 5rem);
-            margin-bottom: 1rem;
-        }
+    .wrap {
+      width: min(100% - 2.5rem, var(--max));
+      margin-inline: auto;
+      position: relative;
+      z-index: 1;
+    }
 
-        h2 {
-            font-size: clamp(2rem, 5vw, 3.5rem);
-            margin-bottom: 1.5rem;
-        }
+    /* Nav */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(14px);
+      background: rgba(243, 246, 242, 0.78);
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.3s var(--ease), background 0.3s var(--ease);
+    }
 
-        h3 {
-            font-size: 1.5rem;
-            margin-bottom: 0.5rem;
-        }
+    .nav.is-scrolled { border-bottom-color: var(--line); }
 
-        p {
-            color: var(--text-secondary);
-            font-size: 1.125rem;
-            margin-bottom: 1.5rem;
-        }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 0;
+      gap: 1rem;
+    }
 
-        .lead {
-            font-size: 1.5rem;
-            color: var(--text-secondary);
-            max-width: 600px;
-        }
+    .brand {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: -0.03em;
+    }
 
-        /* Buttons */
-        .btn {
-            display: inline-block;
-            background-color: var(--highlight-color);
-            color: var(--bg-color);
-            padding: 16px 32px;
-            font-size: 1.125rem;
-            font-weight: 600;
-            border-radius: 8px;
-            transition: transform 0.2s ease, opacity 0.2s ease;
-            border: 1px solid transparent;
-        }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      font-size: 0.95rem;
+      color: var(--ink-soft);
+    }
 
-        .btn:hover {
-            transform: translateY(-2px);
-            opacity: 0.9;
-        }
+    .nav-links a:hover { color: var(--ink); }
 
-        .btn-subtext {
-            display: block;
-            margin-top: 12px;
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            opacity: 0.7;
-        }
+    .nav-cta {
+      font-weight: 600;
+      color: var(--accent-deep) !important;
+    }
 
-        /* Sections */
-        section {
-            padding: var(--spacing-section) 0;
-        }
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.95rem 1.4rem;
+      border-radius: 10px;
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 0.98rem;
+      letter-spacing: -0.01em;
+      transition: transform 0.25s var(--ease), background 0.25s var(--ease), color 0.25s var(--ease), box-shadow 0.25s var(--ease);
+    }
 
-        /* Hero */
-        .hero {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            padding-top: 80px; /* Header offset if needed */
-            position: relative;
-        }
+    .btn-primary {
+      background: var(--accent);
+      color: #f5fbf8;
+      box-shadow: 0 10px 28px var(--accent-glow);
+    }
 
-        .hero-content {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 60px;
-            align-items: center;
-        }
+    .btn-primary:hover {
+      background: var(--accent-deep);
+      transform: translateY(-2px);
+    }
 
-        .hero-text {
-            z-index: 10;
-        }
+    .btn-ghost {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
 
-        .hero-image {
-            position: relative;
-            display: flex;
-            justify-content: center;
-        }
+    .btn-ghost:hover {
+      background: rgba(16, 32, 24, 0.04);
+      transform: translateY(-2px);
+    }
 
-        .hero-image img {
-            max-width: 100%;
-            height: auto;
-            max-height: 80vh;
-            border-radius: 20px; /* Soften edges slightly */
-            box-shadow: 0 20px 50px rgba(255, 255, 255, 0.05);
-        }
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+    }
 
-        /* Anchor */
-        .anchor {
-            text-align: center;
-            background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(20,20,20,1) 50%, rgba(0,0,0,0) 100%);
-        }
+    /* Typography */
+    .eyebrow {
+      font-family: var(--font-display);
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent-deep);
+      margin-bottom: 0.85rem;
+    }
 
-        .quote {
-            font-size: clamp(1.5rem, 4vw, 2.5rem);
-            font-weight: 300;
-            color: var(--highlight-color);
-            max-width: 900px;
-            margin: 0 auto;
-            line-height: 1.4;
-        }
+    h1, h2, h3 {
+      font-family: var(--font-display);
+      letter-spacing: -0.035em;
+      line-height: 1.1;
+      font-weight: 700;
+      color: var(--ink);
+    }
 
-        /* Features */
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 40px;
-        }
+    h1 {
+      font-size: clamp(2.6rem, 7vw, 4.6rem);
+      max-width: 11ch;
+      margin-bottom: 1.1rem;
+    }
 
-        .feature-card {
-            padding: 40px;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 16px;
-            transition: background 0.3s ease;
-        }
+    h2 {
+      font-size: clamp(1.85rem, 4.2vw, 2.85rem);
+      max-width: 16ch;
+      margin-bottom: 0.9rem;
+    }
 
-        .feature-card:hover {
-            background: rgba(255, 255, 255, 0.06);
-        }
+    .lead {
+      font-size: clamp(1.15rem, 2vw, 1.35rem);
+      color: var(--ink-soft);
+      max-width: 34rem;
+      margin-bottom: 1.6rem;
+    }
 
-        .feature-card h3 {
-            color: var(--highlight-color);
-            margin-bottom: 1rem;
-        }
+    .support {
+      font-size: 1.125rem;
+      color: var(--ink-soft);
+      max-width: 36rem;
+      margin-bottom: 1.4rem;
+    }
 
-        /* Trust */
-        .trust {
-            text-align: center;
-        }
+    .meta {
+      font-size: 0.95rem;
+      color: var(--muted);
+      margin-top: 0.9rem;
+    }
 
-        .trust-content {
-            max-width: 800px;
-            margin: 0 auto;
-        }
+    /* Hero */
+    .hero {
+      position: relative;
+      min-height: min(100svh, 980px);
+      display: flex;
+      align-items: flex-end;
+      padding: 0;
+      overflow: hidden;
+    }
 
-        /* Aesthetics */
-        .aesthetics {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-            background: radial-gradient(circle at center, #1a1a1a 0%, #000000 70%);
-        }
+    .hero-stage {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+    }
 
-        /* Footer */
-        footer {
-            text-align: center;
-            padding: 100px 0;
-            border-top: 1px solid rgba(255,255,255,0.1);
-        }
+    .hero-stage img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center 30%;
+      transform: scale(1.06);
+      filter: saturate(1.05) contrast(1.02);
+      animation: hero-drift 18s ease-in-out infinite alternate;
+    }
 
-        .footer-links {
-            margin-top: 40px;
-        }
+    @keyframes hero-drift {
+      from { transform: scale(1.06) translate3d(0, 0, 0); }
+      to { transform: scale(1.12) translate3d(-1.5%, 1%, 0); }
+    }
 
-        .footer-link {
-            color: var(--text-secondary);
-            margin: 0 15px;
-            transition: color 0.2s;
-        }
+    .hero-stage::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(180deg, rgba(238, 244, 239, 0.18) 0%, rgba(243, 246, 242, 0.55) 42%, rgba(243, 246, 242, 0.94) 78%, var(--paper) 100%),
+        linear-gradient(90deg, rgba(243, 246, 242, 0.72) 0%, rgba(243, 246, 242, 0.35) 48%, rgba(243, 246, 242, 0.15) 100%);
+    }
 
-        .footer-link:hover {
-            color: var(--highlight-color);
-        }
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      width: min(100% - 2.5rem, var(--max));
+      margin: 0 auto;
+      padding: 7.5rem 0 4.5rem;
+      max-width: 38rem;
+    }
 
-        /* Responsive */
-        @media (max-width: 900px) {
-            .hero-content {
-                grid-template-columns: 1fr;
-                text-align: center;
-            }
+    .hero-brand {
+      font-family: var(--font-display);
+      font-size: clamp(1.35rem, 3vw, 1.75rem);
+      font-weight: 700;
+      letter-spacing: -0.045em;
+      margin-bottom: 1rem;
+      color: var(--ink);
+    }
 
-            .hero-image {
-                order: -1;
-                margin-bottom: 40px;
-            }
+    .hero-phone-float {
+      display: none;
+    }
 
-            .lead {
-                margin: 0 auto 2rem auto;
-            }
+    @media (max-width: 900px) {
+      .hero {
+        min-height: auto;
+        align-items: stretch;
+      }
 
-            .hero-image img {
-                max-height: 50vh;
-            }
-        }
-    </style>
+      .hero-stage img {
+        object-position: center 20%;
+      }
+
+      .hero-content {
+        padding: 5.5rem 0 3rem;
+        max-width: none;
+      }
+    }
+
+    .phone {
+      position: relative;
+      z-index: 1;
+      border-radius: 2rem;
+      overflow: hidden;
+      border: 3px solid var(--phone-frame);
+      box-shadow: 0 24px 48px rgba(16, 32, 24, 0.16);
+      background: #000;
+      aspect-ratio: 9 / 19.5;
+    }
+
+    .phone img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top center;
+    }
+
+    .phone-sm { width: min(100%, 280px); margin-inline: auto; }
+
+    /* Reveal */
+    .reveal {
+      opacity: 0;
+      transform: translateY(28px);
+      transition: opacity 0.8s var(--ease), transform 0.8s var(--ease);
+    }
+
+    .reveal.is-in { opacity: 1; transform: none; }
+    .reveal-delay-1 { transition-delay: 0.1s; }
+    .reveal-delay-2 { transition-delay: 0.2s; }
+    .reveal-delay-3 { transition-delay: 0.3s; }
+
+    /* Quote */
+    .quote-band {
+      padding: 4.5rem 0;
+      border-block: 1px solid var(--line);
+      background: linear-gradient(90deg, rgba(213, 228, 220, 0.35), rgba(243, 246, 242, 0.2));
+    }
+
+    .quote {
+      font-family: var(--font-display);
+      font-size: clamp(1.35rem, 3.2vw, 2rem);
+      font-weight: 500;
+      letter-spacing: -0.025em;
+      line-height: 1.35;
+      max-width: 22em;
+      margin: 0 auto;
+      text-align: center;
+      color: var(--ink);
+    }
+
+    /* Feature sections */
+    section.feature {
+      padding: clamp(4.5rem, 10vw, 7.5rem) 0;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: clamp(2rem, 6vw, 5rem);
+      align-items: center;
+    }
+
+    .feature-grid.reverse .feature-copy { order: 2; }
+    .feature-grid.reverse .feature-media { order: 1; }
+
+    .point-list {
+      list-style: none;
+      display: grid;
+      gap: 0.7rem;
+      margin-top: 0.25rem;
+    }
+
+    .point-list li {
+      position: relative;
+      padding-left: 1.2rem;
+      color: var(--ink-soft);
+      font-size: 1.05rem;
+    }
+
+    .point-list li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.55em;
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+
+    /* Command rail */
+    .commands {
+      display: grid;
+      gap: 0.65rem;
+      margin-top: 1.5rem;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.95rem;
+    }
+
+    .command {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 1rem;
+      align-items: baseline;
+      padding: 0.85rem 1rem;
+      background: rgba(255, 255, 255, 0.55);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+
+    .command kbd {
+      font: inherit;
+      color: var(--ink);
+    }
+
+    .command span {
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.55rem;
+      margin-top: 1.25rem;
+    }
+
+    .chip {
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.88rem;
+      padding: 0.45rem 0.75rem;
+      border-radius: 8px;
+      background: rgba(15, 122, 90, 0.08);
+      color: var(--accent-deep);
+      border: 1px solid rgba(15, 122, 90, 0.16);
+    }
+
+    /* Dual / trust denser blocks */
+    .split-band {
+      padding: clamp(4rem, 8vw, 6rem) 0;
+      background:
+        linear-gradient(180deg, transparent, rgba(213, 228, 220, 0.45), transparent);
+    }
+
+    .split-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2.5rem;
+    }
+
+    .split-item h2 { max-width: 14ch; }
+
+    /* CTA */
+    .cta {
+      padding: clamp(4.5rem, 9vw, 7rem) 0;
+      text-align: center;
+    }
+
+    .cta h2 {
+      max-width: none;
+      margin-inline: auto;
+      margin-bottom: 0.75rem;
+    }
+
+    .cta .support {
+      margin-inline: auto;
+      margin-bottom: 1.75rem;
+    }
+
+    .cta .btn-row { justify-content: center; }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 2.5rem 0 3rem;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .footer-inner {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem 2rem;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem 1.25rem;
+    }
+
+    .footer-links a:hover { color: var(--ink); }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .nav-links a:not(.nav-cta) { display: none; }
+
+      .feature-grid,
+      .feature-grid.reverse,
+      .split-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .feature-grid.reverse .feature-copy,
+      .feature-grid.reverse .feature-media {
+        order: initial;
+      }
+
+      h1 { max-width: 12ch; }
+
+      .feature-media { order: -1; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .reveal { opacity: 1; transform: none; transition: none; }
+      .hero-stage img { animation: none; }
+      .btn { transition: none; }
+    }
+  </style>
 </head>
 <body>
+  <header class="nav" id="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#">SearchLauncher</a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#features">Features</a>
+        <a href="#privacy">Privacy</a>
+        <a class="nav-cta" href="#download">Download</a>
+      </nav>
+    </div>
+  </header>
 
-    <!-- Hero Section -->
+  <main>
     <section class="hero">
-        <div class="container">
-            <div class="hero-content">
-                <div class="hero-text">
-                    <h1>Command your Android.</h1>
-                    <p class="lead">The launcher that thinks like you do. Keyboard ready instantly. Search apps, contacts, settings, and the web without leaving the home screen — and open what you find in a built-in browser that blocks ads and trackers.</p>
-                    <a href="https://f-droid.org/" class="btn">Install SearchLauncher</a>
-                    <span class="btn-subtext">Free, open source, and nothing tracking you by default.</span>
-                </div>
-                <div class="hero-image">
-                    <img src="assets/hero_phone.png" alt="SearchLauncher Interface">
-                </div>
-            </div>
+      <div class="hero-stage" aria-hidden="true">
+        <img src="assets/home.jpg" alt="" width="1200" height="2670">
+      </div>
+      <div class="hero-content">
+        <p class="hero-brand reveal">SearchLauncher</p>
+        <h1 class="reveal reveal-delay-1">Your homescreen has a keyboard.</h1>
+        <p class="lead reveal reveal-delay-2">Type to launch apps, call contacts, run shortcuts, or open the web — from one always-ready bar.</p>
+        <div class="btn-row reveal reveal-delay-3">
+          <a class="btn btn-primary" href="https://play.google.com/store/apps/details?id=com.searchlauncher.app">Get SearchLauncher</a>
+          <a class="btn btn-ghost" href="https://f-droid.org/packages/com.searchlauncher.app">F-Droid</a>
         </div>
+        <p class="meta reveal reveal-delay-3">Free · Open source · Android 10+ · Also works as a home-screen widget</p>
+      </div>
     </section>
 
-    <!-- Anchor Statement -->
-    <section class="anchor">
-        <div class="container">
-            <blockquote class="quote">
-                "Finally, a launcher for people who type faster than they swipe. It’s the power of Raycast, now in your pocket."
-            </blockquote>
-        </div>
+    <section class="quote-band" aria-label="Positioning">
+      <div class="wrap">
+        <blockquote class="quote reveal">
+          Finally, a launcher for people who type faster than they swipe. It’s the power of Raycast, now in your pocket.
+        </blockquote>
+      </div>
     </section>
 
-    <!-- Features Grid -->
-    <section class="features">
-        <div class="container">
-            <div class="features-grid">
-                <div class="feature-card">
-                    <h3>Search everything.</h3>
-                    <p>Don't just launch apps. Query your contacts, toggle system settings, or jump straight into external services. If it’s on your phone, you can find it from here in milliseconds.</p>
-                </div>
-                <div class="feature-card">
-                    <h3>Shortcuts & Snippets.</h3>
-                    <p>Built for velocity. Create custom aliases (e.g., type <strong>y test</strong> to search YouTube). Store frequently used text snippets for instant insertion anywhere.</p>
-                </div>
-                <div class="feature-card">
-                    <h3>Smart Parsing.</h3>
-                    <p>Type a URL, a phone number, or an email address. SearchLauncher recognizes the format and instantly suggests the best app to execute the action.</p>
-                </div>
-                <div class="feature-card">
-                    <h3>A browser, built in.</h3>
-                    <p>Web results open in SearchLauncher itself, with ads and trackers blocked by default. Swipe the search bar sideways to switch tabs or up to see them all — straight from the home screen, without opening a browser first.</p>
-                </div>
-                <div class="feature-card">
-                    <h3>Bookmarks & history.</h3>
-                    <p>Save any page under a title you choose, then type a few letters to get it back. Pages you have visited are searchable too, each with the site's own icon.</p>
-                </div>
-            </div>
+    <div id="features">
+      <section class="feature">
+        <div class="wrap feature-grid">
+          <div class="feature-copy reveal">
+            <p class="eyebrow">Search</p>
+            <h2>If it’s on your phone, type it.</h2>
+            <p class="support">Fuzzy search across apps, shortcuts, contacts, and settings. Ranking learns what you pick — so the next time is faster.</p>
+            <ul class="point-list">
+              <li>Apps and app shortcuts</li>
+              <li>Contacts — call, text, email, WhatsApp, Signal, Telegram, and more</li>
+              <li>System settings and actions: flashlight, dark mode, rotation lock, battery saver…</li>
+              <li>Voice search when your hands are full</li>
+            </ul>
+          </div>
+          <div class="feature-media reveal reveal-delay-1">
+            <figure class="phone phone-sm">
+              <img src="assets/search.jpg" alt="Typing Sett to find settings, shortcuts, and system actions" width="1200" height="2670">
+            </figure>
+          </div>
         </div>
+      </section>
+
+      <section class="feature">
+        <div class="wrap feature-grid reverse">
+          <div class="feature-copy reveal">
+            <p class="eyebrow">Commands</p>
+            <h2>Aliases for how you actually work.</h2>
+            <p class="support">Built-in shortcuts like <strong>y</strong> for YouTube, <strong>g</strong> for Google, <strong>c</strong> for ChatGPT, <strong>m</strong> for Maps — or invent your own. Save snippets and copy them from the same bar.</p>
+            <div class="commands" aria-label="Example commands">
+              <div class="command"><kbd>y cats</kbd><span>→ YouTube</span></div>
+              <div class="command"><kbd>g weather</kbd><span>→ Google</span></div>
+              <div class="command"><kbd>10m rice</kbd><span>→ named timer</span></div>
+              <div class="command"><kbd>your IBAN snippet</kbd><span>→ copy</span></div>
+            </div>
+          </div>
+          <div class="feature-media reveal reveal-delay-1">
+            <figure class="phone phone-sm">
+              <img src="assets/shortcuts.jpg" alt="YouTube shortcut search with live suggestions from the home search bar" width="1200" height="2670">
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature">
+        <div class="wrap feature-grid">
+          <div class="feature-copy reveal">
+            <p class="eyebrow">Smart input</p>
+            <h2>The bar knows what you meant.</h2>
+            <p class="support">Paste a number, email, URL, or equation. SearchLauncher offers the right action — call, text, email, open, or copy the answer.</p>
+            <div class="chip-row" aria-label="Recognized input types">
+              <span class="chip">1+1</span>
+              <span class="chip">phone number</span>
+              <span class="chip">email</span>
+              <span class="chip">URL</span>
+              <span class="chip">2h</span>
+              <span class="chip">20sec</span>
+            </div>
+          </div>
+          <div class="feature-media reveal reveal-delay-1">
+            <figure class="phone phone-sm">
+              <img src="assets/home.jpg" alt="Search bar ready with calculator hint and favorite apps above the keyboard" width="1200" height="2670">
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature">
+        <div class="wrap feature-grid reverse">
+          <div class="feature-copy reveal">
+            <p class="eyebrow">Browser</p>
+            <h2>Browse from the same bar.</h2>
+            <p class="support">Web results open in SearchLauncher’s built-in browser. Ads and trackers blocked by default. Tabs live under your thumb — swipe the search bar sideways to switch, or up for live previews. From the home screen too.</p>
+            <ul class="point-list">
+              <li>Ad &amp; tracker blocking on by default</li>
+              <li>Private browsing in an isolated process — no history written</li>
+              <li>Bookmarks and searchable history, with site icons</li>
+              <li>Optional: set as your default browser</li>
+            </ul>
+          </div>
+          <div class="feature-media reveal reveal-delay-1">
+            <figure class="phone phone-sm">
+              <img src="assets/web.jpg" alt="Web search from the home bar with live suggestions" width="1200" height="2670">
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature">
+        <div class="wrap feature-grid">
+          <div class="feature-copy reveal">
+            <p class="eyebrow">Home</p>
+            <h2>Reclaim the screen.</h2>
+            <p class="support">When you’re not searching, the UI steps aside. Swipe a wallpaper album, host widgets, keep favorites and recents above the bar.</p>
+            <ul class="point-list">
+              <li>Swipe wallpapers; theme colors pulled from your background</li>
+              <li>Widgets you can resize, reorder, and hide with a tap on the background</li>
+              <li>Favorites you pin; history that follows how you work</li>
+              <li>Gestures for notifications, quick settings, and the app drawer</li>
+              <li>OLED true-black when you want it</li>
+            </ul>
+          </div>
+          <div class="feature-media reveal reveal-delay-1">
+            <figure class="phone phone-sm">
+              <img src="assets/widgets.jpg" alt="Add and browse widgets from the SearchLauncher search bar" width="1200" height="2670">
+            </figure>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section class="split-band" id="privacy">
+      <div class="wrap split-grid">
+        <div class="split-item reveal">
+          <p class="eyebrow">Your way</p>
+          <h2>Full launcher — or just the search bar.</h2>
+          <p class="support">Set SearchLauncher as default, or keep your current launcher and add the widget. Same power either way. Export and import a backup when you switch phones.</p>
+        </div>
+        <div class="split-item reveal reveal-delay-1">
+          <p class="eyebrow">Privacy</p>
+          <h2>Open by design. Yours stays yours.</h2>
+          <p class="support">Indexing and ranking run on your device. There is no SearchLauncher cloud for your queries. Free, MIT-licensed, auditable on GitHub.</p>
+          <ul class="point-list">
+            <li>On-device AppSearch index — your catalog never phones home</li>
+            <li>Web searches go straight to the provider you chose</li>
+            <li>Suggestions and crash reports are optional</li>
+            <li>In-browser ads and trackers blocked by default</li>
+            <li>On Google Play and F-Droid</li>
+          </ul>
+          <p class="meta"><a href="privacy.html">Read the privacy policy →</a></p>
+        </div>
+      </div>
     </section>
 
-    <!-- Trust Section -->
-    <section class="trust">
-        <div class="container">
-            <div class="trust-content">
-                <h2>No black boxes. Open by design.</h2>
-                <p>The software that acts as the gateway to your digital life must be transparent. SearchLauncher is completely free and open source. No ads, and nothing is collected about you unless you switch it on: crash reporting is opt-in, and search suggestions only reach a search engine once you enable them. Everything else — your apps, history, bookmarks and snippets — stays on your device. Audit the code yourself on GitHub.</p>
-            </div>
+    <section class="cta" id="download">
+      <div class="wrap reveal">
+        <h2>Stop scrolling. Start executing.</h2>
+        <p class="support">Free on Google Play and F-Droid. Android 10 or newer.</p>
+        <div class="btn-row">
+          <a class="btn btn-primary" href="https://play.google.com/store/apps/details?id=com.searchlauncher.app">Download on Google Play</a>
+          <a class="btn btn-ghost" href="https://f-droid.org/packages/com.searchlauncher.app">Get it on F-Droid</a>
         </div>
+      </div>
     </section>
+  </main>
 
-    <!-- Aesthetics Section -->
-    <section class="aesthetics">
-        <div class="container">
-            <div class="trust-content"> <!-- Reusing container for width -->
-                <h2>Reclaim your screen real estate.</h2>
-                <p>Because the launcher is only there when you need it, the clutter is gone. When idle, enjoy a clean swipe through your favorite wallpapers with zero UI obstruction.</p>
-            </div>
-        </div>
-    </section>
+  <footer>
+    <div class="wrap footer-inner">
+      <p>Made with love by Ontola</p>
+      <div class="footer-links">
+        <a href="https://github.com/joepio/searchlauncher">GitHub</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="https://play.google.com/store/apps/details?id=com.searchlauncher.app">Play</a>
+        <a href="https://f-droid.org/packages/com.searchlauncher.app">F-Droid</a>
+        <a href="mailto:info@ontola.io">info@ontola.io</a>
+      </div>
+    </div>
+  </footer>
 
-    <!-- Footer Section -->
-    <footer>
-        <div class="container">
-            <h2>Stop scrolling. Start executing.</h2>
-            <div style="margin-top: 40px;">
-                <a href="https://f-droid.org/" class="btn">Download on F-Droid / Play Store</a>
-            </div>
-            <div class="footer-links">
-                <a href="https://github.com/ontola/searchlauncher" class="footer-link">GitHub Repository</a>
-            </div>
-        </div>
-    </footer>
+  <script>
+    (function () {
+      var nav = document.getElementById("nav");
+      var onScroll = function () {
+        nav.classList.toggle("is-scrolled", window.scrollY > 8);
+      };
+      onScroll();
+      window.addEventListener("scroll", onScroll, { passive: true });
 
+      var nodes = document.querySelectorAll(".reveal");
+      if (!("IntersectionObserver" in window)) {
+        nodes.forEach(function (el) { el.classList.add("is-in"); });
+        return;
+      }
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-in");
+            io.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.16, rootMargin: "0px 0px -6% 0px" });
+      nodes.forEach(function (el) { io.observe(el); });
+    })();
+  </script>
 </body>
 </html>
