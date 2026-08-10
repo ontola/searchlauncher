@@ -19,16 +19,19 @@ AutoName: SearchLauncher
 
 RepoType: git
 Repo: https://github.com/ontola/searchlauncher.git
+Binaries: https://github.com/ontola/searchlauncher/releases/download/v%v/app-release.apk
 
 Builds:
-  - versionName: 0.0.12
-    versionCode: 250
+  - versionName: 0.0.13
+    versionCode: 251
     commit: COMMIT_RESOLVED_FROM_TAG
     subdir: app
     gradle:
       - yes
 
+AllowedAPKSigningKeys: 553f628023ac5739ed10cfdfad26e9c79ad5ef669cd187c8effa97c733b1d6b0
+
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 0.0.12
-CurrentVersionCode: 250
+CurrentVersion: 0.0.13
+CurrentVersionCode: 251
