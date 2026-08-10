@@ -22,8 +22,8 @@ Repo: https://github.com/ontola/searchlauncher.git
 Binaries: https://github.com/ontola/searchlauncher/releases/download/v%v/app-release.apk
 
 Builds:
-  - versionName: 0.0.13
-    versionCode: 251
+  - versionName: 0.0.14
+    versionCode: 252
     commit: COMMIT_RESOLVED_FROM_TAG
     subdir: app
     gradle:
@@ -33,5 +33,5 @@ AllowedAPKSigningKeys: 553f628023ac5739ed10cfdfad26e9c79ad5ef669cd187c8effa97c73
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 0.0.13
-CurrentVersionCode: 251
+CurrentVersion: 0.0.14
+CurrentVersionCode: 252
