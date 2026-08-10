@@ -24,11 +24,12 @@ Android app that lets you search everything on your phone and on the web, and op
 
 <p float="left">
   <img src="screenshots/01_home.jpg" width="200" alt="Home screen with the keyboard already up" />
-  <img src="screenshots/02_search.jpg" width="200" alt="One query matching history, settings and apps" />
-  <img src="screenshots/03_browser.jpg" width="200" alt="A page open in the built-in browser" />
-  <img src="screenshots/04_tabs.jpg" width="200" alt="Browser tabs as live previews on the home screen" />
-  <img src="screenshots/05_browser_menu.jpg" width="200" alt="Browser menu with bookmarks and tab controls" />
-  <img src="screenshots/06_settings.jpg" width="200" alt="Settings" />
+  <img src="screenshots/02_search_youtube.jpg" width="200" alt="Searching YouTube from the home screen" />
+  <img src="screenshots/03_calculator.jpg" width="200" alt="A sum answered straight in the search bar" />
+  <img src="screenshots/04_browser.jpg" width="200" alt="A page open in the built-in browser" />
+  <img src="screenshots/05_tabs.jpg" width="200" alt="Browser tabs as live previews on the home screen" />
+  <img src="screenshots/06_browser_menu.jpg" width="200" alt="Browser menu with bookmarks and tab controls" />
+  <img src="screenshots/07_settings.jpg" width="200" alt="Settings" />
 </p>
 
 ## Use as Launcher or as a Widget
