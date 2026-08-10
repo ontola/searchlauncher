@@ -1,0 +1,5 @@
+Verifiable builds, continued.
+
+- The APK no longer carries the list of dependencies that Android's build tools sign into it for Google Play's benefit. It told you nothing, and F-Droid rejects APKs that carry one.
+- Together with the previous release, this means anyone can rebuild this source and get exactly the APK that is published, so F-Droid can verify it and ship it under our own signature.
+- Nothing in the app itself has changed.

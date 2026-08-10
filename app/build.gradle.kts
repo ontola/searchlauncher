@@ -38,10 +38,10 @@ android {
     minSdk = 29
     targetSdk = 36
     // F-Droid greps these two literals out of this file to notice new release tags, so
-    // they have to stay plain literals and be bumped in the commit that gets tagged.
-    // 250 clears 242, the highest versionCode the old commit-count scheme ever shipped.
-    versionCode = 251
-    versionName = "0.0.13"
+    // they have to stay plain literals and be bumped in the commit that gets tagged. The series
+    // starts at 250 to clear 242, the highest the old commit-count scheme ever shipped.
+    versionCode = 252
+    versionName = "0.0.14"
 
     buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
     buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")
@@ -86,6 +86,13 @@ android {
   buildFeatures {
     compose = true
     buildConfig = true
+  }
+
+  // AGP otherwise signs a dependency list into the APK for Google Play's benefit. F-Droid's
+  // scanner rejects it as an extra signing block, and it tells our users nothing.
+  dependenciesInfo {
+    includeInApk = false
+    includeInBundle = false
   }
 
   packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
