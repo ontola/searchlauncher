@@ -63,10 +63,15 @@ android {
 
   buildTypes {
     release {
-      // Enable R8 only if the 'minifyRelease' property is passed (e.g. in CI)
-      val enableR8 = project.hasProperty("minifyRelease")
-      isMinifyEnabled = enableR8
-      isShrinkResources = enableR8
+      // Always on, and deliberately not behind a property. F-Droid builds a plain
+      // `assembleRelease`, so anything only our CI passes would make its APK differ from the
+      // released one and fail reproducible-build verification.
+      isMinifyEnabled = true
+      isShrinkResources = true
+      // AGP otherwise writes the checkout's git details into the APK, and what it finds depends on
+      // how the tree was obtained: a clone gets a revision, a worktree gets NO_VALID_GIT_FOUND.
+      // That difference alone breaks reproducible builds. BuildConfig.GIT_HASH still records it.
+      vcsInfo { include = false }
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       if (hasReleaseSigning) {
         signingConfig = signingConfigs.getByName("release")
