@@ -849,7 +849,13 @@ fun SearchScreen(
                 deepLink = "calculator://copy?text=$formattedResult",
               )
             searchResults =
-              (listOf(calcResult) + resultsWithIndexing).distinctBy { it.stableListKey }
+              if (MathEvaluator.isUnambiguouslyArithmetic(query)) {
+                // Contacts are indexed on their phone numbers, so a query like "1234*56" drags in
+                // whoever happens to share those digits. Nothing but the sum can be meant here.
+                listOf(calcResult)
+              } else {
+                (listOf(calcResult) + resultsWithIndexing).distinctBy { it.stableListKey }
+              }
           } else {
             searchResults = resultsWithIndexing
           }

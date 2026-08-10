@@ -6,6 +6,9 @@ import kotlin.math.*
 object MathEvaluator {
   private val OPERATORS = setOf('+', '-', '*', '/', '^', '%')
 
+  /** Operators that never turn up in a phone number, so a query using one can only be a sum. */
+  private val ARITHMETIC_ONLY = setOf('*', '/', '^', '%', '(', ')')
+
   fun isExpression(input: String): Boolean {
     if (input.isBlank()) return false
     // If it starts with +, it's likely a phone number, not a math expression (user request)
@@ -19,6 +22,16 @@ object MathEvaluator {
       }
     return hasOperator && hasDigit && allValid
   }
+
+  /**
+   * True when the query cannot be anything but arithmetic, so the caller can drop everything else
+   * from the results.
+   *
+   * `+` and `-` are deliberately not enough on their own: `06-12345678` is how a phone number gets
+   * typed, and hiding the contact it matches behind a subtraction would be worse than showing both.
+   */
+  fun isUnambiguouslyArithmetic(input: String): Boolean =
+    isExpression(input) && input.any { it in ARITHMETIC_ONLY }
 
   fun evaluate(expression: String): Double? {
     return try {
