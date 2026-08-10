@@ -16,10 +16,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-      - name: set up JDK 17
+      # 21 to match F-Droid's buildserver, which ships no other JDK. The APK we release has to
+      # come out of the same compiler as the one F-Droid builds from source, or reproducible-build
+      # verification fails. The app still targets 17 bytecode; see jvmTarget below.
+      - name: set up JDK 21
         uses: actions/setup-java@v3
         with:
-          java-version: "17"
+          java-version: "21"
           distribution: "temurin"
           cache: "gradle"
 

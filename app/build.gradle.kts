@@ -40,8 +40,8 @@ android {
     // F-Droid greps these two literals out of this file to notice new release tags, so
     // they have to stay plain literals and be bumped in the commit that gets tagged.
     // 250 clears 242, the highest versionCode the old commit-count scheme ever shipped.
-    versionCode = 250
-    versionName = "0.0.12"
+    versionCode = 251
+    versionName = "0.0.13"
 
     buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
     buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")

@@ -1,0 +1,4 @@
+Verifiable builds.
+
+- This release changes only how the app is built, so anyone can rebuild this source and get exactly the APK that is published. F-Droid can then check that what it distributes really was built from this code, and ship it under our own signature rather than re-signing it.
+- Nothing in the app itself has changed.
