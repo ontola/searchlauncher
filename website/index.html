@@ -209,60 +209,21 @@
     /* Hero */
     .hero {
       position: relative;
-      min-height: min(100svh, 980px);
-      display: flex;
-      align-items: flex-end;
-      padding: 0;
+      padding: clamp(3.5rem, 8vw, 5.5rem) 0 clamp(3rem, 6vw, 4.5rem);
       overflow: hidden;
     }
 
-    .hero-stage {
-      position: absolute;
-      inset: 0;
-      z-index: 0;
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+      gap: clamp(2rem, 5vw, 3.5rem);
+      align-items: center;
     }
 
-    .hero-stage img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      object-position: center 30%;
-      transform: scale(1.06);
-      filter: saturate(1.05) contrast(1.02);
-      animation: hero-drift 18s ease-in-out infinite alternate;
-    }
-
-    @keyframes hero-drift {
-      from { transform: scale(1.06) translate3d(0, 0, 0); }
-      to { transform: scale(1.12) translate3d(-1.5%, 1%, 0); }
-    }
-
-    .hero-stage::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background:
-        linear-gradient(180deg, rgba(238, 244, 239, 0.18) 0%, rgba(243, 246, 242, 0.55) 42%, rgba(243, 246, 242, 0.94) 78%, var(--paper) 100%),
-        linear-gradient(90deg, rgba(243, 246, 242, 0.72) 0%, rgba(243, 246, 242, 0.35) 48%, rgba(243, 246, 242, 0.15) 100%);
-    }
-
-    .hero-content {
+    .hero-copy {
       position: relative;
       z-index: 2;
-      width: min(100% - 2.5rem, var(--max));
-      margin: 0 auto;
-      padding: 8rem 0 5rem;
-      max-width: 40rem;
-    }
-
-    .hero-content::before {
-      content: "";
-      position: absolute;
-      z-index: -1;
-      inset: 4.5rem -1.5rem 1.5rem -1.75rem;
-      background: linear-gradient(180deg, rgba(243, 246, 242, 0.2), rgba(243, 246, 242, 0.82) 28%, rgba(243, 246, 242, 0.92));
-      border-radius: 28px;
-      filter: blur(0.5px);
+      max-width: 34rem;
     }
 
     .hero-brand {
@@ -281,24 +242,114 @@
       font-weight: 600;
     }
 
-    .hero-phone-float {
-      display: none;
+    .hero-shots {
+      position: relative;
+      min-height: min(72vh, 640px);
+      display: grid;
+      place-items: center;
+    }
+
+    .hero-shots::before {
+      content: "";
+      position: absolute;
+      width: min(120%, 520px);
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(15, 122, 90, 0.14), transparent 68%);
+      z-index: 0;
+      animation: glow-pulse 10s ease-in-out infinite alternate;
+    }
+
+    @keyframes glow-pulse {
+      from { transform: scale(0.96); opacity: 0.75; }
+      to { transform: scale(1.05); opacity: 1; }
+    }
+
+    .hero-phone {
+      position: absolute;
+      width: min(42%, 220px);
+      border-radius: 1.6rem;
+      overflow: hidden;
+      border: 3px solid var(--phone-frame);
+      background: #000;
+      box-shadow: 0 22px 44px rgba(16, 32, 24, 0.18);
+      aspect-ratio: 9 / 19.5;
+    }
+
+    .hero-phone img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top center;
+    }
+
+    .hero-phone-main {
+      width: min(58%, 290px);
+      z-index: 3;
+      position: relative;
+      border-radius: 1.85rem;
+      animation: phone-rise 1s var(--ease) both;
+    }
+
+    .hero-phone-left {
+      left: 0;
+      top: 12%;
+      transform: rotate(-8deg) translateY(12px);
+      z-index: 1;
+      animation: phone-rise 1s var(--ease) 0.08s both;
+    }
+
+    .hero-phone-right {
+      right: 0;
+      top: 10%;
+      transform: rotate(8deg) translateY(18px);
+      z-index: 2;
+      animation: phone-rise 1s var(--ease) 0.16s both;
+    }
+
+    @keyframes phone-rise {
+      from { opacity: 0; transform: translateY(28px); }
+      to { opacity: 1; }
+    }
+
+    .hero-phone-left { animation-name: phone-rise-left; }
+    .hero-phone-right { animation-name: phone-rise-right; }
+
+    @keyframes phone-rise-left {
+      from { opacity: 0; transform: rotate(-8deg) translateY(40px); }
+      to { opacity: 1; transform: rotate(-8deg) translateY(12px); }
+    }
+
+    @keyframes phone-rise-right {
+      from { opacity: 0; transform: rotate(8deg) translateY(46px); }
+      to { opacity: 1; transform: rotate(8deg) translateY(18px); }
     }
 
     @media (max-width: 900px) {
       .hero {
-        min-height: auto;
-        align-items: stretch;
+        padding-top: 2.5rem;
       }
 
-      .hero-stage img {
-        object-position: center 20%;
+      .hero-grid {
+        grid-template-columns: 1fr;
+        gap: 2.5rem;
       }
 
-      .hero-content {
-        padding: 5.5rem 0 3rem;
+      .hero-copy {
         max-width: none;
+        text-align: left;
       }
+
+      .hero-shots {
+        order: -1;
+        min-height: 420px;
+        width: min(100%, 360px);
+        margin-inline: auto;
+      }
+
+      .hero-phone-main { width: min(56%, 210px); }
+      .hero-phone-left,
+      .hero-phone-right { width: min(40%, 150px); }
     }
 
     .phone {
@@ -520,7 +571,10 @@
     @media (prefers-reduced-motion: reduce) {
       html { scroll-behavior: auto; }
       .reveal { opacity: 1; transform: none; transition: none; }
-      .hero-stage img { animation: none; }
+      .hero-shots::before,
+      .hero-phone-main,
+      .hero-phone-left,
+      .hero-phone-right { animation: none; }
       .btn { transition: none; }
     }
   </style>
@@ -539,18 +593,28 @@
 
   <main>
     <section class="hero">
-      <div class="hero-stage" aria-hidden="true">
-        <img src="assets/home.jpg" alt="" width="1200" height="2670">
-      </div>
-      <div class="hero-content">
-        <p class="hero-brand reveal">SearchLauncher</p>
-        <h1 class="reveal reveal-delay-1">Your homescreen has a keyboard.</h1>
-        <p class="lead reveal reveal-delay-2">Type to launch apps, call contacts, run shortcuts, or open the web — from one always-ready bar.</p>
-        <div class="btn-row reveal reveal-delay-3">
-          <a class="btn btn-primary" href="https://github.com/ontola/searchlauncher/releases/latest">Download SearchLauncher</a>
-          <a class="btn btn-ghost" href="https://github.com/ontola/searchlauncher">View source</a>
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="hero-brand reveal">SearchLauncher</p>
+          <h1 class="reveal reveal-delay-1">Your homescreen has a keyboard.</h1>
+          <p class="lead reveal reveal-delay-2">Type to launch apps, call contacts, run shortcuts, or open the web — from one always-ready bar.</p>
+          <div class="btn-row reveal reveal-delay-3">
+            <a class="btn btn-primary" href="https://github.com/ontola/searchlauncher/releases/latest">Download SearchLauncher</a>
+            <a class="btn btn-ghost" href="https://github.com/ontola/searchlauncher">View source</a>
+          </div>
+          <p class="meta reveal reveal-delay-3">Free · Open source · Android 10+ · Also works as a home-screen widget</p>
         </div>
-        <p class="meta reveal reveal-delay-3">Free · Open source · Android 10+ · Also works as a home-screen widget</p>
+        <div class="hero-shots reveal reveal-delay-1" aria-label="SearchLauncher screenshots">
+          <figure class="hero-phone hero-phone-left">
+            <img src="assets/search.jpg" alt="Search results for settings and system actions" width="1200" height="2670">
+          </figure>
+          <figure class="hero-phone hero-phone-right">
+            <img src="assets/shortcuts.jpg" alt="YouTube shortcut search from the home bar" width="1200" height="2670">
+          </figure>
+          <figure class="hero-phone hero-phone-main">
+            <img src="assets/home.jpg" alt="SearchLauncher home screen with keyboard ready" width="1200" height="2670">
+          </figure>
+        </div>
       </div>
     </section>
 
