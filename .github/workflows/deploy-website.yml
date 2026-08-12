@@ -29,10 +29,8 @@ jobs:
       - name: Prepare site
         run: |
           mkdir -p _site
-          rsync -a \
-            --exclude 'COPY.md' \
-            --exclude 'specimen.html' \
-            website/ _site/
+          cp -a website/. _site/
+          rm -f _site/COPY.md _site/specimen.html _site/README.md
           # Skip Jekyll so asset paths and dotfiles publish as-is.
           touch _site/.nojekyll
 
