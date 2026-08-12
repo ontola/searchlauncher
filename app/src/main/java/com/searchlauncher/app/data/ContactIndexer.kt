@@ -13,6 +13,46 @@ import com.searchlauncher.app.util.ContactUtils
 class ContactIndexer(private val context: Context) {
 
   /**
+   * A cheap summary of the contacts store: how many contacts there are and when one was last
+   * touched. Additions and edits move the timestamp, deletions move the count, so comparing this
+   * against the previous run tells us whether a rebuild is worth doing.
+   *
+   * Returns null if the provider is unreadable, which callers should treat as "unknown" rather than
+   * "unchanged".
+   */
+  fun readFingerprint(): String? {
+    val cursor =
+      try {
+        context.contentResolver.query(
+          ContactsContract.Contacts.CONTENT_URI,
+          arrayOf(
+            ContactsContract.Contacts._ID,
+            ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP,
+          ),
+          null,
+          null,
+          null,
+        )
+      } catch (e: Exception) {
+        android.util.Log.w("ContactIndexer", "Failed to read contacts fingerprint", e)
+        null
+      } ?: return null
+
+    var count = 0
+    var lastUpdated = 0L
+    cursor.use {
+      val updatedIndex = it.getColumnIndex(ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP)
+      while (it.moveToNext()) {
+        count++
+        if (updatedIndex >= 0 && !it.isNull(updatedIndex)) {
+          lastUpdated = maxOf(lastUpdated, it.getLong(updatedIndex))
+        }
+      }
+    }
+    return "$count/$lastUpdated"
+  }
+
+  /**
    * Reads contacts (with their phone numbers and emails) and returns one document per named
    * contact. [pauseCheck] is invoked between rows so indexing yields to active searches.
    */

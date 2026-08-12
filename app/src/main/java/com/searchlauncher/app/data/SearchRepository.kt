@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.provider.ContactsContract
 import android.util.Log
 import androidx.appsearch.app.AppSearchSession
 import androidx.appsearch.app.PutDocumentsRequest
@@ -47,6 +48,9 @@ private const val USAGE_KEY_SEPARATOR = "\u001F"
 private const val QUERY_USAGE_FULL_QUERY_POINTS = 100
 private const val INDEXING_INTERACTIVE_SEARCH_PAUSE_MS = 1200L
 private const val INDEXING_INTERACTIVE_SEARCH_POLL_MS = 80L
+
+/** Editing one contact fires several provider notifications; wait for the burst to settle. */
+private const val CONTACTS_REFRESH_DEBOUNCE_MS = 2000L
 
 data class SearchableDocument(
   val doc: AppSearchDocument,
@@ -319,6 +323,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             android.os.Handler(android.os.Looper.getMainLooper()),
           )
 
+          registerContactsObserver()
+
           // Pre-cache SearchLauncher's own icon for internal actions
           scope.launch {
             try {
@@ -412,6 +418,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               "SearchRepository",
               "Index is fresh (last: $lastReindex), skipping re-index",
             )
+            // Contacts can change while we aren't running, so the freshness window alone would
+            // hide added/removed contacts for hours. Cheap fingerprint check catches that.
+            refreshContactsIfChanged()
             return@launch
           }
 
@@ -736,6 +745,64 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       replaceCollection("static_shortcuts", docs)
     }
 
+  /** Coalesces the burst of change notifications an account sync produces into one rebuild. */
+  private var contactsRefreshJob: kotlinx.coroutines.Job? = null
+
+  private val contactsObserver =
+    object :
+      android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+      override fun onChange(selfChange: Boolean) = onChange(selfChange, null)
+
+      override fun onChange(selfChange: Boolean, uri: android.net.Uri?) {
+        contactsRefreshJob?.cancel()
+        contactsRefreshJob =
+          scope.launch {
+            delay(CONTACTS_REFRESH_DEBOUNCE_MS)
+            android.util.Log.d("SearchRepository", "Contacts changed, re-indexing")
+            refreshContacts()
+          }
+      }
+    }
+
+  private fun registerContactsObserver() {
+    try {
+      context.contentResolver.registerContentObserver(
+        ContactsContract.Contacts.CONTENT_URI,
+        // The provider notifies on the authority root as well as on individual contacts.
+        true,
+        contactsObserver,
+      )
+    } catch (e: Exception) {
+      android.util.Log.e("SearchRepository", "Failed to observe contacts", e)
+      Sentry.captureException(e)
+    }
+  }
+
+  /** Rebuilds the contacts namespace and republishes the snapshot to the UI. */
+  private suspend fun refreshContacts() {
+    indexWriteMutex.withLock { indexContacts() }
+    saveFastIndexCache()
+    _indexUpdated.emit(Unit)
+  }
+
+  /** Rebuilds contacts only when the provider reports a different set than we last indexed. */
+  private suspend fun refreshContactsIfChanged() =
+    withContext(Dispatchers.IO) {
+      if (
+        context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
+          android.content.pm.PackageManager.PERMISSION_GRANTED
+      ) {
+        return@withContext
+      }
+      val fingerprint = contactIndexer.readFingerprint() ?: return@withContext
+      val prefs = context.getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+      if (fingerprint == prefs.getString(Prefs.Launcher.CONTACTS_FINGERPRINT, null))
+        return@withContext
+
+      android.util.Log.d("SearchRepository", "Contacts changed while away, re-indexing")
+      refreshContacts()
+    }
+
   suspend fun indexContacts() =
     withContext(Dispatchers.IO) {
       pauseIndexingIfSearchIsActive()
@@ -747,6 +814,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
       android.util.Log.d("SearchRepository", "Indexing contacts...")
 
+      // Read before building: a change landing mid-build then leaves us with the older
+      // fingerprint, so the next startup rebuilds rather than silently skipping the update.
+      val fingerprint = contactIndexer.readFingerprint()
       val contacts = contactIndexer.buildDocuments(::pauseIndexingIfSearchIsActive)
 
       if (contacts.isNotEmpty()) {
@@ -756,6 +826,11 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         session.putAsync(putRequest).await()
         removeMissingDocuments(session, "contacts", contacts.map { it.id }.toSet())
         replaceCollection("contacts", contacts)
+        context
+          .getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+          .edit()
+          .putString(Prefs.Launcher.CONTACTS_FINGERPRINT, fingerprint)
+          .apply()
       } else {
         // Keep the previous contacts snapshot if the provider returns nothing — avoids wiping
         // on transient provider failures while a background rebuild is running.
