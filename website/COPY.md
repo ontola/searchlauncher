@@ -86,7 +86,7 @@ SearchLauncher · Features · Privacy · Download
 - **Alt micro-line (optional under CTA):** Use it as your launcher, or as a widget on any home screen.
 
 ### Proof strip
-> Finally, a launcher for people who type faster than they swipe. It’s the power of Raycast, now in your pocket.
+> Finally, a launcher for people who type faster than they swipe. A command palette for your pocket.
 
 ### Section 1 — Search everything
 **Eyebrow / kicker:** Search
