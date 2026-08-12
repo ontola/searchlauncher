@@ -31,10 +31,15 @@ jobs:
           mkdir -p _site
           cp -a website/. _site/
           rm -f _site/COPY.md _site/specimen.html _site/README.md
+          # Keep website/CNAME for the custom domain.
+          test -f _site/CNAME
           # Skip Jekyll so asset paths and dotfiles publish as-is.
           touch _site/.nojekyll
 
-      - uses: actions/configure-pages@v5
+      # Requires Settings → Pages → Source = "GitHub Actions".
+      # Legacy branch "/" publishes the README via Jekyll instead of website/.
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
