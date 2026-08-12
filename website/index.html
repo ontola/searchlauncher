@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SearchLauncher — Your homescreen has a keyboard</title>
+  <title>SearchLauncher · Your homescreen has a keyboard</title>
   <meta name="description" content="Keyboard-first Android launcher. Search apps, contacts, settings, snippets, and the web. Built-in ad-blocking browser with tabs. Free and open source.">
-  <meta property="og:title" content="SearchLauncher — Your homescreen has a keyboard">
-  <meta property="og:description" content="Type to launch apps, call contacts, run shortcuts, or open the web — from one always-ready bar.">
+  <meta property="og:title" content="SearchLauncher · Your homescreen has a keyboard">
+  <meta property="og:description" content="Type to launch apps, call contacts, run shortcuts, or open the web from one always-ready bar.">
   <meta property="og:type" content="website">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -257,30 +257,7 @@
       text-transform: uppercase;
       color: var(--accent-deep);
       margin-bottom: 0.85rem;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.45rem;
     }
-
-    .eyebrow-icon {
-      width: 1.1rem;
-      height: 1.1rem;
-      flex: 0 0 auto;
-      background-color: currentColor;
-      -webkit-mask-position: center;
-      -webkit-mask-size: contain;
-      -webkit-mask-repeat: no-repeat;
-      mask-position: center;
-      mask-size: contain;
-      mask-repeat: no-repeat;
-    }
-
-    .eyebrow-icon-search { -webkit-mask-image: url("assets/icon-search-mask.svg"); mask-image: url("assets/icon-search-mask.svg"); }
-    .eyebrow-icon-command { -webkit-mask-image: url("assets/icon-command-mask.svg"); mask-image: url("assets/icon-command-mask.svg"); }
-    .eyebrow-icon-keyboard { -webkit-mask-image: url("assets/icon-keyboard-mask.svg"); mask-image: url("assets/icon-keyboard-mask.svg"); }
-    .eyebrow-icon-browser { -webkit-mask-image: url("assets/icon-browser-mask.svg"); mask-image: url("assets/icon-browser-mask.svg"); }
-    .eyebrow-icon-home { -webkit-mask-image: url("assets/icon-home-mask.svg"); mask-image: url("assets/icon-home-mask.svg"); }
-    .eyebrow-icon-shield { -webkit-mask-image: url("assets/icon-shield-mask.svg"); mask-image: url("assets/icon-shield-mask.svg"); }
 
     .hero h1 {
       font-size: clamp(1.85rem, 4.4vw, 2.85rem);
@@ -594,6 +571,15 @@
 
     .footer-links a:hover { color: var(--ink); }
 
+    .footer-inner > p a {
+      color: var(--ink);
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 0.15em;
+    }
+
+    .footer-inner > p a:hover { color: var(--accent-deep); }
+
     /* Responsive */
     @media (max-width: 900px) {
       .nav-links a:not(.nav-cta) { display: none; }
@@ -649,7 +635,7 @@
             SearchLauncher
           </p>
           <h1 class="reveal reveal-delay-1">Your homescreen has a keyboard.</h1>
-          <p class="lead reveal reveal-delay-2">Type to launch apps, call contacts, run shortcuts, or open the web — from one always-ready bar.</p>
+          <p class="lead reveal reveal-delay-2">Type to launch apps, call contacts, run shortcuts, or open the web from one always-ready bar.</p>
           <div class="btn-row reveal reveal-delay-3">
             <a class="btn btn-primary" href="https://github.com/ontola/searchlauncher/releases/latest">Download SearchLauncher</a>
             <a class="btn btn-ghost" href="https://github.com/ontola/searchlauncher">View source</a>
@@ -682,12 +668,12 @@
       <section class="feature">
         <div class="wrap feature-grid">
           <div class="feature-copy reveal">
-            <p class="eyebrow"><img class="eyebrow-icon" src="assets/icon-search.svg" alt="">Search</p>
+            <p class="eyebrow">Search</p>
             <h2>If it’s on your phone, type it.</h2>
-            <p class="support">Fuzzy search across apps, shortcuts, contacts, and settings. Ranking learns what you pick — so the next time is faster.</p>
+            <p class="support">Fuzzy search across apps, shortcuts, contacts, and settings. Ranking learns what you pick, so the next time is faster.</p>
             <ul class="point-list">
               <li>Apps and app shortcuts</li>
-              <li>Contacts — call, text, email, WhatsApp, Signal, Telegram, and more</li>
+              <li>Contacts: call, text, email, WhatsApp, Signal, Telegram, and more</li>
               <li>System settings and actions: flashlight, dark mode, rotation lock, battery saver…</li>
               <li>Voice search when your hands are full</li>
             </ul>
@@ -703,9 +689,9 @@
       <section class="feature">
         <div class="wrap feature-grid reverse">
           <div class="feature-copy reveal">
-            <p class="eyebrow"><img class="eyebrow-icon" src="assets/icon-command.svg" alt="">Commands</p>
+            <p class="eyebrow">Commands</p>
             <h2>Aliases for how you actually work.</h2>
-            <p class="support">Built-in shortcuts like <strong>y</strong> for YouTube, <strong>g</strong> for Google, <strong>c</strong> for ChatGPT, <strong>m</strong> for Maps — or invent your own. Save snippets and copy them from the same bar.</p>
+            <p class="support">Built-in shortcuts like <strong>y</strong> for YouTube, <strong>g</strong> for Google, <strong>c</strong> for ChatGPT, <strong>m</strong> for Maps, or invent your own. Save snippets and copy them from the same bar.</p>
             <div class="commands" aria-label="Example commands">
               <div class="command"><kbd>y cats</kbd><span>→ YouTube</span></div>
               <div class="command"><kbd>g weather</kbd><span>→ Google</span></div>
@@ -724,9 +710,9 @@
       <section class="feature">
         <div class="wrap feature-grid">
           <div class="feature-copy reveal">
-            <p class="eyebrow"><img class="eyebrow-icon" src="assets/icon-keyboard.svg" alt="">Smart input</p>
+            <p class="eyebrow">Smart input</p>
             <h2>The bar knows what you meant.</h2>
-            <p class="support">Paste a number, email, URL, or equation. SearchLauncher offers the right action — call, text, email, open, or copy the answer.</p>
+            <p class="support">Paste a number, email, URL, or equation. SearchLauncher offers the right action: call, text, email, open, or copy the answer.</p>
             <div class="chip-row" aria-label="Recognized input types">
               <span class="chip">1+1</span>
               <span class="chip">phone number</span>
@@ -747,12 +733,12 @@
       <section class="feature">
         <div class="wrap feature-grid reverse">
           <div class="feature-copy reveal">
-            <p class="eyebrow"><img class="eyebrow-icon" src="assets/icon-browser.svg" alt="">Browser</p>
+            <p class="eyebrow">Browser</p>
             <h2>Browse from the same bar.</h2>
-            <p class="support">Web results open in SearchLauncher’s built-in browser. Ads and trackers blocked by default. Tabs live under your thumb — swipe the search bar sideways to switch, or up for live previews. From the home screen too.</p>
+            <p class="support">Web results open in SearchLauncher’s built-in browser. Ads and trackers blocked by default. Tabs live under your thumb: swipe the search bar sideways to switch, or up for live previews. From the home screen too.</p>
             <ul class="point-list">
               <li>Ad &amp; tracker blocking on by default</li>
-              <li>Private browsing in an isolated process — no history written</li>
+              <li>Private browsing in an isolated process with no history written</li>
               <li>Bookmarks and searchable history, with site icons</li>
               <li>Optional: set as your default browser</li>
             </ul>
@@ -768,7 +754,7 @@
       <section class="feature">
         <div class="wrap feature-grid">
           <div class="feature-copy reveal">
-            <p class="eyebrow"><img class="eyebrow-icon" src="assets/icon-home.svg" alt="">Home</p>
+            <p class="eyebrow">Home</p>
             <h2>Reclaim the screen.</h2>
             <p class="support">When you’re not searching, the UI steps aside. Swipe a wallpaper album, host widgets, keep favorites and recents above the bar.</p>
             <ul class="point-list">
@@ -791,16 +777,16 @@
     <section class="split-band" id="privacy">
       <div class="wrap split-grid">
         <div class="split-item reveal">
-          <p class="eyebrow"><img class="eyebrow-icon" src="assets/icon-home.svg" alt="">Your way</p>
-          <h2>Full launcher — or just the search bar.</h2>
+          <p class="eyebrow">Your way</p>
+          <h2>Full launcher, or just the search bar.</h2>
           <p class="support">Set SearchLauncher as default, or keep your current launcher and add the widget. Same power either way. Export and import a backup when you switch phones.</p>
         </div>
         <div class="split-item reveal reveal-delay-1">
-          <p class="eyebrow"><img class="eyebrow-icon" src="assets/icon-shield.svg" alt="">Privacy</p>
+          <p class="eyebrow">Privacy</p>
           <h2>Open by design. Yours stays yours.</h2>
           <p class="support">Indexing and ranking run on your device. There is no SearchLauncher cloud for your queries. Free, MIT-licensed, auditable on GitHub.</p>
           <ul class="point-list">
-            <li>On-device AppSearch index — your catalog never phones home</li>
+            <li>On-device AppSearch index: your catalog never phones home</li>
             <li>Web searches go straight to the provider you chose</li>
             <li>Suggestions and crash reports are optional</li>
             <li>In-browser ads and trackers blocked by default</li>
@@ -825,7 +811,7 @@
 
   <footer>
     <div class="wrap footer-inner">
-      <p>Made with love by Ontola</p>
+      <p>Made with love by <a href="https://ontola.io">Ontola</a></p>
       <div class="footer-links">
         <a href="https://github.com/ontola/searchlauncher">GitHub</a>
         <a href="privacy.html">Privacy</a>
