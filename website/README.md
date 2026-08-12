@@ -6,8 +6,15 @@ Published from this folder by [`.github/workflows/deploy-website.yml`](../.githu
 
 ## One-time GitHub setup
 
-1. Repo **Settings → Pages → Build and deployment → Source: GitHub Actions**
-2. Under **Custom domain**, set `searchlauncher.eu` (creates/uses `website/CNAME`)
+**Required:** Repo **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+
+If Source is still **Deploy from a branch** (`main` / `/`), GitHub Jekyll-publishes the
+repo root and https://searchlauncher.eu/ shows the README — not `website/`. The
+Deploy website workflow will also fail until Source is GitHub Actions.
+
+Then:
+1. Custom domain: `searchlauncher.eu` (uses `website/CNAME`)
+2. **Actions → Deploy website → Run workflow** (or push a `website/` change)
 3. After DNS verifies, enable **Enforce HTTPS**
 
 ## DNS at your registrar (Openprovider)
