@@ -5,18 +5,21 @@
     android:height="108dp"
     android:viewportWidth="128"
     android:viewportHeight="128">
+    <!-- Left chevron -->
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M10,58 L30.93,37.33 A39,39 0 0 0 30.93,78.67 Z" />
+    <!-- Right chevron -->
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M118,58 L97.07,37.33 A39,39 0 0 1 97.07,78.67 Z" />
+    <!-- Handle -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M40.49,71.26 L50.74,81.51 L31.65,100.60 L21.40,90.35 Z" />
+        android:pathData="M40.49,71.26 L50.74,81.51 L31.65,100.6 L21.4,90.35 Z" />
+    <!-- Magnifier ring (annulus) -->
     <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="15"
-        android:pathData="M64,31 A27,27 0 1 1 63.999,31 Z" />
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M64,31 A27,27 0 1 1 64,85 A27,27 0 1 1 64,31 Z M64,46.5 A12,12 0 1 0 64,70.5 A12,12 0 1 0 64,46.5 Z" />
 </vector>
