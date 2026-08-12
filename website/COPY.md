@@ -164,6 +164,25 @@ Made with love by Ontola · GitHub · Privacy · Releases · Source · info@onto
 - Launch. Search. Browse. One bar.
 - Raycast energy. Android native.
 - Type faster than you swipe.
+
+---
+
+## Font + icon (v1)
+
+**Mark:** Magnifier + side chevrons (existing app logo), redrawn SVG-first in `website/assets/icon.svg`.
+- `icon.svg` — `currentColor` mark
+- `icon-mask.svg` — black mark for CSS masks
+- `icon-app.svg` / `favicon.svg` — white mark on green squircle
+- Feature set: `icon-search`, `icon-keyboard`, `icon-command`, `icon-browser`, `icon-shield`, `icon-home`
+
+**Type pairing tried:**
+| Display | Body | Notes |
+|---|---|---|
+| Sora | Source Sans 3 | Previous; soft geometric |
+| Outfit | Source Sans 3 | Friendly, a bit generic |
+| **Space Grotesk** | **Source Sans 3** | **Chosen** — technical, pairs with bold geometric mark |
+
+Wordmark + mark appear in nav and hero; section eyebrows use the small feature icons.
 ---
 
 ## Feature coverage checklist
