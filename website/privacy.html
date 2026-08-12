@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Privacy Policy — SearchLauncher</title>
   <meta name="description" content="Privacy policy for SearchLauncher by Ontola.">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
   <style>
     :root {
       --ink: #102018;
@@ -16,7 +17,7 @@
       --paper: #f3f6f2;
       --line: rgba(16, 32, 24, 0.12);
       --accent: #0f7a5a;
-      --font-display: "Sora", system-ui, sans-serif;
+      --font-display: "Space Grotesk", system-ui, sans-serif;
       --font-body: "Source Sans 3", system-ui, sans-serif;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,7 +33,8 @@
     a { color: var(--accent); }
     .wrap { width: min(100% - 2.5rem, 720px); margin: 0 auto; padding: 2rem 0 4rem; }
     .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2.5rem; }
-    .brand { font-family: var(--font-display); font-weight: 700; color: var(--ink); text-decoration: none; letter-spacing: -0.03em; }
+    .brand { font-family: var(--font-display); font-weight: 700; color: var(--ink); text-decoration: none; letter-spacing: -0.03em; display: inline-flex; align-items: center; gap: 0.5rem; }
+    .brand-mark { width: 1.4rem; height: 1.4rem; background: var(--accent); -webkit-mask: url("assets/icon-mask.svg") center / contain no-repeat; mask: url("assets/icon-mask.svg") center / contain no-repeat; }
     .back { color: var(--muted); text-decoration: none; font-size: 0.95rem; }
     .back:hover { color: var(--ink); }
     h1 { font-family: var(--font-display); font-size: clamp(2rem, 5vw, 2.75rem); letter-spacing: -0.03em; margin-bottom: 0.5rem; }
@@ -47,7 +49,7 @@
 <body>
   <div class="wrap">
     <div class="top">
-      <a class="brand" href="index.html">SearchLauncher</a>
+      <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span>SearchLauncher</a>
       <a class="back" href="index.html">← Back</a>
     </div>
     <h1>Privacy Policy</h1>
