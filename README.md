@@ -2,6 +2,8 @@
 
 Android app that lets you search everything on your phone and on the web, and opens what you find in its own ad-blocking browser.
 
+**Website:** [ontola.github.io/searchlauncher](https://ontola.github.io/searchlauncher/) (source in [`website/`](website/))
+
 ## Features
 
 - **Direct keyboard access** - Your homescreen now has a keyboard!
@@ -91,11 +93,14 @@ parses them straight out of that file. Bump both, add a changelog under
 - Content search within apps requires apps to implement AppSearch indexing
 - Content search within third-party apps requires those apps to expose indexable data
 
-## Contributing
+## Website
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+The marketing site lives in [`website/`](website/) and deploys to
+[GitHub Pages](https://ontola.github.io/searchlauncher/) via
+[`.github/workflows/deploy-website.yml`](.github/workflows/deploy-website.yml)
+on pushes to `main` that touch `website/`.
 
-Before submitting, please run: `./gradlew spotlessApply`
+One-time setup (repo admin): **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
 ## License
 
