@@ -2,7 +2,7 @@
 
 Android app that lets you search everything on your phone and on the web, and opens what you find in its own ad-blocking browser.
 
-**Website:** [ontola.github.io/searchlauncher](https://ontola.github.io/searchlauncher/) (source in [`website/`](website/))
+**Website:** [searchlauncher.eu](https://searchlauncher.eu/) (source in [`website/`](website/))
 
 ## Features
 
@@ -96,11 +96,11 @@ parses them straight out of that file. Bump both, add a changelog under
 ## Website
 
 The marketing site lives in [`website/`](website/) and deploys to
-[GitHub Pages](https://ontola.github.io/searchlauncher/) via
+[searchlauncher.eu](https://searchlauncher.eu/) via
 [`.github/workflows/deploy-website.yml`](.github/workflows/deploy-website.yml)
 on pushes to `main` that touch `website/`.
 
-One-time setup (repo admin): **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+Setup notes (Pages source + Openprovider DNS records): [`website/README.md`](website/README.md).
 
 ## License
 
