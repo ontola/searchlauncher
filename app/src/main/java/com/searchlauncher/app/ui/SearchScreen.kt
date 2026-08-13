@@ -2353,7 +2353,16 @@ private fun launchShortcutSearch(
   onDismiss: () -> Unit,
 ) {
   try {
-    openBrowser(context, shortcut.urlForQuery(query), privateWebResults, openInBrowser)
+    val url = shortcut.urlForQuery(query)
+    // Not every shortcut template is a web URL — market:, spotify: and geo: ones name an app, and
+    // the WebView can only answer those with ERR_UNKNOWN_URL_SCHEME.
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      openBrowser(context, url, privateWebResults, openInBrowser)
+    } else {
+      context.startActivity(
+        Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      )
+    }
     if (!privateWebResults) {
       searchRepository.reportUsageAsync(result.namespace, result.id, query, wasFirstResult)
     }
@@ -2412,7 +2421,10 @@ private fun webUrlForResult(
   }
 
   val shortcut = searchShortcuts.find { it.alias == result.trigger } ?: return null
-  return shortcut.urlForQuery(query)
+  // Same as above: only web URLs belong in the private browser; app schemes go to the app.
+  return shortcut.urlForQuery(query).takeIf {
+    it.startsWith("https://") || it.startsWith("http://")
+  }
 }
 
 private fun createSnippetFallbackResult(context: Context, query: String): SearchResult.Content {
