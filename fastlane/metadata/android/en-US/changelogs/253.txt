@@ -1,0 +1,8 @@
+Things that quietly did nothing now work.
+
+- Downloads work in the browser. Tapping a link to an APK, a PDF or any other file used to do nothing at all; files now save to your Downloads folder.
+- Chats you can actually find. Messaging apps publish a few conversations and cache the rest, and only the first few were being indexed. WhatsApp went from 10 findable chats to 31 on my phone. This finds chats by name and opens them; it does not read your messages.
+- Shortcuts that never opened, open. Contact and phone shortcuts from the Dialer, and shortcuts from apps like NS, silently failed to launch.
+- Tapping a search shortcut works as well as typing its alias. "Play Store" and "Spotify" rows opened a broken web page instead of the app.
+- Adding or removing a contact shows up right away, instead of waiting for the next scheduled re-index.
+- New Perplexity and Claude search shortcuts, alongside ChatGPT and Gemini.
