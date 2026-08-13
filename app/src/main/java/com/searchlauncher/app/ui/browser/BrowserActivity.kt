@@ -1132,6 +1132,11 @@ internal fun BrowserScreen(
                 activeFindMatch = activeMatchOrdinal
                 findMatchCount = numberOfMatches
               }
+              // Without this, tapping a link the WebView cannot render itself — an APK, a PDF,
+              // anything sent as an attachment — silently does nothing.
+              setDownloadListener { downloadUrl, userAgent, contentDisposition, mimeType, _ ->
+                startDownload(context, downloadUrl, userAgent, contentDisposition, mimeType)
+              }
               setOnLongClickListener {
                 val hit = hitTestResult
                 when (hit.type) {
@@ -1620,7 +1625,7 @@ internal fun BrowserScreen(
       },
       onCopyUrl = { url -> copyUrl(context, url) },
       onShareUrl = { url -> shareUrl(context, url, null) },
-      onDownloadImage = { url -> downloadImage(context, url) },
+      onDownloadImage = { url -> startDownload(context, url) },
       onDismiss = { linkMenuTarget = null },
     )
   }
@@ -1984,19 +1989,37 @@ private fun copyUrl(context: Context, url: String) {
   SystemUtils.copyUrlToClipboard(context, url, label = "Webpage URL")
 }
 
-private fun downloadImage(context: Context, url: String) {
+/**
+ * Hands a file off to the system [DownloadManager], which saves it to the public Downloads folder
+ * and posts a notification the user can tap to open (or, for an APK, install) it.
+ *
+ * [contentDisposition] and [mimeType] come from the response when the WebView triggered this, and
+ * are what let us recover a sensible filename; the context menu passes null for both.
+ */
+private fun startDownload(
+  context: Context,
+  url: String,
+  userAgent: String? = null,
+  contentDisposition: String? = null,
+  mimeType: String? = null,
+) {
   if (!url.startsWith("https://") && !url.startsWith("http://")) {
-    Toast.makeText(context, "Cannot download this image", Toast.LENGTH_SHORT).show()
+    // blob: and data: downloads are built inside the page, so DownloadManager cannot refetch them.
+    Toast.makeText(context, "Cannot download this file", Toast.LENGTH_SHORT).show()
     return
   }
   try {
-    val fileName = URLUtil.guessFileName(url, null, null)
+    val fileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
     val request =
       DownloadManager.Request(Uri.parse(url))
         .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
         .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
         .setTitle(fileName)
+        .setMimeType(mimeType)
+    // DownloadManager fetches the URL again from outside the WebView, so it needs the session and
+    // the same user agent — otherwise a gated file can come back as a login page saved to disk.
     CookieManager.getInstance().getCookie(url)?.let { request.addRequestHeader("Cookie", it) }
+    if (!userAgent.isNullOrBlank()) request.addRequestHeader("User-Agent", userAgent)
     (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
     Toast.makeText(context, "Downloading $fileName", Toast.LENGTH_SHORT).show()
   } catch (_: Exception) {
