@@ -371,6 +371,22 @@ object DefaultShortcuts {
         shortLabel = "ChatGPT",
       ),
       SearchShortcut(
+        id = "perplexity",
+        alias = "pp",
+        urlTemplate = "https://www.perplexity.ai/search?q=%s",
+        description = "Ask Perplexity",
+        color = 0xFF20808D,
+        shortLabel = "Perplexity",
+      ),
+      SearchShortcut(
+        id = "claude",
+        alias = "cl",
+        urlTemplate = "https://claude.ai/new?q=%s",
+        description = "Ask Claude",
+        color = 0xFFD97757,
+        shortLabel = "Claude",
+      ),
+      SearchShortcut(
         id = "playstore",
         alias = "p",
         urlTemplate = "market://search?q=%s",
