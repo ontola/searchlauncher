@@ -39,10 +39,20 @@ class ShortcutIndexer(private val context: Context, private val iconRepository: 
         pauseCheck()
         try {
           val query = LauncherApps.ShortcutQuery()
+          // Chat apps publish most conversations as cached rather than dynamic — WhatsApp keeps
+          // only a handful dynamic and caches the rest — so without FLAG_MATCH_CACHED the majority
+          // of a user's conversations never reach the index.
+          val cached =
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+              LauncherApps.ShortcutQuery.FLAG_MATCH_CACHED
+            } else {
+              0
+            }
           query.setQueryFlags(
             LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
               LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
-              LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED
+              LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED or
+              cached
           )
           query.setPackage(packageName)
 
