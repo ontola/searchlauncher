@@ -144,21 +144,35 @@ class ResultLauncher(
     try {
       val uri = result.intentUri
       if (uri.startsWith("shortcut://")) {
-        val parts = uri.substring("shortcut://".length).split("/")
-        if (parts.size == 2) {
-          val pkg = parts[0]
-          val id = parts[1]
-          val launcherApps =
-            context.getSystemService(Context.LAUNCHER_APPS_SERVICE)
-              as android.content.pm.LauncherApps
-          launcherApps.startShortcut(pkg, id, null, null, android.os.Process.myUserHandle())
+        // Only the package is delimited: shortcut ids are arbitrary app-chosen strings and often
+        // contain slashes themselves (chat shortcuts tend to embed a conversation path), so
+        // everything after the first slash belongs to the id.
+        val target = uri.substring("shortcut://".length)
+        val pkg = target.substringBefore('/')
+        val id = target.substringAfter('/', "")
+        if (pkg.isEmpty() || id.isEmpty()) {
+          Toast.makeText(context, "Error launching shortcut", Toast.LENGTH_SHORT).show()
+          return
         }
+        val launcherApps =
+          context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+        // Android only lets the active home app start another app's shortcut.
+        if (!launcherApps.hasShortcutHostPermission()) {
+          Toast.makeText(
+              context,
+              "Set SearchLauncher as your default launcher to open app shortcuts",
+              Toast.LENGTH_LONG,
+            )
+            .show()
+          return
+        }
+        launcherApps.startShortcut(pkg, id, null, null, android.os.Process.myUserHandle())
       } else {
         launchIntent(Intent.parseUri(uri, Intent.URI_INTENT_SCHEME), query)
       }
     } catch (e: Exception) {
       e.printStackTrace()
-      Toast.makeText(context, "Error launching shortcut", Toast.LENGTH_SHORT).show()
+      Toast.makeText(context, "Error launching shortcut: ${e.message}", Toast.LENGTH_LONG).show()
     }
   }
 
