@@ -1,0 +1,5 @@
+Fixes on top of the quieter background indexing in 0.0.16.
+
+- Installing, updating, or uninstalling an app no longer gets lost if it happens while a refresh is already running.
+- A glitch talking to the system while an app updates can no longer hide that app from search.
+- Shortcut and conversation icons refresh when the app changes them, instead of staying stuck on the first artwork we cached.
