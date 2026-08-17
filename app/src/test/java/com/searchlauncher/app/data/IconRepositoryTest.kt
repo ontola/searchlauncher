@@ -71,5 +71,34 @@ class IconRepositoryTest {
     )
   }
 
+  @Test
+  fun invalidateShortcutIcons_dropsOnlyThatPackage() {
+    repository.saveToDisk("shortcut_com.chat.app/conv1", ColorDrawable(Color.RED), force = true)
+    repository.saveToDisk(
+      "static_shortcut_com.chat.app/settings",
+      ColorDrawable(Color.GREEN),
+      force = true,
+    )
+    repository.saveToDisk("shortcut_com.other.app/conv1", ColorDrawable(Color.BLUE), force = true)
+    repository.saveToDisk("appicon_com.chat.app", ColorDrawable(Color.YELLOW), force = true)
+    repository.putMemory("shortcut_com.chat.app/conv1", ColorDrawable(Color.RED))
+    repository.putMemory("shortcut_com.other.app/conv1", ColorDrawable(Color.BLUE))
+
+    repository.invalidateShortcutIcons("com.chat.app")
+
+    assertTrue(!iconFile("shortcut_com.chat.app_conv1").exists())
+    assertTrue(!iconFile("static_shortcut_com.chat.app_settings").exists())
+    assertTrue(
+      "Other packages' shortcut icons must survive",
+      iconFile("shortcut_com.other.app_conv1").exists(),
+    )
+    assertTrue(
+      "App icons are refreshed separately via cacheAppIcon(force=true)",
+      iconFile("appicon_com.chat.app").exists(),
+    )
+    assertTrue(repository.getMemory("shortcut_com.chat.app/conv1") == null)
+    assertTrue(repository.getMemory("shortcut_com.other.app/conv1") != null)
+  }
+
   private fun iconFile(id: String) = File(context.filesDir, "favorite_icons/${id}.png")
 }
