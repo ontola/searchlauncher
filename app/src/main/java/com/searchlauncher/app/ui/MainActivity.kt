@@ -51,6 +51,20 @@ class MainActivity : ComponentActivity() {
   var showImportConfirmation by mutableStateOf(false)
   var pendingImportUri: Uri? = null
 
+  /**
+   * The opening offer of the two optional permissions, and which of them are worth offering.
+   *
+   * Both are asked for here rather than where they happen to be needed, because neither was
+   * reachable before: photo access arrived as a bare system dialog in the first seconds, with
+   * nothing on screen to say what it was for, and contact access was never requested at all — the
+   * app only ever checked it and dropped a hint in the search bar, so the one way to turn contact
+   * search on was to find SearchLauncher in Android's settings. Whatever is missing is explained on
+   * screen first, and the system prompts follow only on yes.
+   */
+  var showOnboardingPermissions by mutableStateOf(false)
+  var onboardingOffersContacts by mutableStateOf(false)
+  var onboardingOffersPhotos by mutableStateOf(false)
+
   private val exportBackupLauncher =
     registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) {
       uri ->
@@ -81,20 +95,20 @@ class MainActivity : ComponentActivity() {
       }
     }
 
-  private val requestReadMediaImagesLauncher =
-    registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-      android.util.Log.d("MainActivity", "READ_MEDIA_IMAGES permission granted: $isGranted")
-      if (isGranted) {
-        val app = application as SearchLauncherApp
-        lifecycleScope.launch {
-          val result = app.wallpaperRepository.addSystemWallpaper()
-          if (result != null) {
-            android.util.Log.d("MainActivity", "System wallpaper imported: $result")
-            Toast.makeText(this@MainActivity, "Imported system wallpaper", Toast.LENGTH_SHORT)
-              .show()
-          } else {
-            android.util.Log.w("MainActivity", "Failed to import system wallpaper")
-          }
+  /**
+   * Asks for whichever optional permissions were accepted in the opening offer, then puts each one
+   * straight to use: the wallpaper is imported and contacts are indexed on the spot, so saying yes
+   * visibly does something rather than leaving the user to guess whether it took.
+   */
+  private val requestOnboardingPermissionsLauncher =
+    registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+      val app = application as SearchLauncherApp
+      lifecycleScope.launch {
+        if (results[android.Manifest.permission.READ_MEDIA_IMAGES] == true) {
+          app.wallpaperRepository.addSystemWallpaper()
+        }
+        if (results[android.Manifest.permission.READ_CONTACTS] == true) {
+          app.searchRepository.indexContacts()
         }
       }
     }
@@ -651,34 +665,43 @@ class MainActivity : ComponentActivity() {
       remember { context.dataStore.data.map { it[PreferencesKeys.IS_FIRST_RUN] ?: true } }
         .collectAsState(initial = false)
 
-    LaunchedEffect(isFirstRun, managedWallpapers.isEmpty()) {
+    // Starts as "already asked" so the offer cannot flash up in the frames before the stored
+    // answer has been read back.
+    val onboardingPermissionsAsked by
+      remember {
+          context.dataStore.data.map { it[PreferencesKeys.ONBOARDING_PERMISSIONS_ASKED] ?: false }
+        }
+        .collectAsState(initial = true)
+
+    LaunchedEffect(isFirstRun, managedWallpapers.isEmpty(), onboardingPermissionsAsked) {
       if (isFirstRun) {
         context.dataStore.edit { it[PreferencesKeys.IS_FIRST_RUN] = false }
       }
-      // Import system wallpaper if none are loaded (e.g., on first run or after reset)
-      if (managedWallpapers.isEmpty()) {
-        android.util.Log.d(
-          "MainActivity",
-          "No wallpapers loaded, requesting permission or importing system wallpaper",
-        )
-        // On Android 13+ (API 33), we need to request READ_MEDIA_IMAGES at runtime
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-          val permission = android.Manifest.permission.READ_MEDIA_IMAGES
-          if (
-            context.checkSelfPermission(permission) ==
-              android.content.pm.PackageManager.PERMISSION_GRANTED
-          ) {
-            android.util.Log.d("MainActivity", "Permission already granted, importing wallpaper")
-            val result = app.wallpaperRepository.addSystemWallpaper()
-            android.util.Log.d("MainActivity", "System wallpaper import result: $result")
-          } else {
-            android.util.Log.d("MainActivity", "Requesting READ_MEDIA_IMAGES permission")
-            (context as? MainActivity)?.requestReadMediaImagesLauncher?.launch(permission)
-          }
-        } else {
-          // On older versions, try directly
-          val result = app.wallpaperRepository.addSystemWallpaper()
-          android.util.Log.d("MainActivity", "System wallpaper import result (legacy): $result")
+
+      val photosGranted =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+          context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+      val contactsGranted =
+        context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) ==
+          android.content.pm.PackageManager.PERMISSION_GRANTED
+
+      // Nothing to ask about: the wallpaper can just be taken.
+      if (managedWallpapers.isEmpty() && photosGranted) {
+        android.util.Log.d("MainActivity", "Permission already granted, importing wallpaper")
+        val result = app.wallpaperRepository.addSystemWallpaper()
+        android.util.Log.d("MainActivity", "System wallpaper import result: $result")
+      }
+
+      // Offer only what is actually missing, and only once. Someone who already granted both, or
+      // who said no last time, is not asked again.
+      val offerPhotos = managedWallpapers.isEmpty() && !photosGranted
+      val offerContacts = !contactsGranted
+      if (!onboardingPermissionsAsked && (offerPhotos || offerContacts)) {
+        (context as? MainActivity)?.let {
+          it.onboardingOffersPhotos = offerPhotos
+          it.onboardingOffersContacts = offerContacts
+          it.showOnboardingPermissions = true
         }
       }
     }
@@ -725,6 +748,81 @@ class MainActivity : ComponentActivity() {
         keyboardController?.hide()
         focusManager.clearFocus()
       }
+    }
+
+    if (showOnboardingPermissions) {
+      var wantContacts by remember { mutableStateOf(true) }
+      var wantPhotos by remember { mutableStateOf(true) }
+
+      // Remembers that the offer was made whichever way it is answered, including a tap outside,
+      // so nobody is asked twice.
+      val closeOffer: (Boolean) -> Unit = { accepted ->
+        showOnboardingPermissions = false
+        lifecycleScope.launch {
+          context.dataStore.edit { it[PreferencesKeys.ONBOARDING_PERMISSIONS_ASKED] = true }
+        }
+        val wanted =
+          if (!accepted) emptyList()
+          else
+            buildList {
+              if (onboardingOffersContacts && wantContacts) {
+                add(android.Manifest.permission.READ_CONTACTS)
+              }
+              if (onboardingOffersPhotos && wantPhotos) {
+                add(android.Manifest.permission.READ_MEDIA_IMAGES)
+              }
+            }
+        if (wanted.isNotEmpty()) {
+          requestOnboardingPermissionsLauncher.launch(wanted.toTypedArray())
+        }
+      }
+
+      AlertDialog(
+        onDismissRequest = { closeOffer(false) },
+        title = { Text("Search more than apps") },
+        text = {
+          Column {
+            Text(
+              "SearchLauncher finds your apps and settings straight away. Two things it can only " +
+                "reach if you let it:"
+            )
+            if (onboardingOffersContacts) {
+              Spacer(modifier = Modifier.height(16.dp))
+              Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Checkbox(checked = wantContacts, onCheckedChange = { wantContacts = it })
+                Column {
+                  Text("Contacts")
+                  Text(
+                    "Type a name to call, message or mail someone.",
+                    style = MaterialTheme.typography.bodySmall,
+                  )
+                }
+              }
+            }
+            if (onboardingOffersPhotos) {
+              Spacer(modifier = Modifier.height(8.dp))
+              Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Checkbox(checked = wantPhotos, onCheckedChange = { wantPhotos = it })
+                Column {
+                  Text("Wallpaper")
+                  Text(
+                    "Use the wallpaper you already have as the background.",
+                    style = MaterialTheme.typography.bodySmall,
+                  )
+                }
+              }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+              "Android will ask about each one you tick. Everything stays on your phone, and you " +
+                "can change your mind later in Settings.",
+              style = MaterialTheme.typography.bodySmall,
+            )
+          }
+        },
+        confirmButton = { TextButton(onClick = { closeOffer(true) }) { Text("Continue") } },
+        dismissButton = { TextButton(onClick = { closeOffer(false) }) { Text("Not now") } },
+      )
     }
 
     if (showImportConfirmation) {

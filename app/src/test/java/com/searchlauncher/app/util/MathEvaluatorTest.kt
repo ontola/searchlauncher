@@ -30,4 +30,23 @@ class MathEvaluatorTest {
     assertFalse(MathEvaluator.isUnambiguouslyArithmetic("abc"))
     assertFalse(MathEvaluator.isUnambiguouslyArithmetic("123"))
   }
+
+  @Test
+  fun testLooksLikePhoneNumber() {
+    // A leading zero is not how sums get written, and nine digits is long for operands.
+    assertTrue(MathEvaluator.looksLikePhoneNumber("06-12345678"))
+    assertTrue(MathEvaluator.looksLikePhoneNumber("020 123 4567"))
+    assertTrue(MathEvaluator.looksLikePhoneNumber("0612345678"))
+    assertTrue(MathEvaluator.looksLikePhoneNumber("555-123-4567"))
+
+    // Real sums keep their answer.
+    assertFalse(MathEvaluator.looksLikePhoneNumber("100-50"))
+    assertFalse(MathEvaluator.looksLikePhoneNumber("2026-1990"))
+    assertFalse(MathEvaluator.looksLikePhoneNumber("1+1"))
+    assertFalse(MathEvaluator.looksLikePhoneNumber("1234*56"))
+    assertFalse(MathEvaluator.looksLikePhoneNumber("(2+3)*4"))
+
+    assertFalse(MathEvaluator.looksLikePhoneNumber("abc"))
+    assertFalse(MathEvaluator.looksLikePhoneNumber(""))
+  }
 }

@@ -830,8 +830,10 @@ fun SearchScreen(
             baseResults
           }
 
-        // Calculator injection
-        if (MathEvaluator.isExpression(query)) {
+        // Calculator injection, except for the numbers that only parse as sums by accident: a
+        // phone number typed with dashes is a subtraction to the evaluator, and answering it puts
+        // a meaningless total above the contact that was being looked for.
+        if (MathEvaluator.isExpression(query) && !MathEvaluator.looksLikePhoneNumber(query)) {
           val eval = MathEvaluator.evaluate(query)
           if (eval != null) {
             // Round to avoid long decimals if possible, or show as is
@@ -914,9 +916,23 @@ fun SearchScreen(
   val density = LocalDensity.current
   val imeHeightPx = WindowInsets.ime.getBottom(density)
 
+  /**
+   * Ceiling on what we are willing to believe a keyboard measures.
+   *
+   * The height is remembered so the bar can hold the keyboard's place before the IME reports
+   * itself, but a bogus reading could get in there and stick: the space reserved below is the
+   * *larger* of the stored and live values, so anything too big survives every later correction.
+   * Some IME windows span nearly the whole screen while only their lower part is keys, and a
+   * reading taken from one of those left the home screen squeezed into the top quarter with a black
+   * band beneath it until the IME settled and overwrote it.
+   */
+  val maxPlausibleKeyboardPx = (windowInfo.containerSize.height * 0.5f).toInt()
+
   // Read synchronously for initial value
   var storedKeyboardHeight by remember {
-    mutableStateOf(sharedPrefs.getInt(Prefs.Window.KEYBOARD_HEIGHT, 0))
+    mutableStateOf(
+      sharedPrefs.getInt(Prefs.Window.KEYBOARD_HEIGHT, 0).coerceAtMost(maxPlausibleKeyboardPx)
+    )
   }
 
   val isMultiWindow = (context as? android.app.Activity)?.isInMultiWindowMode == true
@@ -928,7 +944,7 @@ fun SearchScreen(
    * than sitting in mid-air until the browser finally takes over.
    */
   LaunchedEffect(imeHeightPx) {
-    if (imeHeightPx > 100 && !isMultiWindow) {
+    if (imeHeightPx > 100 && imeHeightPx <= maxPlausibleKeyboardPx && !isMultiWindow) {
       // Wait for animation to settle (debounce)
       kotlinx.coroutines.delay(300)
       // If we are still active (didn't get cancelled by new value), save it
@@ -2122,6 +2138,18 @@ fun SearchScreen(
               )
             }
           } else {
+            // First, because it is the one that comes and goes: only once the browser has tabs to
+            // show. Unlike in the browser, where there is always at least one, a launcher that has
+            // never opened a page has nothing to count. Sitting between the other two, it shoved
+            // the mic sideways the moment a tab appeared, so the two buttons that are always there
+            // never settled anywhere. Leading the row, it grows away from them instead.
+            if (browserTabSwipeEnabled && openTabCount > 0) {
+              BrowserTabsButton(
+                tabCount = openTabCount,
+                onClick = { if (tabsOverviewOpen) tabsOverviewOpen = false else openTabsOverview() },
+              )
+            }
+
             IconButton(
               onClick = startOrStopVoiceSearch,
               modifier = Modifier.size(32.dp).padding(4.dp),
@@ -2131,15 +2159,6 @@ fun SearchScreen(
                 contentDescription = "Voice Search",
                 tint =
                   if (isListening) MaterialTheme.colorScheme.primary else LocalContentColor.current,
-              )
-            }
-
-            // Only once the browser has tabs to show. Unlike in the browser, where there is always
-            // at least one, a launcher that has never opened a page has nothing to count.
-            if (browserTabSwipeEnabled && openTabCount > 0) {
-              BrowserTabsButton(
-                tabCount = openTabCount,
-                onClick = { if (tabsOverviewOpen) tabsOverviewOpen = false else openTabsOverview() },
               )
             }
 
