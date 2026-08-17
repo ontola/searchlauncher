@@ -1,0 +1,7 @@
+Onboarding that explains itself.
+
+- Contact search can now be switched on when you first open the app. It was only ever hinted at, so the one way to enable it was to find SearchLauncher in Android's settings.
+- Nothing is asked for before it is explained. The wallpaper prompt used to arrive as a bare Android dialog in the first seconds.
+- Typing a phone number with dashes no longer answers it as a subtraction.
+- The tab counter now leads the search bar buttons, so opening a tab stops shifting the microphone sideways.
+- Fixed a black band between the search bar and the keyboard on the first render.
