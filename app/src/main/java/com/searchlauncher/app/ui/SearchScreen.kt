@@ -2136,6 +2136,18 @@ fun SearchScreen(
               )
             }
           } else {
+            // First, because it is the one that comes and goes: only once the browser has tabs to
+            // show. Unlike in the browser, where there is always at least one, a launcher that has
+            // never opened a page has nothing to count. Sitting between the other two, it shoved
+            // the mic sideways the moment a tab appeared, so the two buttons that are always there
+            // never settled anywhere. Leading the row, it grows away from them instead.
+            if (browserTabSwipeEnabled && openTabCount > 0) {
+              BrowserTabsButton(
+                tabCount = openTabCount,
+                onClick = { if (tabsOverviewOpen) tabsOverviewOpen = false else openTabsOverview() },
+              )
+            }
+
             IconButton(
               onClick = startOrStopVoiceSearch,
               modifier = Modifier.size(32.dp).padding(4.dp),
@@ -2145,15 +2157,6 @@ fun SearchScreen(
                 contentDescription = "Voice Search",
                 tint =
                   if (isListening) MaterialTheme.colorScheme.primary else LocalContentColor.current,
-              )
-            }
-
-            // Only once the browser has tabs to show. Unlike in the browser, where there is always
-            // at least one, a launcher that has never opened a page has nothing to count.
-            if (browserTabSwipeEnabled && openTabCount > 0) {
-              BrowserTabsButton(
-                tabCount = openTabCount,
-                onClick = { if (tabsOverviewOpen) tabsOverviewOpen = false else openTabsOverview() },
               )
             }
 
