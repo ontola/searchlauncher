@@ -166,6 +166,62 @@ class SearchRepositoryTest {
   }
 
   @Test
+  fun `replaceDocumentsInNamespace updates only the listed ids`() {
+    val maps =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "com.test.maps",
+        score = 1,
+        name = "Maps",
+        isAction = false,
+        iconResId = 0L,
+      )
+    val clock =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "com.test.clock",
+        score = 1,
+        name = "Clock",
+        isAction = false,
+        iconResId = 0L,
+      )
+    val contact =
+      AppSearchDocument(
+        namespace = "contacts",
+        id = "lookup/1",
+        score = 1,
+        name = "Ada",
+        description = "|555",
+        isAction = false,
+        iconResId = 0L,
+      )
+    val updatedClock =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "com.test.clock",
+        score = 1,
+        name = "Desk Clock",
+        isAction = false,
+        iconResId = 0L,
+      )
+
+    repository.documentSnapshot =
+      listOf(repository.wrap(maps), repository.wrap(clock), repository.wrap(contact)).sortedBy {
+        it.namespaceInt
+      }
+
+    repository.replaceDocumentsInNamespace("apps", setOf(clock.id), listOf(updatedClock))
+
+    assertEquals(
+      listOf("com.test.maps", "com.test.clock", "lookup/1"),
+      repository.documentSnapshot.map { it.doc.id },
+    )
+    assertEquals("Desk Clock", repository.documentSnapshot.first { it.doc.id == clock.id }.doc.name)
+    assertEquals("Maps", repository.documentSnapshot.first { it.doc.id == maps.id }.doc.name)
+    assertTrue(repository.documentSnapshot.any { it.doc.namespace == "contacts" })
+  }
+
+  @Test
   fun `getResults resolves namespaced favorite keys in order`() = runBlocking {
     // Same bare id in two namespaces — resolution must use the namespace from the key.
     val app =

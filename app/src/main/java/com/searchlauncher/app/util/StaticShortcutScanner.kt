@@ -18,12 +18,21 @@ data class StaticShortcut(
 )
 
 object StaticShortcutScanner {
-  fun scan(context: Context): List<StaticShortcut> {
+  fun scan(context: Context, packageNames: Collection<String>? = null): List<StaticShortcut> {
+    if (packageNames != null && packageNames.isEmpty()) return emptyList()
+
     val shortcuts = mutableListOf<StaticShortcut>()
     val pm = context.packageManager
 
     val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-    val activities = pm.queryIntentActivities(intent, PackageManager.GET_META_DATA)
+    val activities =
+      if (packageNames == null) {
+        pm.queryIntentActivities(intent, PackageManager.GET_META_DATA)
+      } else {
+        packageNames.flatMap { pkg ->
+          pm.queryIntentActivities(Intent(intent).setPackage(pkg), PackageManager.GET_META_DATA)
+        }
+      }
 
     for (resolveInfo in activities) {
       val activityInfo = resolveInfo.activityInfo ?: continue

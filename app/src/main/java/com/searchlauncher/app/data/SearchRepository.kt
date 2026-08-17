@@ -48,6 +48,8 @@ private const val USAGE_KEY_SEPARATOR = "\u001F"
 private const val QUERY_USAGE_FULL_QUERY_POINTS = 100
 private const val INDEXING_INTERACTIVE_SEARCH_PAUSE_MS = 1200L
 private const val INDEXING_INTERACTIVE_SEARCH_POLL_MS = 80L
+private const val APPSEARCH_PUT_BATCH_SIZE = 50
+private const val APPS_REFRESH_DEBOUNCE_MS = 750L
 
 /** Editing one contact fires several provider notifications; wait for the burst to settle. */
 private const val CONTACTS_REFRESH_DEBOUNCE_MS = 2000L
@@ -168,6 +170,22 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   }
 
   /**
+   * Replaces only the documents whose ids are in [replaceIds] inside [namespace], leaving every
+   * other namespace (and other ids in this one) searchable.
+   */
+  internal fun replaceDocumentsInNamespace(
+    namespace: String,
+    replaceIds: Set<String>,
+    documents: List<AppSearchDocument>,
+  ) {
+    synchronized(this) {
+      val filtered =
+        documentSnapshot.filter { it.doc.namespace != namespace || it.doc.id !in replaceIds }
+      documentSnapshot = (filtered + documents.map { wrap(it) }).sortedBy { it.namespaceInt }
+    }
+  }
+
+  /**
    * Indexing UI is only shown when search cannot serve an existing snapshot. Background rebuilds
    * keep the old index live and swap when ready, so users should not notice them.
    */
@@ -238,13 +256,26 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     }
   }
 
+  private suspend fun putDocuments(session: AppSearchSession, documents: List<AppSearchDocument>) {
+    if (documents.isEmpty()) return
+    documents.chunked(APPSEARCH_PUT_BATCH_SIZE).forEach { chunk ->
+      pauseIndexingIfSearchIsActive()
+      try {
+        session.putAsync(PutDocumentsRequest.Builder().addDocuments(chunk).build()).await()
+      } catch (e: Exception) {
+        android.util.Log.e("SearchRepository", "Failed to put batch of indexed documents", e)
+        Sentry.captureException(e)
+      }
+    }
+  }
+
   private val smartActionManager = SmartActionManager(context)
   private val contactActionsRepository = ContactActionsRepository(context)
   private val iconGenerator = SearchIconGenerator(context)
   private val iconRepository = IconRepository(context)
   private val searchResultFactory = SearchResultFactory(context, iconRepository, iconGenerator)
   private val appIndexer = AppIndexer(context)
-  private val shortcutIndexer = ShortcutIndexer(context, iconRepository)
+  private val shortcutIndexer = ShortcutIndexer(context)
   private val contactIndexer = ContactIndexer(context)
   private val snippetIndexer = SnippetIndexer(context)
 
@@ -433,6 +464,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             indexWriteMutex.withLock {
               val appsStart = System.currentTimeMillis()
               pauseIndexingIfSearchIsActive()
+              // Also refreshes dynamic and static shortcuts for the current catalog.
               indexApps()
               android.util.Log.d(
                 "SearchRepository",
@@ -445,14 +477,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               android.util.Log.d(
                 "SearchRepository",
                 "indexCustomShortcuts took ${System.currentTimeMillis() - customStart}ms",
-              )
-
-              val staticStart = System.currentTimeMillis()
-              pauseIndexingIfSearchIsActive()
-              indexStaticShortcuts()
-              android.util.Log.d(
-                "SearchRepository",
-                "indexStaticShortcuts took ${System.currentTimeMillis() - staticStart}ms",
               )
 
               val contactsStart = System.currentTimeMillis()
@@ -595,39 +619,51 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
     }
 
-  private suspend fun indexApps() =
-    withContext(Dispatchers.IO) {
-      android.util.Log.d("SearchRepository", "Indexing apps...")
+  // packageNames: if null, full catalog rebuild; if provided, only those packages are queried
+  // and swapped. Package-changed callbacks used to rebuild every app, every shortcut, and every
+  // APK's static shortcuts — that is what made a single Play Store update hitch the UI.
+  private suspend fun indexApps(packageNames: List<String>? = null) =
+    withContext(IndexingDispatchers.limited) {
+      android.util.Log.d(
+        "SearchRepository",
+        if (packageNames == null) "Indexing apps..."
+        else "Indexing apps for ${packageNames.size} package(s)...",
+      )
       val session = appSearchSession ?: return@withContext
 
-      // Build against the live snapshot; put first, then remove stale ids, then atomic swap.
-      // The old in-memory apps collection stays searchable until replaceCollection runs.
-      val apps = appIndexer.buildDocuments(::pauseIndexingIfSearchIsActive)
+      val apps = appIndexer.buildDocuments(::pauseIndexingIfSearchIsActive, packageNames)
 
-      if (apps.isNotEmpty()) {
-        // Batch AppSearch puts to avoid TransactionTooLargeException
-        apps.chunked(50).forEach { chunk ->
-          val putRequest = PutDocumentsRequest.Builder().addDocuments(chunk).build()
+      if (packageNames == null) {
+        if (apps.isNotEmpty()) {
+          putDocuments(session, apps)
+          removeMissingDocuments(session, "apps", apps.map { it.id }.toSet())
+          replaceCollection("apps", apps)
+        } else {
+          android.util.Log.w(
+            "SearchRepository",
+            "indexApps: No apps found. Skipping update to prevent accidental wipe.",
+          )
+        }
+      } else {
+        val foundIds = apps.map { it.id }.toSet()
+        val removedIds = packageNames.filter { it !in foundIds }
+        putDocuments(session, apps)
+        if (removedIds.isNotEmpty()) {
           try {
-            session.putAsync(putRequest).await()
+            session
+              .removeAsync(RemoveByDocumentIdRequest.Builder("apps").addIds(removedIds).build())
+              .await()
           } catch (e: Exception) {
-            android.util.Log.e("SearchRepository", "Failed to put batch of indexed apps", e)
+            android.util.Log.e("SearchRepository", "Failed to remove uninstalled apps", e)
             Sentry.captureException(e)
           }
         }
-
-        removeMissingDocuments(session, "apps", apps.map { it.id }.toSet())
-        replaceCollection("apps", apps)
-      } else {
-        android.util.Log.w(
-          "SearchRepository",
-          "indexApps: No apps found. Skipping update to prevent accidental wipe.",
-        )
+        replaceDocumentsInNamespace("apps", packageNames.toSet(), apps)
       }
 
       try {
-        indexShortcuts(apps.map { it.id }.distinct())
-        indexStaticShortcuts() // Static shortcuts also change when apps are removed/added
+        indexShortcuts(packageNames)
+        indexStaticShortcuts(packageNames)
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error updating shortcuts after indexApps", e)
         Sentry.captureException(e)
@@ -639,7 +675,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   // packageNames: if null, full re-index using all known apps; if provided, partial update for
   // just those packages (used by onShortcutsChanged to avoid re-querying every installed app).
   suspend fun indexShortcuts(packageNames: List<String>? = null) =
-    withContext(Dispatchers.IO) {
+    withContext(IndexingDispatchers.limited) {
       val session = appSearchSession ?: return@withContext
 
       val isFullReindex = packageNames == null
@@ -652,16 +688,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         shortcutIndexer.buildDynamicDocuments(packages, ::pauseIndexingIfSearchIsActive)
           ?: return@withContext
 
-      if (newShortcuts.isNotEmpty()) {
-        newShortcuts.chunked(50).forEach { chunk ->
-          try {
-            session.putAsync(PutDocumentsRequest.Builder().addDocuments(chunk).build()).await()
-          } catch (e: Exception) {
-            android.util.Log.e("SearchRepository", "Failed to put batch of indexed shortcuts", e)
-            Sentry.captureException(e)
-          }
-        }
-      }
+      putDocuments(session, newShortcuts)
 
       if (isFullReindex) {
         removeMissingDocuments(session, "shortcuts", newShortcuts.map { it.id }.toSet())
@@ -703,17 +730,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     }
 
   suspend fun indexCustomShortcuts() =
-    withContext(Dispatchers.IO) {
+    withContext(IndexingDispatchers.limited) {
       pauseIndexingIfSearchIsActive()
       val session = appSearchSession ?: return@withContext
 
       // Build first; put; remove stale; then atomically swap both namespaces in memory.
       val allDocs = shortcutIndexer.buildCustomDocuments()
-      pauseIndexingIfSearchIsActive()
-      if (allDocs.isNotEmpty()) {
-        val putRequest = PutDocumentsRequest.Builder().addDocuments(allDocs).build()
-        session.putAsync(putRequest).await()
-      }
+      putDocuments(session, allDocs)
 
       val searchShortcutIds =
         allDocs.asSequence().filter { it.namespace == "search_shortcuts" }.map { it.id }.toSet()
@@ -730,19 +753,52 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       )
     }
 
-  suspend fun indexStaticShortcuts() =
-    withContext(Dispatchers.IO) {
+  suspend fun indexStaticShortcuts(packageNames: List<String>? = null) =
+    withContext(IndexingDispatchers.limited) {
       pauseIndexingIfSearchIsActive()
       val session = appSearchSession ?: return@withContext
-      val docs = shortcutIndexer.buildStaticDocuments(::pauseIndexingIfSearchIsActive)
+      val docs = shortcutIndexer.buildStaticDocuments(::pauseIndexingIfSearchIsActive, packageNames)
 
-      pauseIndexingIfSearchIsActive()
-      if (docs.isNotEmpty()) {
-        val putRequest = PutDocumentsRequest.Builder().addDocuments(docs).build()
-        session.putAsync(putRequest).await()
+      putDocuments(session, docs)
+      if (packageNames == null) {
+        removeMissingDocuments(session, "static_shortcuts", docs.map { it.id }.toSet())
+        replaceCollection("static_shortcuts", docs)
+      } else {
+        val previousIds =
+          documentSnapshot
+            .asSequence()
+            .filter { sdoc ->
+              sdoc.doc.namespace == "static_shortcuts" &&
+                packageNames.any { sdoc.doc.id.startsWith("$it/") }
+            }
+            .map { it.doc.id }
+            .toSet()
+        val keepIds = docs.map { it.id }.toSet()
+        val staleIds = previousIds - keepIds
+        if (staleIds.isNotEmpty()) {
+          try {
+            session
+              .removeAsync(
+                RemoveByDocumentIdRequest.Builder("static_shortcuts").addIds(staleIds).build()
+              )
+              .await()
+          } catch (e: Exception) {
+            android.util.Log.e(
+              "SearchRepository",
+              "Failed to remove stale static shortcuts for packages",
+              e,
+            )
+          }
+        }
+        synchronized(this@SearchRepository) {
+          val filtered =
+            documentSnapshot.filter { sdoc ->
+              sdoc.doc.namespace != "static_shortcuts" ||
+                packageNames.none { sdoc.doc.id.startsWith("$it/") }
+            }
+          documentSnapshot = (filtered + docs.map { wrap(it) }).sortedBy { it.namespaceInt }
+        }
       }
-      removeMissingDocuments(session, "static_shortcuts", docs.map { it.id }.toSet())
-      replaceCollection("static_shortcuts", docs)
     }
 
   /** Coalesces the burst of change notifications an account sync produces into one rebuild. */
@@ -804,7 +860,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     }
 
   suspend fun indexContacts() =
-    withContext(Dispatchers.IO) {
+    withContext(IndexingDispatchers.limited) {
       pauseIndexingIfSearchIsActive()
       val session = appSearchSession ?: return@withContext
       val permission = context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS)
@@ -820,10 +876,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       val contacts = contactIndexer.buildDocuments(::pauseIndexingIfSearchIsActive)
 
       if (contacts.isNotEmpty()) {
-        pauseIndexingIfSearchIsActive()
         android.util.Log.d("SearchRepository", "Indexed ${contacts.size} contacts")
-        val putRequest = PutDocumentsRequest.Builder().addDocuments(contacts).build()
-        session.putAsync(putRequest).await()
+        putDocuments(session, contacts)
         removeMissingDocuments(session, "contacts", contacts.map { it.id }.toSet())
         replaceCollection("contacts", contacts)
         context
@@ -860,7 +914,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         indexWriteMutex.withLock {
           indexApps()
           indexCustomShortcuts()
-          indexStaticShortcuts()
           indexContacts()
           indexSnippets()
         }
@@ -914,10 +967,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             SetSchemaRequest.Builder().addDocumentClasses(AppSearchDocument::class.java).build()
           session.setSchemaAsync(initSchemaRequest).await()
 
-          // Re-index core only
+          // Re-index core only. indexApps also refreshes dynamic and static shortcuts.
           indexApps()
           indexCustomShortcuts()
-          indexStaticShortcuts()
         }
 
         // Reset first run flag and clear wallpaper URI to reveal system wallpaper
@@ -1293,26 +1345,44 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   private val scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO)
 
+  private val pendingAppPackages = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+  @Volatile private var pendingFullAppReindex = false
+  private var appsRefreshJob: kotlinx.coroutines.Job? = null
+
+  private fun scheduleAppsRefresh(packageName: String? = null) {
+    if (packageName == null) pendingFullAppReindex = true
+    else pendingAppPackages[packageName] = true
+    if (appsRefreshJob?.isActive == true) return
+    appsRefreshJob =
+      scope.launch {
+        while (true) {
+          delay(APPS_REFRESH_DEBOUNCE_MS)
+          val full = pendingFullAppReindex
+          pendingFullAppReindex = false
+          val packages = pendingAppPackages.keys.toList()
+          pendingAppPackages.clear()
+          if (!full && packages.isEmpty()) break
+          indexWriteMutex.withLock { if (full) indexApps() else indexApps(packages) }
+        }
+      }
+  }
+
   private val launcherCallback =
     object : android.content.pm.LauncherApps.Callback() {
       override fun onPackageRemoved(packageName: String, user: android.os.UserHandle) {
         android.util.Log.d("SearchRepository", "onPackageRemoved: $packageName")
-        scope.launch { indexApps() }
+        scheduleAppsRefresh(packageName)
       }
 
       override fun onPackageAdded(packageName: String, user: android.os.UserHandle) {
         android.util.Log.d("SearchRepository", "onPackageAdded: $packageName")
-        scope.launch {
-          indexApps()
-          iconRepository.cacheAppIcon(packageName)
-        }
+        scheduleAppsRefresh(packageName)
+        scope.launch { iconRepository.cacheAppIcon(packageName) }
       }
 
       override fun onPackageChanged(packageName: String, user: android.os.UserHandle) {
-        scope.launch {
-          indexApps()
-          iconRepository.cacheAppIcon(packageName)
-        }
+        scheduleAppsRefresh(packageName)
+        scope.launch { iconRepository.cacheAppIcon(packageName) }
       }
 
       override fun onPackagesAvailable(
@@ -1320,7 +1390,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         user: android.os.UserHandle,
         replacing: Boolean,
       ) {
-        scope.launch { indexApps() }
+        if (packageNames.isNullOrEmpty()) scheduleAppsRefresh()
+        else packageNames.forEach { scheduleAppsRefresh(it) }
       }
 
       override fun onPackagesUnavailable(
@@ -1328,7 +1399,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         user: android.os.UserHandle,
         replacing: Boolean,
       ) {
-        scope.launch { indexApps() }
+        if (packageNames.isNullOrEmpty()) scheduleAppsRefresh()
+        else packageNames.forEach { scheduleAppsRefresh(it) }
       }
 
       override fun onShortcutsChanged(
@@ -1336,7 +1408,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         shortcuts: List<android.content.pm.ShortcutInfo>,
         user: android.os.UserHandle,
       ) {
-        scope.launch { indexShortcuts(listOf(packageName)) }
+        scope.launch { indexWriteMutex.withLock { indexShortcuts(listOf(packageName)) } }
       }
     }
 
@@ -1403,16 +1475,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   // indexContacts - Removed
 
   suspend fun indexSnippets() =
-    withContext(Dispatchers.IO) {
+    withContext(IndexingDispatchers.limited) {
       pauseIndexingIfSearchIsActive()
       val session = appSearchSession ?: return@withContext
 
       try {
         val docs = snippetIndexer.buildDocuments()
-        if (docs.isNotEmpty()) {
-          val putRequest = PutDocumentsRequest.Builder().addDocuments(docs).build()
-          session.putAsync(putRequest).await()
-        }
+        putDocuments(session, docs)
         removeMissingDocuments(session, "snippets", docs.map { it.id }.toSet())
         replaceCollection("snippets", docs)
         android.util.Log.d("SearchRepository", "Indexed ${docs.size} snippets")
