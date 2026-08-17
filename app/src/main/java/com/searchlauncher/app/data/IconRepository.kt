@@ -128,6 +128,26 @@ class IconRepository(private val context: Context) {
     clearMemory()
   }
 
+  /**
+   * Removes cached shortcut icons for the given package so they are reloaded from LauncherApps on
+   * the next search, picking up any artwork changes the app published.
+   */
+  fun invalidateShortcutIcons(packageName: String) {
+    val prefix = sanitizeId("$packageName/")
+    getIconDir().listFiles()?.forEach { file ->
+      if (
+        (file.name.startsWith("shortcut_$prefix") ||
+          file.name.startsWith("static_shortcut_$prefix")) && file.extension == "png"
+      ) {
+        file.delete()
+      }
+    }
+    val memPrefix1 = "shortcut_$packageName/"
+    val memPrefix2 = "static_shortcut_$packageName/"
+    // Memory cache can't be filtered directly, but dropping these won't hurt
+    clearMemory()
+  }
+
   private fun getIconDir() = File(context.filesDir, "favorite_icons").apply { mkdirs() }
 
   private fun sanitizeId(id: String) = id.replace("/", "_").replace(":", "_")

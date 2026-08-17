@@ -646,7 +646,18 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         }
       } else {
         val foundIds = apps.map { it.id }.toSet()
-        val removedIds = packageNames.filter { it !in foundIds }
+        val missingIds = packageNames.filter { it !in foundIds }
+        val removedIds =
+          missingIds.filter { pkg ->
+            try {
+              context.packageManager.getApplicationInfo(pkg, 0)
+              false
+            } catch (e: android.content.pm.PackageManager.NameNotFoundException) {
+              true
+            } catch (e: Exception) {
+              false
+            }
+          }
         putDocuments(session, apps)
         if (removedIds.isNotEmpty()) {
           try {
@@ -1352,16 +1363,15 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private fun scheduleAppsRefresh(packageName: String? = null) {
     if (packageName == null) pendingFullAppReindex = true
     else pendingAppPackages[packageName] = true
-    if (appsRefreshJob?.isActive == true) return
+    appsRefreshJob?.cancel()
     appsRefreshJob =
       scope.launch {
-        while (true) {
-          delay(APPS_REFRESH_DEBOUNCE_MS)
-          val full = pendingFullAppReindex
-          pendingFullAppReindex = false
-          val packages = pendingAppPackages.keys.toList()
-          pendingAppPackages.clear()
-          if (!full && packages.isEmpty()) break
+        delay(APPS_REFRESH_DEBOUNCE_MS)
+        val full = pendingFullAppReindex
+        pendingFullAppReindex = false
+        val packages = pendingAppPackages.keys.toList()
+        pendingAppPackages.clear()
+        if (full || packages.isNotEmpty()) {
           indexWriteMutex.withLock { if (full) indexApps() else indexApps(packages) }
         }
       }
@@ -1377,12 +1387,18 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       override fun onPackageAdded(packageName: String, user: android.os.UserHandle) {
         android.util.Log.d("SearchRepository", "onPackageAdded: $packageName")
         scheduleAppsRefresh(packageName)
-        scope.launch { iconRepository.cacheAppIcon(packageName) }
+        scope.launch {
+          iconRepository.cacheAppIcon(packageName)
+          iconRepository.invalidateShortcutIcons(packageName)
+        }
       }
 
       override fun onPackageChanged(packageName: String, user: android.os.UserHandle) {
         scheduleAppsRefresh(packageName)
-        scope.launch { iconRepository.cacheAppIcon(packageName) }
+        scope.launch {
+          iconRepository.cacheAppIcon(packageName)
+          iconRepository.invalidateShortcutIcons(packageName)
+        }
       }
 
       override fun onPackagesAvailable(
