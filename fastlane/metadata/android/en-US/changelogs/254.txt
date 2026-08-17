@@ -1,0 +1,3 @@
+Background indexing no longer fights you for the CPU.
+
+Rebuilding the search index used to hitch typing even though it ran on another thread. It now runs at background priority, only refreshes apps that actually changed, and no longer re-encodes every shortcut icon on each pass.
