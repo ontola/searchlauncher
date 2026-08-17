@@ -16,8 +16,16 @@ class AppIndexer(private val context: Context) {
   /**
    * Returns one document per launchable activity across all profiles. [pauseCheck] is invoked
    * between profiles and apps so indexing yields to active searches.
+   *
+   * When [packageNames] is set, only those packages are queried. An empty filter returns nothing
+   * without walking the full catalog.
    */
-  suspend fun buildDocuments(pauseCheck: suspend () -> Unit): List<AppSearchDocument> {
+  suspend fun buildDocuments(
+    pauseCheck: suspend () -> Unit,
+    packageNames: Collection<String>? = null,
+  ): List<AppSearchDocument> {
+    if (packageNames != null && packageNames.isEmpty()) return emptyList()
+
     val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
 
     val apps = mutableListOf<AppSearchDocument>()
@@ -31,7 +39,18 @@ class AppIndexer(private val context: Context) {
       try {
         // fetch activities directly per profile. This is more efficient and safer
         // than getInstalledPackages which is prone to DeadObjectException.
-        val activityList = launcherApps.getActivityList(null, profile)
+        val activityList =
+          if (packageNames == null) {
+            launcherApps.getActivityList(null, profile)
+          } else {
+            packageNames.flatMap { pkg ->
+              try {
+                launcherApps.getActivityList(pkg, profile)
+              } catch (_: Exception) {
+                emptyList()
+              }
+            }
+          }
 
         for (info in activityList) {
           pauseCheck()

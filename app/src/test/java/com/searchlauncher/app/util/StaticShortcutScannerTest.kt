@@ -10,7 +10,9 @@ import android.content.res.XmlResourceParser
 import android.os.Bundle
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -103,5 +105,17 @@ class StaticShortcutScannerTest {
     assertEquals("shortcut_1", results[0].id)
     assertEquals("My Shortcut", results[0].shortLabel)
     assertEquals("android.intent.action.VIEW", results[0].intent.action)
+  }
+
+  @Test
+  fun scan_emptyPackageFilterDoesNotQueryInstalledApps() {
+    val context = mockk<Context>(relaxed = true)
+    val pm = mockk<PackageManager>()
+    every { context.packageManager } returns pm
+
+    val results = StaticShortcutScanner.scan(context, emptyList())
+
+    assertTrue(results.isEmpty())
+    verify(exactly = 0) { pm.queryIntentActivities(any(), any<Int>()) }
   }
 }

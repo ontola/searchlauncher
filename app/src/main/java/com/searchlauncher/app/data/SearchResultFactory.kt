@@ -280,10 +280,17 @@ class SearchResultFactory(
       val query = LauncherApps.ShortcutQuery()
       query.setPackage(sdoc.packageName ?: "")
       query.setShortcutIds(listOf(sdoc.doc.id.substringAfter("/")))
+      val cached =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+          LauncherApps.ShortcutQuery.FLAG_MATCH_CACHED
+        } else {
+          0
+        }
       query.setQueryFlags(
         LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
           LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
-          LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED
+          LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED or
+          cached
       )
       val shortcuts = launcherApps.getShortcuts(query, Process.myUserHandle())
       val icon =
@@ -405,7 +412,7 @@ class SearchResultFactory(
   private fun cacheIcon(cacheKey: String, icon: Drawable, saveToDisk: Boolean) {
     iconRepository.putMemory(cacheKey, icon)
     if (saveToDisk) {
-      iconRepository.saveToDisk(cacheKey, icon, force = true)
+      iconRepository.saveToDisk(cacheKey, icon)
     }
   }
 

@@ -39,9 +39,14 @@ class IconRepository(private val context: Context) {
 
   fun hasOnDisk(id: String): Boolean = File(getIconDir(), "${sanitizeId(id)}.png").exists()
 
-  fun saveToDisk(id: String, drawable: Drawable?, force: Boolean = true) {
-    if (drawable == null || !force) return
+  /**
+   * Writes [drawable] as a 192px PNG. Encoding is CPU-heavy, so [force] defaults to false and
+   * leaves an existing file alone. Pass [force] true only when the caller knows the icon changed.
+   */
+  fun saveToDisk(id: String, drawable: Drawable?, force: Boolean = false) {
+    if (drawable == null) return
     val targetFile = File(getIconDir(), "${sanitizeId(id)}.png")
+    if (!force && targetFile.exists() && targetFile.length() > 0) return
     val tmpFile = File(getIconDir(), "${sanitizeId(id)}.tmp")
 
     try {

@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.pm.LauncherApps
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.util.StaticShortcutScanner
-import io.sentry.Sentry
 
 /**
  * Builds AppSearch documents for the three flavours of shortcut the launcher indexes:
@@ -12,14 +11,13 @@ import io.sentry.Sentry
  * - static shortcuts declared in app manifests (scanned by [StaticShortcutScanner])
  * - the launcher's own app actions and user-defined search shortcuts
  *
- * These are pure readers (aside from caching icons to disk as a side effect). Persisting the
- * documents is the caller's responsibility.
+ * These are pure readers. Persisting the documents (and loading icons when a result is shown) is
+ * the caller's responsibility.
  */
-class ShortcutIndexer(private val context: Context, private val iconRepository: IconRepository) {
+class ShortcutIndexer(private val context: Context) {
 
   /**
-   * Reads dynamic/manifest/pinned shortcuts for the given [packages] across all profiles and caches
-   * their icons to disk.
+   * Reads dynamic/manifest/pinned/cached shortcuts for the given [packages] across all profiles.
    *
    * Returns null if the system shortcut service became unavailable mid-scan (the caller should then
    * abandon the index update), otherwise the collected documents.
@@ -84,28 +82,9 @@ class ShortcutIndexer(private val context: Context, private val iconRepository: 
                   }
                 }
 
-              try {
-                val icon =
-                  launcherApps.getShortcutIconDrawable(
-                    shortcut,
-                    context.resources.displayMetrics.densityDpi,
-                  )
-                if (icon != null) {
-                  iconRepository.saveToDisk("shortcut_$shortcutId", icon, force = true)
-                }
-              } catch (e: Exception) {
-                // Ignore icon loading failures
-              }
-
-              val pkg = shortcut.`package`
-              if (!iconRepository.hasOnDisk("appicon_$pkg")) {
-                try {
-                  val appIcon = context.packageManager.getApplicationIcon(pkg)
-                  iconRepository.saveToDisk("appicon_$pkg", appIcon, force = true)
-                } catch (e: Exception) {
-                  // Ignore icon loading failures
-                }
-              }
+              // Icons are loaded lazily when a result is shown. Encoding every shortcut PNG here
+              // (chat apps publish hundreds of cached conversations) saturates CPU on the same
+              // pool search uses, which is what makes a "background" reindex feel sticky.
 
               newShortcuts.add(
                 AppSearchDocument(
@@ -134,9 +113,16 @@ class ShortcutIndexer(private val context: Context, private val iconRepository: 
     return newShortcuts
   }
 
-  /** Scans static (manifest-declared) shortcuts, caching their icons and app icons to disk. */
-  suspend fun buildStaticDocuments(pauseCheck: suspend () -> Unit): List<AppSearchDocument> {
-    val shortcuts = StaticShortcutScanner.scan(context)
+  /**
+   * Scans static (manifest-declared) shortcuts. When [packageNames] is set, only those packages are
+   * parsed — a full APK walk on every package-changed event is what made incremental updates as
+   * expensive as a full reindex.
+   */
+  suspend fun buildStaticDocuments(
+    pauseCheck: suspend () -> Unit,
+    packageNames: Collection<String>? = null,
+  ): List<AppSearchDocument> {
+    val shortcuts = StaticShortcutScanner.scan(context, packageNames)
     val docs = mutableListOf<AppSearchDocument>()
     for (s in shortcuts) {
       pauseCheck()
@@ -148,31 +134,7 @@ class ShortcutIndexer(private val context: Context, private val iconRepository: 
           s.packageName
         }
 
-      // Pre-load and cache static shortcut icon
       val shortcutId = "${s.packageName}/${s.id}"
-      try {
-        if (s.iconResId > 0) {
-          val res = context.packageManager.getResourcesForApplication(s.packageName)
-          val icon = res.getDrawable(s.iconResId.toInt(), null)
-          if (icon != null) {
-            iconRepository.saveToDisk("static_shortcut_$shortcutId", icon, force = true)
-          }
-        }
-      } catch (e: Exception) {
-        // Ignore icon loading failures
-        Sentry.captureException(e)
-      }
-
-      // Pre-load and cache app icon
-      if (!iconRepository.hasOnDisk("appicon_${s.packageName}")) {
-        try {
-          val appIcon = context.packageManager.getApplicationIcon(s.packageName)
-          iconRepository.saveToDisk("appicon_${s.packageName}", appIcon, force = true)
-        } catch (e: Exception) {
-          // Ignore app icon loading failures
-          Sentry.captureException(e)
-        }
-      }
 
       docs.add(
         AppSearchDocument(
