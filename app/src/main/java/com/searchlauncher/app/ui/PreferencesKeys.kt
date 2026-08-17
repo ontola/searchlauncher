@@ -39,10 +39,10 @@ object PreferencesKeys {
   val AD_BLOCK_ENABLED = booleanPreferencesKey("ad_block_enabled")
 
   /**
-   * Set once the offer to import the system wallpaper has been made, whatever the answer was.
-   * Declining is an answer, so the offer is not repeated on every launch that finds no wallpapers.
+   * Set once the opening offer of the optional permissions has been made, whatever the answer was.
+   * Declining is an answer, so the offer is not repeated on every launch that finds them missing.
    */
-  val WALLPAPER_PERMISSION_ASKED = booleanPreferencesKey("wallpaper_permission_asked")
+  val ONBOARDING_PERMISSIONS_ASKED = booleanPreferencesKey("onboarding_permissions_asked")
 
   fun getDefaultIconSize(context: android.content.Context): Int {
     val config = context.resources.configuration
