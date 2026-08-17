@@ -33,6 +33,25 @@ object MathEvaluator {
   fun isUnambiguouslyArithmetic(input: String): Boolean =
     isExpression(input) && input.any { it in ARITHMETIC_ONLY }
 
+  /** Digits written with the separators people put in phone numbers, and nothing else. */
+  private val PHONE_SHAPED = Regex("""[0-9][0-9\-. ]*[0-9]""")
+
+  /**
+   * True when a string that parses as arithmetic is far more likely to be a phone number, so the
+   * caller can leave the calculator out of it.
+   *
+   * `06-12345678` is a subtraction to a parser and a mobile number to everyone else, and answering
+   * it with -12345672 is noise sitting on top of the contact the user actually wanted. Two signals
+   * separate the cases without spoiling real sums: a leading zero, which is not how anyone writes
+   * arithmetic, and sheer length, since operands long enough to total nine digits are rare next to
+   * numbers that are exactly that long. So `100-50` and `2026-1990` still get an answer.
+   */
+  fun looksLikePhoneNumber(input: String): Boolean {
+    val trimmed = input.trim()
+    if (!PHONE_SHAPED.matches(trimmed)) return false
+    return trimmed.startsWith("0") || trimmed.count { it.isDigit() } >= 9
+  }
+
   fun evaluate(expression: String): Double? {
     return try {
       val tokens = tokenize(expression)

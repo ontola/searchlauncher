@@ -830,8 +830,10 @@ fun SearchScreen(
             baseResults
           }
 
-        // Calculator injection
-        if (MathEvaluator.isExpression(query)) {
+        // Calculator injection, except for the numbers that only parse as sums by accident: a
+        // phone number typed with dashes is a subtraction to the evaluator, and answering it puts
+        // a meaningless total above the contact that was being looked for.
+        if (MathEvaluator.isExpression(query) && !MathEvaluator.looksLikePhoneNumber(query)) {
           val eval = MathEvaluator.evaluate(query)
           if (eval != null) {
             // Round to avoid long decimals if possible, or show as is
