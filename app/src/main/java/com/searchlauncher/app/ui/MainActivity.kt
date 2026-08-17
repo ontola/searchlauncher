@@ -51,6 +51,16 @@ class MainActivity : ComponentActivity() {
   var showImportConfirmation by mutableStateOf(false)
   var pendingImportUri: Uri? = null
 
+  /**
+   * Whether to explain what photo access is for before the system asks for it.
+   *
+   * The launcher would like to copy the wallpaper you already have, but the very first thing
+   * someone saw on opening the app was Android's permission dialog, with nothing on screen to say
+   * what was being asked for or why. So the explanation comes first and the system prompt only
+   * follows if they say yes.
+   */
+  var showWallpaperPermissionRationale by mutableStateOf(false)
+
   private val exportBackupLauncher =
     registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) {
       uri ->
@@ -651,7 +661,15 @@ class MainActivity : ComponentActivity() {
       remember { context.dataStore.data.map { it[PreferencesKeys.IS_FIRST_RUN] ?: true } }
         .collectAsState(initial = false)
 
-    LaunchedEffect(isFirstRun, managedWallpapers.isEmpty()) {
+    // Starts as "already asked" so the offer cannot flash up in the frames before the stored
+    // answer has been read back.
+    val wallpaperPermissionAsked by
+      remember {
+          context.dataStore.data.map { it[PreferencesKeys.WALLPAPER_PERMISSION_ASKED] ?: false }
+        }
+        .collectAsState(initial = true)
+
+    LaunchedEffect(isFirstRun, managedWallpapers.isEmpty(), wallpaperPermissionAsked) {
       if (isFirstRun) {
         context.dataStore.edit { it[PreferencesKeys.IS_FIRST_RUN] = false }
       }
@@ -671,9 +689,11 @@ class MainActivity : ComponentActivity() {
             android.util.Log.d("MainActivity", "Permission already granted, importing wallpaper")
             val result = app.wallpaperRepository.addSystemWallpaper()
             android.util.Log.d("MainActivity", "System wallpaper import result: $result")
-          } else {
-            android.util.Log.d("MainActivity", "Requesting READ_MEDIA_IMAGES permission")
-            (context as? MainActivity)?.requestReadMediaImagesLauncher?.launch(permission)
+          } else if (!wallpaperPermissionAsked) {
+            // Explain first. The system dialog is raised from the rationale's confirm button, so
+            // nobody is asked for their photos before being told what for.
+            android.util.Log.d("MainActivity", "Explaining READ_MEDIA_IMAGES before requesting")
+            (context as? MainActivity)?.showWallpaperPermissionRationale = true
           }
         } else {
           // On older versions, try directly
@@ -725,6 +745,35 @@ class MainActivity : ComponentActivity() {
         keyboardController?.hide()
         focusManager.clearFocus()
       }
+    }
+
+    if (showWallpaperPermissionRationale) {
+      // Remembers that the offer was made whichever way it is answered, including a tap outside.
+      val closeRationale: (Boolean) -> Unit = { accepted ->
+        showWallpaperPermissionRationale = false
+        lifecycleScope.launch {
+          context.dataStore.edit { it[PreferencesKeys.WALLPAPER_PERMISSION_ASKED] = true }
+        }
+        if (accepted) {
+          requestReadMediaImagesLauncher.launch(android.Manifest.permission.READ_MEDIA_IMAGES)
+        }
+      }
+      AlertDialog(
+        onDismissRequest = { closeRationale(false) },
+        title = { Text("Use your wallpaper?") },
+        text = {
+          Text(
+            "SearchLauncher can copy the wallpaper you already have, so the home screen looks " +
+              "like your phone rather than a blank background. Android will ask for access to " +
+              "your photos to do it.\n\nYou can skip this and pick a background later in " +
+              "Settings. Nothing is uploaded anywhere."
+          )
+        },
+        confirmButton = {
+          TextButton(onClick = { closeRationale(true) }) { Text("Use wallpaper") }
+        },
+        dismissButton = { TextButton(onClick = { closeRationale(false) }) { Text("Not now") } },
+      )
     }
 
     if (showImportConfirmation) {

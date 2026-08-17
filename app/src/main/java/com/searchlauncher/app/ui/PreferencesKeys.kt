@@ -38,6 +38,12 @@ object PreferencesKeys {
 
   val AD_BLOCK_ENABLED = booleanPreferencesKey("ad_block_enabled")
 
+  /**
+   * Set once the offer to import the system wallpaper has been made, whatever the answer was.
+   * Declining is an answer, so the offer is not repeated on every launch that finds no wallpapers.
+   */
+  val WALLPAPER_PERMISSION_ASKED = booleanPreferencesKey("wallpaper_permission_asked")
+
   fun getDefaultIconSize(context: android.content.Context): Int {
     val config = context.resources.configuration
     return if (config.smallestScreenWidthDp >= 600) 48 else 32
