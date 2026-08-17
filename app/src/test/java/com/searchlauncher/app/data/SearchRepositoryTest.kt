@@ -222,6 +222,18 @@ class SearchRepositoryTest {
   }
 
   @Test
+  fun `isPackagePresent keeps installed packages after a failed launcher query`() {
+    assertTrue(
+      "A still-installed package must not be treated as uninstalled when getActivityList fails",
+      repository.isPackagePresent(context.packageName),
+    )
+    assertFalse(
+      "A package that PackageManager cannot see is gone",
+      repository.isPackagePresent("com.missing.app.that.does.not.exist"),
+    )
+  }
+
+  @Test
   fun `getResults resolves namespaced favorite keys in order`() = runBlocking {
     // Same bare id in two namespaces — resolution must use the namespace from the key.
     val app =

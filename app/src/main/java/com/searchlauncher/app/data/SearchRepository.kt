@@ -646,7 +646,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         }
       } else {
         val foundIds = apps.map { it.id }.toSet()
-        val removedIds = packageNames.filter { it !in foundIds }
+        val missingIds = packageNames.filter { it !in foundIds }
+        // AppIndexer maps per-package query failures to an empty list, so "not in foundIds" is not
+        // the same as "uninstalled". Only drop packages we can confirm are gone.
+        val removedIds = missingIds.filterNot { isPackagePresent(it) }
         putDocuments(session, apps)
         if (removedIds.isNotEmpty()) {
           try {
@@ -658,7 +661,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             Sentry.captureException(e)
           }
         }
-        replaceDocumentsInNamespace("apps", packageNames.toSet(), apps)
+        replaceDocumentsInNamespace("apps", (foundIds + removedIds).toSet(), apps)
       }
 
       try {
@@ -1347,24 +1350,74 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   private val pendingAppPackages = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
   @Volatile private var pendingFullAppReindex = false
+  private val appsRefreshGuard = Any()
+  @Volatile private var appsRefreshRunning = false
   private var appsRefreshJob: kotlinx.coroutines.Job? = null
 
+  /**
+   * Coalesces launcher package events. A job that drains pending state and then exits can lose an
+   * event that arrived after the drain but while the job was still marked active; enqueue and
+   * "should I start a worker?" share [appsRefreshGuard], and the worker restarts from `finally` if
+   * anything landed during shutdown.
+   */
   private fun scheduleAppsRefresh(packageName: String? = null) {
-    if (packageName == null) pendingFullAppReindex = true
-    else pendingAppPackages[packageName] = true
-    if (appsRefreshJob?.isActive == true) return
-    appsRefreshJob =
-      scope.launch {
-        while (true) {
-          delay(APPS_REFRESH_DEBOUNCE_MS)
-          val full = pendingFullAppReindex
-          pendingFullAppReindex = false
-          val packages = pendingAppPackages.keys.toList()
-          pendingAppPackages.clear()
-          if (!full && packages.isEmpty()) break
-          indexWriteMutex.withLock { if (full) indexApps() else indexApps(packages) }
+    synchronized(appsRefreshGuard) {
+      if (packageName == null) pendingFullAppReindex = true
+      else pendingAppPackages[packageName] = true
+      if (appsRefreshRunning) return
+      appsRefreshRunning = true
+      appsRefreshJob = scope.launch { drainAppsRefresh() }
+    }
+  }
+
+  private suspend fun drainAppsRefresh() {
+    try {
+      while (true) {
+        delay(APPS_REFRESH_DEBOUNCE_MS)
+        val (full, packages) =
+          synchronized(appsRefreshGuard) {
+            val drainedFull = pendingFullAppReindex
+            pendingFullAppReindex = false
+            val drainedPackages = pendingAppPackages.keys.toList()
+            pendingAppPackages.clear()
+            drainedFull to drainedPackages
+          }
+        if (!full && packages.isEmpty()) return
+        indexWriteMutex.withLock { if (full) indexApps() else indexApps(packages) }
+      }
+    } finally {
+      synchronized(appsRefreshGuard) {
+        if (pendingFullAppReindex || pendingAppPackages.isNotEmpty()) {
+          appsRefreshJob = scope.launch { drainAppsRefresh() }
+        } else {
+          appsRefreshRunning = false
         }
       }
+    }
+  }
+
+  /**
+   * True when [packageName] is still installed for any profile we can see. Binder failures return
+   * true so a transient PackageManager error cannot wipe a still-installed app from search.
+   */
+  internal fun isPackagePresent(packageName: String): Boolean {
+    val launcherApps =
+      context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+    for (profile in launcherApps.profiles) {
+      try {
+        if (launcherApps.isPackageEnabled(packageName, profile)) return true
+      } catch (_: Exception) {
+        // Not installed for this profile, or the query failed — try the next one.
+      }
+    }
+    return try {
+      context.packageManager.getApplicationInfo(packageName, 0)
+      true
+    } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+      false
+    } catch (_: Exception) {
+      true
+    }
   }
 
   private val launcherCallback =
@@ -1372,6 +1425,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       override fun onPackageRemoved(packageName: String, user: android.os.UserHandle) {
         android.util.Log.d("SearchRepository", "onPackageRemoved: $packageName")
         scheduleAppsRefresh(packageName)
+        iconRepository.invalidateShortcutIcons(packageName)
       }
 
       override fun onPackageAdded(packageName: String, user: android.os.UserHandle) {
@@ -1382,7 +1436,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
       override fun onPackageChanged(packageName: String, user: android.os.UserHandle) {
         scheduleAppsRefresh(packageName)
-        scope.launch { iconRepository.cacheAppIcon(packageName) }
+        scope.launch {
+          iconRepository.cacheAppIcon(packageName)
+          iconRepository.invalidateShortcutIcons(packageName)
+        }
       }
 
       override fun onPackagesAvailable(
@@ -1408,7 +1465,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         shortcuts: List<android.content.pm.ShortcutInfo>,
         user: android.os.UserHandle,
       ) {
-        scope.launch { indexWriteMutex.withLock { indexShortcuts(listOf(packageName)) } }
+        scope.launch {
+          iconRepository.invalidateShortcutIcons(packageName)
+          indexWriteMutex.withLock { indexShortcuts(listOf(packageName)) }
+        }
       }
     }
 
