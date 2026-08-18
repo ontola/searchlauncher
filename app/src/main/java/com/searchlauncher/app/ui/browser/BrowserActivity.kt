@@ -500,7 +500,7 @@ internal fun BrowserScreen(
           runCatching { pending.request.deny() }
         }
       is PendingDeviceAccess.Geolocation ->
-        runCatching { pending.callback.invoke(pending.callbackOrigin, grant, grant) }
+        runCatching { pending.callback.invoke(pending.callbackOrigin, grant, false) }
     }
   }
 
@@ -545,7 +545,7 @@ internal fun BrowserScreen(
         }
         is PendingDeviceAccess.Geolocation -> {
           val allowed =
-            androidPermissionsFor(listOf(BrowserDeviceAccess.LOCATION)).all { permission ->
+            androidPermissionsFor(listOf(BrowserDeviceAccess.LOCATION)).any { permission ->
               context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
             }
           settlePendingAccess(pending, grant = allowed)
@@ -630,7 +630,7 @@ internal fun BrowserScreen(
     } else {
       denyPendingAccess()
       when (siteSettingsStore.load(origin).allowed(BrowserDeviceAccess.LOCATION)) {
-        false -> callback.invoke(origin, false, true)
+        false -> callback.invoke(originUrl, false, false)
         true ->
           grantAccessIfOsAllows(
             PendingDeviceAccess.Geolocation(
