@@ -7,6 +7,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
@@ -15,6 +16,8 @@ import android.os.Environment
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -26,8 +29,10 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.animateColorAsState
@@ -311,6 +316,40 @@ private data class LinkMenuTarget(val linkUrl: String?, val imageUrl: String?)
 /** A bookmark awaiting title confirmation in [BookmarkDialog]. */
 private data class BookmarkDraft(val url: String, val title: String)
 
+/**
+ * A page's device-access request, held while the site prompt or the matching OS permission is
+ * showing. WebView requires grant()/deny() (or the geolocation callback) exactly once.
+ */
+private sealed interface PendingDeviceAccess {
+  val origin: String
+  val asking: List<BrowserDeviceAccess>
+  val showSitePrompt: Boolean
+
+  data class WebResources(
+    val request: PermissionRequest,
+    override val origin: String,
+    val resources: Array<String>,
+    override val asking: List<BrowserDeviceAccess>,
+    override val showSitePrompt: Boolean,
+  ) : PendingDeviceAccess
+
+  data class Geolocation(
+    val callback: GeolocationPermissions.Callback,
+    val callbackOrigin: String,
+    override val origin: String,
+    override val asking: List<BrowserDeviceAccess> = listOf(BrowserDeviceAccess.LOCATION),
+    override val showSitePrompt: Boolean,
+  ) : PendingDeviceAccess
+}
+
+private fun PendingDeviceAccess.isSameRequestAs(other: PendingDeviceAccess?): Boolean =
+  when (this) {
+    is PendingDeviceAccess.WebResources ->
+      other is PendingDeviceAccess.WebResources && request === other.request
+    is PendingDeviceAccess.Geolocation ->
+      other is PendingDeviceAccess.Geolocation && callback === other.callback
+  }
+
 @OptIn(ExperimentalLayoutApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -435,6 +474,191 @@ internal fun BrowserScreen(
   var bookmarkDraft by remember { mutableStateOf<BookmarkDraft?>(null) }
   val siteSettingsStore = remember(privateMode) { BrowserSiteSettingsStore(context, privateMode) }
   var siteSettings by remember { mutableStateOf(siteSettingsStore.load(activeTab.url)) }
+  var pendingAccess by remember { mutableStateOf<PendingDeviceAccess?>(null) }
+  var osAwaitingAccess by remember { mutableStateOf<PendingDeviceAccess?>(null) }
+
+  fun denyPendingAccess() {
+    val pending = pendingAccess
+    pendingAccess = null
+    osAwaitingAccess = null
+    when (pending) {
+      is PendingDeviceAccess.WebResources -> runCatching { pending.request.deny() }
+      is PendingDeviceAccess.Geolocation ->
+        runCatching { pending.callback.invoke(pending.callbackOrigin, false, false) }
+      null -> Unit
+    }
+  }
+
+  fun settlePendingAccess(pending: PendingDeviceAccess, grant: Boolean) {
+    if (pending.isSameRequestAs(pendingAccess)) pendingAccess = null
+    if (pending.isSameRequestAs(osAwaitingAccess)) osAwaitingAccess = null
+    when (pending) {
+      is PendingDeviceAccess.WebResources ->
+        if (grant && pending.resources.isNotEmpty()) {
+          runCatching { pending.request.grant(pending.resources) }
+        } else {
+          runCatching { pending.request.deny() }
+        }
+      is PendingDeviceAccess.Geolocation ->
+        runCatching { pending.callback.invoke(pending.callbackOrigin, grant, grant) }
+    }
+  }
+
+  fun persistDeviceAccess(
+    origin: String,
+    types: Collection<BrowserDeviceAccess>,
+    allowed: Boolean,
+  ) {
+    val updated = siteSettingsStore.load(origin).withAllowed(types, allowed)
+    siteSettingsStore.save(origin, updated)
+    if (browserOrigin(webView?.url ?: activeTab.url) == origin) {
+      siteSettings = updated
+    }
+  }
+
+  fun resourcesPermittedByOs(resources: Array<String>): Array<String> =
+    resources
+      .filter { resource ->
+        androidPermissionsForResources(arrayOf(resource)).all { permission ->
+          context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+        }
+      }
+      .toTypedArray()
+
+  val devicePermissionLauncher =
+    rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+      results ->
+      val pending = osAwaitingAccess ?: return@rememberLauncherForActivityResult
+      osAwaitingAccess = null
+      if (!pending.isSameRequestAs(pendingAccess)) return@rememberLauncherForActivityResult
+      when (pending) {
+        is PendingDeviceAccess.WebResources -> {
+          val granted = resourcesPermittedByOs(pending.resources)
+          if (granted.isEmpty()) {
+            settlePendingAccess(pending, grant = false)
+            if (results.values.any { !it }) {
+              Toast.makeText(context, "Permission is needed", Toast.LENGTH_SHORT).show()
+            }
+          } else {
+            settlePendingAccess(pending.copy(resources = granted), grant = true)
+          }
+        }
+        is PendingDeviceAccess.Geolocation -> {
+          val allowed =
+            androidPermissionsFor(listOf(BrowserDeviceAccess.LOCATION)).all { permission ->
+              context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+            }
+          settlePendingAccess(pending, grant = allowed)
+          if (!allowed) {
+            Toast.makeText(context, "Location permission is needed", Toast.LENGTH_SHORT).show()
+          }
+        }
+      }
+    }
+
+  fun grantAccessIfOsAllows(pending: PendingDeviceAccess) {
+    val needed =
+      when (pending) {
+        is PendingDeviceAccess.WebResources -> androidPermissionsForResources(pending.resources)
+        is PendingDeviceAccess.Geolocation ->
+          androidPermissionsFor(listOf(BrowserDeviceAccess.LOCATION))
+      }
+    val missing =
+      needed.filter { context.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+    if (missing.isEmpty()) {
+      settlePendingAccess(pending, grant = true)
+    } else {
+      val waiting =
+        when (pending) {
+          is PendingDeviceAccess.WebResources -> pending.copy(showSitePrompt = false)
+          is PendingDeviceAccess.Geolocation -> pending.copy(showSitePrompt = false)
+        }
+      pendingAccess = waiting
+      osAwaitingAccess = waiting
+      devicePermissionLauncher.launch(missing.toTypedArray())
+    }
+  }
+
+  val onWebPermissionRequest by rememberUpdatedState { request: PermissionRequest ->
+    val origin = request.origin?.let { browserOrigin(it.toString()) }
+    if (origin == null) {
+      request.deny()
+    } else {
+      denyPendingAccess()
+      val settings = siteSettingsStore.load(origin)
+      val decision = decideWebResources(request.resources) { settings.allowed(it) }
+      if (decision.ask.isNotEmpty()) {
+        pendingAccess =
+          PendingDeviceAccess.WebResources(
+            request = request,
+            origin = origin,
+            resources = request.resources,
+            asking = decision.ask,
+            showSitePrompt = true,
+          )
+      } else {
+        val grant = decision.grantNow.toTypedArray()
+        if (grant.isEmpty()) {
+          request.deny()
+        } else {
+          grantAccessIfOsAllows(
+            PendingDeviceAccess.WebResources(
+              request = request,
+              origin = origin,
+              resources = grant,
+              asking = emptyList(),
+              showSitePrompt = false,
+            )
+          )
+        }
+      }
+    }
+  }
+  val onWebPermissionRequestCanceled by rememberUpdatedState { request: PermissionRequest ->
+    val pending = pendingAccess
+    if (pending is PendingDeviceAccess.WebResources && pending.request === request) {
+      pendingAccess = null
+      osAwaitingAccess = null
+    }
+  }
+  val onGeolocationPrompt by rememberUpdatedState {
+    originUrl: String,
+    callback: GeolocationPermissions.Callback ->
+    val origin = browserOrigin(originUrl)
+    if (origin == null) {
+      callback.invoke(originUrl, false, false)
+    } else {
+      denyPendingAccess()
+      when (siteSettingsStore.load(origin).allowed(BrowserDeviceAccess.LOCATION)) {
+        false -> callback.invoke(origin, false, true)
+        true ->
+          grantAccessIfOsAllows(
+            PendingDeviceAccess.Geolocation(
+              callback = callback,
+              callbackOrigin = originUrl,
+              origin = origin,
+              showSitePrompt = false,
+            )
+          )
+        null ->
+          pendingAccess =
+            PendingDeviceAccess.Geolocation(
+              callback = callback,
+              callbackOrigin = originUrl,
+              origin = origin,
+              showSitePrompt = true,
+            )
+      }
+    }
+  }
+  val onGeolocationPromptCanceled by rememberUpdatedState {
+    val pending = pendingAccess
+    if (pending is PendingDeviceAccess.Geolocation) {
+      pendingAccess = null
+      osAwaitingAccess = null
+    }
+  }
+
   var pageBackground by remember { mutableStateOf(Color(activeTab.pageBackgroundArgb)) }
   var fullscreenVideoView by remember { mutableStateOf<View?>(null) }
   var fullscreenVideoCallback by remember {
@@ -1120,6 +1344,7 @@ internal fun BrowserScreen(
                 )
               settings.javaScriptEnabled = true
               settings.domStorageEnabled = true
+              settings.setGeolocationEnabled(true)
               settings.setSupportZoom(true)
               settings.builtInZoomControls = true
               settings.displayZoomControls = false
@@ -1210,6 +1435,31 @@ internal fun BrowserScreen(
                     (context as ComponentActivity).lifecycleScope.launch {
                       repository.saveFavicon(pageUrl, pageIcon)
                     }
+                  }
+
+                  // Without this, getUserMedia and similar APIs are denied silently.
+                  override fun onPermissionRequest(request: PermissionRequest) {
+                    onWebPermissionRequest(request)
+                  }
+
+                  override fun onPermissionRequestCanceled(request: PermissionRequest) {
+                    onWebPermissionRequestCanceled(request)
+                  }
+
+                  override fun onGeolocationPermissionsShowPrompt(
+                    origin: String?,
+                    callback: GeolocationPermissions.Callback?,
+                  ) {
+                    if (callback == null) return
+                    if (origin == null) {
+                      callback.invoke("", false, false)
+                      return
+                    }
+                    onGeolocationPrompt(origin, callback)
+                  }
+
+                  override fun onGeolocationPermissionsHidePrompt() {
+                    onGeolocationPromptCanceled()
                   }
                 }
               webViewClient =
@@ -1385,6 +1635,7 @@ internal fun BrowserScreen(
           },
           onRelease = { releasedWebView ->
             if (webView === releasedWebView) webView = null
+            denyPendingAccess()
             releasedWebView.destroy()
           },
         )
@@ -1678,8 +1929,65 @@ internal fun BrowserScreen(
     )
   }
 
+  pendingAccess
+    ?.takeIf { it.showSitePrompt }
+    ?.let { pending ->
+      BrowserDeviceAccessDialog(
+        siteLabel = browserSiteLabel(pending.origin),
+        types = pending.asking,
+        onAllow = {
+          persistDeviceAccess(pending.origin, pending.asking, true)
+          when (pending) {
+            is PendingDeviceAccess.WebResources -> {
+              val grant =
+                grantableWebResources(pending.resources) {
+                  siteSettingsStore.load(pending.origin).allowed(it)
+                }
+              grantAccessIfOsAllows(pending.copy(resources = grant, showSitePrompt = false))
+            }
+            is PendingDeviceAccess.Geolocation ->
+              grantAccessIfOsAllows(pending.copy(showSitePrompt = false))
+          }
+        },
+        onBlock = {
+          persistDeviceAccess(pending.origin, pending.asking, false)
+          when (pending) {
+            is PendingDeviceAccess.WebResources -> {
+              val grant =
+                grantableWebResources(pending.resources) {
+                  siteSettingsStore.load(pending.origin).allowed(it)
+                }
+              if (grant.isEmpty()) {
+                settlePendingAccess(pending, grant = false)
+              } else {
+                grantAccessIfOsAllows(pending.copy(resources = grant, showSitePrompt = false))
+              }
+            }
+            is PendingDeviceAccess.Geolocation -> settlePendingAccess(pending, grant = false)
+          }
+        },
+        onDismiss = {
+          when (pending) {
+            is PendingDeviceAccess.WebResources -> {
+              val grant =
+                grantableWebResources(pending.resources) {
+                  siteSettingsStore.load(pending.origin).allowed(it)
+                }
+              if (grant.isEmpty()) {
+                denyPendingAccess()
+              } else {
+                grantAccessIfOsAllows(pending.copy(resources = grant, showSitePrompt = false))
+              }
+            }
+            is PendingDeviceAccess.Geolocation -> denyPendingAccess()
+          }
+        },
+      )
+    }
+
   DisposableEffect(Unit) {
     onDispose {
+      denyPendingAccess()
       webView?.apply {
         stopLoading()
         if (privateMode) {

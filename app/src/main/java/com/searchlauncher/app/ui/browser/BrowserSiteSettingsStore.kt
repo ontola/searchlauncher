@@ -1,6 +1,7 @@
 package com.searchlauncher.app.ui.browser
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.net.Uri
 import java.net.URI
 
@@ -21,31 +22,50 @@ internal class BrowserSiteSettingsStore(context: Context, privateMode: Boolean) 
       popupsEnabled = prefs.getBoolean(key(origin, "popups"), false),
       thirdPartyCookiesEnabled = prefs.getBoolean(key(origin, "third_party_cookies"), false),
       adBlockEnabled = prefs.getBoolean(key(origin, "ad_block"), true),
+      deviceAccess = loadDeviceAccess(prefs, origin),
     )
   }
 
   fun save(url: String, settings: BrowserSiteSettings) {
     val origin = browserOrigin(url) ?: return
     ephemeralSettings[origin] = settings
-    preferences
-      ?.edit()
-      ?.putBoolean(key(origin, "javascript"), settings.javaScriptEnabled)
-      ?.putBoolean(key(origin, "popups"), settings.popupsEnabled)
-      ?.putBoolean(key(origin, "third_party_cookies"), settings.thirdPartyCookiesEnabled)
-      ?.putBoolean(key(origin, "ad_block"), settings.adBlockEnabled)
-      ?.apply()
+    val editor = preferences?.edit() ?: return
+    editor
+      .putBoolean(key(origin, "javascript"), settings.javaScriptEnabled)
+      .putBoolean(key(origin, "popups"), settings.popupsEnabled)
+      .putBoolean(key(origin, "third_party_cookies"), settings.thirdPartyCookiesEnabled)
+      .putBoolean(key(origin, "ad_block"), settings.adBlockEnabled)
+    for (access in BrowserDeviceAccess.entries) {
+      val accessKey = key(origin, access.prefKey)
+      val allowed = settings.deviceAccess[access]
+      if (allowed == null) editor.remove(accessKey) else editor.putBoolean(accessKey, allowed)
+    }
+    editor.apply()
   }
 
   fun reset(url: String) {
     val origin = browserOrigin(url) ?: return
     ephemeralSettings.remove(origin)
-    preferences
-      ?.edit()
-      ?.remove(key(origin, "javascript"))
-      ?.remove(key(origin, "popups"))
-      ?.remove(key(origin, "third_party_cookies"))
-      ?.remove(key(origin, "ad_block"))
-      ?.apply()
+    val editor = preferences?.edit() ?: return
+    editor
+      .remove(key(origin, "javascript"))
+      .remove(key(origin, "popups"))
+      .remove(key(origin, "third_party_cookies"))
+      .remove(key(origin, "ad_block"))
+    for (access in BrowserDeviceAccess.entries) {
+      editor.remove(key(origin, access.prefKey))
+    }
+    editor.apply()
+  }
+
+  private fun loadDeviceAccess(
+    prefs: SharedPreferences,
+    origin: String,
+  ): Map<BrowserDeviceAccess, Boolean> = buildMap {
+    for (access in BrowserDeviceAccess.entries) {
+      val accessKey = key(origin, access.prefKey)
+      if (prefs.contains(accessKey)) put(access, prefs.getBoolean(accessKey, false))
+    }
   }
 
   private fun key(origin: String, setting: String): String = "${Uri.encode(origin)}.$setting"

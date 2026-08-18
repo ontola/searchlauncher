@@ -27,6 +27,7 @@ SearchLauncher can open web results in its own browser instead of handing them t
 - **History and bookmarks** are stored locally so you can search them from the search bar. You can clear history and remove bookmarks in **Settings → Browser**.
 - **Site icons** are saved from the pages you visit; they are not requested from any third-party icon service.
 - **Cookies and site data** are handled by Android's system WebView. A private window keeps its cookies and storage in a separate area and wipes them when you close it.
+- **Microphone, camera, location, Bluetooth, and similar device access** is only granted after a site asks and you allow it. That choice is stored on the device for that site (or kept only in memory in a private window). Matching system permissions are requested if the app does not already have them.
 
 Pages you open naturally contact the servers of the sites you are visiting, exactly as any browser would. Those sites' own privacy policies apply.
 

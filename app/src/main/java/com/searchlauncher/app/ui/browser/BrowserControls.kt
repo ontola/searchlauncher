@@ -70,6 +70,11 @@ internal data class BrowserSiteSettings(
   val popupsEnabled: Boolean = false,
   val thirdPartyCookiesEnabled: Boolean = false,
   val adBlockEnabled: Boolean = true,
+  /**
+   * Per-feature Allow (`true`) / Block (`false`). A missing entry means the site has not been asked
+   * yet, so a tab that wants that feature still prompts.
+   */
+  val deviceAccess: Map<BrowserDeviceAccess, Boolean> = emptyMap(),
 )
 
 @Composable
@@ -499,7 +504,10 @@ internal fun BrowserPageSettingsDialog(
     onDismissRequest = onDismiss,
     title = { Text("Page settings") },
     text = {
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      Column(
+        modifier = Modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
         Text(
           text = siteLabel,
           style = MaterialTheme.typography.bodySmall,
@@ -531,6 +539,19 @@ internal fun BrowserPageSettingsDialog(
           checked = settings.adBlockEnabled,
           onCheckedChange = { onSettingsChange(settings.copy(adBlockEnabled = it)) },
         )
+        for (access in BrowserDeviceAccess.entries) {
+          SiteSettingRow(
+            label = access.settingsLabel,
+            description =
+              when (settings.allowed(access)) {
+                true -> "This site can use ${access.canUsePhrase}"
+                false -> "This site cannot use ${access.canUsePhrase}"
+                null -> "Ask when this site wants to use ${access.canUsePhrase}"
+              },
+            checked = settings.allowed(access) == true,
+            onCheckedChange = { onSettingsChange(settings.withAllowed(access, it)) },
+          )
+        }
         OutlinedButton(
           onClick = { confirmClearData = true },
           modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -549,6 +570,23 @@ internal fun BrowserPageSettingsDialog(
       }
     },
     confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+  )
+}
+
+@Composable
+internal fun BrowserDeviceAccessDialog(
+  siteLabel: String,
+  types: Collection<BrowserDeviceAccess>,
+  onAllow: () -> Unit,
+  onBlock: () -> Unit,
+  onDismiss: () -> Unit,
+) {
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text(deviceAccessPromptTitle(types)) },
+    text = { Text(deviceAccessPromptText(siteLabel, types)) },
+    confirmButton = { TextButton(onClick = onAllow) { Text("Allow") } },
+    dismissButton = { TextButton(onClick = onBlock) { Text("Block") } },
   )
 }
 
