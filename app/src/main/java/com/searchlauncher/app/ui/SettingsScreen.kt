@@ -129,7 +129,8 @@ fun SettingsScreen(
 
   LazyColumn(
     state = listState,
-    modifier = Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp),
+    modifier =
+      Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp).contentMaxWidth(),
     verticalArrangement = Arrangement.spacedBy(16.dp),
     contentPadding = PaddingValues(bottom = 32.dp),
   ) {
@@ -374,6 +375,25 @@ fun SettingsScreen(
             granted =
               rememberPermissionState {
                   ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) ==
+                    PackageManager.PERMISSION_GRANTED
+                }
+                .value,
+            onGrant = {
+              val intent =
+                Intent(
+                  Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                  Uri.parse("package:${context.packageName}"),
+                )
+              context.startActivity(intent)
+            },
+          )
+
+          PermissionStatus(
+            title = "Calendar",
+            description = "Search events in the next week.",
+            granted =
+              rememberPermissionState {
+                  ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
                     PackageManager.PERMISSION_GRANTED
                 }
                 .value,

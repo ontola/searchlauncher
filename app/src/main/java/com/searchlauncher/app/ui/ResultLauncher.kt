@@ -133,6 +133,14 @@ class ResultLauncher(
         } else {
           Intent(Intent.ACTION_VIEW, Uri.parse(deepLink))
         }
+      val uri = intent.data
+      if (uri?.scheme == "content") {
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val mime = result.packageName.takeIf { it.contains('/') }
+        if (mime != null && intent.type == null) {
+          intent.setDataAndType(uri, mime)
+        }
+      }
       launchIntent(intent, query)
     } catch (e: Exception) {
       e.printStackTrace()

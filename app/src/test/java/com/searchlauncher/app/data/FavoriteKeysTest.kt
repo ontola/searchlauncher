@@ -101,6 +101,30 @@ class FavoriteKeysTest {
         )
         .isFavoritable()
     )
+    assertTrue(
+      SearchResult.Content(
+          id = "42",
+          namespace = "downloads",
+          title = "ticket.pdf",
+          subtitle = null,
+          icon = null,
+          packageName = "application/pdf",
+          deepLink = "content://media/external/downloads/42",
+        )
+        .isFavoritable()
+    )
+    assertTrue(
+      SearchResult.Content(
+          id = "9/1",
+          namespace = "calendar",
+          title = "Dentist",
+          subtitle = null,
+          icon = null,
+          packageName = "calendar",
+          deepLink = "content://com.android.calendar/events/9",
+        )
+        .isFavoritable()
+    )
     assertFalse(
       SearchResult.Content(
           id = "calc",

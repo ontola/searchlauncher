@@ -4,7 +4,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.provider.CalendarContract
 import android.provider.ContactsContract
+import android.provider.MediaStore
 import android.util.Log
 import androidx.appsearch.app.AppSearchSession
 import androidx.appsearch.app.PutDocumentsRequest
@@ -53,6 +55,8 @@ private const val APPS_REFRESH_DEBOUNCE_MS = 750L
 
 /** Editing one contact fires several provider notifications; wait for the burst to settle. */
 private const val CONTACTS_REFRESH_DEBOUNCE_MS = 2000L
+private const val CALENDAR_REFRESH_DEBOUNCE_MS = 1500L
+private const val DOWNLOADS_REFRESH_DEBOUNCE_MS = 1500L
 
 data class SearchableDocument(
   val doc: AppSearchDocument,
@@ -91,7 +95,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   internal fun wrap(doc: AppSearchDocument): SearchableDocument {
     val searchableText =
-      if (doc.namespace == "snippets" || doc.namespace == "app_shortcuts") {
+      if (
+        doc.namespace == "snippets" ||
+          doc.namespace == "app_shortcuts" ||
+          doc.namespace == "downloads" ||
+          doc.namespace == "calendar"
+      ) {
         listOf(doc.name, doc.description.orEmpty()).joinToString(" ")
       } else {
         doc.name
@@ -112,6 +121,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         "search_shortcuts" -> 7
         "snippets" -> 8
         "web_saved" -> 9
+        "downloads" -> 10
+        "calendar" -> 11
         else -> 0
       }
 
@@ -278,6 +289,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private val shortcutIndexer = ShortcutIndexer(context)
   private val contactIndexer = ContactIndexer(context)
   private val snippetIndexer = SnippetIndexer(context)
+  private val downloadIndexer = DownloadIndexer(context)
+  private val calendarIndexer = CalendarIndexer(context)
 
   private val _isInitialized = kotlinx.coroutines.flow.MutableStateFlow(false)
   val isInitialized: kotlinx.coroutines.flow.StateFlow<Boolean> = _isInitialized
@@ -355,6 +368,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           )
 
           registerContactsObserver()
+          registerCalendarObserver()
+          registerDownloadsObserver()
 
           // Pre-cache SearchLauncher's own icon for internal actions
           scope.launch {
@@ -452,6 +467,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             // Contacts can change while we aren't running, so the freshness window alone would
             // hide added/removed contacts for hours. Cheap fingerprint check catches that.
             refreshContactsIfChanged()
+            refreshCalendarIfChanged()
+            refreshDownloadsIfChanged()
             return@launch
           }
 
@@ -485,6 +502,22 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               android.util.Log.d(
                 "SearchRepository",
                 "indexContacts took ${System.currentTimeMillis() - contactsStart}ms",
+              )
+
+              val calendarStart = System.currentTimeMillis()
+              pauseIndexingIfSearchIsActive()
+              indexCalendar()
+              android.util.Log.d(
+                "SearchRepository",
+                "indexCalendar took ${System.currentTimeMillis() - calendarStart}ms",
+              )
+
+              val downloadsStart = System.currentTimeMillis()
+              pauseIndexingIfSearchIsActive()
+              indexDownloads()
+              android.util.Log.d(
+                "SearchRepository",
+                "indexDownloads took ${System.currentTimeMillis() - downloadsStart}ms",
               )
 
               val snippetsStart = System.currentTimeMillis()
@@ -895,6 +928,153 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
     }
 
+  /** Coalesces calendar provider bursts into one rebuild. */
+  private var calendarRefreshJob: kotlinx.coroutines.Job? = null
+
+  private val calendarObserver =
+    object :
+      android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+      override fun onChange(selfChange: Boolean) = onChange(selfChange, null)
+
+      override fun onChange(selfChange: Boolean, uri: android.net.Uri?) {
+        calendarRefreshJob?.cancel()
+        calendarRefreshJob =
+          scope.launch {
+            delay(CALENDAR_REFRESH_DEBOUNCE_MS)
+            android.util.Log.d("SearchRepository", "Calendar changed, re-indexing")
+            refreshCalendar()
+          }
+      }
+    }
+
+  private fun registerCalendarObserver() {
+    try {
+      context.contentResolver.registerContentObserver(
+        CalendarContract.Events.CONTENT_URI,
+        true,
+        calendarObserver,
+      )
+    } catch (e: Exception) {
+      android.util.Log.e("SearchRepository", "Failed to observe calendar", e)
+      Sentry.captureException(e)
+    }
+  }
+
+  private suspend fun refreshCalendar() {
+    indexWriteMutex.withLock { indexCalendar() }
+    saveFastIndexCache()
+    _indexUpdated.emit(Unit)
+  }
+
+  private suspend fun refreshCalendarIfChanged() =
+    withContext(Dispatchers.IO) {
+      if (
+        context.checkSelfPermission(android.Manifest.permission.READ_CALENDAR) !=
+          android.content.pm.PackageManager.PERMISSION_GRANTED
+      ) {
+        return@withContext
+      }
+      val fingerprint = calendarIndexer.readFingerprint() ?: return@withContext
+      val prefs = context.getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+      if (fingerprint == prefs.getString(Prefs.Launcher.CALENDAR_FINGERPRINT, null))
+        return@withContext
+
+      android.util.Log.d("SearchRepository", "Calendar changed while away, re-indexing")
+      refreshCalendar()
+    }
+
+  suspend fun indexCalendar() =
+    withContext(IndexingDispatchers.limited) {
+      pauseIndexingIfSearchIsActive()
+      val session = appSearchSession ?: return@withContext
+      val permission = context.checkSelfPermission(android.Manifest.permission.READ_CALENDAR)
+      if (permission != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        android.util.Log.w("SearchRepository", "READ_CALENDAR permission denied")
+        removeMissingDocuments(session, CalendarIndexer.NAMESPACE, emptySet())
+        replaceCollection(CalendarIndexer.NAMESPACE, emptyList())
+        return@withContext
+      }
+      android.util.Log.d("SearchRepository", "Indexing calendar...")
+      val fingerprint = calendarIndexer.readFingerprint()
+      val events = calendarIndexer.buildDocuments(::pauseIndexingIfSearchIsActive)
+      android.util.Log.d("SearchRepository", "Indexed ${events.size} calendar events")
+      putDocuments(session, events)
+      removeMissingDocuments(session, CalendarIndexer.NAMESPACE, events.map { it.id }.toSet())
+      replaceCollection(CalendarIndexer.NAMESPACE, events)
+      context
+        .getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+        .edit()
+        .putString(Prefs.Launcher.CALENDAR_FINGERPRINT, fingerprint)
+        .apply()
+    }
+
+  /** MediaStore notifies often during a download; wait for the burst to settle. */
+  private var downloadsRefreshJob: kotlinx.coroutines.Job? = null
+
+  private val downloadsObserver =
+    object :
+      android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+      override fun onChange(selfChange: Boolean) = onChange(selfChange, null)
+
+      override fun onChange(selfChange: Boolean, uri: android.net.Uri?) {
+        downloadsRefreshJob?.cancel()
+        downloadsRefreshJob =
+          scope.launch {
+            delay(DOWNLOADS_REFRESH_DEBOUNCE_MS)
+            android.util.Log.d("SearchRepository", "Downloads changed, re-indexing")
+            refreshDownloads()
+          }
+      }
+    }
+
+  private fun registerDownloadsObserver() {
+    try {
+      context.contentResolver.registerContentObserver(
+        MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+        true,
+        downloadsObserver,
+      )
+    } catch (e: Exception) {
+      android.util.Log.e("SearchRepository", "Failed to observe downloads", e)
+      Sentry.captureException(e)
+    }
+  }
+
+  private suspend fun refreshDownloads() {
+    indexWriteMutex.withLock { indexDownloads() }
+    saveFastIndexCache()
+    _indexUpdated.emit(Unit)
+  }
+
+  private suspend fun refreshDownloadsIfChanged() =
+    withContext(Dispatchers.IO) {
+      val fingerprint = downloadIndexer.readFingerprint() ?: return@withContext
+      val prefs = context.getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+      if (fingerprint == prefs.getString(Prefs.Launcher.DOWNLOADS_FINGERPRINT, null))
+        return@withContext
+
+      android.util.Log.d("SearchRepository", "Downloads changed while away, re-indexing")
+      refreshDownloads()
+    }
+
+  suspend fun indexDownloads() =
+    withContext(IndexingDispatchers.limited) {
+      pauseIndexingIfSearchIsActive()
+      val session = appSearchSession ?: return@withContext
+      android.util.Log.d("SearchRepository", "Indexing downloads...")
+      val fingerprint = downloadIndexer.readFingerprint()
+      val files = downloadIndexer.buildDocuments(::pauseIndexingIfSearchIsActive)
+      android.util.Log.d("SearchRepository", "Indexed ${files.size} downloads")
+      putDocuments(session, files)
+      removeMissingDocuments(session, DownloadIndexer.NAMESPACE, files.map { it.id }.toSet())
+      replaceCollection(DownloadIndexer.NAMESPACE, files)
+      context
+        .getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+        .edit()
+        .putString(Prefs.Launcher.DOWNLOADS_FINGERPRINT, fingerprint)
+        .apply()
+    }
+
   suspend fun resetIndex() =
     withContext(Dispatchers.IO) {
       if (appSearchSession == null) return@withContext
@@ -918,6 +1098,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           indexApps()
           indexCustomShortcuts()
           indexContacts()
+          indexCalendar()
+          indexDownloads()
           indexSnippets()
         }
 

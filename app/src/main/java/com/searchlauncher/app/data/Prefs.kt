@@ -38,6 +38,8 @@ object Prefs {
     const val OBSERVED_HISTORY_LIMIT = "observed_history_limit"
     const val LAST_REINDEX_TIMESTAMP = "last_reindex_timestamp"
     const val CONTACTS_FINGERPRINT = "contacts_fingerprint"
+    const val CALENDAR_FINGERPRINT = "calendar_fingerprint"
+    const val DOWNLOADS_FINGERPRINT = "downloads_fingerprint"
   }
 
   /** Measured soft-keyboard height, cached to avoid layout jump on the next launch. */

@@ -42,6 +42,8 @@ class SearchResultFactory(
         createStaticShortcutResult(sdoc, rankingScore, saveToDisk, allowIpc, allowDisk)
       "contacts" -> createContactResult(sdoc, rankingScore, query, allowIpc)
       "snippets" -> createSnippetResult(sdoc, rankingScore)
+      "downloads" -> createDownloadResult(sdoc, rankingScore)
+      "calendar" -> createCalendarResult(sdoc, rankingScore)
       else -> createAppResult(sdoc, rankingScore, saveToDisk, allowIpc, allowDisk)
     }
   }
@@ -232,6 +234,43 @@ class SearchResultFactory(
       icon = icon,
       alias = doc.id,
       content = doc.description ?: "",
+      rankingScore = rankingScore,
+    )
+  }
+
+  private fun createDownloadResult(
+    sdoc: SearchableDocument,
+    rankingScore: Int,
+  ): SearchResult.Content {
+    val doc = sdoc.doc
+    val mime = doc.description?.substringBefore("|", "")?.takeIf { it.isNotBlank() }
+    val subtitle =
+      doc.description?.substringAfter("|", "")?.takeIf { it.isNotBlank() } ?: "Download"
+    return SearchResult.Content(
+      id = doc.id,
+      namespace = "downloads",
+      title = doc.name,
+      subtitle = subtitle,
+      icon = context.getDrawable(R.drawable.ic_file),
+      packageName = mime ?: "downloads",
+      deepLink = doc.intentUri,
+      rankingScore = rankingScore,
+    )
+  }
+
+  private fun createCalendarResult(
+    sdoc: SearchableDocument,
+    rankingScore: Int,
+  ): SearchResult.Content {
+    val doc = sdoc.doc
+    return SearchResult.Content(
+      id = doc.id,
+      namespace = "calendar",
+      title = doc.name,
+      subtitle = doc.description ?: "Event",
+      icon = context.getDrawable(R.drawable.ic_event),
+      packageName = "vnd.android.cursor.item/event",
+      deepLink = doc.intentUri,
       rankingScore = rankingScore,
     )
   }

@@ -704,4 +704,92 @@ class SearchRepositoryTest {
       results.first().id,
     )
   }
+
+  @Test
+  fun `wrap includes download and calendar descriptions in searchable text`() {
+    val download =
+      repository.wrap(
+        AppSearchDocument(
+          namespace = "downloads",
+          id = "42",
+          score = 1,
+          name = "ticket",
+          description = "application/pdf|PDF · 2 KB",
+          intentUri = "content://media/external/downloads/42",
+        )
+      )
+    val event =
+      repository.wrap(
+        AppSearchDocument(
+          namespace = "calendar",
+          id = "9/1",
+          score = 1,
+          name = "Dentist",
+          description = "Tomorrow · 09:00 · Utrecht",
+          intentUri = "content://com.android.calendar/events/9",
+        )
+      )
+
+    assertEquals(10, download.namespaceInt)
+    assertTrue(download.nameLower.contains("pdf"))
+    assertEquals(11, event.namespaceInt)
+    assertTrue(event.nameLower.contains("utrecht"))
+  }
+
+  @Test
+  fun `search finds downloads by type and calendar events by location`() = runBlocking {
+    val download =
+      AppSearchDocument(
+        namespace = "downloads",
+        id = "42",
+        score = 1,
+        name = "ticket",
+        description = "application/pdf|PDF · 2 KB",
+        intentUri = "content://media/external/downloads/42",
+      )
+    val event =
+      AppSearchDocument(
+        namespace = "calendar",
+        id = "9/1",
+        score = 1,
+        name = "Dentist",
+        description = "Tomorrow · 09:00 · Utrecht",
+        intentUri = "content://com.android.calendar/events/9",
+      )
+    val app =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "com.example.clock",
+        score = 1,
+        name = "Clock",
+        intentUri = "intent://clock",
+      )
+
+    repository.documentSnapshot =
+      listOf(repository.wrap(app), repository.wrap(download), repository.wrap(event)).sortedBy {
+        it.namespaceInt
+      }
+
+    val pdfHits =
+      SearchRanker.rankCandidates(
+        "pdf",
+        repository.documentSnapshot,
+        includeSearchShortcuts = false,
+        usageStats = emptyMap(),
+        queryUsageStats = emptyMap(),
+        documentByNamespaceAndId = emptyMap(),
+      )
+    assertTrue(pdfHits.any { it.first.doc.namespace == "downloads" && it.first.doc.id == "42" })
+
+    val placeHits =
+      SearchRanker.rankCandidates(
+        "utrecht",
+        repository.documentSnapshot,
+        includeSearchShortcuts = false,
+        usageStats = emptyMap(),
+        queryUsageStats = emptyMap(),
+        documentByNamespaceAndId = emptyMap(),
+      )
+    assertTrue(placeHits.any { it.first.doc.namespace == "calendar" && it.first.doc.id == "9/1" })
+  }
 }
