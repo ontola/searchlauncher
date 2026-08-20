@@ -2,23 +2,30 @@ package com.searchlauncher.app.ui.browser
 
 import android.annotation.SuppressLint
 import android.app.DownloadManager
+import android.app.PictureInPictureParams
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.util.Rational
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.URLUtil
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -107,8 +114,11 @@ import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.favoriteKey
+import com.searchlauncher.app.ui.KeyShortcutHost
+import com.searchlauncher.app.ui.KeyShortcuts
 import com.searchlauncher.app.ui.MainActivity
 import com.searchlauncher.app.ui.MinIconSize
+import com.searchlauncher.app.ui.PipCapable
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.ResultLauncher
 import com.searchlauncher.app.ui.SearchActivity
@@ -127,7 +137,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
-open class BrowserActivity : ComponentActivity() {
+open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
   private var navigationRequest by mutableStateOf<NavigationRequest?>(null)
   private var searchOverlayVisible by mutableStateOf(false)
   private var browserMenuRequest by mutableLongStateOf(0L)
@@ -135,9 +145,18 @@ open class BrowserActivity : ComponentActivity() {
   /** Set between launching the search overlay and it taking window focus. */
   private var pendingSearchLaunch = false
   protected open val isPrivateMode: Boolean = false
+  override var keyShortcutHandler: ((android.view.KeyEvent) -> Boolean)? = null
+  override var pipVideoView: View? = null
+  override var inPictureInPicture by mutableStateOf(false)
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    if (isPrivateMode) {
+      window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        setRecentsScreenshotEnabled(false)
+      }
+    }
     navigationRequest = intent.toNavigationRequest(0)
     // Applied before the first composition so the browser is built around the right tab instead
     // of building a WebView for the previous one and switching a frame later.
@@ -170,12 +189,13 @@ open class BrowserActivity : ComponentActivity() {
         BrowserScreen(
           navigationRequest = navigationRequest,
           privateMode = isPrivateMode,
-          showLauncherChrome = !searchOverlayVisible,
+          showLauncherChrome = !searchOverlayVisible && !inPictureInPicture,
           browserMenuRequest = browserMenuRequest,
           onBrowserMenuShown = { browserMenuRequest = 0L },
           tabActivationRequest = tabActivationRequest,
           onOpenSearch = { voice, color, query -> openSearch(voice, color, query) },
           onClose = ::finish,
+          inPictureInPicture = inPictureInPicture,
         )
       }
     }
@@ -214,6 +234,38 @@ open class BrowserActivity : ComponentActivity() {
   override fun onDestroy() {
     unregisterReceiver(browserActionReceiver)
     super.onDestroy()
+  }
+
+  override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    if (keyShortcutHandler?.invoke(event) == true) return true
+    return super.dispatchKeyEvent(event)
+  }
+
+  override fun onUserLeaveHint() {
+    super.onUserLeaveHint()
+    enterPipIfEligible()
+  }
+
+  override fun onPictureInPictureModeChanged(
+    isInPictureInPictureMode: Boolean,
+    newConfig: Configuration,
+  ) {
+    super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+    inPictureInPicture = isInPictureInPictureMode
+  }
+
+  override fun enterPipIfEligible(): Boolean {
+    val view = pipVideoView ?: return false
+    if (isPrivateMode || isInPictureInPictureMode) return false
+    val width = view.width.coerceAtLeast(16)
+    val height = view.height.coerceAtLeast(9)
+    val params = PictureInPictureParams.Builder().setAspectRatio(Rational(width, height)).build()
+    return try {
+      enterPictureInPictureMode(params)
+    } catch (e: Exception) {
+      android.util.Log.w("BrowserActivity", "PiP failed", e)
+      false
+    }
   }
 
   @Composable
@@ -384,9 +436,19 @@ internal fun BrowserScreen(
   onLauncherDrag: ((Float) -> Unit)? = null,
   /** The finger left during such a drag, travelling at this many pixels a second. */
   onLauncherDragEnd: ((Float) -> Unit)? = null,
+  inPictureInPicture: Boolean = false,
+  shortcutsEnabled: Boolean = true,
 ) {
   val context = LocalContext.current
   val app = context.applicationContext as SearchLauncherApp
+  val fileChooser = remember { BrowserFileChooser() }
+  val fileChooserLauncher =
+    rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+      fileChooser.deliver(result.resultCode, result.data)
+    }
+  androidx.compose.runtime.SideEffect {
+    fileChooser.launch = { intent -> fileChooserLauncher.launch(intent) }
+  }
   // Read the shared favorites flow so the browser strip matches search — but only when there is
   // one to read. The private browser is a separate process with no repositories at all, so these
   // are absent there rather than merely read-only, and the strip falls back to empty.
@@ -664,6 +726,8 @@ internal fun BrowserScreen(
   var fullscreenVideoCallback by remember {
     mutableStateOf<WebChromeClient.CustomViewCallback?>(null)
   }
+  val pipHost = context as? PipCapable
+  LaunchedEffect(fullscreenVideoView) { pipHost?.pipVideoView = fullscreenVideoView }
   var restoringSnapshot by remember { mutableStateOf(activeTab.snapshot) }
   var tabDragOffsetPx by remember { mutableFloatStateOf(0f) }
   // Set while a tapped card in the overview is growing into the page, so the bars can travel with
@@ -962,6 +1026,7 @@ internal fun BrowserScreen(
   // The overview lives around the chrome bar, so it cannot outlast it: opening search from the
   // bar takes the bar away, which would strand the tab strip with no header.
   LaunchedEffect(showLauncherChrome) { if (!showLauncherChrome) tabsOverviewOpen = false }
+  LaunchedEffect(inPictureInPicture) { if (inPictureInPicture) showFindInPage = false }
 
   // Leaving the browser (home button, the search overlay, a swipe back to the launcher) is exactly
   // when the preview has to be current: it is what the launcher shows to swipe back in with.
@@ -1060,6 +1125,57 @@ internal fun BrowserScreen(
       if (view?.canGoBack() == true) view.goBack()
       else if (tabs.items.size > 1) closeActiveTab() else onClose()
     }
+  }
+
+  val shortcutHost = context as? KeyShortcutHost
+  val browserShortcutHandler = rememberUpdatedState { event: android.view.KeyEvent ->
+    when {
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_T, ctrl = true) -> {
+        createTab()
+        true
+      }
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_W, ctrl = true) -> {
+        closeActiveTab()
+        true
+      }
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_R, ctrl = true) -> {
+        webView?.reload()
+        true
+      }
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_F, ctrl = true) -> {
+        showFindInPage = true
+        true
+      }
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_L, ctrl = true) ||
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_K, ctrl = true) -> {
+        onOpenSearch(false, animatedPageBackground.toArgb(), webView?.url ?: activeTab.url)
+        true
+      }
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_TAB, ctrl = true, shift = true) -> {
+        animateToAdjacentTab(-1)
+        true
+      }
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_TAB, ctrl = true) -> {
+        animateToAdjacentTab(1)
+        true
+      }
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_ESCAPE) -> {
+        if (tabsOverviewOpen) tabsOverviewOpen = false
+        else if (fullscreenVideoView != null) exitFullscreenVideo()
+        else if (showFindInPage) {
+          webView?.clearMatches()
+          showFindInPage = false
+        } else if (webView?.canGoBack() == true) webView?.goBack()
+        else if (tabs.items.size > 1) closeActiveTab() else onClose()
+        true
+      }
+      else -> false
+    }
+  }
+  DisposableEffect(shortcutHost, shortcutsEnabled) {
+    if (!shortcutsEnabled) return@DisposableEffect onDispose {}
+    shortcutHost?.keyShortcutHandler = { browserShortcutHandler.value(it) }
+    onDispose { shortcutHost?.keyShortcutHandler = null }
   }
 
   val chromeBarColor = animatedPageBackground
@@ -1421,6 +1537,12 @@ internal fun BrowserScreen(
                     fullscreenVideoView = null
                     fullscreenVideoCallback = null
                   }
+
+                  override fun onShowFileChooser(
+                    webView: WebView?,
+                    filePathCallback: ValueCallback<Array<Uri>>?,
+                    fileChooserParams: FileChooserParams?,
+                  ): Boolean = fileChooser.start(filePathCallback, fileChooserParams)
 
                   // searchRepository is null in private mode, so incognito browsing never writes
                   // favicons to disk.
@@ -2530,3 +2652,43 @@ private const val CLEAR_SITE_STORAGE_SCRIPT =
     } catch (_) {}
   })()
   """
+
+internal class BrowserFileChooser {
+  var callback: ValueCallback<Array<Uri>>? = null
+  var launch: ((Intent) -> Unit)? = null
+
+  fun start(
+    filePathCallback: ValueCallback<Array<Uri>>?,
+    fileChooserParams: WebChromeClient.FileChooserParams?,
+  ): Boolean {
+    callback?.onReceiveValue(null)
+    callback = filePathCallback
+    val intent =
+      try {
+        fileChooserParams?.createIntent()
+      } catch (_: Exception) {
+        null
+      }
+    val launcher = launch
+    if (filePathCallback == null || intent == null || launcher == null) {
+      callback?.onReceiveValue(null)
+      callback = null
+      return false
+    }
+    return try {
+      launcher(intent)
+      true
+    } catch (_: ActivityNotFoundException) {
+      callback?.onReceiveValue(null)
+      callback = null
+      false
+    }
+  }
+
+  fun deliver(resultCode: Int, data: Intent?) {
+    val pending = callback ?: return
+    val uris = WebChromeClient.FileChooserParams.parseResult(resultCode, data)
+    pending.onReceiveValue(uris)
+    callback = null
+  }
+}

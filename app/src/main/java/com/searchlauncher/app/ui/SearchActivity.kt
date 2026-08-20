@@ -17,7 +17,14 @@ import androidx.compose.ui.platform.LocalContext
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.ui.browser.BrowserActivity
 
-class SearchActivity : ComponentActivity() {
+class SearchActivity : ComponentActivity(), KeyShortcutHost {
+  override var keyShortcutHandler: ((android.view.KeyEvent) -> Boolean)? = null
+
+  override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+    if (keyShortcutHandler?.invoke(event) == true) return true
+    return super.dispatchKeyEvent(event)
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()

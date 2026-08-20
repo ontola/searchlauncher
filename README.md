@@ -7,15 +7,16 @@ Android app that lets you search everything on your phone and on the web, and op
 ## Features
 
 - **Direct keyboard access** - Your homescreen now has a keyboard!
-- **Search everything on your phone** - Apps, their shortcuts, device settings, sorted smartly by usage.
+- **Search everything on your phone** - Apps, their shortcuts, device settings, downloads, upcoming calendar events, sorted smartly by usage.
 - **Search everything on the web** - Youtube, google, bing, maps, spotify... Or add your own custom shortcuts!
-- **Built-in ad-free browser** - Opens web results in-app, blocking ads and trackers by default. Browse privately in an isolated window.
+- **Built-in ad-free browser** - Opens web results in-app, blocking ads and trackers by default. Browse privately in an isolated window. File uploads, picture-in-picture video, and hardware-keyboard shortcuts are included.
 - **Tabs at your thumb** - Swipe the search bar sideways to switch tabs, or up to see them all as live previews. Both work from the home screen too: swipe sideways to drop straight back into your last tab.
 - **Bookmarks & history** - Save any page under a title you choose, then find it back from the search bar. Pages you visit are searchable too, and both show the site's icon.
 - **Speed** - Lightweight, fast!
 - **Swipe Wallpapers** - Your background is an interactive picture album.
 - **Smart input** - Recognizes phone numbers, emails, calculator queries, and web addresses.
-- **App icons history & favorites** - Recently used & favorited apps are shown above the search bar
+- **App icons history & favorites** - Recently used & favorited apps are shown above the search bar. Optional themed (monochrome) icons match the theme; SearchLauncher's own icon can be themed by Android too.
+- **Follows the wallpaper** - Theme color can track the wallpaper behind the search bar (on by default).
 - **Widgets** - Add widgets through the search bar, resize them, and toggle visibility by tapping the background
 - **Voice search** - Tap the mic to speak your query
 - **Snippets** - Fast access to frequently used text snippets
@@ -54,6 +55,8 @@ Android app that lets you search everything on your phone and on the web, and op
 - Permissions:
   - Usage stats (optional, for smart app sorting)
   - Contacts (optional, for contact search)
+  - Calendar (optional, for events in the next week)
+  - Photos / media (optional, for wallpaper import and media in Downloads)
 
 ## Building
 

@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.searchlauncher.app.ui.contentMaxWidth
 
 @Composable
 fun SearchChromeBar(
@@ -34,7 +35,7 @@ fun SearchChromeBar(
   content: @Composable RowScope.() -> Unit,
 ) {
   Surface(
-    modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp),
+    modifier = modifier.fillMaxWidth().contentMaxWidth().padding(horizontal = 16.dp),
     shape = RoundedCornerShape(16.dp),
     color = color,
     contentColor = contentColor,

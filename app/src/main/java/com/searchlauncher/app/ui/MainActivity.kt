@@ -42,7 +42,7 @@ import kotlinx.coroutines.withContext
  */
 private data class SavedWallpaper(val uri: String?)
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
 
   // Export state
   var exportIncludeWallpapers = true
@@ -50,20 +50,24 @@ class MainActivity : ComponentActivity() {
   var showExportDialog by mutableStateOf(false)
   var showImportConfirmation by mutableStateOf(false)
   var pendingImportUri: Uri? = null
+  override var keyShortcutHandler: ((android.view.KeyEvent) -> Boolean)? = null
+  override var pipVideoView: android.view.View? = null
+  override var inPictureInPicture by mutableStateOf(false)
 
   /**
-   * The opening offer of the two optional permissions, and which of them are worth offering.
+   * The opening offer of the optional permissions, and which of them are worth offering.
    *
-   * Both are asked for here rather than where they happen to be needed, because neither was
+   * They are asked for here rather than where they happen to be needed, because they were not
    * reachable before: photo access arrived as a bare system dialog in the first seconds, with
-   * nothing on screen to say what it was for, and contact access was never requested at all — the
-   * app only ever checked it and dropped a hint in the search bar, so the one way to turn contact
-   * search on was to find SearchLauncher in Android's settings. Whatever is missing is explained on
-   * screen first, and the system prompts follow only on yes.
+   * nothing on screen to say what it was for, and contact or calendar access was never requested at
+   * all — the app only ever checked them and dropped a hint in the search bar, so the one way to
+   * turn those searches on was to find SearchLauncher in Android's settings. Whatever is missing is
+   * explained on screen first, and the system prompts follow only on yes.
    */
   var showOnboardingPermissions by mutableStateOf(false)
   var onboardingOffersContacts by mutableStateOf(false)
   var onboardingOffersPhotos by mutableStateOf(false)
+  var onboardingOffersCalendar by mutableStateOf(false)
 
   private val exportBackupLauncher =
     registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) {
@@ -106,9 +110,13 @@ class MainActivity : ComponentActivity() {
       lifecycleScope.launch {
         if (results[android.Manifest.permission.READ_MEDIA_IMAGES] == true) {
           app.wallpaperRepository.addSystemWallpaper()
+          app.searchRepository.indexDownloads()
         }
         if (results[android.Manifest.permission.READ_CONTACTS] == true) {
           app.searchRepository.indexContacts()
+        }
+        if (results[android.Manifest.permission.READ_CALENDAR] == true) {
+          app.searchRepository.indexCalendar()
         }
       }
     }
@@ -535,6 +543,41 @@ class MainActivity : ComponentActivity() {
     }
   }
 
+  override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+    if (keyShortcutHandler?.invoke(event) == true) return true
+    return super.dispatchKeyEvent(event)
+  }
+
+  override fun onUserLeaveHint() {
+    super.onUserLeaveHint()
+    enterPipIfEligible()
+  }
+
+  override fun onPictureInPictureModeChanged(
+    isInPictureInPictureMode: Boolean,
+    newConfig: android.content.res.Configuration,
+  ) {
+    super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+    inPictureInPicture = isInPictureInPictureMode
+  }
+
+  override fun enterPipIfEligible(): Boolean {
+    val view = pipVideoView ?: return false
+    if (isInPictureInPictureMode) return false
+    val width = view.width.coerceAtLeast(16)
+    val height = view.height.coerceAtLeast(9)
+    val params =
+      android.app.PictureInPictureParams.Builder()
+        .setAspectRatio(android.util.Rational(width, height))
+        .build()
+    return try {
+      enterPictureInPictureMode(params)
+    } catch (e: Exception) {
+      android.util.Log.w("MainActivity", "PiP failed", e)
+      false
+    }
+  }
+
   override fun onStart() {
     super.onStart()
     try {
@@ -685,6 +728,9 @@ class MainActivity : ComponentActivity() {
       val contactsGranted =
         context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) ==
           android.content.pm.PackageManager.PERMISSION_GRANTED
+      val calendarGranted =
+        context.checkSelfPermission(android.Manifest.permission.READ_CALENDAR) ==
+          android.content.pm.PackageManager.PERMISSION_GRANTED
 
       // Nothing to ask about: the wallpaper can just be taken.
       if (managedWallpapers.isEmpty() && photosGranted) {
@@ -697,10 +743,12 @@ class MainActivity : ComponentActivity() {
       // who said no last time, is not asked again.
       val offerPhotos = managedWallpapers.isEmpty() && !photosGranted
       val offerContacts = !contactsGranted
-      if (!onboardingPermissionsAsked && (offerPhotos || offerContacts)) {
+      val offerCalendar = !calendarGranted
+      if (!onboardingPermissionsAsked && (offerPhotos || offerContacts || offerCalendar)) {
         (context as? MainActivity)?.let {
           it.onboardingOffersPhotos = offerPhotos
           it.onboardingOffersContacts = offerContacts
+          it.onboardingOffersCalendar = offerCalendar
           it.showOnboardingPermissions = true
         }
       }
@@ -753,6 +801,7 @@ class MainActivity : ComponentActivity() {
     if (showOnboardingPermissions) {
       var wantContacts by remember { mutableStateOf(true) }
       var wantPhotos by remember { mutableStateOf(true) }
+      var wantCalendar by remember { mutableStateOf(true) }
 
       // Remembers that the offer was made whichever way it is answered, including a tap outside,
       // so nobody is asked twice.
@@ -767,6 +816,9 @@ class MainActivity : ComponentActivity() {
             buildList {
               if (onboardingOffersContacts && wantContacts) {
                 add(android.Manifest.permission.READ_CONTACTS)
+              }
+              if (onboardingOffersCalendar && wantCalendar) {
+                add(android.Manifest.permission.READ_CALENDAR)
               }
               if (onboardingOffersPhotos && wantPhotos) {
                 add(android.Manifest.permission.READ_MEDIA_IMAGES)
@@ -783,8 +835,8 @@ class MainActivity : ComponentActivity() {
         text = {
           Column {
             Text(
-              "SearchLauncher finds your apps and settings straight away. Two things it can only " +
-                "reach if you let it:"
+              "SearchLauncher finds your apps and settings straight away. A few things it can " +
+                "only reach if you let it:"
             )
             if (onboardingOffersContacts) {
               Spacer(modifier = Modifier.height(16.dp))
@@ -794,6 +846,19 @@ class MainActivity : ComponentActivity() {
                   Text("Contacts")
                   Text(
                     "Type a name to call, message or mail someone.",
+                    style = MaterialTheme.typography.bodySmall,
+                  )
+                }
+              }
+            }
+            if (onboardingOffersCalendar) {
+              Spacer(modifier = Modifier.height(8.dp))
+              Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Checkbox(checked = wantCalendar, onCheckedChange = { wantCalendar = it })
+                Column {
+                  Text("Calendar")
+                  Text(
+                    "Find events coming up in the next week.",
                     style = MaterialTheme.typography.bodySmall,
                   )
                 }
