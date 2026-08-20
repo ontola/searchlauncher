@@ -24,6 +24,7 @@ object PreferencesKeys {
   val HISTORY_LIMIT = intPreferencesKey("history_limit")
   val MIN_ICON_SIZE = intPreferencesKey("min_icon_size")
   val AUTO_THEME_FROM_WALLPAPER = booleanPreferencesKey("auto_theme_from_wallpaper")
+  val THEMED_ICONS = booleanPreferencesKey("themed_icons")
   val SEARCH_SHORTCUTS_ENABLED = booleanPreferencesKey("search_shortcuts_enabled")
 
   /**

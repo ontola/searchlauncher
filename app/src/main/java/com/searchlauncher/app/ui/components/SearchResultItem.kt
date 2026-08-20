@@ -28,6 +28,7 @@ import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.ContactActionGlyph
 import com.searchlauncher.app.data.ContactChatAction
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.ui.rememberThemedIconBitmap
 import com.searchlauncher.app.ui.toImageBitmap
 import com.searchlauncher.app.util.traceSection
 
@@ -35,6 +36,7 @@ import com.searchlauncher.app.util.traceSection
 @Composable
 fun SearchResultItem(
   result: SearchResult,
+  highlighted: Boolean = false,
   isFavorite: Boolean = false,
   actions: ResultMenuActions = ResultMenuActions(),
   onClick: () -> Unit,
@@ -67,6 +69,10 @@ fun SearchResultItem(
         modifier =
           Modifier.fillMaxWidth()
             .then(
+              if (highlighted) Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
+              else Modifier
+            )
+            .then(
               if (result is SearchResult.IndexingIndicator) {
                 Modifier
               } else if (hasMenuItems) {
@@ -96,12 +102,7 @@ fun SearchResultItem(
               } else {
                 Modifier.size(40.dp)
               }
-            val imageBitmap =
-              remember(iconState) {
-                traceSection("SL:SearchResultItem.toImageBitmap:${result.namespace}") {
-                  iconState?.toImageBitmap()
-                }
-              }
+            val imageBitmap = rememberThemedIconBitmap(iconState)
             if (imageBitmap != null) {
               Image(
                 bitmap = imageBitmap,

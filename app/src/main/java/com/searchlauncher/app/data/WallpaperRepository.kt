@@ -384,8 +384,14 @@ class WallpaperRepository(private val context: Context) {
           if (!bitmap.isRecycled) bitmap.recycle()
         }
 
-      // Try dominant swatch first, then vibrant, then muted
-      val swatch = palette.dominantSwatch ?: palette.vibrantSwatch ?: palette.mutedSwatch
+      // Vibrant first: "dominant" on a photo is often a muddy grey, which makes auto-from-wallpaper
+      // look like it is doing nothing. Vibrant/muted-vibrant tracks the colour people actually see.
+      val swatch =
+        palette.vibrantSwatch
+          ?: palette.lightVibrantSwatch
+          ?: palette.darkVibrantSwatch
+          ?: palette.dominantSwatch
+          ?: palette.mutedSwatch
 
       if (swatch != null) {
         android.util.Log.d(

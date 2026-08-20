@@ -123,13 +123,51 @@ fun ThemeSettingsCard() {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        Text(text = "Auto from wallpaper", style = MaterialTheme.typography.bodyMedium)
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+          Text(text = "Auto from wallpaper", style = MaterialTheme.typography.bodyMedium)
+          Text(
+            text = "Tint the UI from the wallpaper currently behind the search bar.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
         Switch(
           checked = autoThemeFromWallpaper,
           onCheckedChange = { checked ->
             scope.launch {
               context.dataStore.edit { preferences ->
                 preferences[PreferencesKeys.AUTO_THEME_FROM_WALLPAPER] = checked
+              }
+            }
+          },
+        )
+      }
+
+      HorizontalDivider()
+
+      val themedIcons by
+        remember { context.dataStore.data.map { it[PreferencesKeys.THEMED_ICONS] ?: false } }
+          .collectAsState(initial = false)
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+          Text(text = "Themed icons", style = MaterialTheme.typography.bodyMedium)
+          Text(
+            text =
+              "Tint other apps' monochrome icons to match the theme, and let Android theme SearchLauncher's own icon the same way. Apps without a monochrome layer stay as they are.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Switch(
+          checked = themedIcons,
+          onCheckedChange = { checked ->
+            scope.launch {
+              context.dataStore.edit { preferences ->
+                preferences[PreferencesKeys.THEMED_ICONS] = checked
               }
             }
           },

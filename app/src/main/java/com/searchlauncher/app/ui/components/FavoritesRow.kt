@@ -15,8 +15,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
@@ -24,9 +26,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.favoriteKey
+import com.searchlauncher.app.ui.PreferencesKeys
+import com.searchlauncher.app.ui.ThemedIcons
+import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.ui.toImageBitmap
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.map
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -120,9 +126,20 @@ fun FavoritesRow(
         }
     }
 
-    // Caching icons to prevent flickering
+    val context = LocalContext.current
+    val themedIcons by
+      remember { context.dataStore.data.map { it[PreferencesKeys.THEMED_ICONS] ?: false } }
+        .collectAsState(initial = false)
+    val themeBg = MaterialTheme.colorScheme.primary.toArgb()
+    val themeFg = MaterialTheme.colorScheme.onPrimary.toArgb()
     val iconBitmaps =
-      remember(allItems) { allItems.associate { it.favoriteKey to it.icon?.toImageBitmap() } }
+      remember(allItems, themedIcons, themeBg, themeFg) {
+        allItems.associate { result ->
+          val drawable =
+            if (themedIcons) ThemedIcons.apply(result.icon, themeBg, themeFg) else result.icon
+          result.favoriteKey to drawable?.toImageBitmap()
+        }
+      }
 
     // Calculate layout metrics
     // We reserve space for the divider gap if needed
