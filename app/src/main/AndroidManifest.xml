@@ -89,12 +89,18 @@
             </intent-filter>
         </activity>
 
-        <!-- Browser lives in its own task so Home always returns to the launcher surface. -->
+        <!--
+          One task per tab, so the system's app switcher lists browser tabs the way it lists apps.
+          documentLaunchMode keys those tasks on the intent's data URI, which is why every tab is
+          opened through a URI naming it (see BrowserTabTasks); autoRemoveFromRecents takes the card
+          away when the tab is closed rather than leaving one that reopens nothing.
+        -->
         <activity
             android:name=".ui.browser.BrowserActivity"
+            android:autoRemoveFromRecents="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:documentLaunchMode="intoExisting"
             android:exported="true"
-            android:launchMode="singleTask"
             android:supportsPictureInPicture="true"
             android:taskAffinity="com.searchlauncher.app.browser"
             android:theme="@style/Theme.SearchLauncher.Browser"

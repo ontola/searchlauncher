@@ -72,23 +72,19 @@ import com.searchlauncher.app.data.SearchShortcut
 import com.searchlauncher.app.data.favoriteKey
 import com.searchlauncher.app.data.isFavoritable
 import com.searchlauncher.app.ui.browser.BrowserActivity
-import com.searchlauncher.app.ui.browser.BrowserScreen
+import com.searchlauncher.app.ui.browser.BrowserTab
 import com.searchlauncher.app.ui.browser.BrowserTabStore
 import com.searchlauncher.app.ui.browser.BrowserTabSwipePreview
+import com.searchlauncher.app.ui.browser.BrowserTabTasks
 import com.searchlauncher.app.ui.browser.BrowserTabs
 import com.searchlauncher.app.ui.browser.BrowserTabsButton
 import com.searchlauncher.app.ui.browser.BrowserTabsOverviewLayer
-import com.searchlauncher.app.ui.browser.NavigationRequest
 import com.searchlauncher.app.ui.browser.TAB_CARD_WIDTH_FRACTION
-import com.searchlauncher.app.ui.browser.TAB_COMMIT_FRACTION
-import com.searchlauncher.app.ui.browser.TAB_COMMIT_MAX_DISTANCE
-import com.searchlauncher.app.ui.browser.TAB_FLING_VELOCITY
 import com.searchlauncher.app.ui.browser.TAB_STRIP_LABEL_HEIGHT
-import com.searchlauncher.app.ui.browser.TabActivationRequest
+import com.searchlauncher.app.ui.browser.browserDestination
 import com.searchlauncher.app.ui.browser.browserTabSwipe
 import com.searchlauncher.app.ui.browser.indexOfTabShowing
 import com.searchlauncher.app.ui.browser.rememberBrowserTabSwipeState
-import com.searchlauncher.app.ui.browser.shouldCommitTabSwipe
 import com.searchlauncher.app.ui.components.BookmarkDialog
 import com.searchlauncher.app.ui.components.ConsentDialog
 import com.searchlauncher.app.ui.components.FavoritesRow
@@ -133,13 +129,11 @@ fun SearchScreen(
   startVoiceSearchOnOpen: Boolean = false,
   fixedHint: String? = null,
   onOpenBrowserContext: (() -> Unit)? = null,
+  /** Set when this screen is the search overlay of a browser tab's window; that tab's id. */
+  browserTabId: Long? = null,
   chromeBarColor: Color? = null,
   /** Home screen only: drag the chrome bar sideways to pull the newest browser tab back in. */
   browserTabSwipeEnabled: Boolean = false,
-  /** A page to open in the hosted browser, forwarded by a window that has no browser of its own. */
-  openUrlRequest: NavigationRequest? = null,
-  /** Fired once the request has been acted on, so the owner can stop offering it. */
-  onOpenUrlHandled: () -> Unit = {},
   /** Moves only on a real home intent; [focusTrigger] also moves on any return of focus. */
   homeTrigger: Long = 0L,
   /**
@@ -247,6 +241,8 @@ fun SearchScreen(
 
   val browserTabSwipe = rememberBrowserTabSwipeState()
   var openingTab by remember { mutableStateOf(false) }
+  /** The tab an overview card is growing into, opened once the growth lands. */
+  var pendingOverviewTab by remember { mutableStateOf<BrowserTab?>(null) }
 
   val view = LocalView.current
   val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
@@ -272,77 +268,53 @@ fun SearchScreen(
     imm.hideSoftInputFromWindow(view.windowToken, 0)
   }
 
-  // The browser is a screen of this composition rather than an activity of its own. It used to be
-  // the latter, in its own task, and every way into it cost a task change: the system drew its own
-  // surface over the top for a frame or two — the white flash — and animated it the way it moves
-  // any new app, in from the right, which is backwards for something the launcher keeps to its
-  // left. Hosted here there is no window to hand over and the movement is ours to choose.
+  // Every browser tab is a window of its own, so that the system's app switcher lists tabs the way
+  // it lists apps — see [BrowserTabTasks]. The launcher's part is the way in: the swipe below moves
+  // the tab's preview across the screen, and its window opens onto that image with no transition of
+  // its own, so the handover between the two tasks is not something the user has to see.
   //
-  // Private browsing is still its own activity: it runs in a separate process on purpose, and that
-  // is a real handover to another instance rather than an artificial one.
-  var browserOpen by remember { mutableStateOf(false) }
+  // The tabs were briefly hosted in this composition instead, which made the movement seamless but
+  // put every page inside the launcher's own home task — the one task the app switcher never shows.
+  // That is the trade this makes the other way.
   val shortcutHost = context as? KeyShortcutHost
   val searchShortcutHandler = rememberUpdatedState { event: android.view.KeyEvent ->
-    if (browserOpen) false
-    else
-      when {
-        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_ESCAPE) -> {
-          if (query.isNotEmpty()) onQueryChange("") else onDismiss()
-          true
-        }
-        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_L, ctrl = true) ||
-          KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_K, ctrl = true) ||
-          KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_F, ctrl = true) -> {
-          focusRequester.requestFocus()
-          true
-        }
-        searchResults.isNotEmpty() &&
-          KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_DPAD_UP) -> {
-          // reverseLayout: index 0 sits next to the search bar, higher indices are above it.
-          keyboardSelectedIndex = (keyboardSelectedIndex + 1).coerceAtMost(searchResults.lastIndex)
-          scope.launch { listState.scrollToItem(keyboardSelectedIndex) }
-          true
-        }
-        searchResults.isNotEmpty() &&
-          KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_DPAD_DOWN) -> {
-          keyboardSelectedIndex = (keyboardSelectedIndex - 1).coerceAtLeast(0)
-          scope.launch { listState.scrollToItem(keyboardSelectedIndex) }
-          true
-        }
-        else -> false
+    when {
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_ESCAPE) -> {
+        if (query.isNotEmpty()) onQueryChange("") else onDismiss()
+        true
       }
-  }
-  DisposableEffect(shortcutHost, browserOpen) {
-    if (browserOpen) {
-      onDispose {}
-    } else {
-      shortcutHost?.keyShortcutHandler = { searchShortcutHandler.value(it) }
-      onDispose { shortcutHost?.keyShortcutHandler = null }
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_L, ctrl = true) ||
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_K, ctrl = true) ||
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_F, ctrl = true) -> {
+        focusRequester.requestFocus()
+        true
+      }
+      searchResults.isNotEmpty() &&
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_DPAD_UP) -> {
+        // reverseLayout: index 0 sits next to the search bar, higher indices are above it.
+        keyboardSelectedIndex = (keyboardSelectedIndex + 1).coerceAtMost(searchResults.lastIndex)
+        scope.launch { listState.scrollToItem(keyboardSelectedIndex) }
+        true
+      }
+      searchResults.isNotEmpty() &&
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_DPAD_DOWN) -> {
+        keyboardSelectedIndex = (keyboardSelectedIndex - 1).coerceAtLeast(0)
+        scope.launch { listState.scrollToItem(keyboardSelectedIndex) }
+        true
+      }
+      else -> false
     }
   }
-  /**
-   * Set for the length of the browser's exit. The offset says the browser is still on screen for
-   * all of it, which is true but not the point: from the moment home is asked for it is home that
-   * is arriving, and the keyboard belongs to home.
-   */
-  var browserLeaving by remember { mutableStateOf(false) }
-  /**
-   * Kept composed one screen to the left, ready, without being on its way anywhere yet. Set the
-   * moment a sideways drag is recognised so that the cost of building it lands before the finger
-   * has moved, rather than five frames into the movement — which is where it showed as the home
-   * screen losing its wallpaper.
-   */
-  var browserWarm by remember { mutableStateOf(false) }
-  /**
-   * Whether the browser is on screen to any degree — open, or part way in under a finger. Derived
-   * so that a swipe, which moves the offset every frame, only wakes anything watching this when the
-   * answer actually changes.
-   */
-  val browserShowing by remember {
-    derivedStateOf { browserOpen || browserTabSwipe.offsetPx > 0.5f }
+  DisposableEffect(shortcutHost) {
+    shortcutHost?.keyShortcutHandler = { searchShortcutHandler.value(it) }
+    onDispose { shortcutHost?.keyShortcutHandler = null }
   }
-  var browserNavigation by remember { mutableStateOf<NavigationRequest?>(null) }
-  var browserTabActivation by remember { mutableStateOf<TabActivationRequest?>(null) }
+  /**
+   * Whether a tab's preview is on screen to any degree, part way in under a finger or fully across
+   * with its window on the way. Derived so that a swipe, which moves the offset every frame, only
+   * wakes anything watching this when the answer actually changes.
+   */
+  val browserShowing by remember { derivedStateOf { browserTabSwipe.offsetPx > 0.5f } }
 
   /**
    * Brings the browser across from the left, which is where the launcher keeps it and the direction
@@ -354,25 +326,20 @@ fun SearchScreen(
   var tabsOverviewRendered by remember { mutableStateOf(false) }
 
   /**
-   * Builds the browser one screen to the left, without moving it. Expensive — it owns a WebView —
-   * and paying that on the first frame of a movement ate the movement: the main thread was busy
-   * while the animation ran, so the browser simply appeared at the end of it. Done here, off
-   * screen, the cost lands where there is nothing to see.
+   * Brings [tab] in from the left — the side the launcher keeps its tabs on, and the side the swipe
+   * already pulls them in from — and opens its window onto the image at the end of the movement.
+   *
+   * The preview and the real page are the same picture in the same place, and the window opens
+   * without a transition of its own, so the tab arrives by one continuous movement rather than by
+   * the system's own animation for a new app coming in from the right.
    */
-  suspend fun warmBrowserOffScreen() {
-    if (browserTabSwipe.offsetPx <= 0.5f) {
-      browserTabSwipe.offsetPx = 1f
-      withFrameNanos {}
-      withFrameNanos {}
-    }
-  }
-
-  fun slideBrowserIn() {
-    // The keyboard goes as the browser arrives, not once it has: this also sets openingTab, which
-    // is what stops the request loop below from asking for it back mid-slide.
+  fun slideBrowserIn(tab: BrowserTab?) {
+    if (tab == null) return
+    // The keyboard goes as the tab arrives, not once it has: this also sets openingTab, which is
+    // what stops the request loop below from asking for it back mid-slide.
     retractKeyboardForTab()
+    browserTabSwipe.tab = tab
     scope.launch {
-      warmBrowserOffScreen()
       animate(
         initialValue = browserTabSwipe.offsetPx,
         targetValue = browserTabSwipe.viewportWidthPx.toFloat(),
@@ -381,7 +348,7 @@ fun SearchScreen(
       ) { value, _ ->
         browserTabSwipe.offsetPx = value
       }
-      browserOpen = true
+      BrowserTabTasks.open(context, tab.id)
     }
   }
 
@@ -392,8 +359,7 @@ fun SearchScreen(
    */
   fun prepareBrowserForOverviewTab(index: Int) {
     retractKeyboardForTab()
-    browserTabActivation = TabActivationRequest(index, System.nanoTime())
-    scope.launch { warmBrowserOffScreen() }
+    pendingOverviewTab = BrowserTabStore.tabs?.items?.getOrNull(index)
   }
 
   /** The card has landed on it; nothing left to animate. */
@@ -405,8 +371,13 @@ fun SearchScreen(
     // The growth was the transition; there is nothing left for the strip to do but go.
     tabsOverviewRendered = false
     tabsOverviewOpen = false
+    val tab = pendingOverviewTab ?: return
+    pendingOverviewTab = null
+    // The card has already grown into the page's place, so the preview simply stands where it
+    // landed while the tab's own window opens onto it.
+    browserTabSwipe.tab = tab
     browserTabSwipe.offsetPx = browserTabSwipe.viewportWidthPx.toFloat()
-    browserOpen = true
+    BrowserTabTasks.open(context, tab.id)
   }
 
   /**
@@ -414,67 +385,24 @@ fun SearchScreen(
    * the right. The mirror of [slideBrowserIn], and the reason both are written in terms of the same
    * offset — a gesture and a button press should leave by the same door.
    */
-  /**
-   * Both requests are cleared with the browser, because [BrowserScreen] is disposed along with it
-   * and forgets which ones it has already acted on. A request left standing is therefore read as
-   * new by the next browser to be composed — which is why swiping back to the last tab opened a
-   * second copy of the page rather than the tab that was already there.
-   */
-  fun forgetBrowserRequests() {
-    browserNavigation = null
-    browserTabActivation = null
-    browserWarm = false
-  }
-
-  fun slideBrowserOut() {
-    forgetBrowserRequests()
-    scope.launch {
-      // Stated rather than assumed. While the browser is open its position comes from `browserOpen`
-      // and not from the offset, so nothing keeps the offset honest in the meantime — the lifecycle
-      // reset below zeroes it on any resume, and then this animation would have run from 0 to 0 and
-      // the browser would have vanished on the spot. A full screen is where it is; say so.
-      browserTabSwipe.offsetPx = browserTabSwipe.viewportWidthPx.toFloat()
-      browserOpen = false
-      // Both from the instant the exit is decided rather than when it lands, so the keyboard rises
-      // with the home screen instead of appearing on top of it once everything has stopped moving.
-      // The same reasoning as retractKeyboardForTab, which lets the keyboard leave during the trip
-      // out rather than snapping away at the end of it.
-      openingTab = false
-      browserLeaving = true
-      animate(
-        initialValue = browserTabSwipe.offsetPx,
-        targetValue = 0f,
-        animationSpec =
-          spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
-      ) { value, _ ->
-        browserTabSwipe.offsetPx = value
-      }
-      browserTabSwipe.reset()
-      browserLeaving = false
-    }
-  }
-
   fun openBrowserTab(index: Int) {
     tabsOverviewOpen = false
-    browserTabActivation = TabActivationRequest(index, System.nanoTime())
-    slideBrowserIn()
+    slideBrowserIn(BrowserTabStore.tabs?.items?.getOrNull(index))
   }
 
-  /** Opens [url] in the hosted browser, as a new tab or in the empty one already showing. */
+  /** Opens [url] in the tab already showing it, or in a new tab of its own. */
   fun openInBrowser(url: String) {
     // Only the launcher hosts a browser. Asked from the search overlay — its own translucent
     // activity, with no browser in it — this hands the page to the launcher instead, which used to
     // happen by starting the browser activity and is the last thing that would have brought the
     // task switch back.
     if (!browserTabSwipeEnabled) {
+      // No chrome bar here to slide a preview across, so a window is opened outright — the one
+      // belonging to the tab that asked, when there is one, so that searching from a blank new tab
+      // fills in that tab instead of leaving it behind empty.
       context.startActivity(
-        Intent(context, MainActivity::class.java)
-          .putExtra(MainActivity.EXTRA_OPEN_URL, url)
-          .addFlags(
-            Intent.FLAG_ACTIVITY_NEW_TASK or
-              Intent.FLAG_ACTIVITY_CLEAR_TOP or
-              Intent.FLAG_ACTIVITY_NO_ANIMATION
-          )
+        browserTabId?.let { BrowserActivity.createNavigateIntent(context, it, url) }
+          ?: BrowserActivity.createIntent(context, url)
       )
       onDismiss()
       return
@@ -489,20 +417,11 @@ fun SearchScreen(
       openBrowserTab(openTab)
       return
     }
-    // Sequenced rather than merely set, because BrowserScreen has to tell a fresh request from the
-    // same one arriving again through a recomposition.
-    browserNavigation = NavigationRequest(url, System.nanoTime())
-    slideBrowserIn()
-  }
-
-  // Home means home, including out of the browser — but only a home intent means home.
-  LaunchedEffect(homeTrigger) { if (homeTrigger != 0L && browserOpen) slideBrowserOut() }
-
-  LaunchedEffect(openUrlRequest?.sequence) {
-    openUrlRequest?.let {
-      openInBrowser(it.url)
-      onOpenUrlHandled()
-    }
+    slideBrowserIn(
+      BrowserTabStore.addBackgroundTab(browserDestination(url)) { evicted ->
+        BrowserTabTasks.close(context, evicted.id)
+      }
+    )
   }
 
   // One description of what a result can do, built in a single place and handed to every list that
@@ -555,6 +474,7 @@ fun SearchScreen(
       onCloseTab =
         openTab?.let { tab ->
           {
+            BrowserTabTasks.close(context, tab.tabId)
             if (BrowserTabStore.close(tab.tabId)) closeBrowserWindow(context)
             resultsRefreshTick++
           }
@@ -563,6 +483,7 @@ fun SearchScreen(
         openTab?.let {
           {
             BrowserTabStore.clear()
+            BrowserTabTasks.closeAll(context)
             closeBrowserWindow(context)
             resultsRefreshTick++
           }
@@ -788,11 +709,8 @@ fun SearchScreen(
   // holds focus — returning to the home screen often delivers focus late, so wait for it
   // instead of guessing with fixed retries, then keep asking until the IME is really visible.
   val windowInfo = androidx.compose.ui.platform.LocalWindowInfo.current
-  LaunchedEffect(isActive, focusTrigger, browserShowing, openingTab, browserLeaving) {
-    // Also on the browser closing. The launcher used to be restarted on the way back, which asked
-    // for the keyboard as a side effect of arriving; hosting the browser means this window never
-    // went anywhere, so the request has to be made explicitly.
-    if (isActive && !openingTab && (!browserShowing || browserLeaving)) {
+  LaunchedEffect(isActive, focusTrigger, browserShowing, openingTab) {
+    if (isActive && !openingTab && !browserShowing) {
       snapshotFlow { windowInfo.isWindowFocused }.first { it }
       repeat(10) {
         focusRequester.requestFocus()
@@ -1080,19 +998,28 @@ fun SearchScreen(
    */
   fun forgetAllTabs(returnHome: Boolean = false) {
     BrowserTabStore.clear()
+    // Every tab's window goes with its tab, so no card is left in the app switcher promising a
+    // page that nothing can bring back.
+    BrowserTabTasks.closeAll(context)
     closeBrowserWindow(context)
     overviewTabs = null
     if (!returnHome) return
     tabsOverviewOpen = false
     // The strip can be raised from either side; if it was raised from the browser then the browser
     // is still holding the screen and has to be shown out.
-    if (browserOpen) slideBrowserOut() else browserTabSwipe.reset()
+    browserTabSwipe.reset()
   }
 
   fun closeBrowserTab(index: Int) {
     val stored = overviewTabs ?: return
     // The last tab going away means there is no browser left to return to.
-    if (stored.items.size == 1) forgetAllTabs(returnHome = true) else stored.close(index)
+    if (stored.items.size == 1) {
+      forgetAllTabs(returnHome = true)
+      return
+    }
+    val closing = stored.items.getOrNull(index)
+    stored.close(index)
+    closing?.let { BrowserTabTasks.close(context, it.id) }
   }
 
   BackHandler(enabled = tabsOverviewOpen) { tabsOverviewOpen = false }
@@ -1119,12 +1046,14 @@ fun SearchScreen(
           event == androidx.lifecycle.Lifecycle.Event.ON_STOP ||
             event == androidx.lifecycle.Lifecycle.Event.ON_RESUME
         ) {
-          // Not while the browser is up. This clears the leftover swipe once the launcher is out
-          // of sight, which was safe when the browser was another activity — the launcher really
-          // had gone. Hosted, the offset is also what holds the home screen off to the right, so
-          // zeroing it here marched the favourites row and search bar back over the top of the
-          // page. Any resume did it: closing the search overlay, waking the screen.
-          if (!browserOpen) browserTabSwipe.reset()
+          // Clears whatever a swipe left parked: a tab opened at the end of one leaves its preview
+          // standing a full screen across so that its window has something to arrive onto, and this
+          // is where that is taken down once the launcher is out of sight or back in front.
+          browserTabSwipe.reset()
+          // A tab's card can be dismissed in the app switcher while the launcher is away, which is
+          // the user closing that tab; the surviving windows are the honest account of which tabs
+          // are left.
+          BrowserTabTasks.forgetDismissedTabs(context)
           // Leaving the launcher ends the overview with it, so coming back later never lands on a
           // tab strip describing whatever the browser was doing minutes ago.
           tabsOverviewOpen = false
@@ -1413,146 +1342,13 @@ fun SearchScreen(
               browserTabSwipe.viewportHeightPx = it.height.coerceAtLeast(1)
             }
         )
-        // Composed only while it is on screen or on its way there — it owns a WebView, which is far
-        // too expensive to keep alive behind the home screen.
-        // Composing the browser is what *creates* the tab list, so it must not happen on the
-        // strength of a drag alone: with no tabs to pull in, the gesture gives a little and springs
-        // back — but building the browser behind it left a real about:blank tab that outlived the
-        // swipe. It comes on screen only once there is something to show, which is a tab already
-        // there or a page on its way to one.
-        // Derived rather than read straight, because the offset moves every frame of a swipe and
-        // this is a composition-phase read: taken plainly it recomposed this screen — and with it
-        // the whole browser hanging below — sixty times a second, for a value that changes twice.
-        // The offset still drives the movement, but it does so in the graphicsLayer below, where a
-        // change costs a redraw rather than a recomposition.
-        val browserOnScreen by remember {
-          derivedStateOf {
-            // Kept composed whenever there is a tab for it, not only once it is wanted. Building it
-            // means building a WebView, which costs about five frames of stalled main thread — and
-            // paid during a gesture, that is the home screen losing its wallpaper for exactly that
-            // long, the window showing through in whichever colour the theme paints it. There is no
-            // moment inside a swipe early enough to absorb it, so it is paid once, while nothing is
-            // moving. Nor is it a new cost: before the browser was hosted here it was a separate
-            // activity, and it sat in its own task with its WebView alive the whole time the
-            // launcher was in front.
-            val hasTabs = BrowserTabStore.tabs?.items?.isNotEmpty() == true
-            browserOpen || hasTabs || browserNavigation != null
-          }
-        }
-        if (browserOnScreen) {
-          Box(
-            modifier =
-              Modifier.fillMaxSize().graphicsLayer {
-                // Open, it sits flush; mid-swipe it is exactly as far in as the finger has pulled
-                // it. One screen to the left at rest, which is the side the gesture comes from.
-                // One number decides where both screens are: home sits at the offset, the browser
-                // a screen to its left. Open is simply the offset being a full screen, so there is
-                // no separate case for it — and a drag can move the pair without either of them
-                // needing to know whether it counts as open yet.
-                translationX =
-                  if (inPip) 0f else browserTabSwipe.offsetPx - browserTabSwipe.viewportWidthPx
-              }
-          ) {
-            BrowserScreen(
-              navigationRequest = browserNavigation,
-              privateMode = false,
-              showLauncherChrome = !inPip,
-              browserMenuRequest = 0L,
-              onBrowserMenuShown = {},
-              tabActivationRequest = browserTabActivation,
-              // The same translucent overlay the browser has always opened, dressed in the page's
-              // colour so it arrives onto a bar the same shape and place as the one just tapped.
-              // Hosting the browser changed where it is drawn, not what its search bar means, and
-              // the stub left here in the meantime made it do nothing at all.
-              onOpenSearch = { startVoiceSearch, chromeColorArgb, initialQuery ->
-                context.startActivity(
-                  Intent(context, SearchActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
-                    .putExtra(SearchActivity.EXTRA_PRIVATE_WEB_RESULTS, false)
-                    .putExtra(SearchActivity.EXTRA_START_VOICE_SEARCH, startVoiceSearch)
-                    .putExtra(SearchActivity.EXTRA_BROWSER_SEARCH, true)
-                    .putExtra(SearchActivity.EXTRA_CHROME_COLOR, chromeColorArgb)
-                    .putExtra(SearchActivity.EXTRA_INITIAL_QUERY, initialQuery)
-                )
-              },
-              onClose = {
-                browserOpen = false
-                forgetBrowserRequests()
-              },
-              // Finished, not animated. The home button has nothing moving when it is pressed, so
-              // it needs slideBrowserOut to carry the browser away; this swipe has already spent
-              // its whole gesture doing exactly that, and running the host's animation on top
-              // played the same exit twice. Both still end the same way — the browser gone to the
-              // left, home in its place, keyboard on its way up — which is what agreeing means
-              // here; it does not mean animating something that has already arrived.
-              // The drag out of the leftmost tab moves this offset, which is the same offset the
-              // swipe in from home moves — so leaving and arriving are one gesture read in two
-              // directions, and the real home screen travels under the finger rather than a
-              // wallpaper standing in for it.
-              leaving = browserLeaving,
-              inPictureInPicture = inPip,
-              shortcutsEnabled = browserOpen,
-              onLauncherDrag = { delta ->
-                browserTabSwipe.offsetPx =
-                  (browserTabSwipe.offsetPx + delta).coerceIn(
-                    0f,
-                    browserTabSwipe.viewportWidthPx.toFloat(),
-                  )
-              },
-              onLauncherDragEnd = { velocity ->
-                val viewport = browserTabSwipe.viewportWidthPx.toFloat()
-                // How far it has come towards home, signed the way the finger went, so the same
-                // rule that decides a swipe in decides this one.
-                val travelled = browserTabSwipe.offsetPx - viewport
-                val leaving =
-                  shouldCommitTabSwipe(
-                    offsetPx = travelled,
-                    velocityPxPerSecond = velocity,
-                    viewportWidthPx = browserTabSwipe.viewportWidthPx,
-                    commitFraction = TAB_COMMIT_FRACTION,
-                    commitDistanceCapPx = with(density) { TAB_COMMIT_MAX_DISTANCE.toPx() },
-                    flingVelocityPx = with(density) { TAB_FLING_VELOCITY.toPx() },
-                  )
-                if (leaving) {
-                  forgetBrowserRequests()
-                  openingTab = false
-                  browserLeaving = true
-                }
-                scope.launch {
-                  animate(
-                    initialValue = browserTabSwipe.offsetPx,
-                    targetValue = if (leaving) 0f else viewport,
-                    animationSpec =
-                      spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMediumLow,
-                      ),
-                  ) { value, _ ->
-                    browserTabSwipe.offsetPx = value
-                  }
-                  if (leaving) {
-                    browserOpen = false
-                    browserTabSwipe.reset()
-                    browserLeaving = false
-                  }
-                }
-              },
-              onReturnToLauncher = {
-                forgetBrowserRequests()
-                browserOpen = false
-                browserTabSwipe.reset()
-                // Home is arriving, so the keyboard is home's again from this instant.
-                openingTab = false
-                browserLeaving = false
-              },
-            )
-          }
-        } else {
-          BrowserTabSwipePreview(
-            state = browserTabSwipe,
-            chromeHeight = with(density) { chromeBarHeightPx.toDp() },
-          )
-        }
+        // The tab's page as it was last left, sliding in under the finger. The real page arrives
+        // in a window of its own the moment the movement lands on it — see [slideBrowserIn] — so
+        // this is the whole of the browser the launcher ever draws, and no WebView is built here.
+        BrowserTabSwipePreview(
+          state = browserTabSwipe,
+          chromeHeight = with(density) { chromeBarHeightPx.toDp() },
+        )
       }
 
       // Above the wallpaper but below the chrome bar, which keeps working while the strip is up —
@@ -1878,15 +1674,9 @@ fun SearchScreen(
                   onOpenTabsOverview = ::openTabsOverview,
                   onCloseTabsOverview = { tabsOverviewOpen = false },
                   onCommitLastTab = ::retractKeyboardForTab,
-                  // No activity to start any more: the browser is already composed at the end of
-                  // the
-                  // swipe, so committing it is just letting go of the offset.
-                  onOpenLastTab = { browserOpen = true },
-                  // Built while the finger is still still, so the drag itself has nothing left to
-                  // do
-                  // but move. Only ever with a tab to show — see the gesture, which checks.
-                  onSidewaysDragStart = { browserWarm = true },
-                  onSidewaysDragAbandoned = { browserWarm = false },
+                  // The preview has finished travelling and is standing where the page belongs;
+                  // the tab's own window opens onto it without a transition of its own.
+                  onOpenLastTab = { BrowserTabTasks.openNewestTab(context) },
                 ),
             color = chromeBarColor ?: MaterialTheme.colorScheme.surface,
             contentColor =

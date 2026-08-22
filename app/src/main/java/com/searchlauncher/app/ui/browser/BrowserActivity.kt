@@ -1,6 +1,7 @@
 package com.searchlauncher.app.ui.browser
 
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.app.DownloadManager
 import android.app.PictureInPictureParams
 import android.content.ActivityNotFoundException
@@ -144,6 +145,14 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
   private var tabActivationRequest by mutableStateOf<TabActivationRequest?>(null)
   /** Set between launching the search overlay and it taking window focus. */
   private var pendingSearchLaunch = false
+  /**
+   * The one tab this window shows. Every tab has a window of its own so that the system's app
+   * switcher lists tabs the way it lists apps, which means switching tabs is switching windows —
+   * see [BrowserTabTasks]. Private browsing keeps its tabs inside its own window, and has none.
+   */
+  private var tabId = 0L
+  /** False while this window is only passing a page on to the one that will really show it. */
+  private var listeningForBrowserActions = false
   protected open val isPrivateMode: Boolean = false
   override var keyShortcutHandler: ((android.view.KeyEvent) -> Boolean)? = null
   override var pipVideoView: View? = null
@@ -157,17 +166,29 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
         setRecentsScreenshotEnabled(false)
       }
     }
-    navigationRequest = intent.toNavigationRequest(0)
-    // Applied before the first composition so the browser is built around the right tab instead
-    // of building a WebView for the previous one and switching a frame later.
-    intent.requestedTabIndex()?.let(BrowserTabStore::activate)
+    // A page handed over by another app arrives on a task keyed to that URL, and a tab's window has
+    // to be keyed to the tab — that name is how every other window finds this one, and how the card
+    // in the app switcher leads back to the right page. So the tab is made here and the window is
+    // opened again under its name, before anything has been drawn for the user to see it happen.
+    if (!isPrivateMode && BrowserTabTasks.tabIdOf(intent) == null) {
+      val url = intent.pageUrl()?.let(::browserDestination) ?: "about:blank"
+      val tab =
+        BrowserTabStore.addBackgroundTab(url) { evicted -> BrowserTabTasks.close(this, evicted.id) }
+      startActivity(BrowserTabTasks.intentFor(this, tab.id))
+      finish()
+      return
+    }
+    // Bound before the first composition so the browser is built around the right tab instead of
+    // building a WebView for another one and switching a frame later.
+    navigationRequest = if (bindTab(intent)) null else intent.toNavigationRequest(0)
     // The theme suppresses the starting window, but this one still paints in the window
     // background for the frames between here and Compose's first draw. Dressing it in the tab's
     // own colour means those frames look like the page arriving early rather than a white gap in
     // the middle of the handover.
-    BrowserTabStore.tabs?.active?.pageBackgroundArgb?.let {
+    BrowserTabStore.tabs?.active?.frameColorArgb?.let {
       window.setBackgroundDrawable(ColorDrawable(it))
     }
+    listeningForBrowserActions = true
     ContextCompat.registerReceiver(
       this,
       browserActionReceiver,
@@ -193,6 +214,7 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
           browserMenuRequest = browserMenuRequest,
           onBrowserMenuShown = { browserMenuRequest = 0L },
           tabActivationRequest = tabActivationRequest,
+          pinnedTabId = tabId.takeUnless { isPrivateMode },
           onOpenSearch = { voice, color, query -> openSearch(voice, color, query) },
           onClose = ::finish,
           inPictureInPicture = inPictureInPicture,
@@ -204,9 +226,14 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
-    navigationRequest = intent.toNavigationRequest(System.nanoTime())
-    intent.requestedTabIndex()?.let {
-      tabActivationRequest = TabActivationRequest(it, System.nanoTime())
+    // A window brought forward from the app switcher, from the launcher, or from another tab is
+    // being asked for the tab it has always held; only a page arriving from elsewhere is news.
+    navigationRequest = if (isPrivateMode) intent.toNavigationRequest(System.nanoTime()) else null
+    if (isPrivateMode) return
+    val index = BrowserTabStore.indexOfTab(tabId)
+    if (index >= 0) tabActivationRequest = TabActivationRequest(index, System.nanoTime())
+    intent.pageUrl()?.let {
+      navigationRequest = NavigationRequest(browserDestination(it), System.nanoTime())
     }
   }
 
@@ -214,6 +241,17 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     super.onResume()
     searchOverlayVisible = false
     pendingSearchLaunch = false
+    if (isPrivateMode || tabId == 0L) return
+    val index = BrowserTabStore.indexOfTab(tabId)
+    // The tab was closed while this window was away — from the launcher's overview, or from a
+    // search result's menu. There is nothing left here to show, so the window goes with it.
+    if (index < 0) {
+      finish()
+      return
+    }
+    // Which tab is "active" in the shared list means which window is in front, and this is it. Set
+    // on the model alone: this window is already showing the tab, so nothing needs rebuilding.
+    BrowserTabStore.activate(index)
   }
 
   /**
@@ -232,7 +270,12 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
   }
 
   override fun onDestroy() {
-    unregisterReceiver(browserActionReceiver)
+    if (listeningForBrowserActions) unregisterReceiver(browserActionReceiver)
+    // Dismissing a tab's card in the app switcher is how the user says "close this tab", and it
+    // reaches the app as the window being finished. Left in the store the tab would go on being
+    // offered in the launcher's overview with no window to bring it back to. A window merely being
+    // stopped — Home, another app — is not finishing and keeps its tab.
+    if (!isPrivateMode && isFinishing && tabId != 0L) BrowserTabStore.close(tabId)
     super.onDestroy()
   }
 
@@ -286,20 +329,61 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
         .putExtra(SearchActivity.EXTRA_PRIVATE_WEB_RESULTS, isPrivateMode)
         .putExtra(SearchActivity.EXTRA_START_VOICE_SEARCH, startVoiceSearch)
         .putExtra(SearchActivity.EXTRA_BROWSER_SEARCH, true)
+        .putExtra(SearchActivity.EXTRA_BROWSER_TAB_ID, tabId)
         .putExtra(SearchActivity.EXTRA_CHROME_COLOR, chromeColorArgb)
         .putExtra(SearchActivity.EXTRA_INITIAL_QUERY, initialQuery)
     )
   }
 
   private fun Intent.toNavigationRequest(sequence: Long): NavigationRequest? {
-    val url = dataString ?: getStringExtra(EXTRA_URL) ?: return null
+    val url = pageUrl() ?: return null
     return NavigationRequest(browserDestination(url), sequence)
   }
 
-  /** The tab a resume intent asks for, or null when this is not a resume intent. */
-  private fun Intent.requestedTabIndex(): Int? {
-    if (isPrivateMode) return null
-    return getIntExtra(EXTRA_TAB_INDEX, NO_TAB_REQUEST).takeIf { it != NO_TAB_REQUEST }
+  /**
+   * The page this intent asks for, if it asks for one. A tab URI names a window rather than a
+   * destination, so it is explicitly not a page — loaded as one it would take the tab to a
+   * `searchlauncher-tab:` address instead of leaving it on whatever it was showing.
+   */
+  private fun Intent.pageUrl(): String? =
+    dataString?.takeUnless(BrowserTabTasks::isTabUri) ?: getStringExtra(EXTRA_URL)
+
+  /**
+   * Ties this window to a tab, creating one when the intent asks for a page rather than for a tab
+   * that already exists — which is what an external link does, and what a card restored from the
+   * app switcher does once the process it belonged to has been killed.
+   *
+   * Returns whether the tab was created here holding the requested page, in which case there is
+   * nothing left to navigate to: the tab already is where the intent was asking it to go, and
+   * treating the request as news would open the same page a second time in a second tab.
+   */
+  private fun bindTab(intent: Intent): Boolean {
+    if (isPrivateMode) return false
+    val requestedId = BrowserTabTasks.tabIdOf(intent)
+    val known = requestedId?.let(BrowserTabStore::tab)
+    val url = intent.pageUrl()
+    val tab =
+      BrowserTabStore.ensureTab(requestedId, url?.let(::browserDestination) ?: "about:blank")
+    tab.hasOwnTask = true
+    tabId = tab.id
+    return known == null && url != null
+  }
+
+  /**
+   * Dresses this tab's card in the app switcher: the page's own title, its icon and its colour, so
+   * a tab is told apart from the tab beside it the same way an app is told apart from another app.
+   */
+  internal fun publishTaskDescription(label: String?, icon: Bitmap?, colorArgb: Int) {
+    if (isPrivateMode) return
+    // Opaque, because a translucent primary colour is drawn as a translucent card header.
+    val color = colorArgb or (0xFF shl 24)
+    val title =
+      label?.takeUnless(String::isBlank) ?: getString(com.searchlauncher.app.R.string.app_name)
+    val bitmap = icon?.takeUnless(Bitmap::isRecycled)
+    // The Builder that replaced this constructor takes an icon only as a resource id, and the icon
+    // wanted here is the site's own favicon — a bitmap the page handed us.
+    @Suppress("DEPRECATION") val description = ActivityManager.TaskDescription(title, bitmap, color)
+    runCatching { setTaskDescription(description) }
   }
 
   companion object {
@@ -311,29 +395,27 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
      */
     const val ACTION_CLOSE_BROWSER = "com.searchlauncher.app.action.CLOSE_BROWSER"
     private const val EXTRA_URL = "browser_url"
-    private const val EXTRA_TAB_INDEX = "browser_tab_index"
-    private const val NO_TAB_REQUEST = Int.MIN_VALUE
-
-    /** Passed as [createResumeIntent]'s index to mean "whichever tab is newest". */
-    const val NEWEST_TAB = -1
 
     /**
-     * Resumes the existing tabs on [tabIndex], with no window animation: the launcher has already
-     * slid that tab across the screen (or faded its overview away), and a second transition on top
-     * of that would break the illusion of one continuous gesture.
+     * Opens [url] in a tab of its own. The tab is made here rather than inside the new window so
+     * that the window can be addressed by tab from the start, which is what keeps its card in the
+     * app switcher findable afterwards.
      */
-    fun createResumeIntent(context: Context, tabIndex: Int = NEWEST_TAB): Intent =
-      Intent(context, BrowserActivity::class.java).apply {
-        putExtra(EXTRA_TAB_INDEX, tabIndex)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
-      }
+    /**
+     * Takes the window of [tabId] to [url]. The tab decides what that means when it arrives: a
+     * blank tab loads the page where it is, and a tab already showing something opens it beside
+     * itself in a window of its own, which is what a link opened from a page does too.
+     */
+    fun createNavigateIntent(context: Context, tabId: Long, url: String): Intent =
+      BrowserTabTasks.intentFor(context, tabId).putExtra(EXTRA_URL, url)
 
-    fun createIntent(context: Context, url: String): Intent =
-      Intent(context, BrowserActivity::class.java).apply {
-        data = Uri.parse(browserDestination(url))
-        putExtra(EXTRA_URL, url)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      }
+    fun createIntent(context: Context, url: String): Intent {
+      val tab =
+        BrowserTabStore.addBackgroundTab(browserDestination(url)) { evicted ->
+          BrowserTabTasks.close(context, evicted.id)
+        }
+      return BrowserTabTasks.intentFor(context, tab.id)
+    }
 
     fun createPrivateIntent(context: Context, url: String): Intent =
       Intent(context, PrivateBrowserActivity::class.java).apply {
@@ -412,30 +494,17 @@ internal fun BrowserScreen(
   browserMenuRequest: Long,
   onBrowserMenuShown: () -> Unit,
   tabActivationRequest: TabActivationRequest?,
+  /**
+   * The one tab this window shows, when tabs have windows of their own — which is every tab but a
+   * private one. Pinned rather than read from the shared list's "active" position, because that
+   * position now means "the tab whose window is in front" and every other window has to go on
+   * showing its own page while one of them is.
+   *
+   * Null for private browsing, whose tabs all live inside this window and switch in place.
+   */
+  pinnedTabId: Long? = null,
   onOpenSearch: (Boolean, Int, String) -> Unit,
   onClose: () -> Unit,
-  /**
-   * Set when the launcher is hosting this screen itself rather than running it as its own activity.
-   * Leaving for the launcher is then a state change in the same composition instead of a task
-   * change, so there is no window handover to see and the slide direction is ours to choose.
-   */
-  onReturnToLauncher: (() -> Unit)? = null,
-  /**
-   * Given the drag that leads out of the leftmost tab, when the launcher is hosting this screen.
-   * The browser used to answer that drag by sliding its own page off the edge and drawing a
-   * stand-in launcher beside it, because the real one was in another task. Hosted, the real home
-   * screen is a sibling — it is simply held a screen to the right — so the honest thing is to hand
-   * the drag over and let one movement carry both.
-   */
-  /**
-   * True while the host is carrying this screen away. The keyboard it is raising belongs to the
-   * home screen arriving behind, not to this page, so the page stops reserving room for it — a
-   * reflow on the way out is a visible step in something that should simply be leaving.
-   */
-  leaving: Boolean = false,
-  onLauncherDrag: ((Float) -> Unit)? = null,
-  /** The finger left during such a drag, travelling at this many pixels a second. */
-  onLauncherDragEnd: ((Float) -> Unit)? = null,
   inPictureInPicture: Boolean = false,
   shortcutsEnabled: Boolean = true,
 ) {
@@ -520,7 +589,12 @@ internal fun BrowserScreen(
       else Long.MIN_VALUE
     )
   }
-  val activeTab = tabs.active
+  // Read off the list rather than held, so a tab closed in another window (or in the launcher's
+  // overview) is noticed here. Falling back to the shared active position covers private browsing,
+  // which has no pin, and the instant after this window's own tab is closed from elsewhere.
+  val activeIndex = tabs.indexOfFirst(pinnedTabId ?: -1L).takeIf { it >= 0 } ?: tabs.activeIndex
+  val activeTab = tabs.items.getOrNull(activeIndex) ?: tabs.active
+  fun adjacent(direction: Int): BrowserTab? = tabs.items.getOrNull(activeIndex + direction)
   var webView by remember { mutableStateOf<WebView?>(null) }
   var progress by remember { mutableIntStateOf(0) }
   var chromeHeightPx by remember { mutableIntStateOf(0) }
@@ -721,7 +795,7 @@ internal fun BrowserScreen(
     }
   }
 
-  var pageBackground by remember { mutableStateOf(Color(activeTab.pageBackgroundArgb)) }
+  var pageBackground by remember { mutableStateOf(Color(activeTab.frameColorArgb)) }
   var fullscreenVideoView by remember { mutableStateOf<View?>(null) }
   var fullscreenVideoCallback by remember {
     mutableStateOf<WebChromeClient.CustomViewCallback?>(null)
@@ -742,7 +816,6 @@ internal fun BrowserScreen(
   var tabsInMotion by remember { mutableStateOf(false) }
   var fingerOnTabDrag by remember { mutableStateOf(false) }
   /** Set while a sideways drag is being answered by the host rather than by this screen. */
-  var launcherDragActive by remember { mutableStateOf(false) }
   var settleJob by remember { mutableStateOf<Job?>(null) }
   // A restored tab reloads its page, which would re-sample the background pre-CSS (usually
   // white) and make the persisted per-tab color flicker. Skip the early sample for restores;
@@ -768,14 +841,14 @@ internal fun BrowserScreen(
   // The launcher sits one screen to the right of the newest tab: swiping past the end of the tab
   // strip leaves the browser, and swiping back on the launcher's chrome bar returns here. Private
   // browsing is its own task and has no such neighbour.
-  val launcherIsNextNeighbour = !privateMode && tabs.activeIndex == tabs.items.lastIndex
+  val launcherIsNextNeighbour = !privateMode && activeIndex == tabs.items.lastIndex
   val adjacentDirection =
     when {
       tabDragOffsetPx < 0f -> 1
       tabDragOffsetPx > 0f -> -1
       else -> 0
     }
-  val adjacentTab = if (adjacentDirection == 0) null else tabs.adjacent(adjacentDirection)
+  val adjacentTab = if (adjacentDirection == 0) null else adjacent(adjacentDirection)
 
   // In-page color changes ease; a swipe does not use this at all. Snapping during motion is what
   // lets the blend below hand back to it at the end of a settle without the color stepping.
@@ -797,7 +870,7 @@ internal fun BrowserScreen(
   val tabSwipeProgress =
     if (viewportWidthPx <= 0) 0f else (abs(tabDragOffsetPx) / viewportWidthPx).coerceIn(0f, 1f)
   val neighbourBackground =
-    adjacentTab?.let { Color(it.pageBackgroundArgb) }
+    adjacentTab?.let { Color(it.frameColorArgb) }
       // Swiping off the end hands over to the home screen, which is on the theme background.
       ?: defaultPageBackground.takeIf { launcherIsNextNeighbour && tabDragOffsetPx < 0f }
   // Driven by where the swipe is rather than by a clock of its own. A duration to match the slide
@@ -825,8 +898,7 @@ internal fun BrowserScreen(
   // This follows the animation's target rather than its current value: every change relays out the
   // WebView and reflows the page, which is far too expensive to repeat on every frame of the
   // keyboard's entrance. The page resizes once and the keys slide up over it.
-  // Ignored on the way out: see [leaving]. The keyboard rising then is the launcher's.
-  val imeInsets = if (leaving) WindowInsets(bottom = 0) else WindowInsets.imeAnimationTarget
+  val imeInsets = WindowInsets.imeAnimationTarget
   val webContentInsets =
     when {
       // The find bar rides above the keyboard, so the page clears the two of them stacked.
@@ -846,25 +918,67 @@ internal fun BrowserScreen(
   }
 
   fun activateTab(index: Int) {
-    if (index !in tabs.items.indices || index == tabs.activeIndex) return
+    if (index !in tabs.items.indices || index == activeIndex) return
     exitFullscreenVideo()
-    if (!dragTabStateSaved) webView?.let { saveWebViewIntoTab(it, tabs.active) }
+    if (!dragTabStateSaved) webView?.let { saveWebViewIntoTab(it, activeTab) }
     dragTabStateSaved = false
     val target = tabs.activate(index) ?: return
     webView = null
     progress = 0
     showFindInPage = false
-    pageBackground = Color(target.pageBackgroundArgb)
+    pageBackground = Color(target.frameColorArgb)
     siteSettings = siteSettingsStore.load(target.url)
     restoringSnapshot = target.snapshot
+  }
+
+  /**
+   * Refreshes the active tab's preview from the live WebView. Whether there is anything worth
+   * capturing is [captureTabSnapshot]'s call, so every path that leaves a tab can ask freely.
+   */
+  fun captureActiveTabPreview() {
+    webView?.let { saveWebViewIntoTab(it, activeTab) }
+  }
+
+  /**
+   * Puts [tab]'s window in front of this one.
+   *
+   * Every tab has a window of its own, so going to another tab is going to another window — which
+   * is what makes each of them a card in the system's app switcher. The page this window is showing
+   * stays exactly where it is: the arriving window covers it, and the tab it holds is still here
+   * when the user comes back to it.
+   */
+  fun handOverTo(tab: BrowserTab) {
+    captureActiveTabPreview()
+    BrowserTabTasks.open(context, tab.id)
+  }
+
+  /**
+   * Adds a tab beside this one without disturbing the page on screen, then hands over to it. The
+   * tab is made here rather than in the window that is about to show it so that the window can be
+   * opened by name — see [BrowserTabTasks].
+   */
+  fun openTabInOwnWindow(url: String): BrowserTab? {
+    val tab =
+      BrowserTabStore.addBackgroundTab(url) { evicted ->
+        BrowserTabTasks.close(context, evicted.id)
+      } ?: return null
+    tab.pageBackgroundArgb = defaultPageBackground.toArgb()
+    handOverTo(tab)
+    return tab
   }
 
   fun createTab() {
     exitFullscreenVideo()
     tabsOverviewOpen = false
+    if (!privateMode) {
+      // Opened blank and then asked what it should be, exactly as it is in a single window — the
+      // search overlay is the new tab's own, and comes up over the window that is arriving.
+      openTabInOwnWindow("about:blank")
+      return
+    }
     settleJob?.cancel()
     tabsInMotion = true
-    webView?.let { saveWebViewIntoTab(it, tabs.active) }
+    webView?.let { saveWebViewIntoTab(it, activeTab) }
     tabs.add("about:blank").pageBackgroundArgb = defaultPageBackground.toArgb()
     webView = null
     progress = 0
@@ -900,20 +1014,22 @@ internal fun BrowserScreen(
       return
     }
     exitFullscreenVideo()
+    if (!privateMode) {
+      // Closing a tab closes its window, which takes its card out of the app switcher with it —
+      // that is what android:autoRemoveFromRecents is for. The neighbour is brought up first so
+      // there is a page behind this one as it goes, rather than a moment of whatever was under the
+      // browser. The tab itself is forgotten in onDestroy, which also catches the card being
+      // dismissed from the switcher directly.
+      adjacent(1)?.let(::handOverTo) ?: adjacent(-1)?.let(::handOverTo)
+      onClose()
+      return
+    }
     val target = tabs.closeActive() ?: return
     webView = null
     progress = 0
-    pageBackground = Color(target.pageBackgroundArgb)
+    pageBackground = Color(target.frameColorArgb)
     siteSettings = siteSettingsStore.load(target.url)
     restoringSnapshot = target.snapshot
-  }
-
-  /**
-   * Refreshes the active tab's preview from the live WebView. Whether there is anything worth
-   * capturing is [captureTabSnapshot]'s call, so every path that leaves a tab can ask freely.
-   */
-  fun captureActiveTabPreview() {
-    webView?.let { saveWebViewIntoTab(it, tabs.active) }
   }
 
   fun openTabsOverview() {
@@ -930,26 +1046,37 @@ internal fun BrowserScreen(
    * proper waits for the growth to finish — because this is the part the user watches happen.
    */
   fun startTabSelection(index: Int) {
-    tabs.items.getOrNull(index)?.let { pageBackground = Color(it.pageBackgroundArgb) }
+    tabs.items.getOrNull(index)?.let { pageBackground = Color(it.frameColorArgb) }
     tabExpanding = true
   }
 
   fun selectTabFromOverview(index: Int) {
     tabExpanding = false
-    activateTab(index)
     tabsOverviewOpen = false
+    val target = tabs.items.getOrNull(index) ?: return
+    if (privateMode) activateTab(index) else if (target.id != activeTab.id) handOverTo(target)
   }
 
   fun closeTabFromOverview(index: Int) {
-    // Closing the tab you are on has to hand the WebView over to its neighbour, which is exactly
-    // what the menu's Close tab does; the others are pure list edits. Closing the only tab leaves
-    // nothing to look at, so the browser goes away with it.
-    if (index == tabs.activeIndex) closeActiveTab() else tabs.close(index)
+    // Closing the tab you are on has to hand the screen over to its neighbour, which is exactly
+    // what the menu's Close tab does; the others are pure list edits — plus, when tabs have windows
+    // of their own, taking that tab's window down so its card goes with it.
+    if (index == activeIndex) {
+      closeActiveTab()
+      return
+    }
+    val closing = tabs.items.getOrNull(index)
+    tabs.close(index)
+    if (!privateMode) closing?.let { BrowserTabTasks.close(context, it.id) }
   }
 
   fun closeAllTabs() {
     exitFullscreenVideo()
-    if (!privateMode) BrowserTabStore.clear()
+    if (!privateMode) {
+      BrowserTabStore.clear()
+      // This window's own card goes when it finishes below; the rest have to be told.
+      BrowserTabTasks.closeAll(context)
+    }
     onClose()
   }
 
@@ -960,23 +1087,31 @@ internal fun BrowserScreen(
     // Opening a page is a request to look at that page, so the overview gets out of the way even
     // when it was left up in an earlier visit to the browser.
     tabsOverviewOpen = false
-    webView?.let { saveWebViewIntoTab(it, tabs.active) }
+    webView?.let { saveWebViewIntoTab(it, activeTab) }
+    if (!privateMode) {
+      openTabInOwnWindow(url)
+      return
+    }
     val newTab = tabs.add(url)
     newTab.pageBackgroundArgb = defaultPageBackground.toArgb()
     webView = null
     progress = 0
-    pageBackground = Color(newTab.pageBackgroundArgb)
+    pageBackground = Color(newTab.frameColorArgb)
     siteSettings = siteSettingsStore.load(newTab.url)
     restoringSnapshot = newTab.snapshot
   }
 
   fun animateToAdjacentTab(direction: Int) {
-    if (tabs.adjacent(direction) == null) return
+    val neighbour = adjacent(direction) ?: return
+    if (!privateMode) {
+      handOverTo(neighbour)
+      return
+    }
     settleJob?.cancel()
     tabsInMotion = true
-    webView?.let { saveWebViewIntoTab(it, tabs.active) }
+    webView?.let { saveWebViewIntoTab(it, activeTab) }
     dragTabStateSaved = true
-    activateTab(tabs.activeIndex + direction)
+    activateTab(activeIndex + direction)
     tabDragOffsetPx = direction * viewportWidthPx.toFloat()
     settleJob =
       coroutineScope.launch {
@@ -999,9 +1134,9 @@ internal fun BrowserScreen(
     val request = navigationRequest ?: return@LaunchedEffect
     if (request.sequence == handledNavigationSequence) return@LaunchedEffect
     handledNavigationSequence = request.sequence
-    if (tabs.active.url == "about:blank" && tabs.active.webViewState == null) {
+    if (activeTab.url == "about:blank" && activeTab.webViewState == null) {
       tabsOverviewOpen = false
-      tabs.active.url = request.url
+      activeTab.url = request.url
       siteSettings = siteSettingsStore.load(request.url)
       webView?.loadUrl(request.url)
     } else {
@@ -1009,8 +1144,19 @@ internal fun BrowserScreen(
     }
   }
 
+  // Dresses this tab's card in the app switcher. Driven off the tab rather than the live WebView so
+  // it is right from the first frame of a restored window, before the page has loaded again.
+  val browserWindow = context as? BrowserActivity
+  LaunchedEffect(browserWindow, activeTab.id, activeTab.title, activeTab.favicon, pageBackground) {
+    browserWindow?.publishTaskDescription(
+      label = activeTab.title ?: activeTab.url.takeUnless { it == "about:blank" },
+      icon = activeTab.favicon,
+      colorArgb = pageBackground.toArgb(),
+    )
+  }
+
   LaunchedEffect(activeTab.id) {
-    pageBackground = Color(activeTab.pageBackgroundArgb)
+    pageBackground = Color(activeTab.frameColorArgb)
     siteSettings = siteSettingsStore.load(activeTab.url)
     restoringSnapshot = activeTab.snapshot
   }
@@ -1188,8 +1334,8 @@ internal fun BrowserScreen(
     BrowserOverflowButton(
       desktopMode = activeTab.desktopMode,
       showFavorites = showFavorites,
-      hasPreviousTab = tabs.activeIndex > 0,
-      hasNextTab = tabs.activeIndex < tabs.items.lastIndex,
+      hasPreviousTab = activeIndex > 0,
+      hasNextTab = activeIndex < tabs.items.lastIndex,
       menuColor = chromeBarColor,
       menuContentColor = chromeBarContentColor,
       openRequest = browserMenuRequest,
@@ -1251,18 +1397,6 @@ internal fun BrowserScreen(
       .collectAsState(initial = null)
 
   fun returnToLauncher() {
-    onReturnToLauncher?.let {
-      // Parking the page off the left edge was for the activity handover: it had to stay there
-      // until this activity stopped, or a frame of the browser showed before the launcher took
-      // over. Hosted, nothing stops — the launcher slides this whole screen out itself — so the
-      // parked offset would simply remain, and the next visit would arrive to find the page still
-      // a screen to the left and nothing but the background where it should be.
-      settleJob?.cancel()
-      tabDragOffsetPx = 0f
-      tabsInMotion = false
-      it()
-      return
-    }
     context.startActivity(
       Intent(context, MainActivity::class.java)
         .putExtra(MainActivity.EXTRA_FOCUS_SEARCH, true)
@@ -1277,40 +1411,19 @@ internal fun BrowserScreen(
     tabsInMotion = true
     fingerOnTabDrag = true
     tabDragVelocity.resetTracking()
-    webView?.let { saveWebViewIntoTab(it, tabs.active) }
+    webView?.let { saveWebViewIntoTab(it, activeTab) }
     dragTabStateSaved = true
   }
   val tabDrag = { change: PointerInputChange, delta: Float ->
     tabDragVelocity.addPointerInputChange(change)
     val proposed = tabDragOffsetPx + delta
     val direction = if (proposed < 0f) 1 else -1
-    // Past the last tab there is the launcher, and when it is hosting this screen it moves itself
-    // rather than being impersonated. This screen then stays exactly where it is: the host slides
-    // it, so moving here as well would be the same journey made twice.
-    val leavingForHost =
-      onLauncherDrag != null &&
-        direction == 1 &&
-        launcherIsNextNeighbour &&
-        tabs.adjacent(1) == null &&
-        tabDragOffsetPx <= 0f
-    if (leavingForHost) {
-      launcherDragActive = true
-      onLauncherDrag.invoke(delta)
-    } else {
-      val hasNeighbour =
-        tabs.adjacent(direction) != null || (direction == 1 && launcherIsNextNeighbour)
-      tabDragOffsetPx += if (hasNeighbour) delta else delta * 0.16f
-    }
+    val hasNeighbour = adjacent(direction) != null || (direction == 1 && launcherIsNextNeighbour)
+    tabDragOffsetPx += if (hasNeighbour) delta else delta * 0.16f
   }
   val tabDragEnd = {
     fingerOnTabDrag = false
-    if (launcherDragActive) {
-      launcherDragActive = false
-      tabsInMotion = false
-      dragTabStateSaved = false
-      onLauncherDragEnd?.invoke(tabDragVelocity.calculateVelocity().x)
-      Unit
-    } else {
+    run {
       val startOffset = tabDragOffsetPx
       val direction = if (startOffset < 0f) 1 else -1
       val farEnough =
@@ -1322,47 +1435,55 @@ internal fun BrowserScreen(
           commitDistanceCapPx = with(density) { TAB_COMMIT_MAX_DISTANCE.toPx() },
           flingVelocityPx = with(density) { TAB_FLING_VELOCITY.toPx() },
         )
-      val commit = tabs.adjacent(direction) != null && farEnough
+      val neighbour = adjacent(direction)?.takeIf { farEnough }
+      // Private tabs share this one window and change over inside it. Every other tab has a window
+      // of its own, so the swipe leaves for that window the same way a swipe off the end leaves for
+      // the launcher: the page carries on off the edge and the arriving window lands on it.
+      val switchInPlace = privateMode && neighbour != null
+      val handOff = neighbour.takeIf { !privateMode }
       val toLauncher = direction == 1 && launcherIsNextNeighbour && farEnough
-      if (commit) {
+      val leaving = handOff != null || toLauncher
+      if (switchInPlace) {
         // Switch the model immediately and rebase the offset so the new active tab keeps its
         // current on-screen position; the next swipe can start right away instead of waiting
         // for the settle animation.
-        activateTab(tabs.activeIndex + direction)
+        activateTab(activeIndex + direction)
         tabDragOffsetPx = startOffset + direction * viewportWidthPx
-      } else {
+      } else if (!leaving) {
         dragTabStateSaved = false
       }
-      var launcherStarted = false
+      var handoverStarted = false
+      fun handOver() {
+        handoverStarted = true
+        if (handOff != null) handOverTo(handOff) else returnToLauncher()
+      }
       settleJob =
         coroutineScope.launch {
           animate(
-            // Leaving for the launcher carries on off the edge instead of settling back, and the
-            // offset stays there until this activity stops, so no frame of the browser shows
-            // between the swipe and the launcher taking over.
+            // Leaving carries on off the edge instead of settling back, and the offset stays there
+            // until this activity stops, so no frame of the page just left shows between the swipe
+            // and the window that is taking over.
             initialValue = tabDragOffsetPx,
-            targetValue = if (toLauncher) -viewportWidthPx.toFloat() else 0f,
+            targetValue = if (leaving) -direction * viewportWidthPx.toFloat() else 0f,
             animationSpec =
               spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
           ) { value, _ ->
             tabDragOffsetPx = value
-            // Started before the slide finishes rather than after it, so the launcher spends the
-            // tail of the animation waking up, focusing its field and asking for the keyboard.
-            // Doing
-            // it at the end meant the swipe landed on a bare wallpaper and everything else — bar,
-            // keyboard — arrived visibly later. Waiting until most of the travel is done keeps the
-            // jump small on the occasions the launcher is ready immediately.
+            // Started before the slide finishes rather than after it, so the arriving window spends
+            // the tail of the animation waking up — for the launcher, focusing its field and asking
+            // for the keyboard. Doing it at the end meant the swipe landed on a bare wallpaper and
+            // everything else arrived visibly later. Waiting until most of the travel is done keeps
+            // the jump small on the occasions it is ready immediately.
             if (
-              toLauncher &&
-                !launcherStarted &&
+              leaving &&
+                !handoverStarted &&
                 abs(value) >= viewportWidthPx * LAUNCHER_HANDOVER_FRACTION
             ) {
-              launcherStarted = true
-              returnToLauncher()
+              handOver()
             }
           }
           tabsInMotion = false
-          if (toLauncher && !launcherStarted) returnToLauncher()
+          if (leaving && !handoverStarted) handOver()
         }
     }
   }
@@ -1388,14 +1509,10 @@ internal fun BrowserScreen(
       }
   ) {
     // Standing in for the launcher itself: its wallpaper on its theme background, close enough
-    // that the swipe reads as the home screen sliding back in.
-    //
-    // Still needed when the launcher hosts this screen, though it looks as if it should not be.
-    // The real home screen is a sibling of this one, but while the browser is open the host holds
-    // it a full screen to the right — so during the drag there is nothing beside the page but this
-    // screen's own background, and removing this left exactly that: a colour where the home screen
-    // should be, until the swipe finished and it appeared all at once.
-    if (onLauncherDrag == null && launcherIsNextNeighbour && tabDragOffsetPx < -0.5f) {
+    // that the swipe reads as the home screen sliding back in. The real one is another task and
+    // cannot be moved under the finger, so this travels in its place and the handover happens
+    // behind it.
+    if (launcherIsNextNeighbour && tabDragOffsetPx < -0.5f) {
       Box(
         modifier =
           Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).graphicsLayer {
@@ -1424,7 +1541,7 @@ internal fun BrowserScreen(
           Modifier.fillMaxSize()
             .statusBarsPadding()
             .windowInsetsPadding(webContentInsets)
-            .background(Color(adjacentTab.pageBackgroundArgb))
+            .background(Color(adjacentTab.frameColorArgb))
             .graphicsLayer { translationX = tabDragOffsetPx + adjacentDirection * viewportWidthPx }
       ) {
         adjacentTab.snapshot?.takeUnless(Bitmap::isRecycled)?.let { snapshot ->
@@ -1593,18 +1710,30 @@ internal fun BrowserScreen(
                   private fun applyPageBackground(view: WebView, argb: Int) {
                     view.setBackgroundColor(argb)
                     activeTab.pageBackgroundArgb = argb
-                    pageBackground = Color(argb)
+                    pageBackground = Color(activeTab.frameColorArgb)
+                  }
+
+                  /**
+                   * The site's answer for the browser's own furniture, or null when it gives none —
+                   * which is worth saying explicitly, since a page that drops its theme colour on
+                   * the way to another must not leave the last one's on the bars.
+                   */
+                  private fun applyThemeColor(argb: Int?) {
+                    activeTab.themeColorArgb = argb
+                    pageBackground = Color(activeTab.frameColorArgb)
                   }
 
                   /**
                    * [allowDrawnFallback] is for the one moment the page is known to have been
                    * painted: only then is there anything to read a colour back off.
                    */
-                  private fun refreshPageBackground(view: WebView, allowDrawnFallback: Boolean) {
-                    view.evaluateJavascript(PAGE_BACKGROUND_SCRIPT) { result ->
-                      val parsed = parseCssColor(result)
-                      if (parsed != null) {
-                        applyPageBackground(view, parsed)
+                  private fun refreshPageColors(view: WebView, allowDrawnFallback: Boolean) {
+                    view.evaluateJavascript(PAGE_COLORS_SCRIPT) { result ->
+                      val colors = parsePageColors(result)
+                      applyThemeColor(colors.theme)
+                      val background = colors.background
+                      if (background != null) {
+                        applyPageBackground(view, background)
                       } else if (allowDrawnFallback && view.url != "about:blank") {
                         // The page sets no background of its own, so it is sitting on whichever
                         // canvas Chromium chose for it — and script cannot tell us which, since a
@@ -1620,9 +1749,27 @@ internal fun BrowserScreen(
                   override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                     activeTab.url = url
                     activeTab.pageDrawn = false
+                    // The colour belonged to the page being left. The background is deliberately
+                    // kept — it is what covers the gap until the new page paints — but a theme
+                    // colour is a claim by a specific site, and the new one has not made it yet.
+                    activeTab.themeColorArgb = null
                     activeTab.blockedRequestCount.set(0)
                     siteSettings = siteSettingsStore.load(url)
                     view.applySiteSettings(siteSettings)
+                  }
+
+                  /**
+                   * A page that moves without loading — an app routing between its own views — gets
+                   * no load callbacks at all, and sites that dress each section differently swap
+                   * their theme colour exactly there. This is the one hook that fires for it.
+                   */
+                  override fun doUpdateVisitedHistory(
+                    view: WebView,
+                    url: String,
+                    isReload: Boolean,
+                  ) {
+                    activeTab.url = url
+                    refreshPageColors(view, allowDrawnFallback = false)
                   }
 
                   // Runs on a WebView worker thread for every subresource, so it must stay cheap:
@@ -1645,7 +1792,7 @@ internal fun BrowserScreen(
                     if (restoring) {
                       suppressCommitVisibleColor = false
                     } else {
-                      refreshPageBackground(view, allowDrawnFallback = false)
+                      refreshPageColors(view, allowDrawnFallback = false)
                     }
                     // Apply as soon as the document is usable so responsive CSS doesn't briefly
                     // lay out at the phone width before onPageFinished.
@@ -1662,7 +1809,7 @@ internal fun BrowserScreen(
                       // onPageFinished instead left it sitting on the previous colour for the
                       // whole of the load — the bars around a dark page staying light until it
                       // completed. A restore keeps its persisted colour and re-reads at the end.
-                      if (!restoring) refreshPageBackground(view, allowDrawnFallback = true)
+                      if (!restoring) refreshPageColors(view, allowDrawnFallback = true)
                       // Unconditionally, because this is simply the truth as of this frame: the
                       // page has been painted. onPageStarted clears it on every navigation and
                       // only a completed load used to restore it, so a tab whose page renders but
@@ -1683,7 +1830,7 @@ internal fun BrowserScreen(
                     // Styled pages settle their colour here, off CSS alone. Pages with no
                     // background of their own need a painted frame to read one off, so they wait
                     // for the visual state callback below rather than being guessed at now.
-                    refreshPageBackground(view, allowDrawnFallback = false)
+                    refreshPageColors(view, allowDrawnFallback = false)
                     activeTab.url = url
                     activeTab.title = view.title
                     // Sites (and late-injected tags) can rewrite the viewport during load;
@@ -1716,7 +1863,7 @@ internal fun BrowserScreen(
                             if (webView !== view) return@launch
                             // The page is on screen now, so a page that gave CSS nothing to go on
                             // can finally have its colour read off the pixels it actually drew.
-                            refreshPageBackground(view, allowDrawnFallback = true)
+                            refreshPageColors(view, allowDrawnFallback = true)
                             captureTabSnapshot(view, activeTab)
                             restoringSnapshot = null
                           }
@@ -1802,7 +1949,7 @@ internal fun BrowserScreen(
     if (tabsOverviewRendered) {
       BrowserTabsOverviewLayer(
         tabs = tabs.items,
-        activeIndex = tabs.activeIndex,
+        activeIndex = activeIndex,
         progress = { overviewProgress },
         scrimColor = animatedPageBackground,
         contentColor = chromeBarContentColor,
@@ -1903,7 +2050,7 @@ internal fun BrowserScreen(
       ) {
         Text(
           text =
-            "${tabs.activeIndex + (if (fingerOnTabDrag) adjacentDirection else 0) + 1} / ${tabs.items.size}",
+            "${activeIndex + (if (fingerOnTabDrag) adjacentDirection else 0) + 1} / ${tabs.items.size}",
           modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
           style = MaterialTheme.typography.labelMedium,
         )
@@ -2564,6 +2711,22 @@ private fun clearSiteData(webView: WebView, url: String, onComplete: () -> Unit)
   )
 }
 
+/** What a page had to say about its colours: either half may be absent. */
+internal data class PageColors(val theme: Int?, val background: Int?)
+
+/**
+ * Reads [PAGE_COLORS_SCRIPT]'s `theme|background` answer. Separate halves rather than one colour
+ * with a flag, because "no theme colour" and "no background" are independent and each has its own
+ * fallback — the first to the page's background, the second to reading the painted page.
+ */
+internal fun parsePageColors(result: String): PageColors {
+  val halves = result.trim().trim('"').split('|')
+  return PageColors(
+    theme = halves.getOrNull(0)?.let(::parseCssColor),
+    background = halves.getOrNull(1)?.let(::parseCssColor),
+  )
+}
+
 internal fun parseCssColor(value: String): Int? {
   val components =
     Regex("""rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)""")
@@ -2605,13 +2768,46 @@ internal val TAB_COMMIT_MAX_DISTANCE = 72.dp
  */
 internal val TAB_FLING_VELOCITY = 400.dp
 
-private const val PAGE_BACKGROUND_SCRIPT =
+/**
+ * Reports the two colours a page has to offer, as `theme|background` — either half possibly empty.
+ *
+ * The theme colour is `<meta name="theme-color">`, the same tag Chrome tints its toolbar and status
+ * bar with, and it is read the way the spec says to: the first tag whose `media` query currently
+ * matches wins, so a site that names one colour for light and another for dark gets the right one.
+ * Whatever it names is run through a throwaway element first, because `content` may hold any CSS
+ * colour at all — `#0f0`, `rebeccapurple`, `hsl(...)` — and letting the engine resolve it is far
+ * more honest than trying to parse the lot on this side.
+ */
+private const val PAGE_COLORS_SCRIPT =
   """
   (() => {
     const transparent = 'rgba(0, 0, 0, 0)';
+    const resolve = (value) => {
+      if (!value) return '';
+      const probe = document.createElement('span');
+      probe.style.color = value;
+      // An unparseable colour leaves the property untouched, which is how an invalid tag is told
+      // from a valid one without a colour parser here.
+      if (!probe.style.color) return '';
+      probe.style.display = 'none';
+      document.documentElement.appendChild(probe);
+      const resolved = getComputedStyle(probe).color;
+      probe.remove();
+      return resolved === transparent ? '' : resolved;
+    };
+    let theme = '';
+    for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
+      const media = meta.getAttribute('media');
+      if (media && !window.matchMedia(media).matches) continue;
+      theme = resolve(meta.getAttribute('content'));
+      if (theme) break;
+    }
     const body = document.body ? getComputedStyle(document.body).backgroundColor : transparent;
-    if (body && body !== transparent) return body;
-    return getComputedStyle(document.documentElement).backgroundColor;
+    const background =
+      body && body !== transparent
+        ? body
+        : getComputedStyle(document.documentElement).backgroundColor;
+    return theme + '|' + (background || '');
   })()
   """
 

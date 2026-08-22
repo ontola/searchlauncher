@@ -278,7 +278,7 @@ internal fun BrowserTabSwipePreview(
             // Starts one screen off the left edge and ends flush.
             translationX = state.offsetPx - state.viewportWidthPx
           }
-          .background(Color(tab.pageBackgroundArgb))
+          .background(Color(tab.frameColorArgb))
     ) {
       tab.snapshot?.takeUnless(Bitmap::isRecycled)?.let { snapshot ->
         Image(

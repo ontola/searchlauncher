@@ -156,7 +156,7 @@ internal fun BrowserTabsOverviewLayer(
         onSelect = { index, bounds ->
           val tab = tabs.getOrNull(index)
           if (expanding == null && tab != null) {
-            expanding = ExpandingCard(tab.snapshot, tab.pageBackgroundArgb, bounds)
+            expanding = ExpandingCard(tab.snapshot, tab.frameColorArgb, bounds)
             onSelectStart(index)
             scope.launch {
               expandProgress.snapTo(0f)
@@ -419,7 +419,7 @@ private fun TabCard(
           .aspectRatio(previewAspectRatio)
           .onGloballyPositioned { previewBounds = it.boundsInRoot() }
           .clip(cardShape)
-          .background(Color(tab.pageBackgroundArgb))
+          .background(Color(tab.frameColorArgb))
           .then(
             if (isActive) {
               Modifier.border(2.dp, MaterialTheme.colorScheme.primary, cardShape)

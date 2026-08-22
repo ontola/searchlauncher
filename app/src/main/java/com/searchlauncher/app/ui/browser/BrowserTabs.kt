@@ -15,12 +15,35 @@ import androidx.core.view.WindowInsetsCompat
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 
-internal class BrowserTab(initialUrl: String) {
-  val id: Long = System.nanoTime()
+/**
+ * [restoredId] rebuilds a tab under an identity it already had. A tab's id is what its window's
+ * task is keyed on, so a card that outlives the process — the app switcher keeps showing it — has
+ * to come back as the same tab rather than as a new one wearing the old card.
+ */
+internal class BrowserTab(initialUrl: String, restoredId: Long? = null) {
+  val id: Long = restoredId ?: System.nanoTime()
   var url by mutableStateOf(initialUrl)
   var title by mutableStateOf<String?>(null)
   var desktopMode by mutableStateOf(false)
+  /** The colour the page itself is painted on, which is what shows through any gap in it. */
   var pageBackgroundArgb by mutableIntStateOf(0xff000000.toInt())
+  /**
+   * The colour the site asks the browser's own furniture to wear, from `<meta name="theme-color">`,
+   * or null when it asks for nothing. Kept apart from [pageBackgroundArgb] because the two are
+   * genuinely different answers: a site is perfectly entitled to a dark toolbar over a white page,
+   * and painting the page's canvas in the toolbar's colour would show through every load gap.
+   */
+  var themeColorArgb by mutableStateOf<Int?>(null)
+
+  /**
+   * What the browser paints around the page — the bars above and below it, and the fill behind a
+   * preview. The site's own theme colour when it names one, which is what Chrome tints its toolbar
+   * and status bar with; otherwise the page's background, so a page that says nothing still gets
+   * furniture that belongs to it rather than a fixed grey.
+   */
+  val frameColorArgb: Int
+    get() = themeColorArgb ?: pageBackgroundArgb
+
   var snapshot by mutableStateOf<Bitmap?>(null)
   /** Site icon as the WebView reported it, shown next to the tab's address in the overview. */
   var favicon by mutableStateOf<Bitmap?>(null)
@@ -30,6 +53,13 @@ internal class BrowserTab(initialUrl: String) {
    * preview of the same page.
    */
   var pageDrawn = false
+  /**
+   * Whether this tab has ever had a window of its own, which is what puts a card for it in the
+   * system's app switcher. Set by [BrowserActivity] when it takes the tab up, and read when
+   * reconciling the tab list against the cards that are still there — a tab created moments ago is
+   * not an abandoned one just because its task has not been built yet.
+   */
+  var hasOwnTask = false
   var webViewState: Bundle? = null
   /**
    * Requests the ad blocker rejected for the page currently loaded in this tab. Incremented from
@@ -39,21 +69,26 @@ internal class BrowserTab(initialUrl: String) {
 }
 
 @Stable
-internal class BrowserTabs(initialUrl: String) {
-  val items = mutableStateListOf(BrowserTab(initialUrl))
+internal class BrowserTabs(initialUrl: String, initialId: Long? = null) {
+  val items = mutableStateListOf(BrowserTab(initialUrl, initialId))
   var activeIndex by mutableIntStateOf(0)
     private set
 
   val active: BrowserTab
     get() = items[activeIndex]
 
-  fun add(url: String): BrowserTab {
+  /**
+   * [onEvict] is handed whichever tab had to go to make room, so the caller can take its window
+   * down with it — a tab dropped from this list but left with a card in the app switcher is a card
+   * that reopens nothing.
+   */
+  fun add(url: String, onEvict: (BrowserTab) -> Unit = {}, restoredId: Long? = null): BrowserTab {
     if (items.size >= MAX_TABS) {
       val removableIndex = items.indices.firstOrNull { it != activeIndex } ?: 0
-      items.removeAt(removableIndex)
+      onEvict(items.removeAt(removableIndex))
       if (removableIndex < activeIndex) activeIndex--
     }
-    val tab = BrowserTab(url)
+    val tab = BrowserTab(url, restoredId)
     items.add(tab)
     activeIndex = items.lastIndex
     return tab
@@ -71,6 +106,8 @@ internal class BrowserTabs(initialUrl: String) {
   }
 
   fun adjacent(direction: Int): BrowserTab? = items.getOrNull(activeIndex + direction)
+
+  fun indexOfFirst(id: Long): Int = items.indexOfFirst { it.id == id }
 
   fun closeActive(): BrowserTab? {
     if (items.size == 1) return null
@@ -115,6 +152,39 @@ internal object BrowserTabStore {
   }
 
   fun lastTab(): BrowserTab? = tabs?.items?.lastOrNull()
+
+  fun tab(id: Long): BrowserTab? = tabs?.items?.firstOrNull { it.id == id }
+
+  /**
+   * The tab [id] names, brought back at [url] if it is not here any more — which is what a window
+   * restored from a card in the app switcher finds after the process has been killed, and what a
+   * window opened for a page from another app finds when it has no id to go on at all.
+   *
+   * Made active, because the window asking is the one about to show it.
+   */
+  fun ensureTab(id: Long?, url: String): BrowserTab {
+    val existing = id?.let(::tab)
+    val current = tabs
+    return when {
+      existing != null -> existing.also { current?.activate(current.indexOfFirst(it.id)) }
+      current == null -> BrowserTabs(url, id).also { adopt(it) }.active
+      else -> current.add(url, restoredId = id)
+    }
+  }
+
+  /**
+   * Adds [url] as a tab without disturbing which one is active. [BrowserTabs.add] activates what it
+   * adds, which is right inside a window that is about to show it — but a tab is opened here to be
+   * handed to a window of its own, and the window that asked keeps showing the page it was on until
+   * the new one arrives in front of it.
+   */
+  fun addBackgroundTab(url: String, onEvict: (BrowserTab) -> Unit = {}): BrowserTab {
+    val current = tabs ?: return BrowserTabs(url).also(::adopt).active
+    val activeId = current.active.id
+    val tab = current.add(url, onEvict)
+    current.activate(current.indexOfFirst(activeId))
+    return tab
+  }
 
   /** Position of the tab with [id], or -1 if it has since been closed. */
   fun indexOfTab(id: Long): Int = tabs?.items?.indexOfFirst { it.id == id } ?: -1

@@ -82,6 +82,10 @@ class SearchActivity : ComponentActivity(), KeyShortcutHost {
               finish()
             }
           } else null,
+        // The overlay opened from a tab's window belongs to that tab: a page picked here loads
+        // there, in the window the user was just looking at, rather than in a window of its own.
+        browserTabId =
+          intent.getLongExtra(EXTRA_BROWSER_TAB_ID, 0L).takeIf { browserSearchMode && it != 0L },
         chromeBarColor = chromeBarColor,
         // This overlay always opens together with the keyboard, so the bar rides up with it
         // rather than appearing already parked above where the keys will land.
@@ -126,6 +130,7 @@ class SearchActivity : ComponentActivity(), KeyShortcutHost {
     const val EXTRA_PRIVATE_WEB_RESULTS = "private_web_results"
     const val EXTRA_START_VOICE_SEARCH = "start_voice_search"
     const val EXTRA_BROWSER_SEARCH = "browser_search"
+    const val EXTRA_BROWSER_TAB_ID = "browser_tab_id"
     const val EXTRA_CHROME_COLOR = "chrome_color"
     const val EXTRA_INITIAL_QUERY = "initial_query"
   }

@@ -31,6 +31,34 @@ class BrowserNavigationTest {
   }
 
   @Test
+  fun `page colors split into theme and background`() {
+    val colors = parsePageColors("\"rgb(18, 52, 86)|rgb(240, 241, 242)\"")
+    assertEquals(0xff123456.toInt(), colors.theme)
+    assertEquals(0xfff0f1f2.toInt(), colors.background)
+  }
+
+  @Test
+  fun `a page naming no theme color leaves the bars to its background`() {
+    val colors = parsePageColors("\"|rgb(240, 241, 242)\"")
+    assertEquals(null, colors.theme)
+    assertEquals(0xfff0f1f2.toInt(), colors.background)
+  }
+
+  @Test
+  fun `a theme color stands even when the page declares no background`() {
+    val colors = parsePageColors("\"rgb(18, 52, 86)|\"")
+    assertEquals(0xff123456.toInt(), colors.theme)
+    assertEquals(null, colors.background)
+  }
+
+  @Test
+  fun `a script that failed to run yields nothing rather than a colour`() {
+    val colors = parsePageColors("null")
+    assertEquals(null, colors.theme)
+    assertEquals(null, colors.background)
+  }
+
+  @Test
   fun normalizesBrowserOrigins() {
     assertEquals("https://example.com", browserOrigin("https://Example.com/path?q=1"))
     assertEquals("https://example.com:8443", browserOrigin("https://example.com:8443/path"))

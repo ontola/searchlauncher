@@ -10,6 +10,7 @@ import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.browser.BrowserActivity
 import com.searchlauncher.app.ui.browser.BrowserTabStore
+import com.searchlauncher.app.ui.browser.BrowserTabTasks
 import com.searchlauncher.app.ui.onboarding.OnboardingManager
 import com.searchlauncher.app.util.CustomActionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -83,7 +84,7 @@ class ResultLauncher(
       }
     }
     context.startActivity(
-      if (index >= 0) BrowserActivity.createResumeIntent(context, index)
+      if (index >= 0) BrowserTabTasks.intentFor(context, result.tabId)
       else BrowserActivity.createIntent(context, result.url)
     )
   }
