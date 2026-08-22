@@ -37,6 +37,7 @@ object Prefs {
     const val MIN_ICON_SIZE = "min_icon_size"
     const val OBSERVED_HISTORY_LIMIT = "observed_history_limit"
     const val LAST_REINDEX_TIMESTAMP = "last_reindex_timestamp"
+    const val APPS_FINGERPRINT = "apps_fingerprint"
     const val CONTACTS_FINGERPRINT = "contacts_fingerprint"
     const val CALENDAR_FINGERPRINT = "calendar_fingerprint"
     const val DOWNLOADS_FINGERPRINT = "downloads_fingerprint"

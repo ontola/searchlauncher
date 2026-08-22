@@ -464,8 +464,11 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               "SearchRepository",
               "Index is fresh (last: $lastReindex), skipping re-index",
             )
-            // Contacts can change while we aren't running, so the freshness window alone would
-            // hide added/removed contacts for hours. Cheap fingerprint check catches that.
+            // Anything can change while we aren't running, so the freshness window alone would
+            // hide it for hours. Cheap fingerprint checks catch that. Apps included: the catalog
+            // moves while the launcher is dead, and the launcher being dead is exactly what
+            // installing or updating one does to it.
+            refreshAppsIfChanged()
             refreshContactsIfChanged()
             refreshCalendarIfChanged()
             refreshDownloadsIfChanged()
@@ -671,6 +674,16 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           putDocuments(session, apps)
           removeMissingDocuments(session, "apps", apps.map { it.id }.toSet())
           replaceCollection("apps", apps)
+          // Recorded only for a full rebuild, and only once one has actually landed: a partial
+          // update leaves the rest of the catalog untouched, so it has no business claiming the
+          // whole of it is accounted for.
+          appIndexer.readFingerprint()?.let {
+            context
+              .getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+              .edit()
+              .putString(Prefs.Launcher.APPS_FINGERPRINT, it)
+              .apply()
+          }
         } else {
           android.util.Log.w(
             "SearchRepository",
@@ -1048,6 +1061,16 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     saveFastIndexCache()
     _indexUpdated.emit(Unit)
   }
+
+  private suspend fun refreshAppsIfChanged() =
+    withContext(IndexingDispatchers.limited) {
+      val fingerprint = appIndexer.readFingerprint() ?: return@withContext
+      val prefs = context.getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+      if (fingerprint == prefs.getString(Prefs.Launcher.APPS_FINGERPRINT, null)) return@withContext
+
+      android.util.Log.d("SearchRepository", "Apps changed while away, re-indexing")
+      indexWriteMutex.withLock { indexApps() }
+    }
 
   private suspend fun refreshDownloadsIfChanged() =
     withContext(Dispatchers.IO) {

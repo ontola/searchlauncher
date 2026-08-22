@@ -20,6 +20,36 @@ class AppIndexer(private val context: Context) {
    * When [packageNames] is set, only those packages are queried. An empty filter returns nothing
    * without walking the full catalog.
    */
+  /**
+   * A cheap summary of the launchable catalog as it stands: which packages there are and what they
+   * are called. Null when it cannot be read, which the caller should treat as "no answer" rather
+   * than as "nothing changed".
+   *
+   * Names are part of it, not just the package list, because a name is what search matches on and
+   * what the user reads - and an app that renames itself on update (a build that adds a "(debug)"
+   * suffix, an app rebranding) keeps its package. Without the names such a change is invisible here
+   * and the old name stays in the index until the periodic rebuild comes round hours later.
+   *
+   * Deliberately does not build documents or touch AppSearch: the point is to answer "is a rebuild
+   * worth it" for much less than a rebuild costs.
+   */
+  fun readFingerprint(): String? {
+    return try {
+      val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
+      val seen = sortedSetOf<String>()
+      for (profile in launcherApps.profiles) {
+        for (info in launcherApps.getActivityList(null, profile)) {
+          seen.add("${info.componentName.packageName}:${info.label}")
+        }
+      }
+      // Sorted before hashing so the same catalog in a different order is the same catalog.
+      "${seen.size}/${seen.joinToString("|").hashCode()}"
+    } catch (e: Exception) {
+      android.util.Log.w("AppIndexer", "Failed to read app fingerprint", e)
+      null
+    }
+  }
+
   suspend fun buildDocuments(
     pauseCheck: suspend () -> Unit,
     packageNames: Collection<String>? = null,
