@@ -62,7 +62,12 @@ android {
   }
 
   buildTypes {
-    debug { applicationIdSuffix = ".debug" }
+    debug {
+      applicationIdSuffix = ".debug"
+      // Shows up wherever the version does - the settings screen, Android's app info - so the two
+      // installs can be told apart there as well as by their name.
+      versionNameSuffix = "-debug"
+    }
     release {
       // Always on, and deliberately not behind a property. F-Droid builds a plain
       // `assembleRelease`, so anything only our CI passes would make its APK differ from the

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Overrides the name for debug builds only, which install alongside the release one under their own
+  application id. Two identical icons called SearchLauncher is no way to tell which of them is the
+  one you just built, or which of them the device is actually using as its home screen.
+-->
+<resources>
+    <string name="app_name">SearchLauncher (debug)</string>
+</resources>
