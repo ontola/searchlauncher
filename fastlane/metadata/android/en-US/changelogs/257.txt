@@ -1,0 +1,8 @@
+Browser tabs are windows now.
+
+- Every tab has its own card in the app switcher, carrying the page's title, icon and colour. Getting back to a page from another app is one gesture instead of finding the launcher and then finding the tab; tabs opened from the launcher had no card at all, because they lived inside the home screen, which Android never lists.
+- Closing a tab takes its card away, and flicking its card away closes the tab.
+- The search bar and the bars around the page now wear the colour the site asks for, the same theme-color Chrome tints its toolbar with - including sites that name one colour for light and another for dark.
+- Downloads search finds PDFs, archives and documents saved by other apps, once the Downloads folder is granted in settings. Android only ever showed us media and our own downloads.
+- Opening a repeating calendar event lands on the occurrence that was searched for rather than the series.
+- Themed icons now reach app icons that had been through the icon cache, which used to leave them untouched.
