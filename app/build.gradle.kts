@@ -62,6 +62,7 @@ android {
   }
 
   buildTypes {
+    debug { applicationIdSuffix = ".debug" }
     release {
       // Always on, and deliberately not behind a property. F-Droid builds a plain
       // `assembleRelease`, so anything only our CI passes would make its APK differ from the
