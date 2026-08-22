@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -32,7 +33,9 @@ import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.ui.toImageBitmap
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -132,14 +135,30 @@ fun FavoritesRow(
         .collectAsState(initial = false)
     val themeBg = MaterialTheme.colorScheme.primary.toArgb()
     val themeFg = MaterialTheme.colorScheme.onPrimary.toArgb()
-    val iconBitmaps =
-      remember(allItems, themedIcons, themeBg, themeFg) {
-        allItems.associate { result ->
-          val drawable =
-            if (themedIcons) ThemedIcons.apply(result.icon, themeBg, themeFg) else result.icon
-          result.favoriteKey to drawable?.toImageBitmap()
-        }
+    // Caching icons to prevent flickering. The plain pass is synchronous so the row is never
+    // blank; theming needs PackageManager (cached icons arrive flattened, with no monochrome
+    // layer left to tint) and swaps in once it resolves.
+    val plainIconBitmaps =
+      remember(allItems) { allItems.associate { it.favoriteKey to it.icon?.toImageBitmap() } }
+    val themedIconBitmaps by
+      produceState<Map<String, ImageBitmap?>?>(null, allItems, themedIcons, themeBg, themeFg) {
+        value =
+          if (!themedIcons) null
+          else
+            allItems.associate { result ->
+              val source =
+                ThemedIcons.resolveThemeable(
+                  context,
+                  result.icon,
+                  (result as? SearchResult.App)?.packageName,
+                )
+              result.favoriteKey to
+                withContext(Dispatchers.IO) {
+                  ThemedIcons.apply(source, themeBg, themeFg)?.toImageBitmap()
+                }
+            }
       }
+    val iconBitmaps = themedIconBitmaps ?: plainIconBitmaps
 
     // Calculate layout metrics
     // We reserve space for the divider gap if needed

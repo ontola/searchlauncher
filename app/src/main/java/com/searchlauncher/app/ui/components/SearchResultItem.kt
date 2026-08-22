@@ -102,7 +102,8 @@ fun SearchResultItem(
               } else {
                 Modifier.size(40.dp)
               }
-            val imageBitmap = rememberThemedIconBitmap(iconState)
+            val imageBitmap =
+              rememberThemedIconBitmap(iconState, (result as? SearchResult.App)?.packageName)
             if (imageBitmap != null) {
               Image(
                 bitmap = imageBitmap,
