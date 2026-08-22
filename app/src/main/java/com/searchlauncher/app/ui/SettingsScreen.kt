@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -82,6 +83,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import com.searchlauncher.app.R
 import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.data.DownloadIndexer
 import com.searchlauncher.app.ui.browser.AdBlocker
 import com.searchlauncher.app.ui.components.PrivacyPolicyDialog
 import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
@@ -406,6 +408,8 @@ fun SettingsScreen(
               context.startActivity(intent)
             },
           )
+
+          DownloadsFolderPermission()
         }
       }
     }
@@ -414,6 +418,43 @@ fun SettingsScreen(
     item { BackupRestoreCard(onExportBackup) }
     item { AboutCard() }
   }
+}
+
+/**
+ * Grants read access to the Downloads folder through the storage picker.
+ *
+ * A media permission is not enough here. On Android 13+ MediaStore only returns media the app was
+ * granted plus files it downloaded itself, so PDFs, archives and documents saved by other apps are
+ * invisible - the majority of most Downloads folders. A persisted tree grant covers all of them
+ * without asking for All files access, which is far broader and restricted on Play.
+ */
+@Composable
+private fun DownloadsFolderPermission() {
+  val context = LocalContext.current
+  val scope = rememberCoroutineScope()
+  var granted by remember {
+    mutableStateOf(DownloadIndexer(context.applicationContext).grantedTreeUri() != null)
+  }
+
+  val picker =
+    rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+      if (uri == null) return@rememberLauncherForActivityResult
+      if (!DownloadIndexer.rememberTree(context.applicationContext, uri)) {
+        Toast.makeText(context, "Could not keep access to that folder", Toast.LENGTH_LONG).show()
+        return@rememberLauncherForActivityResult
+      }
+      granted = true
+      scope.launch {
+        (context.applicationContext as SearchLauncherApp).searchRepository.refreshDownloads()
+      }
+    }
+
+  PermissionStatus(
+    title = "Downloads folder",
+    description = "Search every file in Downloads, not just photos and video.",
+    granted = granted,
+    onGrant = { picker.launch(DownloadIndexer.initialPickerUri()) },
+  )
 }
 
 @Composable

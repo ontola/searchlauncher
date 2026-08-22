@@ -1040,7 +1040,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     }
   }
 
-  private suspend fun refreshDownloads() {
+  /**
+   * Public so granting the Downloads folder can re-index on the spot rather than on next resume.
+   */
+  suspend fun refreshDownloads() {
     indexWriteMutex.withLock { indexDownloads() }
     saveFastIndexCache()
     _indexUpdated.emit(Unit)

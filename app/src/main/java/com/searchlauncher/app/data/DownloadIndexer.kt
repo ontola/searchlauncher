@@ -2,8 +2,12 @@ package com.searchlauncher.app.data
 
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -14,9 +18,11 @@ import java.util.concurrent.TimeUnit
  * This is a pure reader: it queries [MediaStore] and returns documents. Persisting them (and
  * checking storage/media permissions) is the caller's responsibility.
  *
- * On Android 13+ the platform only surfaces media the app has been granted, plus files this app
- * itself downloaded. PDFs and other documents from other apps need the All files access permission,
- * which this indexer does not request.
+ * Two sources, in order of preference. A SAF grant on the Downloads folder ([grantedTreeUri]) sees
+ * every file in it. Without one, MediaStore is all that is left, and on Android 13+ it only
+ * surfaces media the app holds a READ_MEDIA_* grant for plus files this app itself downloaded -
+ * every PDF, archive and document belonging to another app is filtered out before the cursor sees
+ * it. That gap is why the tree grant exists: it covers those without asking for All files access.
  */
 class DownloadIndexer(private val context: Context) {
 
@@ -42,19 +48,114 @@ class DownloadIndexer(private val context: Context) {
   }
 
   internal fun documentFrom(entry: DownloadEntry): AppSearchDocument {
-    val uri = ContentUris.withAppendedId(entry.collectionUri, entry.id)
     val subtitle = formatSubtitle(entry)
     return AppSearchDocument(
       namespace = NAMESPACE,
-      id = entry.id.toString(),
+      id = entry.key,
       name = entry.displayName,
       score = 3,
-      intentUri = uri.toString(),
+      intentUri = entry.uri.toString(),
       description = "${entry.mimeType.orEmpty()}|$subtitle",
     )
   }
 
+  /**
+   * The Downloads folder the user granted us, or null when there is no usable grant.
+   *
+   * Checks the grant is still held rather than trusting the stored string: the user can revoke it
+   * from system settings, and a stale uri would silently return nothing.
+   */
+  fun grantedTreeUri(): Uri? {
+    val saved =
+      context
+        .getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+        .getString(Prefs.Launcher.DOWNLOADS_TREE_URI, null) ?: return null
+    val uri = runCatching { Uri.parse(saved) }.getOrNull() ?: return null
+    val held =
+      runCatching {
+          context.contentResolver.persistedUriPermissions.any {
+            it.uri == uri && it.isReadPermission
+          }
+        }
+        .getOrDefault(false)
+    return if (held) uri else null
+  }
+
+  private fun collectFromTree(treeUri: Uri): List<DownloadEntry> {
+    val rootId =
+      runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull() ?: return emptyList()
+    val out = ArrayList<DownloadEntry>(MAX_TREE_SCAN)
+    collectChildren(treeUri, rootId, out, depth = 0)
+    out.sortByDescending { it.dateModifiedSeconds }
+    return if (out.size > MAX_FILES) out.subList(0, MAX_FILES).toList() else out
+  }
+
+  private fun collectChildren(
+    treeUri: Uri,
+    parentDocumentId: String,
+    out: MutableList<DownloadEntry>,
+    depth: Int,
+  ) {
+    if (out.size >= MAX_TREE_SCAN || depth > MAX_TREE_DEPTH) return
+    val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
+    val projection =
+      arrayOf(
+        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+        DocumentsContract.Document.COLUMN_MIME_TYPE,
+        DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        DocumentsContract.Document.COLUMN_SIZE,
+      )
+    // Recursed after the cursor closes: providers cap how many cursors they will keep open, and a
+    // deep Downloads folder would otherwise hold one per level.
+    val subdirectories = ArrayList<String>()
+    try {
+      context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+        val idIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+        val nameIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+        val mimeIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+        val modifiedIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+        val sizeIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+        if (idIdx < 0 || nameIdx < 0) return
+        while (cursor.moveToNext() && out.size < MAX_TREE_SCAN) {
+          val documentId = cursor.getString(idIdx) ?: continue
+          val name = cursor.getString(nameIdx)?.takeIf { it.isNotBlank() } ?: continue
+          val mime = if (mimeIdx >= 0) cursor.getString(mimeIdx) else null
+          if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+            subdirectories.add(documentId)
+            continue
+          }
+          if (name.startsWith(".")) continue
+          out.add(
+            DownloadEntry(
+              displayName = name,
+              mimeType = mime,
+              dateModifiedSeconds =
+                if (modifiedIdx >= 0 && !cursor.isNull(modifiedIdx)) {
+                  TimeUnit.MILLISECONDS.toSeconds(cursor.getLong(modifiedIdx))
+                } else {
+                  0L
+                },
+              sizeBytes =
+                if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) cursor.getLong(sizeIdx) else 0L,
+              documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId),
+              documentId = documentId,
+            )
+          )
+        }
+      }
+    } catch (e: Exception) {
+      android.util.Log.w(TAG, "Failed listing $parentDocumentId", e)
+      return
+    }
+    for (child in subdirectories) collectChildren(treeUri, child, out, depth + 1)
+  }
+
   private fun queryEntries(): List<DownloadEntry> {
+    grantedTreeUri()?.let { tree ->
+      val fromTree = collectFromTree(tree)
+      if (fromTree.isNotEmpty()) return fromTree
+    }
     val seen = HashSet<Long>()
     val out = ArrayList<DownloadEntry>(MAX_FILES)
     collectFrom(
@@ -163,7 +264,48 @@ class DownloadIndexer(private val context: Context) {
   companion object {
     const val NAMESPACE = "downloads"
     const val MAX_FILES = 400
+    /** Scanned before sorting by date, so the newest [MAX_FILES] are the ones actually kept. */
+    const val MAX_TREE_SCAN = 4000
+    const val MAX_TREE_DEPTH = 4
     private const val TAG = "DownloadIndexer"
+
+    /**
+     * Records a Downloads folder the user just picked.
+     *
+     * The grant has to be taken persistably or it dies with the process, leaving the stored uri
+     * pointing at something we can no longer read.
+     */
+    fun rememberTree(context: Context, uri: Uri): Boolean {
+      return try {
+        context.contentResolver.takePersistableUriPermission(
+          uri,
+          Intent.FLAG_GRANT_READ_URI_PERMISSION,
+        )
+        context
+          .getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+          .edit()
+          .putString(Prefs.Launcher.DOWNLOADS_TREE_URI, uri.toString())
+          .apply()
+        true
+      } catch (e: Exception) {
+        android.util.Log.w(TAG, "Could not persist Downloads grant", e)
+        false
+      }
+    }
+
+    /** Opens the picker on the Downloads folder, so the user only has to confirm. */
+    fun initialPickerUri(): Uri? =
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        runCatching {
+            DocumentsContract.buildDocumentUri(
+              "com.android.externalstorage.documents",
+              "primary:${Environment.DIRECTORY_DOWNLOADS}",
+            )
+          }
+          .getOrNull()
+      } else {
+        null
+      }
 
     fun formatSubtitle(entry: DownloadEntry): String {
       val size = formatSize(entry.sizeBytes)
@@ -215,10 +357,22 @@ class DownloadIndexer(private val context: Context) {
 }
 
 data class DownloadEntry(
-  val id: Long,
   val displayName: String,
   val mimeType: String?,
   val dateModifiedSeconds: Long,
   val sizeBytes: Long,
-  val collectionUri: android.net.Uri = MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-)
+  val id: Long = 0L,
+  val collectionUri: Uri = MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+  /** Set for files found through the granted tree, which MediaStore may not be able to see. */
+  val documentUri: Uri? = null,
+  val documentId: String? = null,
+) {
+  /**
+   * Stable document id. Tree and MediaStore ids never collide: one is a path, the other a number.
+   */
+  val key: String
+    get() = documentId ?: id.toString()
+
+  val uri: Uri
+    get() = documentUri ?: ContentUris.withAppendedId(collectionUri, id)
+}

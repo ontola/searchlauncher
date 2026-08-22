@@ -1,5 +1,6 @@
 package com.searchlauncher.app.data
 
+import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
@@ -27,6 +28,31 @@ class DownloadIndexerTest {
     assertEquals("Image", DownloadIndexer.mimeLabel("image/jpeg"))
     assertEquals("Video", DownloadIndexer.mimeLabel("video/mp4"))
     assertEquals("Archive", DownloadIndexer.mimeLabel("application/zip"))
+  }
+
+  @Test
+  fun documentFrom_opensTreeFilesByTheirDocumentUri() {
+    val indexer = DownloadIndexer(ApplicationProvider.getApplicationContext())
+    val documentUri =
+      Uri.parse(
+        "content://com.android.externalstorage.documents/tree/primary%3ADownload/document/primary%3ADownload%2Fstatement.pdf"
+      )
+    val doc =
+      indexer.documentFrom(
+        DownloadEntry(
+          displayName = "statement.pdf",
+          mimeType = "application/pdf",
+          dateModifiedSeconds = TimeUnit.MILLISECONDS.toSeconds(System.currentTimeMillis()),
+          sizeBytes = 4096,
+          documentUri = documentUri,
+          documentId = "primary:Download/statement.pdf",
+        )
+      )
+
+    // A PDF only reaches the index through the tree grant; MediaStore filters it out entirely.
+    assertEquals("primary:Download/statement.pdf", doc.id)
+    assertEquals(documentUri.toString(), doc.intentUri)
+    assertTrue(doc.description!!.contains("PDF"))
   }
 
   @Test

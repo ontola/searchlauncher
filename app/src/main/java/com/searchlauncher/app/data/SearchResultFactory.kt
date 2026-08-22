@@ -269,7 +269,10 @@ class SearchResultFactory(
       title = doc.name,
       subtitle = doc.description ?: "Event",
       icon = context.getDrawable(R.drawable.ic_event),
-      packageName = "vnd.android.cursor.item/event",
+      // Deliberately not a MIME type: the intent carries the event uri plus the occurrence's
+      // begin/end extras, and pinning a type as well narrows matching to calendar apps whose
+      // filters declare one. Only downloads put a MIME type here.
+      packageName = "calendar",
       deepLink = doc.intentUri,
       rankingScore = rankingScore,
     )

@@ -1,5 +1,7 @@
 package com.searchlauncher.app.data
 
+import android.content.Intent
+import android.provider.CalendarContract
 import androidx.test.core.app.ApplicationProvider
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
@@ -32,6 +34,54 @@ class CalendarIndexerTest {
   fun windowCoversAboutAWeek() {
     val days = TimeUnit.MILLISECONDS.toDays(CalendarIndexer.WINDOW_MS)
     assertEquals(8L, days)
+  }
+
+  @Test
+  fun documentFrom_namesTheOccurrenceNotJustTheSeries() {
+    val indexer = CalendarIndexer(ApplicationProvider.getApplicationContext())
+    val begin = startOfDay() + TimeUnit.HOURS.toMillis(9)
+    val end = begin + TimeUnit.MINUTES.toMillis(30)
+    val doc =
+      indexer.documentFrom(
+        CalendarEntry(
+          eventId = 7L,
+          title = "Standup",
+          beginMillis = begin,
+          endMillis = end,
+          allDay = false,
+          calendarName = "Work",
+          location = null,
+        )
+      )
+
+    // Recurring events are indexed per occurrence, so the intent has to carry the times or a
+    // calendar app has no way to know which one to open.
+    val intent = Intent.parseUri(doc.intentUri!!, Intent.URI_INTENT_SCHEME)
+    assertEquals(Intent.ACTION_VIEW, intent.action)
+    assertEquals(begin, intent.getLongExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, -1L))
+    assertEquals(end, intent.getLongExtra(CalendarContract.EXTRA_EVENT_END_TIME, -1L))
+    assertTrue(intent.data.toString().endsWith("/7"))
+  }
+
+  @Test
+  fun documentFrom_substitutesAnEndForAnInstanceWithoutOne() {
+    val indexer = CalendarIndexer(ApplicationProvider.getApplicationContext())
+    val begin = startOfDay() + TimeUnit.HOURS.toMillis(11)
+    val doc =
+      indexer.documentFrom(
+        CalendarEntry(
+          eventId = 9L,
+          title = "Reminder",
+          beginMillis = begin,
+          allDay = false,
+          calendarName = null,
+          location = null,
+        )
+      )
+
+    val intent = Intent.parseUri(doc.intentUri!!, Intent.URI_INTENT_SCHEME)
+    val end = intent.getLongExtra(CalendarContract.EXTRA_EVENT_END_TIME, -1L)
+    assertTrue("end should follow begin, was $end", end > begin)
   }
 
   @Test

@@ -2,6 +2,7 @@ package com.searchlauncher.app.data
 
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
 import android.provider.CalendarContract
 import java.util.Calendar
 import java.util.Locale
@@ -40,12 +41,20 @@ class CalendarIndexer(private val context: Context) {
     val eventUri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, entry.eventId)
     val subtitle = formatSubtitle(entry)
     val extra = listOfNotNull(entry.location, entry.calendarName).joinToString(" ")
+    // The occurrence, not the series. Instances expands a recurring event into the dates it
+    // actually falls on, so the event id alone is ambiguous: without the time extras a calendar
+    // app has no occurrence to show and either opens the wrong date or nothing at all.
+    val intent =
+      Intent(Intent.ACTION_VIEW, eventUri).apply {
+        putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, entry.beginMillis)
+        putExtra(CalendarContract.EXTRA_EVENT_END_TIME, entry.endMillis)
+      }
     return AppSearchDocument(
       namespace = NAMESPACE,
       id = "${entry.eventId}/${entry.beginMillis}",
       name = entry.title,
       score = 3,
-      intentUri = eventUri.toString(),
+      intentUri = intent.toUri(Intent.URI_INTENT_SCHEME),
       description = "$subtitle${if (extra.isNotEmpty()) " $extra" else ""}",
     )
   }
@@ -58,6 +67,7 @@ class CalendarIndexer(private val context: Context) {
         CalendarContract.Instances.EVENT_ID,
         CalendarContract.Instances.TITLE,
         CalendarContract.Instances.BEGIN,
+        CalendarContract.Instances.END,
         CalendarContract.Instances.ALL_DAY,
         CalendarContract.Instances.EVENT_LOCATION,
         CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
@@ -78,6 +88,7 @@ class CalendarIndexer(private val context: Context) {
       val idIdx = it.getColumnIndex(CalendarContract.Instances.EVENT_ID)
       val titleIdx = it.getColumnIndex(CalendarContract.Instances.TITLE)
       val beginIdx = it.getColumnIndex(CalendarContract.Instances.BEGIN)
+      val endIdx = it.getColumnIndex(CalendarContract.Instances.END)
       val allDayIdx = it.getColumnIndex(CalendarContract.Instances.ALL_DAY)
       val locationIdx = it.getColumnIndex(CalendarContract.Instances.EVENT_LOCATION)
       val calIdx = it.getColumnIndex(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME)
@@ -87,11 +98,17 @@ class CalendarIndexer(private val context: Context) {
         val title = (if (titleIdx >= 0) it.getString(titleIdx) else null)?.trim().orEmpty()
         val eventId = it.getLong(idIdx)
         if (eventId <= 0L) continue
+        val begin = it.getLong(beginIdx)
         out.add(
           CalendarEntry(
             eventId = eventId,
             title = title.ifBlank { "(No title)" },
-            beginMillis = it.getLong(beginIdx),
+            beginMillis = begin,
+            // A zero-length event still needs an end, or Calendar treats the extras as unset.
+            endMillis =
+              (if (endIdx >= 0 && !it.isNull(endIdx)) it.getLong(endIdx) else 0L).takeIf { e ->
+                e > begin
+              } ?: (begin + DEFAULT_DURATION_MS),
             allDay = allDayIdx >= 0 && it.getInt(allDayIdx) == 1,
             calendarName =
               if (calIdx >= 0) it.getString(calIdx)?.takeIf { n -> n.isNotBlank() } else null,
@@ -110,6 +127,8 @@ class CalendarIndexer(private val context: Context) {
     /** Today plus a week, with a little slack so Sunday-evening planning still finds Monday. */
     const val WINDOW_MS = 8L * 24 * 60 * 60 * 1000
     const val MAX_EVENTS = 200
+    /** Stand-in span for an instance the provider gave no usable end for. */
+    const val DEFAULT_DURATION_MS = 60L * 60 * 1000
     private const val TAG = "CalendarIndexer"
 
     fun formatSubtitle(entry: CalendarEntry, nowMillis: Long = System.currentTimeMillis()): String {
@@ -151,6 +170,7 @@ data class CalendarEntry(
   val eventId: Long,
   val title: String,
   val beginMillis: Long,
+  val endMillis: Long = beginMillis + CalendarIndexer.DEFAULT_DURATION_MS,
   val allDay: Boolean,
   val calendarName: String?,
   val location: String?,
