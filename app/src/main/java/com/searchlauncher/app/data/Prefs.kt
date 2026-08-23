@@ -56,6 +56,8 @@ object Prefs {
     const val FILE = "favorites"
     const val IDS_ORDERED = "favorite_ids_ordered"
     const val IDS = "favorite_ids"
+    /** Ordered search-option ids shown in the query-time favorites bar. */
+    const val SEARCH_OPTION_IDS = "search_option_ids_ordered"
   }
 
   /** User-defined search shortcuts, stored as a JSON array. */

@@ -66,6 +66,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.edit
 import com.searchlauncher.app.data.Prefs
+import com.searchlauncher.app.data.SearchIconGenerator
+import com.searchlauncher.app.data.SearchOptions
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.SearchShortcut
@@ -153,6 +155,7 @@ fun SearchScreen(
   val scope = rememberCoroutineScope()
   val focusRequester = remember { FocusRequester() }
   val favoriteIds by app.favoritesRepository.favoriteIds.collectAsState()
+  val searchOptionIds by app.favoritesRepository.searchOptionIds.collectAsState()
   val isIndexing by searchRepository.isIndexing.collectAsState(initial = false)
   val privateSpaceSnapshot by searchRepository.privateSpace.snapshot.collectAsState()
 
@@ -166,6 +169,14 @@ fun SearchScreen(
   var showDefaultLauncherDialog by remember { mutableStateOf(false) }
   var showPrivacyPolicy by remember { mutableStateOf(false) }
   val searchShortcuts by app.searchShortcutRepository.items.collectAsState()
+  val iconGenerator = remember { SearchIconGenerator(context) }
+  val (searchOptionFavorites, searchOptionExtras) =
+    remember(searchShortcuts, searchOptionIds) {
+      val (favored, extras) = SearchOptions.partition(searchShortcuts, searchOptionIds)
+      fun intents(list: List<SearchShortcut>) =
+        list.map { it.toSearchIntent(iconGenerator.getColoredSearchIcon(it.color, it.alias)) }
+      intents(favored) to intents(extras)
+    }
   var showShortcutDialog by remember { mutableStateOf(false) }
   var bookmarkDialogTarget by remember { mutableStateOf<BookmarkDialogTarget?>(null) }
   // Bumped whenever something a result was built from changes — a bookmark's title, a tab being
@@ -955,7 +966,13 @@ fun SearchScreen(
 
   var chromeBarHeightPx by remember { mutableIntStateOf(0) }
   var favoritesRowHeightPx by remember { mutableIntStateOf(0) }
-  val favoritesRowVisible = query.isEmpty() && (favorites.isNotEmpty() || historyItems.isNotEmpty())
+  val showingSearchOptions = query.isNotBlank()
+  val favoritesRowVisible =
+    if (showingSearchOptions) {
+      searchOptionFavorites.isNotEmpty() || searchOptionExtras.isNotEmpty()
+    } else {
+      favorites.isNotEmpty() || historyItems.isNotEmpty()
+    }
   /** Everything pinned to the bottom of the home screen: the favorites row and the chrome bar. */
   val bottomSectionHeightPx =
     chromeBarHeightPx + if (favoritesRowVisible) favoritesRowHeightPx else 0
@@ -1634,32 +1651,89 @@ fun SearchScreen(
               modifier =
                 Modifier.contentMaxWidth().onSizeChanged { favoritesRowHeightPx = it.height }
             ) {
-              FavoritesRow(
-                favorites = favorites,
-                history = historyItems,
-                historyLimit = historyLimit,
-                minIconSizeSetting = minIconSizeSetting,
-                onLaunch = { result ->
-                  if (result is SearchResult.SearchIntent) {
-                    searchRepository.reportUsageAsync(result.namespace, result.id)
-                    onQueryChange(result.trigger + " ")
-                  } else {
-                    resultLauncher.launch(result, reportUsage = true)
-                    onDismiss()
-                  }
-                },
-                onToggleFavorite = { result -> app.favoritesRepository.toggleFavorite(result) },
-                onReorder = { newOrder ->
-                  app.favoritesRepository.updateOrder(newOrder)
-                  scope.launch {
-                    onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites)
-                  }
-                },
-                onCapacityChanged = { limit -> searchRepository.updateObservedHistoryLimit(limit) },
-                // The same menu the results list offers, so long-pressing an app here and long-
-                // pressing it in the results are the same gesture with the same answer.
-                menuActions = { result -> menuActionsFor(result, -1) },
-              )
+              if (showingSearchOptions) {
+                FavoritesRow(
+                  favorites = searchOptionFavorites,
+                  history = searchOptionExtras,
+                  minIconSizeSetting = minIconSizeSetting,
+                  expandToFill = true,
+                  reverseHistory = false,
+                  drawDivider = false,
+                  onLaunch = { result ->
+                    val intent = result as? SearchResult.SearchIntent
+                    val shortcut =
+                      searchShortcuts.find { it.id == result.id || it.alias == intent?.trigger }
+                    val term = SearchOptions.searchTerm(query, searchShortcuts)
+                    if (shortcut != null && intent != null && term.isNotBlank()) {
+                      launchShortcutSearch(
+                        context = context,
+                        searchRepository = searchRepository,
+                        shortcut = shortcut,
+                        result = intent,
+                        query = term,
+                        privateWebResults = privateWebResults,
+                        wasFirstResult = false,
+                        openInBrowser = { openInBrowser(it) },
+                        onDismiss = onDismiss,
+                      )
+                    } else if (intent != null) {
+                      searchRepository.reportUsageAsync(intent.namespace, intent.id)
+                      onQueryChange(intent.trigger + " ")
+                    }
+                  },
+                  onToggleFavorite = { result ->
+                    app.favoritesRepository.toggleSearchOption(result)
+                  },
+                  onReorder = { newOrder ->
+                    app.favoritesRepository.updateSearchOptionOrder(newOrder)
+                  },
+                  onCapacityChanged = {},
+                  menuActions = { result ->
+                    ResultMenuActions(
+                      onToggleFavorite = { app.favoritesRepository.toggleSearchOption(result) },
+                      onEditShortcut =
+                        if (result is SearchResult.SearchIntent) {
+                          {
+                            val shortcut = searchShortcuts.find { it.alias == result.trigger }
+                            if (shortcut != null) {
+                              editingShortcut = shortcut
+                              showShortcutDialog = true
+                            }
+                          }
+                        } else null,
+                    )
+                  },
+                )
+              } else {
+                FavoritesRow(
+                  favorites = favorites,
+                  history = historyItems,
+                  historyLimit = historyLimit,
+                  minIconSizeSetting = minIconSizeSetting,
+                  onLaunch = { result ->
+                    if (result is SearchResult.SearchIntent) {
+                      searchRepository.reportUsageAsync(result.namespace, result.id)
+                      onQueryChange(result.trigger + " ")
+                    } else {
+                      resultLauncher.launch(result, reportUsage = true)
+                      onDismiss()
+                    }
+                  },
+                  onToggleFavorite = { result -> app.favoritesRepository.toggleFavorite(result) },
+                  onReorder = { newOrder ->
+                    app.favoritesRepository.updateOrder(newOrder)
+                    scope.launch {
+                      onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites)
+                    }
+                  },
+                  onCapacityChanged = { limit ->
+                    searchRepository.updateObservedHistoryLimit(limit)
+                  },
+                  // The same menu the results list offers, so long-pressing an app here and
+                  // long-pressing it in the results are the same gesture with the same answer.
+                  menuActions = { result -> menuActionsFor(result, -1) },
+                )
+              }
               Spacer(modifier = Modifier.height(2.dp))
             }
           }

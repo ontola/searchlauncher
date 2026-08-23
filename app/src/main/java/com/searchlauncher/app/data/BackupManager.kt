@@ -80,6 +80,14 @@ class BackupManager(
           }
           writer.endArray()
 
+          writer.name("searchOptionFavorites")
+          writer.beginArray()
+          favoritesRepository.getSearchOptionIds().forEach { id ->
+            writer.value(id)
+            favoritesCount++
+          }
+          writer.endArray()
+
           // 4. Export History
           android.util.Log.d("BackupManager", "Exporting History...")
           writer.name("history")
@@ -260,6 +268,16 @@ class BackupManager(
             favoritesCount++
           }
           favoritesRepository.replaceAll(favorites)
+        }
+
+        if (backupData.has("searchOptionFavorites")) {
+          val searchOptionsArray = backupData.getJSONArray("searchOptionFavorites")
+          val searchOptions = mutableListOf<String>()
+          for (i in 0 until searchOptionsArray.length()) {
+            searchOptions.add(searchOptionsArray.getString(i))
+            favoritesCount++
+          }
+          favoritesRepository.replaceSearchOptions(searchOptions)
         }
 
         // 4. Import History

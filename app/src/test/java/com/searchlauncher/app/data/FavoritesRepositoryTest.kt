@@ -74,4 +74,47 @@ class FavoritesRepositoryTest {
       repo.getFavoriteIds(),
     )
   }
+
+  @Test
+  fun `search option favorites default to google youtube spotify`() {
+    val repo = FavoritesRepository(context)
+    assertEquals(SearchOptions.DEFAULT_FAVORITE_IDS, repo.getSearchOptionIds())
+  }
+
+  @Test
+  fun `toggleSearchOption persists and reloads`() {
+    val repo = FavoritesRepository(context)
+    val youtube =
+      SearchResult.SearchIntent(
+        id = "search_youtube",
+        namespace = "search_shortcuts",
+        title = "YouTube Search",
+        subtitle = null,
+        icon = null,
+        trigger = "y",
+      )
+
+    assertTrue(repo.isSearchOptionFavorite(youtube))
+    repo.toggleSearchOption(youtube)
+    assertEquals(listOf("google", "spotify"), repo.getSearchOptionIds())
+    assertFalse(repo.isSearchOptionFavorite(youtube))
+
+    val reloaded = FavoritesRepository(context)
+    assertEquals(listOf("google", "spotify"), reloaded.getSearchOptionIds())
+  }
+
+  @Test
+  fun `updateSearchOptionOrder normalizes keys`() {
+    val repo = FavoritesRepository(context)
+    repo.updateSearchOptionOrder(listOf("search_shortcuts/spotify", "search_youtube", "google"))
+    assertEquals(listOf("spotify", "youtube", "google"), repo.getSearchOptionIds())
+  }
+
+  @Test
+  fun `clear restores search option defaults`() {
+    val repo = FavoritesRepository(context)
+    repo.replaceSearchOptions(listOf("wikipedia"))
+    repo.clear()
+    assertEquals(SearchOptions.DEFAULT_FAVORITE_IDS, repo.getSearchOptionIds())
+  }
 }

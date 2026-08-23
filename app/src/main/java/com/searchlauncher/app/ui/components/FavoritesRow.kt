@@ -49,6 +49,15 @@ fun FavoritesRow(
   onReorder: (List<String>) -> Unit,
   onCapacityChanged: (Int) -> Unit,
   /**
+   * Grow icons past the preferred size so the row uses the full width when there are fewer items
+   * than would fill it at [minIconSizeSetting].
+   */
+  expandToFill: Boolean = false,
+  /** History is newest-first and sits against the divider; set false to keep the given order. */
+  reverseHistory: Boolean = true,
+  /** Draw the gap between pinned items and the fill/history items. */
+  drawDivider: Boolean = true,
+  /**
    * What long-pressing an item offers. Supplied by callers that can answer for a result in full —
    * the search screen hands over the same one its results list uses, which is what makes the two
    * menus identical. Left out, an item offers only what this row can do by itself.
@@ -76,12 +85,12 @@ fun FavoritesRow(
 
     // Dynamically calculate how many history items we can actually fit
     val visibleHistory =
-      remember(favorites, history, totalWidthPx, historyLimit, minIconSizeSetting) {
+      remember(favorites, history, totalWidthPx, historyLimit, minIconSizeSetting, drawDivider) {
         val effectiveLimit =
           if (historyLimit >= 0) {
             historyLimit
           } else {
-            val showDividerInitial = favorites.isNotEmpty() && history.isNotEmpty()
+            val showDividerInitial = drawDivider && favorites.isNotEmpty() && history.isNotEmpty()
             val gapToReserve = if (showDividerInitial) dividerGapPx else 0f
 
             // Calculate max items that fit at min size
@@ -94,12 +103,13 @@ fun FavoritesRow(
           }
 
         onCapacityChanged(effectiveLimit)
-        history.take(effectiveLimit).reversed()
+        val visible = history.take(effectiveLimit)
+        if (reverseHistory) visible.reversed() else visible
       }
 
     val allItems = favorites + visibleHistory
     val boundaryIndex = favorites.size
-    val showDivider = favorites.isNotEmpty() && visibleHistory.isNotEmpty()
+    val showDivider = drawDivider && favorites.isNotEmpty() && visibleHistory.isNotEmpty()
 
     // State for dragging
     var draggedItemId by remember { mutableStateOf<String?>(null) }
@@ -170,7 +180,11 @@ fun FavoritesRow(
       if (totalCount > 0) (totalWidthPx - baseReservedSpace) / totalCount else 0f
     val preferredIconSizePx = with(density) { minIconSizeSetting.dp.toPx() }
     val finalIconSizePx =
-      minOf(preferredIconSizePx, if (calculatedSizePx > 0) calculatedSizePx else 1f)
+      when {
+        calculatedSizePx <= 0f -> 1f
+        expandToFill -> calculatedSizePx
+        else -> minOf(preferredIconSizePx, calculatedSizePx)
+      }
     val finalIconSize = with(density) { finalIconSizePx.toDp() }
 
     val itemWidthPx = finalIconSizePx + spacingPx

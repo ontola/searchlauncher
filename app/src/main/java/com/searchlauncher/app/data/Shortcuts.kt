@@ -1,5 +1,7 @@
 package com.searchlauncher.app.data
 
+import android.graphics.drawable.Drawable
+
 /** User-editable search shortcuts with customizable aliases */
 data class SearchShortcut(
   val id: String, // Unique identifier
@@ -14,6 +16,20 @@ data class SearchShortcut(
   /** Fills [urlTemplate]'s `%s` placeholder with an encoded [query]. */
   fun urlForQuery(query: String): String =
     urlTemplate.replace("%s", java.net.URLEncoder.encode(query, "UTF-8"))
+
+  /**
+   * The same result the search list builds for this shortcut, including the coloured letter icon
+   * when [icon] is supplied by [SearchIconGenerator].
+   */
+  fun toSearchIntent(icon: Drawable? = null): SearchResult.SearchIntent =
+    SearchResult.SearchIntent(
+      id = id,
+      namespace = "search_shortcuts",
+      title = description,
+      subtitle = "Type '$alias ' to search",
+      icon = icon,
+      trigger = alias,
+    )
 }
 
 /** App-defined shortcuts that are not user-editable */

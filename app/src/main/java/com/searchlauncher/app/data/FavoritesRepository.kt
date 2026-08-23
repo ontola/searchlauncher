@@ -14,8 +14,13 @@ class FavoritesRepository(context: Context) {
   /** Ordered list of namespaced favorite keys (`namespace/id`). */
   val favoriteIds: StateFlow<List<String>> = _favoriteIds
 
+  private val _searchOptionIds = MutableStateFlow(SearchOptions.DEFAULT_FAVORITE_IDS)
+  /** Ordered shortcut ids shown in the query-time search-options bar. */
+  val searchOptionIds: StateFlow<List<String>> = _searchOptionIds
+
   init {
     loadFavorites()
+    loadSearchOptions()
   }
 
   private fun loadFavorites() {
@@ -96,6 +101,58 @@ class FavoritesRepository(context: Context) {
 
   fun clear() {
     _favoriteIds.value = emptyList()
-    prefs.edit().remove(Prefs.Favorites.IDS_ORDERED).remove(Prefs.Favorites.IDS).apply()
+    _searchOptionIds.value = SearchOptions.DEFAULT_FAVORITE_IDS
+    prefs
+      .edit()
+      .remove(Prefs.Favorites.IDS_ORDERED)
+      .remove(Prefs.Favorites.IDS)
+      .remove(Prefs.Favorites.SEARCH_OPTION_IDS)
+      .apply()
+  }
+
+  private fun loadSearchOptions() {
+    val jsonString = prefs.getString(Prefs.Favorites.SEARCH_OPTION_IDS, null) ?: return
+    try {
+      val array = JSONArray(jsonString)
+      _searchOptionIds.value =
+        (0 until array.length()).map { SearchOptions.normalizeId(array.getString(it)) }
+    } catch (e: Exception) {
+      e.printStackTrace()
+    }
+  }
+
+  fun toggleSearchOption(result: SearchResult) {
+    toggleSearchOption(SearchOptions.normalizeId(result.id))
+  }
+
+  fun toggleSearchOption(id: String) {
+    val normalized = SearchOptions.normalizeId(id)
+    val current = _searchOptionIds.value.toMutableList()
+    if (current.contains(normalized)) {
+      current.remove(normalized)
+    } else {
+      current.add(normalized)
+    }
+    replaceSearchOptions(current)
+  }
+
+  fun isSearchOptionFavorite(result: SearchResult): Boolean =
+    isSearchOptionFavorite(SearchOptions.normalizeId(result.id))
+
+  fun isSearchOptionFavorite(id: String): Boolean =
+    _searchOptionIds.value.contains(SearchOptions.normalizeId(id))
+
+  fun updateSearchOptionOrder(newOrder: List<String>) {
+    replaceSearchOptions(newOrder.map(SearchOptions::normalizeId))
+  }
+
+  fun getSearchOptionIds(): List<String> = _searchOptionIds.value
+
+  fun replaceSearchOptions(ids: List<String>) {
+    val normalized = ids.map(SearchOptions::normalizeId)
+    _searchOptionIds.value = normalized
+    val array = JSONArray()
+    normalized.forEach { array.put(it) }
+    prefs.edit().putString(Prefs.Favorites.SEARCH_OPTION_IDS, array.toString()).apply()
   }
 }
