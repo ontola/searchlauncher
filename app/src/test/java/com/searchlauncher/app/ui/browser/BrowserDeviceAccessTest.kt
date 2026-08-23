@@ -1,13 +1,19 @@
 package com.searchlauncher.app.ui.browser
 
 import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.webkit.PermissionRequest
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class BrowserDeviceAccessTest {
   @Test
   fun mapsKnownWebViewResources() {
@@ -103,6 +109,19 @@ class BrowserDeviceAccessTest {
       androidPermissionsFor(listOf(BrowserDeviceAccess.MICROPHONE, BrowserDeviceAccess.CAMERA))
         .toSet(),
     )
+  }
+
+  @Test
+  fun microphoneCaptureDeclaresModifyAudioSettings() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val requested =
+      context.packageManager
+        .getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS)
+        .requestedPermissions
+        .toSet()
+    // Chromium refuses to list a recording device unless both of these are in the manifest.
+    assertTrue(requested.contains(Manifest.permission.RECORD_AUDIO))
+    assertTrue(requested.contains(Manifest.permission.MODIFY_AUDIO_SETTINGS))
   }
 
   @Test

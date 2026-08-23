@@ -17,6 +17,12 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!--
+      Not a runtime permission, but Chromium's WebView audio pipeline will not expose a
+      capture device without it — getUserMedia then fails even after RECORD_AUDIO and
+      RESOURCE_AUDIO_CAPTURE have both been granted.
+    -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
