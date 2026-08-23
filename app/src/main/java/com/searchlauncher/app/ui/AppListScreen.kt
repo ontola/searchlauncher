@@ -57,6 +57,12 @@ fun AppListScreen(
   onBack: () -> Unit,
 ) {
   val apps by searchRepository.allApps.collectAsState(initial = emptyList())
+  val privateSnapshot by searchRepository.privateSpace.snapshot.collectAsState()
+  val privateAppInfos by searchRepository.privateSpace.apps.collectAsState()
+  val privateControl =
+    remember(privateSnapshot) { searchRepository.privateSpace.controlResult(privateSnapshot) }
+  val privateApps =
+    remember(privateSnapshot, privateAppInfos) { searchRepository.privateSpace.appResults() }
 
   val groupedApps =
     remember(apps) { apps.groupBy { it.title.firstOrNull()?.uppercaseChar() ?: '#' }.toSortedMap() }
@@ -136,7 +142,7 @@ fun AppListScreen(
         }
         .windowInsetsPadding(WindowInsets.statusBars)
   ) {
-    if (apps.isEmpty()) {
+    if (apps.isEmpty() && privateControl == null) {
       CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
     } else {
       LazyColumn(
@@ -163,6 +169,28 @@ fun AppListScreen(
             }
           }
           items(appList, key = { it.id }) { app ->
+            SearchResultItem(result = app, onClick = { onAppClick(app) })
+          }
+        }
+        if (privateControl != null) {
+          stickyHeader {
+            Box(
+              modifier =
+                Modifier.fillMaxWidth()
+                  .background(MaterialTheme.colorScheme.surface)
+                  .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+              Text(
+                text = "Private",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+              )
+            }
+          }
+          item(key = privateControl.id) {
+            SearchResultItem(result = privateControl, onClick = { onAppClick(privateControl) })
+          }
+          items(privateApps, key = { it.id }) { app ->
             SearchResultItem(result = app, onClick = { onAppClick(app) })
           }
         }

@@ -291,6 +291,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private val snippetIndexer = SnippetIndexer(context)
   private val downloadIndexer = DownloadIndexer(context)
   private val calendarIndexer = CalendarIndexer(context)
+  val privateSpace = PrivateSpaceManager(context)
 
   private val _isInitialized = kotlinx.coroutines.flow.MutableStateFlow(false)
   val isInitialized: kotlinx.coroutines.flow.StateFlow<Boolean> = _isInitialized
@@ -370,6 +371,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           registerContactsObserver()
           registerCalendarObserver()
           registerDownloadsObserver()
+          privateSpace.start()
 
           // Pre-cache SearchLauncher's own icon for internal actions
           scope.launch {
@@ -1612,6 +1614,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     val launcherApps =
       context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
     for (profile in launcherApps.profiles) {
+      if (PrivateSpaceProfiles.isPrivate(launcherApps, profile)) continue
       try {
         if (launcherApps.isPackageEnabled(packageName, profile)) return true
       } catch (_: Exception) {
@@ -1634,12 +1637,14 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         android.util.Log.d("SearchRepository", "onPackageRemoved: $packageName")
         scheduleAppsRefresh(packageName)
         iconRepository.invalidateShortcutIcons(packageName)
+        privateSpace.refresh()
       }
 
       override fun onPackageAdded(packageName: String, user: android.os.UserHandle) {
         android.util.Log.d("SearchRepository", "onPackageAdded: $packageName")
         scheduleAppsRefresh(packageName)
         scope.launch { iconRepository.cacheAppIcon(packageName) }
+        privateSpace.refresh()
       }
 
       override fun onPackageChanged(packageName: String, user: android.os.UserHandle) {
@@ -1648,6 +1653,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           iconRepository.cacheAppIcon(packageName)
           iconRepository.invalidateShortcutIcons(packageName)
         }
+        privateSpace.refresh()
       }
 
       override fun onPackagesAvailable(
@@ -1657,6 +1663,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       ) {
         if (packageNames.isNullOrEmpty()) scheduleAppsRefresh()
         else packageNames.forEach { scheduleAppsRefresh(it) }
+        privateSpace.refresh()
       }
 
       override fun onPackagesUnavailable(
@@ -1666,6 +1673,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       ) {
         if (packageNames.isNullOrEmpty()) scheduleAppsRefresh()
         else packageNames.forEach { scheduleAppsRefresh(it) }
+        privateSpace.refresh()
       }
 
       override fun onShortcutsChanged(
@@ -1848,6 +1856,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               performInMemorySearch(query, excludedAliases, limit, includeSearchShortcuts)
             }
           results.addAll(indexResults)
+
+          results.addAll(
+            traceSection("SL:SearchRepository.privateSpace") { privateSpace.searchHits(query) }
+          )
 
           // 5. Suggestions (only when search shortcuts / suggestions are enabled)
           if (
@@ -2208,11 +2220,15 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               // Open tabs are transient and could not be rebuilt from a cache file anyway, so
               // they are never written to one.
               is SearchResult.BrowserTab -> return@forEach
+              is SearchResult.PrivateSpace -> return@forEach
             }
           obj.put("type", typeStr)
 
           when (res) {
-            is SearchResult.App -> obj.put("packageName", res.packageName)
+            is SearchResult.App -> {
+              if (res.isPrivate) return@forEach
+              obj.put("packageName", res.packageName)
+            }
             is SearchResult.Shortcut -> {
               obj.put("intentUri", res.intentUri)
               obj.put("packageName", res.packageName)
@@ -2232,7 +2248,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               obj.put("content", res.content)
             }
             is SearchResult.IndexingIndicator,
-            is SearchResult.BrowserTab -> {
+            is SearchResult.BrowserTab,
+            is SearchResult.PrivateSpace -> {
               // Nothing to store
             }
           }
@@ -2447,6 +2464,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         var iconCount = 0
 
         for (profile in profiles) {
+          if (PrivateSpaceProfiles.isPrivate(launcherApps, profile)) continue
           try {
             val activityList = launcherApps.getActivityList(null, profile)
             for (info in activityList) {
@@ -2482,6 +2500,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   suspend fun loadIcon(result: SearchResult): Drawable? =
     withContext(Dispatchers.IO) {
+      if (result is SearchResult.PrivateSpace || (result is SearchResult.App && result.isPrivate)) {
+        return@withContext result.icon
+      }
       val sdoc =
         documentSnapshot.find { it.doc.id == result.id && it.doc.namespace == result.namespace }
       if (sdoc == null) return@withContext null

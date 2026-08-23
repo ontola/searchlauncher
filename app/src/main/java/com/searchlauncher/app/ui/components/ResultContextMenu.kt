@@ -91,7 +91,7 @@ internal fun ResultMenuActions.hasItemsFor(
 ): Boolean =
   result !is SearchResult.IndexingIndicator &&
     (result is SearchResult.Snippet ||
-      result is SearchResult.App ||
+      (result is SearchResult.App && !result.isPrivate) ||
       contactChatActions.isNotEmpty() ||
       onToggleFavorite != null ||
       onEditShortcut != null ||
@@ -218,7 +218,7 @@ internal fun ResultContextMenuItems(
     )
   }
 
-  if (result is SearchResult.App) {
+  if (result is SearchResult.App && !result.isPrivate) {
     AppActionsMenuItems(
       result = result,
       isFavorite = isFavorite,

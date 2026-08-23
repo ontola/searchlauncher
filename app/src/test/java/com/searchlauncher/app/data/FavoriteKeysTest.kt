@@ -138,5 +138,25 @@ class FavoriteKeysTest {
         .isFavoritable()
     )
     assertFalse(SearchResult.IndexingIndicator().isFavoritable())
+    assertFalse(
+      SearchResult.App(
+          id = "com.example#private",
+          title = "Example",
+          subtitle = "Private",
+          icon = null,
+          packageName = "com.example",
+          isPrivate = true,
+        )
+        .isFavoritable()
+    )
+    assertFalse(
+      SearchResult.PrivateSpace(
+          title = "Private Space",
+          subtitle = "Locked · tap to unlock",
+          icon = null,
+          unlocked = false,
+        )
+        .isFavoritable()
+    )
   }
 }
