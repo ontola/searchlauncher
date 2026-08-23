@@ -861,10 +861,21 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private suspend fun indexSearchables(packageNames: List<String>? = null) =
     withContext(IndexingDispatchers.limited) {
       pauseIndexingIfSearchIsActive()
+      android.util.Log.d("SearchRepository", "Indexing searchable activities...")
       val session = appSearchSession ?: return@withContext
-      val docs =
-        searchableIndexer.buildDocuments(::pauseIndexingIfSearchIsActive, packageNames)
-          ?: return@withContext
+      val docs = searchableIndexer.buildDocuments(::pauseIndexingIfSearchIsActive, packageNames)
+      if (docs == null) {
+        android.util.Log.w(
+          "SearchRepository",
+          "Searchable discovery failed; keeping existing index",
+        )
+        return@withContext
+      }
+      android.util.Log.d(
+        "SearchRepository",
+        if (packageNames == null) "Indexed ${docs.size} searchable activities"
+        else "Indexed ${docs.size} searchable activities for ${packageNames.size} package(s)",
+      )
 
       putDocuments(session, docs)
       if (packageNames == null) {

@@ -50,7 +50,11 @@ class SearchableIndexer(private val context: Context) {
     if (packageNames != null && packageNames.isEmpty()) return emptyList()
 
     val discovery = discover(packageNames)
-    if (!discovery.succeeded) return null
+    if (!discovery.succeeded) {
+      android.util.Log.w(TAG, "Searchable discovery failed; leaving existing index in place")
+      return null
+    }
+    android.util.Log.d(TAG, "Discovered ${discovery.entries.size} searchable activities")
 
     val docs = ArrayList<AppSearchDocument>(discovery.entries.size)
     for (entry in discovery.entries) {
@@ -89,10 +93,12 @@ class SearchableIndexer(private val context: Context) {
 
     if (searchManager != null) {
       try {
-        for (info in searchManager.searchablesInGlobalSearch) {
+        val global = searchManager.searchablesInGlobalSearch
+        for (info in global) {
           add(info.searchActivity, info)
         }
         succeeded = true
+        android.util.Log.d(TAG, "Global searchables: ${global.size}")
       } catch (e: Exception) {
         android.util.Log.w(TAG, "Failed reading global searchables", e)
       }
@@ -113,6 +119,7 @@ class SearchableIndexer(private val context: Context) {
             }
           }
         }
+      android.util.Log.d(TAG, "ACTION_SEARCH activities: ${resolves.size}")
       for (resolve in resolves) {
         val activity = resolve.activityInfo ?: continue
         val component = ComponentName(activity.packageName, activity.name)
