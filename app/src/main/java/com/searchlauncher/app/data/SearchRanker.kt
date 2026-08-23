@@ -97,6 +97,7 @@ object SearchRanker {
         9 -> RankingScores.NAMESPACE_BOOST_WEB_SAVED
         10 -> RankingScores.NAMESPACE_BOOST_DOWNLOADS
         11 -> RankingScores.NAMESPACE_BOOST_CALENDAR
+        12 -> RankingScores.NAMESPACE_BOOST_SEARCHABLES
         else -> RankingScores.NAMESPACE_BOOST_DEFAULT
       }
 

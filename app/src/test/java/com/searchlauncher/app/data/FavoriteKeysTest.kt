@@ -125,6 +125,18 @@ class FavoriteKeysTest {
         )
         .isFavoritable()
     )
+    assertTrue(
+      SearchResult.Content(
+          id = "com.android.settings/com.android.settings.SettingsSearch",
+          namespace = "searchables",
+          title = "Search Settings",
+          subtitle = null,
+          icon = null,
+          packageName = "com.android.settings",
+          deepLink = "intent:#Intent;action=android.intent.action.SEARCH;end",
+        )
+        .isFavoritable()
+    )
     assertFalse(
       SearchResult.Content(
           id = "calc",

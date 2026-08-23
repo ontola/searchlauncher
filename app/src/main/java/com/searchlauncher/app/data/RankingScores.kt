@@ -7,8 +7,8 @@ package com.searchlauncher.app.data
  * 1. Direct scores - smart actions, custom shortcuts, suggestions, widgets: a literal value chosen
  *    so the result lands at the desired position.
  * 2. Indexed scores - apps, app_shortcuts, snippets, shortcuts, contacts, calendar, downloads,
- *    web_saved, web_bookmarks: FuzzyMatch.calculateScore (0..100) + a namespace boost + optional
- *    context boost + usage.
+ *    web_saved, web_bookmarks, searchables: FuzzyMatch.calculateScore (0..100) + a namespace boost
+ *     + optional context boost + usage.
  *
  * Approximate descending order of typical scores: 1600 timer smart action; 1200 custom shortcut
  * with explicit search term ("g cats"); ~450-480 a page open in the browser; ~150-250 indexed hits,
@@ -74,6 +74,7 @@ object RankingScores {
   const val NAMESPACE_BOOST_CONTACTS = 40
   const val NAMESPACE_BOOST_CALENDAR = 90
   const val NAMESPACE_BOOST_DOWNLOADS = 50
+  const val NAMESPACE_BOOST_SEARCHABLES = 55
   const val NAMESPACE_BOOST_DEFAULT = 0
 
   // --- Context boosts stacked on top of the namespace boost ---

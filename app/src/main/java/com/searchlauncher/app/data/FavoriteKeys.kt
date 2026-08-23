@@ -19,6 +19,7 @@ object FavoriteKeys {
       "web_saved",
       "downloads",
       "calendar",
+      "searchables",
     )
 
   fun of(namespace: String, id: String): String = "$namespace/$id"
@@ -61,7 +62,8 @@ fun SearchResult.isFavoritable(): Boolean =
     is SearchResult.Snippet,
     is SearchResult.SearchIntent -> true
     is SearchResult.Content ->
-      namespace in setOf("app_shortcuts", "web_saved", "web_bookmarks", "downloads", "calendar")
+      namespace in
+        setOf("app_shortcuts", "web_saved", "web_bookmarks", "downloads", "calendar", "searchables")
     // An open tab is a live view of the browser, not a thing to pin: it disappears when closed,
     // which would leave the favorite pointing at nothing.
     is SearchResult.BrowserTab,

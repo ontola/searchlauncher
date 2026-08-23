@@ -99,7 +99,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         doc.namespace == "snippets" ||
           doc.namespace == "app_shortcuts" ||
           doc.namespace == "downloads" ||
-          doc.namespace == "calendar"
+          doc.namespace == "calendar" ||
+          doc.namespace == SearchableIndexer.NAMESPACE
       ) {
         listOf(doc.name, doc.description.orEmpty()).joinToString(" ")
       } else {
@@ -123,6 +124,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         "web_saved" -> 9
         "downloads" -> 10
         "calendar" -> 11
+        SearchableIndexer.NAMESPACE -> 12
         else -> 0
       }
 
@@ -144,7 +146,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
       1,
       4,
-      6 -> { // apps, shortcuts, static_shortcuts
+      6,
+      12 -> { // apps, shortcuts, static_shortcuts, searchables
         packageName = doc.id.split("/").firstOrNull() ?: ""
       }
     }
@@ -291,6 +294,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private val snippetIndexer = SnippetIndexer(context)
   private val downloadIndexer = DownloadIndexer(context)
   private val calendarIndexer = CalendarIndexer(context)
+  private val searchableIndexer = SearchableIndexer(context)
 
   private val _isInitialized = kotlinx.coroutines.flow.MutableStateFlow(false)
   val isInitialized: kotlinx.coroutines.flow.StateFlow<Boolean> = _isInitialized
@@ -472,6 +476,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             refreshContactsIfChanged()
             refreshCalendarIfChanged()
             refreshDownloadsIfChanged()
+            refreshSearchablesIfChanged()
             return@launch
           }
 
@@ -713,6 +718,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       try {
         indexShortcuts(packageNames)
         indexStaticShortcuts(packageNames)
+        indexSearchables(packageNames)
       } catch (e: Exception) {
         android.util.Log.e("SearchRepository", "Error updating shortcuts after indexApps", e)
         Sentry.captureException(e)
@@ -848,6 +854,79 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           documentSnapshot = (filtered + docs.map { wrap(it) }).sortedBy { it.namespaceInt }
         }
       }
+    }
+
+  // packageNames: if null, full catalog rebuild; if provided, only those packages are queried
+  // and swapped. Searchable activities appear and disappear with the apps that declare them.
+  private suspend fun indexSearchables(packageNames: List<String>? = null) =
+    withContext(IndexingDispatchers.limited) {
+      pauseIndexingIfSearchIsActive()
+      val session = appSearchSession ?: return@withContext
+      val docs =
+        searchableIndexer.buildDocuments(::pauseIndexingIfSearchIsActive, packageNames)
+          ?: return@withContext
+
+      putDocuments(session, docs)
+      if (packageNames == null) {
+        removeMissingDocuments(session, SearchableIndexer.NAMESPACE, docs.map { it.id }.toSet())
+        replaceCollection(SearchableIndexer.NAMESPACE, docs)
+        searchableIndexer.readFingerprint()?.let {
+          context
+            .getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+            .edit()
+            .putString(Prefs.Launcher.SEARCHABLES_FINGERPRINT, it)
+            .apply()
+        }
+      } else {
+        val previousIds =
+          documentSnapshot
+            .asSequence()
+            .filter { sdoc ->
+              sdoc.doc.namespace == SearchableIndexer.NAMESPACE &&
+                packageNames.any { sdoc.doc.id.startsWith("$it/") }
+            }
+            .map { it.doc.id }
+            .toSet()
+        val keepIds = docs.map { it.id }.toSet()
+        val staleIds = previousIds - keepIds
+        if (staleIds.isNotEmpty()) {
+          try {
+            session
+              .removeAsync(
+                RemoveByDocumentIdRequest.Builder(SearchableIndexer.NAMESPACE)
+                  .addIds(staleIds)
+                  .build()
+              )
+              .await()
+          } catch (e: Exception) {
+            android.util.Log.e(
+              "SearchRepository",
+              "Failed to remove stale searchables for packages",
+              e,
+            )
+          }
+        }
+        synchronized(this@SearchRepository) {
+          val filtered =
+            documentSnapshot.filter { sdoc ->
+              sdoc.doc.namespace != SearchableIndexer.NAMESPACE ||
+                packageNames.none { sdoc.doc.id.startsWith("$it/") }
+            }
+          documentSnapshot = (filtered + docs.map { wrap(it) }).sortedBy { it.namespaceInt }
+        }
+      }
+    }
+
+  private suspend fun refreshSearchablesIfChanged() =
+    withContext(IndexingDispatchers.limited) {
+      val fingerprint = searchableIndexer.readFingerprint() ?: return@withContext
+      val prefs = context.getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+      if (fingerprint == prefs.getString(Prefs.Launcher.SEARCHABLES_FINGERPRINT, null)) {
+        return@withContext
+      }
+
+      android.util.Log.d("SearchRepository", "Searchables changed while away, re-indexing")
+      indexWriteMutex.withLock { indexSearchables() }
     }
 
   /** Coalesces the burst of change notifications an account sync produces into one rebuild. */
@@ -1826,6 +1905,15 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           val matchedShortcut = customShortcutMatches.second
           results.addAll(customShortcutResults)
 
+          // 1b. ACTION_SEARCH destinations: "Settings wifi" → search that app for wifi
+          val searchableMatch =
+            if (matchedShortcut == null) {
+              findMatchingSearchable(query)
+            } else {
+              null
+            }
+          searchableMatch?.let { results.add(it) }
+
           // 2. Smart Actions
           val smartActions =
             traceSection("SL:SearchRepository.smartActions") {
@@ -1842,10 +1930,17 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               .filterIsInstance<SearchResult.SearchIntent>()
               .mapNotNull { it.trigger }
               .toSet()
+          val excludedSearchableIds = setOfNotNull(searchableMatch?.id)
 
           val indexResults =
             traceSection("SL:SearchRepository.performInMemorySearch") {
-              performInMemorySearch(query, excludedAliases, limit, includeSearchShortcuts)
+              performInMemorySearch(
+                query,
+                excludedAliases,
+                excludedSearchableIds,
+                limit,
+                includeSearchShortcuts,
+              )
             }
           results.addAll(indexResults)
 
@@ -2062,9 +2157,46 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     return results to shortcut
   }
 
+  /**
+   * If [query] is `{app name} {search term}` for an indexed searchable activity, return a
+   * high-priority result that launches that app's [android.content.Intent.ACTION_SEARCH] with the
+   * remainder as [android.app.SearchManager.QUERY]. Bare name matches are left to the index so the
+   * real app still ranks first.
+   */
+  internal fun findMatchingSearchable(query: String): SearchResult? {
+    var best: SearchableDocument? = null
+    var remainder: String? = null
+    for (sdoc in documentSnapshot) {
+      if (sdoc.doc.namespace != SearchableIndexer.NAMESPACE) continue
+      val after = SearchableIndexer.queryAfterLabel(query, sdoc.doc.name) ?: continue
+      if (after.isEmpty()) continue
+      if (best == null || sdoc.doc.name.length > best.doc.name.length) {
+        best = sdoc
+        remainder = after
+      }
+    }
+    val match = best ?: return null
+    remainder ?: return null
+    val component = SearchableIndexer.componentFromId(match.doc.id) ?: return null
+    val pkg = component.packageName
+    return SearchResult.Content(
+      id = match.doc.id,
+      namespace = SearchableIndexer.NAMESPACE,
+      title = "${match.doc.name}: $remainder",
+      subtitle = "App search",
+      icon = iconRepository.getMemory("appicon_$pkg"),
+      packageName = pkg,
+      deepLink =
+        SearchableIndexer.searchIntent(component, remainder)
+          .toUri(android.content.Intent.URI_INTENT_SCHEME),
+      rankingScore = RankingScores.CUSTOM_SHORTCUT_WITH_SEARCH_TERM,
+    )
+  }
+
   private suspend fun performInMemorySearch(
     query: String,
     excludedAliases: Set<String>,
+    excludedSearchableIds: Set<String>,
     limit: Int,
     includeSearchShortcuts: Boolean,
   ): List<SearchResult> {
@@ -2106,6 +2238,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           )
 
         if (searchResult is SearchResult.SearchIntent && searchResult.trigger in excludedAliases) {
+          continue
+        }
+        if (
+          searchResult.namespace == SearchableIndexer.NAMESPACE &&
+            searchResult.id in excludedSearchableIds
+        ) {
           continue
         }
 

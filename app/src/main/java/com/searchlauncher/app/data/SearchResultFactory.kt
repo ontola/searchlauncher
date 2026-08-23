@@ -1,6 +1,7 @@
 package com.searchlauncher.app.data
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.LauncherApps
 import android.graphics.Color
 import android.graphics.drawable.Drawable
@@ -44,6 +45,8 @@ class SearchResultFactory(
       "snippets" -> createSnippetResult(sdoc, rankingScore)
       "downloads" -> createDownloadResult(sdoc, rankingScore)
       "calendar" -> createCalendarResult(sdoc, rankingScore)
+      "searchables" ->
+        createSearchableResult(sdoc, rankingScore, query, saveToDisk, allowIpc, allowDisk)
       else -> createAppResult(sdoc, rankingScore, saveToDisk, allowIpc, allowDisk)
     }
   }
@@ -274,6 +277,37 @@ class SearchResultFactory(
       // filters declare one. Only downloads put a MIME type here.
       packageName = "calendar",
       deepLink = doc.intentUri,
+      rankingScore = rankingScore,
+    )
+  }
+
+  private fun createSearchableResult(
+    sdoc: SearchableDocument,
+    rankingScore: Int,
+    query: String?,
+    saveToDisk: Boolean,
+    allowIpc: Boolean,
+    allowDisk: Boolean,
+  ): SearchResult.Content {
+    val doc = sdoc.doc
+    val pkg = sdoc.packageName ?: doc.id.substringBefore('/')
+    val searchTerm = query?.let { SearchableIndexer.queryAfterLabel(it, doc.name) }.orEmpty()
+    val component = SearchableIndexer.componentFromId(doc.id)
+    val deepLink =
+      if (component != null) {
+        SearchableIndexer.searchIntent(component, searchTerm).toUri(Intent.URI_INTENT_SCHEME)
+      } else {
+        doc.intentUri
+      }
+
+    return SearchResult.Content(
+      id = doc.id,
+      namespace = SearchableIndexer.NAMESPACE,
+      title = if (searchTerm.isNotEmpty()) "${doc.name}: $searchTerm" else "Search ${doc.name}",
+      subtitle = if (searchTerm.isNotEmpty()) "App search" else (doc.description ?: "App search"),
+      icon = loadAppIcon(pkg, saveToDisk, allowIpc, allowDisk),
+      packageName = pkg,
+      deepLink = deepLink,
       rankingScore = rankingScore,
     )
   }

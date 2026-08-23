@@ -93,7 +93,7 @@ parses them straight out of that file. Bump both, add a changelog under
 
 ## Known Limitations
 
-- Content search within apps requires apps to implement AppSearch indexing
+- In-app search is auto-indexed for apps that declare `ACTION_SEARCH` / `SearchableInfo` (type `Settings wifi` to search Settings). Apps that do not opt in still cannot be queried from outside.
 - Content search within third-party apps requires those apps to expose indexable data
 
 ## Website

@@ -706,7 +706,7 @@ class SearchRepositoryTest {
   }
 
   @Test
-  fun `wrap includes download and calendar descriptions in searchable text`() {
+  fun `wrap includes download calendar and searchable descriptions in searchable text`() {
     val download =
       repository.wrap(
         AppSearchDocument(
@@ -729,11 +729,25 @@ class SearchRepositoryTest {
           intentUri = "content://com.android.calendar/events/9",
         )
       )
+    val searchable =
+      repository.wrap(
+        AppSearchDocument(
+          namespace = "searchables",
+          id = "com.android.settings/com.android.settings.SettingsSearch",
+          score = 1,
+          name = "Settings",
+          description = "Wi-Fi, Bluetooth",
+          intentUri = "intent:#Intent;action=android.intent.action.SEARCH;end",
+        )
+      )
 
     assertEquals(10, download.namespaceInt)
     assertTrue(download.nameLower.contains("pdf"))
     assertEquals(11, event.namespaceInt)
     assertTrue(event.nameLower.contains("utrecht"))
+    assertEquals(12, searchable.namespaceInt)
+    assertEquals("com.android.settings", searchable.packageName)
+    assertTrue(searchable.nameLower.contains("wi-fi"))
   }
 
   @Test
@@ -791,5 +805,85 @@ class SearchRepositoryTest {
         documentByNamespaceAndId = emptyMap(),
       )
     assertTrue(placeHits.any { it.first.doc.namespace == "calendar" && it.first.doc.id == "9/1" })
+  }
+
+  @Test
+  fun `search finds searchable activities by hint text`() {
+    val searchable =
+      AppSearchDocument(
+        namespace = "searchables",
+        id = "com.android.settings/com.android.settings.SettingsSearch",
+        score = 1,
+        name = "Settings",
+        description = "Wi-Fi, Bluetooth",
+        intentUri = "intent:#Intent;action=android.intent.action.SEARCH;end",
+      )
+    repository.documentSnapshot = listOf(repository.wrap(searchable))
+
+    val hits =
+      SearchRanker.rankCandidates(
+        "bluetooth",
+        repository.documentSnapshot,
+        includeSearchShortcuts = false,
+        usageStats = emptyMap(),
+        queryUsageStats = emptyMap(),
+        documentByNamespaceAndId = emptyMap(),
+      )
+    assertTrue(
+      hits.any { it.first.doc.namespace == "searchables" && it.first.doc.id == searchable.id }
+    )
+  }
+
+  @Test
+  fun `settings wifi launches the settings searchable with that query`() = runBlocking {
+    val searchable =
+      AppSearchDocument(
+        namespace = "searchables",
+        id = "com.android.settings/com.android.settings.SettingsSearch",
+        score = 1,
+        name = "Settings",
+        description = "Wi-Fi, Bluetooth",
+        intentUri =
+          "intent:#Intent;action=android.intent.action.SEARCH;component=com.android.settings/.SettingsSearch;end",
+      )
+    val app =
+      AppSearchDocument(
+        namespace = "apps",
+        id = "com.android.settings",
+        score = 2,
+        name = "Settings",
+        description = "Application",
+      )
+    repository.documentSnapshot =
+      listOf(repository.wrap(app), repository.wrap(searchable)).sortedBy { it.namespaceInt }
+
+    val results = repository.searchApps("Settings wifi", includeSuggestions = false).getOrThrow()
+    val match =
+      results.filterIsInstance<SearchResult.Content>().first { it.namespace == "searchables" }
+
+    assertEquals("Settings: wifi", match.title)
+    assertEquals(RankingScores.CUSTOM_SHORTCUT_WITH_SEARCH_TERM, match.rankingScore)
+    val intent =
+      android.content.Intent.parseUri(match.deepLink!!, android.content.Intent.URI_INTENT_SCHEME)
+    assertEquals(android.content.Intent.ACTION_SEARCH, intent.action)
+    assertEquals("wifi", intent.getStringExtra(android.app.SearchManager.QUERY))
+    assertEquals("com.android.settings", intent.component?.packageName)
+  }
+
+  @Test
+  fun `bare searchable name does not steal the app result`() {
+    val searchable =
+      AppSearchDocument(
+        namespace = "searchables",
+        id = "com.android.settings/com.android.settings.SettingsSearch",
+        score = 1,
+        name = "Settings",
+        description = "Wi-Fi, Bluetooth",
+        intentUri = "intent:#Intent;action=android.intent.action.SEARCH;end",
+      )
+    repository.documentSnapshot = listOf(repository.wrap(searchable))
+
+    assertEquals(null, repository.findMatchingSearchable("Settings"))
+    assertEquals(null, repository.findMatchingSearchable("setting"))
   }
 }
