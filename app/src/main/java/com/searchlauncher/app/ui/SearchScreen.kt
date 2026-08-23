@@ -154,6 +154,7 @@ fun SearchScreen(
   val focusRequester = remember { FocusRequester() }
   val favoriteIds by app.favoritesRepository.favoriteIds.collectAsState()
   val isIndexing by searchRepository.isIndexing.collectAsState(initial = false)
+  val privateSpaceSnapshot by searchRepository.privateSpace.snapshot.collectAsState()
 
   val favorites by searchRepository.favorites.collectAsState()
   var showSnippetDialog by remember { mutableStateOf(false) }
@@ -736,7 +737,7 @@ fun SearchScreen(
     }
   }
 
-  LaunchedEffect(query, suggestionsEnabled, isIndexing, resultsRefreshTick) {
+  LaunchedEffect(query, suggestionsEnabled, isIndexing, resultsRefreshTick, privateSpaceSnapshot) {
     traceSection("SL:SearchScreen.queryEffect") {
       searchRepository.noteInteractiveSearch(query)
       if (query.isEmpty()) {

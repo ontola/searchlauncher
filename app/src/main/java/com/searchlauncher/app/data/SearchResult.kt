@@ -1,6 +1,8 @@
 package com.searchlauncher.app.data
 
+import android.content.ComponentName
 import android.graphics.drawable.Drawable
+import android.os.UserHandle
 
 sealed class SearchResult {
   abstract val id: String
@@ -18,6 +20,19 @@ sealed class SearchResult {
     override val icon: Drawable?,
     override val rankingScore: Int = 0,
     val packageName: String,
+    val isPrivate: Boolean = false,
+    val userHandle: UserHandle? = null,
+    val componentName: ComponentName? = null,
+  ) : SearchResult()
+
+  data class PrivateSpace(
+    override val id: String = PrivateSpaceQuery.CONTROL_ID,
+    override val namespace: String = PrivateSpaceQuery.NAMESPACE,
+    override val title: String,
+    override val subtitle: String?,
+    override val icon: Drawable?,
+    override val rankingScore: Int = 0,
+    val unlocked: Boolean,
   ) : SearchResult()
 
   data class Content(

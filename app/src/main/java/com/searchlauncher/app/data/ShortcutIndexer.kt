@@ -32,6 +32,7 @@ class ShortcutIndexer(private val context: Context) {
     val appNameCache = mutableMapOf<String, String>()
 
     for (profile in launcherApps.profiles) {
+      if (PrivateSpaceProfiles.isPrivate(launcherApps, profile)) continue
       pauseCheck()
       for (packageName in packages) {
         pauseCheck()

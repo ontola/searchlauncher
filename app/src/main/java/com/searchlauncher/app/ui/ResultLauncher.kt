@@ -43,6 +43,7 @@ class ResultLauncher(
   ) {
     when (result) {
       is SearchResult.App -> launchApp(result)
+      is SearchResult.PrivateSpace -> togglePrivateSpace()
       is SearchResult.Content -> launchContent(result, query)
       is SearchResult.Shortcut -> launchShortcut(result, query)
       is SearchResult.SearchIntent -> {
@@ -59,7 +60,11 @@ class ResultLauncher(
     // Tabs are skipped: their ids last only as long as the tab does, so recording usage against
     // one teaches the ranker nothing and grows the usage store without bound.
     if (
-      reportUsage && result !is SearchResult.IndexingIndicator && result !is SearchResult.BrowserTab
+      reportUsage &&
+        result !is SearchResult.IndexingIndicator &&
+        result !is SearchResult.BrowserTab &&
+        result !is SearchResult.PrivateSpace &&
+        !(result is SearchResult.App && result.isPrivate)
     ) {
       searchRepository.reportUsageAsync(result.namespace, result.id, query, wasFirstResult)
     }
@@ -90,11 +95,41 @@ class ResultLauncher(
   }
 
   private fun launchApp(result: SearchResult.App) {
+    if (result.isPrivate) {
+      launchPrivateApp(result)
+      return
+    }
     val launchIntent = context.packageManager.getLaunchIntentForPackage(result.packageName)
     launchIntent?.let {
       it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       context.startActivity(it)
     }
+  }
+
+  private fun launchPrivateApp(result: SearchResult.App) {
+    val user = result.userHandle
+    if (user == null) {
+      Toast.makeText(context, "Private Space is locked", Toast.LENGTH_SHORT).show()
+      return
+    }
+    try {
+      val launcherApps =
+        context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+      val component =
+        result.componentName
+          ?: launcherApps.getActivityList(result.packageName, user).firstOrNull()?.componentName
+      if (component == null) {
+        Toast.makeText(context, "Cannot open ${result.title}", Toast.LENGTH_SHORT).show()
+        return
+      }
+      launcherApps.startMainActivity(component, user, null, null)
+    } catch (e: Exception) {
+      Toast.makeText(context, "Error opening ${result.title}", Toast.LENGTH_SHORT).show()
+    }
+  }
+
+  private fun togglePrivateSpace() {
+    searchRepository.privateSpace.toggleLock(context)
   }
 
   private fun launchContent(result: SearchResult.Content, query: String) {

@@ -55,7 +55,7 @@ val SearchResult.favoriteKey: String
 /** Whether this result can be pinned to the favorites row. */
 fun SearchResult.isFavoritable(): Boolean =
   when (this) {
-    is SearchResult.App,
+    is SearchResult.App -> !isPrivate
     is SearchResult.Contact,
     is SearchResult.Shortcut,
     is SearchResult.Snippet,
@@ -65,5 +65,6 @@ fun SearchResult.isFavoritable(): Boolean =
     // An open tab is a live view of the browser, not a thing to pin: it disappears when closed,
     // which would leave the favorite pointing at nothing.
     is SearchResult.BrowserTab,
-    is SearchResult.IndexingIndicator -> false
+    is SearchResult.IndexingIndicator,
+    is SearchResult.PrivateSpace -> false
   }

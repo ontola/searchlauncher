@@ -38,6 +38,7 @@ class AppIndexer(private val context: Context) {
       val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
       val seen = sortedSetOf<String>()
       for (profile in launcherApps.profiles) {
+        if (PrivateSpaceProfiles.isPrivate(launcherApps, profile)) continue
         for (info in launcherApps.getActivityList(null, profile)) {
           seen.add("${info.componentName.packageName}:${info.label}")
         }
@@ -62,9 +63,11 @@ class AppIndexer(private val context: Context) {
     // Apps are addressed by package id everywhere (search, favorites, history, the app list), so we
     // keep one document per package. A package can expose several launcher activities (e.g. Tasker)
     // or appear in multiple profiles, which would otherwise yield colliding ids.
+    // Private Space is skipped: those apps are live-queried and must vanish from search on lock.
     val seenPackages = mutableSetOf<String>()
 
     for (profile in launcherApps.profiles) {
+      if (PrivateSpaceProfiles.isPrivate(launcherApps, profile)) continue
       pauseCheck()
       try {
         // fetch activities directly per profile. This is more efficient and safer

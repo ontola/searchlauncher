@@ -28,6 +28,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.lifecycleScope
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.Prefs
+import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -1020,8 +1021,10 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
                 },
               )
               .launch(result, reportUsage = false)
-            currentScreenState = Screen.Search
-            clearQueryState()
+            if (result !is SearchResult.PrivateSpace) {
+              currentScreenState = Screen.Search
+              clearQueryState()
+            }
           },
           onBack = {
             currentScreenState = Screen.Search
