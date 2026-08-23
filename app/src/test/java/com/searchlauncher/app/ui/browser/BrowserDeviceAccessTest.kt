@@ -118,7 +118,8 @@ class BrowserDeviceAccessTest {
       context.packageManager
         .getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS)
         .requestedPermissions
-        .toSet()
+        ?.toSet()
+        .orEmpty()
     // Chromium refuses to list a recording device unless both of these are in the manifest.
     assertTrue(requested.contains(Manifest.permission.RECORD_AUDIO))
     assertTrue(requested.contains(Manifest.permission.MODIFY_AUDIO_SETTINGS))
