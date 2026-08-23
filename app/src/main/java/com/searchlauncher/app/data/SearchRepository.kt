@@ -1635,23 +1635,35 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     object : android.content.pm.LauncherApps.Callback() {
       override fun onPackageRemoved(packageName: String, user: android.os.UserHandle) {
         android.util.Log.d("SearchRepository", "onPackageRemoved: $packageName")
-        scheduleAppsRefresh(packageName)
-        iconRepository.invalidateShortcutIcons(packageName)
+        val launcherApps =
+          context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+        if (!PrivateSpaceProfiles.isPrivate(launcherApps, user)) {
+          scheduleAppsRefresh(packageName)
+          iconRepository.invalidateShortcutIcons(packageName)
+        }
         privateSpace.refresh()
       }
 
       override fun onPackageAdded(packageName: String, user: android.os.UserHandle) {
         android.util.Log.d("SearchRepository", "onPackageAdded: $packageName")
-        scheduleAppsRefresh(packageName)
-        scope.launch { iconRepository.cacheAppIcon(packageName) }
+        val launcherApps =
+          context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+        if (!PrivateSpaceProfiles.isPrivate(launcherApps, user)) {
+          scheduleAppsRefresh(packageName)
+          scope.launch { iconRepository.cacheAppIcon(packageName) }
+        }
         privateSpace.refresh()
       }
 
       override fun onPackageChanged(packageName: String, user: android.os.UserHandle) {
-        scheduleAppsRefresh(packageName)
-        scope.launch {
-          iconRepository.cacheAppIcon(packageName)
-          iconRepository.invalidateShortcutIcons(packageName)
+        val launcherApps =
+          context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+        if (!PrivateSpaceProfiles.isPrivate(launcherApps, user)) {
+          scheduleAppsRefresh(packageName)
+          scope.launch {
+            iconRepository.cacheAppIcon(packageName)
+            iconRepository.invalidateShortcutIcons(packageName)
+          }
         }
         privateSpace.refresh()
       }
@@ -1661,8 +1673,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         user: android.os.UserHandle,
         replacing: Boolean,
       ) {
-        if (packageNames.isNullOrEmpty()) scheduleAppsRefresh()
-        else packageNames.forEach { scheduleAppsRefresh(it) }
+        val launcherApps =
+          context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+        if (!PrivateSpaceProfiles.isPrivate(launcherApps, user)) {
+          if (packageNames.isNullOrEmpty()) scheduleAppsRefresh()
+          else packageNames.forEach { scheduleAppsRefresh(it) }
+        }
         privateSpace.refresh()
       }
 
@@ -1671,8 +1687,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         user: android.os.UserHandle,
         replacing: Boolean,
       ) {
-        if (packageNames.isNullOrEmpty()) scheduleAppsRefresh()
-        else packageNames.forEach { scheduleAppsRefresh(it) }
+        val launcherApps =
+          context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+        if (!PrivateSpaceProfiles.isPrivate(launcherApps, user)) {
+          if (packageNames.isNullOrEmpty()) scheduleAppsRefresh()
+          else packageNames.forEach { scheduleAppsRefresh(it) }
+        }
         privateSpace.refresh()
       }
 

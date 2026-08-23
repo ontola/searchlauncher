@@ -142,7 +142,7 @@ fun AppListScreen(
         }
         .windowInsetsPadding(WindowInsets.statusBars)
   ) {
-    if (apps.isEmpty() && privateControl == null) {
+    if (apps.isEmpty()) {
       CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
     } else {
       LazyColumn(
