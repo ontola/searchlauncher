@@ -8,14 +8,17 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -33,6 +36,7 @@ import kotlinx.coroutines.delay
 fun TutorialOverlay(
   currentStep: OnboardingStep?,
   bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+  onSkip: (() -> Unit)? = null,
 ) {
   // Manage visibility and delayed step update
   val visibleState = remember { MutableTransitionState(false) }
@@ -64,94 +68,101 @@ fun TutorialOverlay(
     exit = fadeOut(animationSpec = tween(500)),
   ) {
     Box(modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)) {
-      when (renderedStep) {
-        OnboardingStep.SwipeBackground -> {
-          SwipeGestureIndicator(
-            text = "Swipe to switch backgrounds",
-            direction = SwipeDirection.Horizontal,
-            modifier = Modifier.align(Alignment.Center),
-          )
+      val step = renderedStep
+      if (step != null) {
+        // The hint and the skip share one column so the skip sits under whichever hint is up,
+        // wherever that hint lives, instead of being pinned somewhere it can land on the
+        // favourites row.
+        Column(
+          modifier = Modifier.align(alignmentFor(step)).then(paddingFor(step)),
+          horizontalAlignment = horizontalAlignmentFor(step),
+        ) {
+          when (step) {
+            OnboardingStep.SwipeBackground ->
+              SwipeGestureIndicator(
+                text = "Swipe to switch backgrounds",
+                direction = SwipeDirection.Horizontal,
+              )
+            OnboardingStep.SwipeNotifications ->
+              SwipeGestureIndicator(
+                text = "Swipe down (left) for notifications",
+                direction = SwipeDirection.Down,
+                align = Alignment.Start,
+              )
+            OnboardingStep.SwipeQuickSettings ->
+              SwipeGestureIndicator(
+                text = "Swipe down (right) for settings",
+                direction = SwipeDirection.Down,
+                align = Alignment.End,
+              )
+            OnboardingStep.SwipeAppDrawer ->
+              SwipeGestureIndicator(text = "Swipe up for App Drawer", direction = SwipeDirection.Up)
+            OnboardingStep.LongPressBackground ->
+              HoldGestureIndicator(text = "Hold to change background or add Widgets")
+            OnboardingStep.SearchYoutube ->
+              TextHintIndicator(text = "Type 'y cats' to search YouTube")
+            OnboardingStep.SearchGoogle ->
+              TextHintIndicator(
+                text = "Type 'g cats' to search Google\n(customize shortcuts in settings)"
+              )
+            OnboardingStep.AddFavorite ->
+              TextHintIndicator(text = "Long press a result to Favorite")
+            OnboardingStep.ReorderFavorites ->
+              TextHintIndicator(text = "Hold favorite icons to change order")
+            OnboardingStep.OpenSettings ->
+              TextHintIndicator(text = "Press the \u2699 to open Settings")
+            OnboardingStep.SetTimer ->
+              TextHintIndicator(text = "Type '2h' or '10m rice'\n to set a timer")
+          }
+
+          if (onSkip != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            // Quieter than the hint it sits under, but a wallpaper can be any colour, so it gets
+            // a scrim of its own rather than relying on a shadow to stay readable.
+            Text(
+              text = "Skip onboarding",
+              color = Color.White,
+              style = MaterialTheme.typography.bodyMedium,
+              textAlign = TextAlign.Center,
+              modifier =
+                Modifier.align(Alignment.CenterHorizontally)
+                  .clip(RoundedCornerShape(16.dp))
+                  .clickable(onClick = onSkip)
+                  .background(Color.Black.copy(alpha = 0.45f))
+                  .padding(horizontal = 20.dp, vertical = 10.dp),
+            )
+          }
         }
-        OnboardingStep.SwipeNotifications -> {
-          SwipeGestureIndicator(
-            text = "Swipe down (left) for notifications",
-            direction = SwipeDirection.Down,
-            modifier =
-              Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 120.dp),
-            align = Alignment.Start,
-          )
-        }
-        OnboardingStep.SwipeQuickSettings -> {
-          SwipeGestureIndicator(
-            text = "Swipe down (right) for settings",
-            direction = SwipeDirection.Down,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 120.dp),
-            align = Alignment.End,
-          )
-        }
-        OnboardingStep.SwipeAppDrawer -> {
-          SwipeGestureIndicator(
-            text = "Swipe up for App Drawer",
-            direction = SwipeDirection.Up,
-            modifier = Modifier.align(Alignment.Center),
-          )
-        }
-        OnboardingStep.LongPressBackground -> {
-          HoldGestureIndicator(
-            text = "Hold to change background or add Widgets",
-            modifier = Modifier.align(Alignment.Center),
-          )
-        }
-        OnboardingStep.SearchYoutube -> {
-          TextHintIndicator(
-            text = "Type 'y cats' to search YouTube",
-            modifier = Modifier.align(Alignment.Center),
-          )
-        }
-        OnboardingStep.SearchGoogle -> {
-          TextHintIndicator(
-            text = "Type 'g cats' to search Google\n(customize shortcuts in settings)",
-            modifier = Modifier.align(Alignment.Center),
-          )
-        }
-        OnboardingStep.AddFavorite -> {
-          // Requires context of search results, handled in SearchScreen item renderer or generic
-          // overlay
-          // For now, let's put a subtle indicator near the top where results appear
-          TextHintIndicator(
-            text = "Long press a result to Favorite",
-            modifier = Modifier.align(Alignment.Center).padding(bottom = 100.dp),
-          )
-        }
-        OnboardingStep.ReorderFavorites -> {
-          TextHintIndicator(
-            text = "Hold favorite icons to change order",
-            modifier = Modifier.align(Alignment.Center).padding(bottom = 150.dp),
-          )
-        }
-        OnboardingStep.OpenSettings -> {
-          TextHintIndicator(
-            text = "Press the ⚙ to open Settings",
-            modifier = Modifier.align(Alignment.Center).padding(bottom = 150.dp),
-          )
-        }
-        OnboardingStep.SetDefaultLauncher -> {
-          TextHintIndicator(
-            text = "Search 'launcher' to set\nSearchLauncher as your default",
-            modifier = Modifier.align(Alignment.Center),
-          )
-        }
-        OnboardingStep.SetTimer -> {
-          TextHintIndicator(
-            text = "Type '2h' or '10m rice'\n to set a timer",
-            modifier = Modifier.align(Alignment.Center),
-          )
-        }
-        else -> {}
       }
     }
   }
 }
+
+/** Where a step's hint sits on screen. */
+private fun alignmentFor(step: OnboardingStep): Alignment =
+  when (step) {
+    OnboardingStep.SwipeNotifications -> Alignment.BottomStart
+    OnboardingStep.SwipeQuickSettings -> Alignment.BottomEnd
+    else -> Alignment.Center
+  }
+
+private fun horizontalAlignmentFor(step: OnboardingStep): Alignment.Horizontal =
+  when (step) {
+    OnboardingStep.SwipeNotifications -> Alignment.Start
+    OnboardingStep.SwipeQuickSettings -> Alignment.End
+    else -> Alignment.CenterHorizontally
+  }
+
+/** How far a step's hint is held off the edge it is aligned to. */
+private fun paddingFor(step: OnboardingStep): Modifier =
+  when (step) {
+    OnboardingStep.SwipeNotifications -> Modifier.padding(start = 24.dp, bottom = 120.dp)
+    OnboardingStep.SwipeQuickSettings -> Modifier.padding(end = 24.dp, bottom = 120.dp)
+    OnboardingStep.AddFavorite -> Modifier.padding(bottom = 100.dp)
+    OnboardingStep.ReorderFavorites,
+    OnboardingStep.OpenSettings -> Modifier.padding(bottom = 150.dp)
+    else -> Modifier
+  }
 
 enum class SwipeDirection {
   Horizontal,
