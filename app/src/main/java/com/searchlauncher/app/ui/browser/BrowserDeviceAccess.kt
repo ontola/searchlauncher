@@ -120,6 +120,8 @@ internal fun androidPermissionsFor(
   val permissions = linkedSetOf<String>()
   for (access in accesses) {
     when (access) {
+      // MODIFY_AUDIO_SETTINGS is also required for capture, but it is install-time only
+      // (see AndroidManifest) so it is never requested here.
       BrowserDeviceAccess.MICROPHONE -> permissions += Manifest.permission.RECORD_AUDIO
       BrowserDeviceAccess.CAMERA -> permissions += Manifest.permission.CAMERA
       BrowserDeviceAccess.LOCATION -> {

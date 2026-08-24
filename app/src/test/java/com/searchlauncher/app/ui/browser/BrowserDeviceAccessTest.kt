@@ -3,6 +3,7 @@ package com.searchlauncher.app.ui.browser
 import android.Manifest
 import android.os.Build
 import android.webkit.PermissionRequest
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -103,6 +104,18 @@ class BrowserDeviceAccessTest {
       androidPermissionsFor(listOf(BrowserDeviceAccess.MICROPHONE, BrowserDeviceAccess.CAMERA))
         .toSet(),
     )
+  }
+
+  @Test
+  fun microphoneCaptureDeclaresModifyAudioSettings() {
+    val manifest =
+      listOf("src/main/AndroidManifest.xml", "app/src/main/AndroidManifest.xml")
+        .map(::File)
+        .first { it.exists() }
+        .readText()
+    // Chromium refuses to list a recording device unless both of these are in the manifest.
+    assertTrue(manifest.contains("android.permission.RECORD_AUDIO"))
+    assertTrue(manifest.contains("android.permission.MODIFY_AUDIO_SETTINGS"))
   }
 
   @Test
