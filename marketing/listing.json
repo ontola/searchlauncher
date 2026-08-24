@@ -1,0 +1,99 @@
+{
+  "_comment": "Store listing images. Edit copy and palettes here, not in generate.py.",
+
+  "palettes": {
+    "carbon": {
+      "top": [32, 34, 38],
+      "bottom": [10, 11, 13],
+      "glow": [70, 78, 92],
+      "text": [255, 255, 255],
+      "subtext": [186, 192, 200]
+    },
+    "green": {
+      "top": [46, 61, 44],
+      "bottom": [18, 24, 18],
+      "glow": [110, 140, 96],
+      "text": [255, 255, 255],
+      "subtext": [188, 205, 180]
+    },
+    "indigo": {
+      "top": [52, 44, 92],
+      "bottom": [16, 14, 30],
+      "glow": [120, 96, 210],
+      "text": [255, 255, 255],
+      "subtext": [196, 190, 225]
+    }
+  },
+
+  "devices": {
+    "phone": { "size": [1080, 1920], "device_width": 0.66, "radius": 0.085 },
+    "tablet7": { "size": [1920, 1200], "device_width": 0.3, "radius": 0.05 },
+    "tablet10": { "size": [2560, 1600], "device_width": 0.3, "radius": 0.05 }
+  },
+
+  "sets": [
+    {
+      "name": "phone",
+      "device": "phone",
+      "palette": "carbon",
+      "source": "../screenshots",
+      "images": [
+        {
+          "shot": "01_home.jpg",
+          "headline": "Your home screen opens with a keyboard",
+          "sub": "No swiping through pages of icons. Just type."
+        },
+        {
+          "shot": "02_search_youtube.jpg",
+          "headline": "Search YouTube without opening it",
+          "sub": "Type y, then whatever you are after."
+        },
+        {
+          "shot": "03_calculator.jpg",
+          "headline": "Answers without a calculator app",
+          "sub": "Type the sum. Tap the result to copy it."
+        },
+        {
+          "shot": "04_widgets.jpg",
+          "headline": "Add a widget by typing its name",
+          "sub": "No long press, no scrolling a tray."
+        },
+        {
+          "shot": "05_browser.jpg",
+          "headline": "A browser with ad blocking built in",
+          "sub": "Web results open here, not in another app."
+        },
+        {
+          "shot": "06_tabs.jpg",
+          "headline": "Every tab, one swipe from the home screen",
+          "sub": "Swipe up on the search bar to see them all."
+        }
+      ]
+    },
+
+    {
+      "_comment": "Needs real tablet screenshots in screenshots-tablet/ first. See README.",
+      "name": "tablet10",
+      "device": "tablet10",
+      "palette": "carbon",
+      "source": "../screenshots-tablet",
+      "images": [
+        {
+          "shot": "01_home.png",
+          "headline": "Your home screen opens with a keyboard",
+          "sub": "No swiping through pages of icons. Just type."
+        },
+        {
+          "shot": "02_search_youtube.png",
+          "headline": "Search YouTube without opening it",
+          "sub": "Type y, then whatever you are after."
+        },
+        {
+          "shot": "03_browser.png",
+          "headline": "A browser with ad blocking built in",
+          "sub": "Web results open here, not in another app."
+        }
+      ]
+    }
+  ]
+}
