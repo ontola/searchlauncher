@@ -178,7 +178,7 @@ class ShortcutIndexer(private val context: Context) {
 
     // Index user-editable search shortcuts
     val searchShortcutDocs =
-      app.searchShortcutRepository.items.value.map { shortcut ->
+      app.searchShortcutRepository.launchable.value.map { shortcut ->
         AppSearchDocument(
           namespace = "search_shortcuts",
           id = "search_${shortcut.id}",
