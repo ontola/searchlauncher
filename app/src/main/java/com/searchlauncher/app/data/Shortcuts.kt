@@ -24,7 +24,7 @@ data class SearchShortcut(
   fun toSearchIntent(icon: Drawable? = null): SearchResult.SearchIntent =
     SearchResult.SearchIntent(
       id = id,
-      namespace = "search_shortcuts",
+      namespace = SearchOptions.NAMESPACE,
       title = description,
       subtitle = "Type '$alias ' to search",
       icon = icon,
@@ -397,7 +397,7 @@ object DefaultShortcuts {
       SearchShortcut(
         id = "claude",
         alias = "cl",
-        urlTemplate = "https://claude.ai/new?q=%s",
+        urlTemplate = "claude://claude.ai/new?q=%s",
         description = "Ask Claude",
         color = 0xFFD97757,
         shortLabel = "Claude",

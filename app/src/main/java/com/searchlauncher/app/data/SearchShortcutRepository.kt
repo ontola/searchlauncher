@@ -14,14 +14,32 @@ import org.json.JSONObject
  * shortcut.
  */
 class SearchShortcutRepository(context: Context) {
+  private val appContext = context.applicationContext
   private val prefs: SharedPreferences =
-    context.getSharedPreferences(Prefs.SearchShortcuts.FILE, Context.MODE_PRIVATE)
+    appContext.getSharedPreferences(Prefs.SearchShortcuts.FILE, Context.MODE_PRIVATE)
 
   private val _items = MutableStateFlow<List<SearchShortcut>>(emptyList())
+  /** Every shortcut, including ones with nothing to open. Settings manages this list. */
   val items: StateFlow<List<SearchShortcut>> = _items
+
+  private val _launchable = MutableStateFlow<List<SearchShortcut>>(emptyList())
+  /**
+   * The shortcuts worth offering — [items] minus those pointing at an app that is not installed.
+   * Everywhere a shortcut is presented as something to pick should read this instead of [items].
+   */
+  val launchable: StateFlow<List<SearchShortcut>> = _launchable
 
   init {
     loadItems()
+  }
+
+  /**
+   * Recomputes [launchable]. Called whenever the shortcuts change, and by [SearchRepository] when
+   * packages are installed or removed, since that is the other half of the answer.
+   */
+  fun refreshAvailability() {
+    val packageManager = appContext.packageManager
+    _launchable.value = _items.value.filter { ShortcutAvailability.isAvailable(packageManager, it) }
   }
 
   private fun loadItems() {
@@ -55,14 +73,28 @@ class SearchShortcutRepository(context: Context) {
     // Merge in any new default shortcuts that are missing from persisted items
     val defaults = DefaultShortcuts.searchShortcuts
     val missingDefaults = defaults.filter { default -> persistedItems.none { it.id == default.id } }
+    val migrated = migrateSupersededTemplates(persistedItems)
 
-    if (missingDefaults.isNotEmpty()) {
-      val mergedItems = persistedItems + missingDefaults
-      saveItems(mergedItems)
+    if (missingDefaults.isNotEmpty() || migrated != persistedItems) {
+      saveItems(migrated + missingDefaults)
     } else {
       _items.value = persistedItems
+      refreshAvailability()
     }
   }
+
+  /**
+   * Rewrites shortcuts whose default URL template was replaced by a better one. Matching on the
+   * superseded template means a shortcut the user edited themselves is left alone — only one still
+   * carrying the old default is moved forward. New defaults arrive through [missingDefaults]
+   * instead; this is for ids that already exist and would otherwise keep the stale template
+   * forever, since nothing short of "Reset Defaults" rewrites them.
+   */
+  private fun migrateSupersededTemplates(items: List<SearchShortcut>): List<SearchShortcut> =
+    items.map { item ->
+      val replacement = SUPERSEDED_TEMPLATES[item.id to item.urlTemplate]
+      if (replacement == null) item else item.copy(urlTemplate = replacement)
+    }
 
   fun resetToDefaults() {
     val defaults = DefaultShortcuts.searchShortcuts
@@ -93,6 +125,16 @@ class SearchShortcutRepository(context: Context) {
       saveItems(currentItems)
     }
 
+  private companion object {
+    /**
+     * (shortcut id, template it used to ship with) → the template it should use now. Claude moved
+     * from the website to its app's deep link, which opens the composer with the query already in
+     * it rather than going through the browser and a sign-in.
+     */
+    val SUPERSEDED_TEMPLATES =
+      mapOf(("claude" to "https://claude.ai/new?q=%s") to "claude://claude.ai/new?q=%s")
+  }
+
   private fun saveItems(items: List<SearchShortcut>) {
     val jsonArray = JSONArray()
     items.forEach { item ->
@@ -109,6 +151,7 @@ class SearchShortcutRepository(context: Context) {
     }
     prefs.edit().putString(Prefs.SearchShortcuts.SHORTCUTS, jsonArray.toString()).apply()
     _items.value = items
+    refreshAvailability()
   }
 
   fun replaceAll(shortcuts: List<SearchShortcut>) {
