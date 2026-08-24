@@ -601,7 +601,7 @@ private fun DefaultSearchEngineCard() {
   val context = LocalContext.current
   val app = context.applicationContext as SearchLauncherApp
   val scope = rememberCoroutineScope()
-  val customShortcuts by app.searchShortcutRepository.items.collectAsState()
+  val customShortcuts by app.searchShortcutRepository.launchable.collectAsState()
   // Any web-based search shortcut can act as the engine behind the search bar's globe button.
   val engines =
     remember(customShortcuts) {
@@ -880,12 +880,56 @@ private fun BrowserSettingsCard() {
   }
 }
 
+/**
+ * A shortcut's coloured letter tile, the same one [SearchIconGenerator] draws for the search
+ * results and the favourites bar. A shortcut with no colour of its own falls back to the plain tile
+ * the favourites bar uses for a missing icon, so every row keeps the same leading width.
+ */
+@Composable
+private fun ShortcutIcon(
+  shortcut: com.searchlauncher.app.data.SearchShortcut,
+  iconGenerator: com.searchlauncher.app.data.SearchIconGenerator,
+  modifier: Modifier = Modifier,
+) {
+  val size = 40.dp
+  val icon =
+    remember(shortcut.color, shortcut.alias) {
+      iconGenerator.getColoredSearchIcon(shortcut.color, shortcut.alias)?.toImageBitmap()
+    }
+
+  Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+    if (icon != null) {
+      Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(size))
+    } else {
+      Box(
+        modifier =
+          Modifier.size(size)
+            .background(
+              MaterialTheme.colorScheme.surfaceVariant,
+              // The radius SearchIconGenerator draws, so the two tiles sit flush with each other.
+              shape = RoundedCornerShape(8.dp),
+            ),
+        contentAlignment = Alignment.Center,
+      ) {
+        Text(
+          text = shortcut.alias.firstOrNull()?.uppercase() ?: "?",
+          style = MaterialTheme.typography.titleMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+    }
+  }
+}
+
 @Composable
 private fun CustomShortcutsCard() {
   val context = LocalContext.current
   val app = context.applicationContext as SearchLauncherApp
   val shortcuts by app.searchShortcutRepository.items.collectAsState()
   val scope = rememberCoroutineScope()
+  // The same generator the search results and the favourites bar use, so a shortcut is the same
+  // coloured letter wherever the user meets it.
+  val iconGenerator = remember { com.searchlauncher.app.data.SearchIconGenerator(context) }
 
   var showDialog by remember { mutableStateOf(false) }
   var editingShortcut by remember {
@@ -920,7 +964,11 @@ private fun CustomShortcutsCard() {
       }
 
       if (shortcuts.isNotEmpty()) {
+        // Settings lists every shortcut, including ones with no app to open — hiding those would
+        // leave the user unable to edit or delete them. They say so instead.
+        val launchable by app.searchShortcutRepository.launchable.collectAsState()
         shortcuts.forEach { shortcut ->
+          val isAvailable = launchable.any { it.id == shortcut.id }
           Card(
             modifier =
               Modifier.fillMaxWidth().clickable {
@@ -937,6 +985,11 @@ private fun CustomShortcutsCard() {
               horizontalArrangement = Arrangement.SpaceBetween,
               verticalAlignment = Alignment.CenterVertically,
             ) {
+              ShortcutIcon(
+                shortcut = shortcut,
+                iconGenerator = iconGenerator,
+                modifier = Modifier.padding(end = 12.dp),
+              )
               Column(modifier = Modifier.weight(1f)) {
                 Text(
                   text = shortcut.description,
@@ -948,6 +1001,13 @@ private fun CustomShortcutsCard() {
                   style = MaterialTheme.typography.bodySmall,
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (!isAvailable) {
+                  Text(
+                    text = "App not installed — hidden from search",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                  )
+                }
               }
               IconButton(
                 onClick = {
