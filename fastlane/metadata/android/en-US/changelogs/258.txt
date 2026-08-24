@@ -1,0 +1,10 @@
+The search options bar learns which ones you use.
+
+- Type a query and the bar fills with places to send it. The unpinned ones now sit in order of how often you pick them, so an option moves toward the divider as you use it. Pinned ones stay where you dragged them.
+- Long-pressing an option in that bar offers what the results list offers - edit the shortcut, open in a tab, bookmark it - instead of the two entries it used to have.
+- Asking Claude opens the Claude app with your question already typed, rather than the website behind a sign-in. Existing installs move over on their own, unless you had pointed that shortcut somewhere yourself.
+- Shortcuts for apps you do not have installed are no longer offered. They used to fail with a toast where you expected a search. Settings still lists them, marked, so you can still edit or delete them.
+- Custom shortcuts in settings now show the same coloured letter tile they wear everywhere else.
+- Widgets are no longer several times taller than they ask to be. The size a widget declares was being scaled twice, so the denser your screen, the worse it was.
+- A widget that cannot be drawn - one restored from a backup, whose id no longer belongs to anything - now says so and offers to remove itself, instead of leaving an invisible gap.
+- Onboarding no longer nags about setting the default launcher, and every hint now offers to skip the rest.
