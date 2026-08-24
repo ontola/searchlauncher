@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -168,14 +169,22 @@ fun SearchScreen(
   var showConsentDialog by remember { mutableStateOf(!app.hasAskedForConsent()) }
   var showDefaultLauncherDialog by remember { mutableStateOf(false) }
   var showPrivacyPolicy by remember { mutableStateOf(false) }
-  val searchShortcuts by app.searchShortcutRepository.items.collectAsState()
+  // Offered, not merely defined: a shortcut whose app is gone is not a search option.
+  val searchShortcuts by app.searchShortcutRepository.launchable.collectAsState()
   val iconGenerator = remember { SearchIconGenerator(context) }
+  // Re-read after every launch so the fill slots below reflect the count that tap just bumped.
+  val usageRevision by searchRepository.usageRevision.collectAsState()
   val (searchOptionFavorites, searchOptionExtras) =
-    remember(searchShortcuts, searchOptionIds) {
+    remember(searchShortcuts, searchOptionIds, usageRevision) {
       val (favored, extras) = SearchOptions.partition(searchShortcuts, searchOptionIds)
       fun intents(list: List<SearchShortcut>) =
         list.map { it.toSearchIntent(iconGenerator.getColoredSearchIcon(it.color, it.alias)) }
-      intents(favored) to intents(extras)
+      // Only the fill slots are usage-ordered; [favored] keeps the order the user dragged it into.
+      val ranked =
+        SearchOptions.byUsage(extras) {
+          searchRepository.globalUsage(SearchOptions.NAMESPACE, it.id)
+        }
+      intents(favored) to intents(ranked)
     }
   var showShortcutDialog by remember { mutableStateOf(false) }
   var bookmarkDialogTarget by remember { mutableStateOf<BookmarkDialogTarget?>(null) }
@@ -644,9 +653,7 @@ fun SearchScreen(
             OnboardingStep.AddFavorite
           else null
         } else {
-          if (!steps.contains(OnboardingStep.SetDefaultLauncher) && !isDefaultLauncher)
-            OnboardingStep.SetDefaultLauncher
-          else if (!steps.contains(OnboardingStep.SwipeBackground) && folderImages.size > 1)
+          if (!steps.contains(OnboardingStep.SwipeBackground) && folderImages.size > 1)
             OnboardingStep.SwipeBackground
           else if (!steps.contains(OnboardingStep.SwipeNotifications))
             OnboardingStep.SwipeNotifications
@@ -704,9 +711,6 @@ fun SearchScreen(
     }
     if (favorites.size >= 2 && !steps.contains(OnboardingStep.ReorderFavorites)) {
       onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites)
-    }
-    if (isDefaultLauncher && !steps.contains(OnboardingStep.SetDefaultLauncher)) {
-      onboardingManager.markStepComplete(OnboardingStep.SetDefaultLauncher)
     }
   }
 
@@ -1286,7 +1290,11 @@ fun SearchScreen(
             },
           )
 
-          TutorialOverlay(currentStep = currentOnboardingStep, bottomPadding = bottomPadding)
+          TutorialOverlay(
+            currentStep = currentOnboardingStep,
+            bottomPadding = bottomPadding,
+            onSkip = { scope.launch { onboardingManager.skipAll() } },
+          )
 
           if (showDefaultLauncherDialog) {
             AlertDialog(
@@ -1301,9 +1309,6 @@ fun SearchScreen(
                   onClick = {
                     app.setAskedDefaultLauncher()
                     showDefaultLauncherDialog = false
-                    scope.launch {
-                      onboardingManager.markStepComplete(OnboardingStep.SetDefaultLauncher)
-                    }
                     val intent = Intent(android.provider.Settings.ACTION_HOME_SETTINGS)
                     context.startActivity(intent)
                   }
@@ -1460,6 +1465,9 @@ fun SearchScreen(
               showBackgroundMenu = false
               onAddWidget()
             },
+            // Not the plain Add the wallpaper entry uses — two identical plus icons in one menu
+            // would say nothing about which is which.
+            leadingIcon = { Icon(Icons.Default.Widgets, contentDescription = null) },
           )
           val widgets by app.widgetRepository.widgets.collectAsState(initial = emptyList())
           if (showWidgetsSetting && widgets.isNotEmpty()) {
@@ -1688,20 +1696,15 @@ fun SearchScreen(
                     app.favoritesRepository.updateSearchOptionOrder(newOrder)
                   },
                   onCapacityChanged = {},
+                  // The same menu the results list offers, so long-pressing an option here and
+                  // long-pressing it in the results are the same gesture with the same answer.
+                  // Only pinning differs: in this row "favourite" means the search-options bar,
+                  // not the app favourites, and it must not clear the query it is searching.
                   menuActions = { result ->
-                    ResultMenuActions(
-                      onToggleFavorite = { app.favoritesRepository.toggleSearchOption(result) },
-                      onEditShortcut =
-                        if (result is SearchResult.SearchIntent) {
-                          {
-                            val shortcut = searchShortcuts.find { it.alias == result.trigger }
-                            if (shortcut != null) {
-                              editingShortcut = shortcut
-                              showShortcutDialog = true
-                            }
-                          }
-                        } else null,
-                    )
+                    menuActionsFor(result, -1)
+                      .copy(
+                        onToggleFavorite = { app.favoritesRepository.toggleSearchOption(result) }
+                      )
                   },
                 )
               } else {

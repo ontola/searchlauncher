@@ -39,7 +39,7 @@ internal val SearchResult.isWebPage: Boolean
  * the answer should not also depend on which list you happened to press.
  */
 @Immutable
-class ResultMenuActions(
+data class ResultMenuActions(
   val onToggleFavorite: (() -> Unit)? = null,
   val onEditSnippet: (() -> Unit)? = null,
   val onCreateSnippet: (() -> Unit)? = null,

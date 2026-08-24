@@ -9,6 +9,9 @@ package com.searchlauncher.app.data
 object SearchOptions {
   val DEFAULT_FAVORITE_IDS = listOf("google", "youtube", "spotify")
 
+  /** Namespace shortcut results and their usage counts are recorded under. */
+  const val NAMESPACE = "search_shortcuts"
+
   /**
    * Shortcut id from a stored value or a [SearchResult] key, with or without a `search_` prefix.
    */
@@ -31,6 +34,19 @@ object SearchOptions {
     val extras = shortcuts.filter { it.id !in favoriteSet }
     return favorites to extras
   }
+
+  /**
+   * Orders the fill slots by how often each option was used, most-used first, so an option migrates
+   * toward the divider as the user picks it. The sort is stable, so options nobody has used yet
+   * keep their incoming order instead of shuffling on every launch.
+   *
+   * Pinned favorites are deliberately not sorted this way: their order is the one the user set by
+   * dragging, and usage counts must not overrule it.
+   */
+  fun byUsage(
+    shortcuts: List<SearchShortcut>,
+    usageCount: (SearchShortcut) -> Int,
+  ): List<SearchShortcut> = shortcuts.sortedByDescending(usageCount)
 
   /**
    * The term to send to a search option. An alias prefix (`y cats`) is stripped so tapping Google

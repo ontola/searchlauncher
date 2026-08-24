@@ -38,6 +38,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -334,6 +335,16 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   private val usageStats = java.util.concurrent.ConcurrentHashMap<String, Int>()
   private val queryUsageStats = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+  private val _usageRevision = kotlinx.coroutines.flow.MutableStateFlow(0)
+  /**
+   * Bumped whenever [usageStats] changes. The map itself is not observable, so UI that orders by
+   * usage collects this and re-reads the counts it needs.
+   */
+  val usageRevision: kotlinx.coroutines.flow.StateFlow<Int> = _usageRevision
+
+  /** Total launch count for a result, ignoring which query led to it. */
+  fun globalUsage(namespace: String, id: String): Int = getGlobalUsageCount(namespace, id)
 
   suspend fun getContactChatActions(contact: SearchResult.Contact): List<ContactChatAction> =
     contactActionsRepository.getContactActions(contact)
@@ -1361,6 +1372,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         // captures "when I type these letters, prefer this result".
         val usageKey = usageKey(namespace, id)
         usageStats[usageKey] = (usageStats[usageKey] ?: 0) + 1
+        _usageRevision.update { it + 1 }
         normalizedUsageQuery(query)?.let { normalizedQuery ->
           recordQueryUsage(normalizedQuery, namespace, id)
         }
@@ -1594,6 +1606,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           }
         if (!full && packages.isEmpty()) return
         indexWriteMutex.withLock { if (full) indexApps() else indexApps(packages) }
+        // An install or removal can change which shortcuts have anything to open, and the
+        // shortcut index is built from that answer, so it has to be rebuilt alongside the apps.
+        val app = context.applicationContext as SearchLauncherApp
+        val wasLaunchable = app.searchShortcutRepository.launchable.value
+        app.searchShortcutRepository.refreshAvailability()
+        if (app.searchShortcutRepository.launchable.value != wasLaunchable) indexCustomShortcuts()
       }
     } finally {
       synchronized(appsRefreshGuard) {
@@ -1965,7 +1983,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     val app =
       context.applicationContext as? SearchLauncherApp ?: return emptyList<SearchResult>() to null
     var shortcut =
-      app.searchShortcutRepository.items.value.find { it.alias.equals(trigger, ignoreCase = true) }
+      app.searchShortcutRepository.launchable.value.find {
+        it.alias.equals(trigger, ignoreCase = true)
+      }
 
     if (shortcut == null) {
       // Fallback to defaults (e.g. for widgets shortcut if not in DB yet)
@@ -2415,6 +2435,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private fun resetUsageStats() {
     usageStats.clear()
     queryUsageStats.clear()
+    _usageRevision.update { it + 1 }
     getUsageStatsFile().delete()
     getQueryUsageStatsFile().delete()
   }
@@ -2422,6 +2443,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private fun loadUsageStats() {
     loadUsageStatsFile(getUsageStatsFile(), usageStats)
     loadUsageStatsFile(getQueryUsageStatsFile(), queryUsageStats)
+    _usageRevision.update { it + 1 }
   }
 
   private fun loadUsageStatsFile(

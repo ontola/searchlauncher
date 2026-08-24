@@ -49,6 +49,37 @@ class SearchOptionsTest {
   }
 
   @Test
+  fun `byUsage puts the most used option first`() {
+    val counts = mapOf("spotify" to 2, "google" to 9, "youtube" to 5)
+    val ordered = SearchOptions.byUsage(shortcuts) { counts[it.id] ?: 0 }
+
+    assertEquals(listOf("google", "youtube", "spotify"), ordered.take(3).map { it.id })
+  }
+
+  @Test
+  fun `byUsage keeps unused options in their incoming order`() {
+    val ordered = SearchOptions.byUsage(shortcuts) { 0 }
+
+    assertEquals(shortcuts.map { it.id }, ordered.map { it.id })
+  }
+
+  @Test
+  fun `byUsage leaves pinned favorites alone`() {
+    val (favorites, extras) = SearchOptions.partition(shortcuts, SearchOptions.DEFAULT_FAVORITE_IDS)
+    val counts = extras.associate { it.id to 0 } + mapOf(favorites.last().id to 99)
+    val ranked = SearchOptions.byUsage(extras) { counts[it.id] ?: 0 }
+
+    // Only the fill slots are reordered; the pinned row keeps the order the user dragged.
+    assertEquals(listOf("google", "youtube", "spotify"), favorites.map { it.id })
+    assertTrue(ranked.none { it.id in SearchOptions.DEFAULT_FAVORITE_IDS })
+  }
+
+  @Test
+  fun `namespace matches the one results are indexed under`() {
+    assertEquals(SearchOptions.NAMESPACE, shortcuts.first().toSearchIntent().namespace)
+  }
+
+  @Test
   fun `searchTerm strips an alias prefix`() {
     assertEquals("cats", SearchOptions.searchTerm("y cats", shortcuts))
     assertEquals("cats", SearchOptions.searchTerm("g cats", shortcuts))
