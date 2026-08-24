@@ -18,8 +18,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -117,8 +119,12 @@ fun WidgetListItem(
     Spacer(modifier = Modifier.width(16.dp))
     Column {
       Text(text = label, color = Color.White, style = MaterialTheme.typography.bodyLarge)
+      // minWidth/minHeight arrive in pixels, so they have to come back down to dp before being
+      // labelled as such — Chrome's Dino is a 110dp square, not the 358 it reports here.
+      val density = LocalDensity.current.density
       Text(
-        text = "${info.minWidth}x${info.minHeight} dp",
+        text =
+          "${(info.minWidth / density).roundToInt()}x${(info.minHeight / density).roundToInt()} dp",
         color = Color.Gray,
         style = MaterialTheme.typography.bodySmall,
       )

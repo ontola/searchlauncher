@@ -14,6 +14,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,8 +31,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -356,35 +362,57 @@ fun WallpaperBackground(
                       Modifier.fillMaxWidth()
                     }
 
-                  AndroidView(
-                    factory = { ctx ->
-                      val container = WidgetContainerView(ctx)
-                      container.setOnLongPressAction {
-                        activeWidgetId = widget.id
-                        resizeHeight = widget.height?.toFloat() ?: 400f
-                      }
+                  val activity = context as? MainActivity
+                  // Asked once per id: a widget that cannot be drawn now will not start working
+                  // while the launcher is open, and the answer costs a binder call.
+                  val canRender =
+                    remember(widget.id, activity) {
+                      activity != null &&
+                        WidgetHostViewFactory.canRender(activity.appWidgetManager, widget.id)
+                    }
 
-                      val activity = ctx as? MainActivity
-                      if (activity != null) {
-                        val widgetView =
-                          WidgetHostViewFactory.createWidgetView(
-                            ctx,
-                            widget.id,
-                            activity.appWidgetHost,
-                            activity.appWidgetManager,
-                          )
-                        container.addView(widgetView)
-                      }
-                      container
-                    },
-                    update = { container ->
-                      container.setOnLongPressAction {
-                        activeWidgetId = widget.id
-                        resizeHeight = widget.height?.toFloat() ?: 400f
-                      }
-                    },
-                    modifier = androidViewModifier,
-                  )
+                  if (!canRender) {
+                    MissingWidget(
+                      onRemove = {
+                        scope.launch {
+                          app.widgetRepository.removeWidgetId(widget.id)
+                          activity?.appWidgetHost?.deleteAppWidgetId(widget.id)
+                          if (activeWidgetId == widget.id) activeWidgetId = -1
+                        }
+                      },
+                      modifier = Modifier.fillMaxWidth(),
+                    )
+                  } else {
+                    AndroidView(
+                      factory = { ctx ->
+                        val container = WidgetContainerView(ctx)
+                        container.setOnLongPressAction {
+                          activeWidgetId = widget.id
+                          resizeHeight = widget.height?.toFloat() ?: 400f
+                        }
+
+                        val activity = ctx as? MainActivity
+                        if (activity != null) {
+                          val widgetView =
+                            WidgetHostViewFactory.createWidgetView(
+                              ctx,
+                              widget.id,
+                              activity.appWidgetHost,
+                              activity.appWidgetManager,
+                            )
+                          container.addView(widgetView)
+                        }
+                        container
+                      },
+                      update = { container ->
+                        container.setOnLongPressAction {
+                          activeWidgetId = widget.id
+                          resizeHeight = widget.height?.toFloat() ?: 400f
+                        }
+                      },
+                      modifier = androidViewModifier,
+                    )
+                  }
 
                   // Edit Overlay (Border + Handles + Toolbar)
                   if (activeWidgetId == widget.id) {
@@ -460,6 +488,56 @@ fun WallpaperBackground(
             }
           }
         }
+      }
+    }
+  }
+}
+
+/**
+ * Stands in for a widget the host cannot draw, most often one whose id came back from a backup and
+ * no longer belongs to anything.
+ *
+ * It exists because the alternative was worse: an empty view still claimed the widget's space, so
+ * the home screen had a silent gap in it and no way to work out what was wrong or clear it. This
+ * says what happened and offers the removal, since the widget cannot be recovered — the id is gone,
+ * and rebinding one needs a provider this launcher never stored.
+ */
+@Composable
+private fun MissingWidget(onRemove: () -> Unit, modifier: Modifier = Modifier) {
+  Box(
+    modifier =
+      modifier
+        .padding(horizontal = 16.dp)
+        .background(
+          MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
+          RoundedCornerShape(16.dp),
+        )
+        .padding(16.dp)
+  ) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+          imageVector = Icons.Default.BrokenImage,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.onErrorContainer,
+          modifier = Modifier.size(20.dp),
+        )
+        Spacer(modifier = Modifier.size(8.dp))
+        Text(
+          text = "Widget unavailable",
+          style = MaterialTheme.typography.titleSmall,
+          color = MaterialTheme.colorScheme.onErrorContainer,
+        )
+      }
+      Text(
+        text =
+          "Its app is gone, or it was restored from a backup. Widgets cannot be restored, so this " +
+            "one has to be added again.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onErrorContainer,
+      )
+      TextButton(onClick = onRemove, contentPadding = PaddingValues(0.dp)) {
+        Text(text = "Remove", color = MaterialTheme.colorScheme.onErrorContainer)
       }
     }
   }
