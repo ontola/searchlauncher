@@ -1,0 +1,5 @@
+Better on tablets.
+
+- Widgets sit in columns on a wide screen instead of one widget being stretched across the whole display. They fill a column before moving to the next, and the last one scrolls if there are more.
+- Fixed a black band between the search bar and the keyboard on tablets, where the space the keyboard needs was being reserved twice.
+- Tapping away from a widget you are editing now just closes the editor. It used to hide all your widgets at the same time.
