@@ -76,6 +76,7 @@
             android:launchMode="singleTask"
             android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.SearchLauncher">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
