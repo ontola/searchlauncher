@@ -172,9 +172,17 @@ def compose(shot_path, headline, sub, out_path, spec, palette):
         dev_x = (W - body.size[0]) // 2
         dev_y = int(y + H * 0.03)
     else:
-        body = device(shot_path, int(W * spec["device_width"]), spec.get("radius", 0.085))
-        dev_x = (W - body.size[0]) // 2
+        # A tall phone screenshot sized by width alone runs off the bottom of the canvas, so the
+        # height left under the headline caps it too. The 0.032 is the bezel device() adds.
         dev_y = int(y + H * 0.035)
+        avail_h = H - dev_y - int(H * 0.02)
+        width_from_height = int(avail_h / (1 / shot_aspect + 0.032))
+        body = device(
+            shot_path,
+            min(int(W * spec["device_width"]), width_from_height),
+            spec.get("radius", 0.085),
+        )
+        dev_x = (W - body.size[0]) // 2
 
     shadow_under(
         canvas,

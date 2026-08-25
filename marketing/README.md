@@ -28,39 +28,61 @@ knows how to draw; it has no copy or colours in it.
   icon and `indigo` matches the wallpaper in the screenshots.
 - **A new set** — add to `sets` with a `device` from `devices`, a `palette`, a `source`
   directory of screenshots, and the list of images.
-- **A new canvas size** — add to `devices`. A landscape size (width > height) switches
-  the layout: text moves to the left and the device sits on the right, sized to the
-  canvas height. Portrait stacks the headline above the device, which bleeds off the
-  bottom edge.
+- **A new canvas size** — add to `devices`. A landscape canvas holding a portrait
+  screenshot puts the text on the left and the device on the right; anything else stacks
+  the headline above the device. Either way the device is fitted to the space left over,
+  so it never runs off an edge.
 
-Source screenshots are the plain captures in `../screenshots`, which are also what
-F-Droid shows. Those are taken on a real device, not composed here.
+Both sets say the same six things in the same order, so a copy change means editing two
+entries rather than two sets of images. Renaming a source screenshot leaves the old
+render behind in `out/`; delete it by hand.
 
-## Tablet screenshots are missing
+## Where the screenshots come from
 
-The `tablet10` set is written out in `listing.json` but has no sources, so
-`generate.py` reports them as missing and skips them. It needs real tablet captures in
-`screenshots-tablet/`.
+`../screenshots` (phone) and `../screenshots-tablet` (tablet) hold the plain captures.
+Both are taken on emulators seeded with fictional data — never on a real phone, so no
+real contact, wallpaper or browsing history can reach a store listing.
 
-Two ways to get them, neither done yet:
+Two AVDs on the `android-35` `google_apis` image, which boots on this machine where
+`android-36.1` freezes partway through:
 
-1. **Resize a phone's display.** `adb shell wm size 1600x2560 && adb shell wm density 320`
-   makes the app lay out as a large screen on real hardware; capture with
-   `adb exec-out screencap -p`, then **`adb shell wm size reset && adb shell wm density reset`**.
-   Reset it afterwards or the phone stays that way.
-2. **A real tablet**, over adb.
+```bash
+avdmanager create avd -n Phone_A35  -k "system-images;android-35;google_apis;arm64-v8a" -d pixel_8
+avdmanager create avd -n Tablet_A35 -k "system-images;android-35;google_apis;arm64-v8a" -d pixel_tablet
+emulator -avd Phone_A35 -no-snapshot-load -no-boot-anim
+```
 
-The Pixel Tablet emulator (`Pixel_Tablet_API36`) is not an option on this machine: it
-logs `hvf is not enabled on this aarch64 host` and never finishes booting — tried twice,
-the second time for an hour and a half.
+Then, per emulator:
 
-Composing a *phone* screenshot onto a tablet-sized canvas is possible with the existing
-config, but the listing would then show no real large-screen layout, which is the thing
-tablet screenshots exist to demonstrate.
+1. `./gradlew :app:installDebug` with `ANDROID_SERIAL` set, and
+   `adb shell cmd package set-home-activity com.searchlauncher.app.debug/com.searchlauncher.app.ui.MainActivity`.
+2. Walk onboarding, granting contacts and calendar and turning autocomplete on — the
+   YouTube suggestions in `03_search_youtube` need it.
+3. Seed contacts (Ada Lovelace, Grace Hopper, Alan Turing, Katherine Johnson, Mae
+   Jemison, Maya Chen, Marcus Webb) with `content insert` against
+   `content://com.android.contacts`.
+4. Add an analog clock and a calendar month widget from the launcher's own
+   **Add Widget** menu, long-pressed on the wallpaper.
+
+The launcher's whole state — wallpapers, favourites, custom shortcuts — moves between
+emulators in one step, which is how the phone was set up from the tablet:
+
+```bash
+adb -s <from> exec-out run-as com.searchlauncher.app.debug tar -c files shared_prefs > /tmp/sl.tar
+adb -s <to> push /tmp/sl.tar /data/local/tmp/
+adb -s <to> shell 'run-as com.searchlauncher.app.debug sh -c "rm -rf files shared_prefs && tar -xf /data/local/tmp/sl.tar"'
+```
+
+Widget IDs do not survive the copy: the launcher shows a "Widget unavailable" card for
+each one, and they have to be removed and added again.
+
+`fastlane/metadata/android/en-US/images/phoneScreenshots/` is a separate copy, and is
+what F-Droid actually publishes. It is not kept in sync automatically.
 
 ## Store requirements
 
 Check the current rules before uploading — they move. At the time of writing Play wants
 between 2 and 8 screenshots per form factor, 16:9 or 9:16, with each side between 320px
 and 3840px, and separate sets for 7-inch and 10-inch tablets if the app should be
-treated as large-screen ready. The phone canvas here is 1080x1920.
+treated as large-screen ready. The phone canvas here is 1080x1920 and the tablet one
+2560x1600.

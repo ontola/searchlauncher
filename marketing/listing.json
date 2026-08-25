@@ -46,29 +46,29 @@
           "sub": "No swiping through pages of icons. Just type."
         },
         {
-          "shot": "02_search_youtube.jpg",
+          "shot": "02_anything.jpg",
+          "headline": "Search anything. Apps, contacts, settings",
+          "sub": "One field for everything on your device."
+        },
+        {
+          "shot": "03_search_youtube.jpg",
           "headline": "Search inside apps, not just for them",
-          "sub": "y for YouTube, m for Maps, w for Wikipedia. Add your own for anything else."
+          "sub": "Set your own shortcuts: y for YouTube, m for Maps, w for Wikipedia."
         },
         {
-          "shot": "03_calculator.jpg",
-          "headline": "Answers without a calculator app",
-          "sub": "Type the sum. Tap the result to copy it."
+          "shot": "04_smart_input.jpg",
+          "headline": "One field that knows what you typed",
+          "sub": "A sum gets an answer, a link opens, 5m pasta starts a timer."
         },
         {
-          "shot": "04_widgets.jpg",
-          "headline": "Add a widget by typing its name",
-          "sub": "No long press, no scrolling a tray."
-        },
-        {
-          "shot": "05_browser.jpg",
-          "headline": "A browser with ad blocking built in",
-          "sub": "Web results open here, not in another app."
+          "shot": "05_widgets.jpg",
+          "headline": "Fewer icons means more room for widgets",
+          "sub": "Tap the wallpaper to show them, tap again to hide."
         },
         {
           "shot": "06_tabs.jpg",
-          "headline": "Every tab, one swipe from the home screen",
-          "sub": "Swipe up on the search bar to see them all."
+          "headline": "An ad-free browser with searchable history",
+          "sub": "Every tab is one swipe from the home screen."
         }
       ]
     },
@@ -85,29 +85,29 @@
           "sub": "No swiping through pages of icons. Just type."
         },
         {
-          "shot": "02_search_youtube.png",
+          "shot": "02_anything.png",
+          "headline": "Search anything. Apps, contacts, settings",
+          "sub": "One field for everything on your device."
+        },
+        {
+          "shot": "03_search_youtube.png",
           "headline": "Search inside apps, not just for them",
-          "sub": "y for YouTube, m for Maps, w for Wikipedia. Add your own for anything else."
+          "sub": "Set your own shortcuts: y for YouTube, m for Maps, w for Wikipedia."
         },
         {
-          "shot": "03_calculator.png",
-          "headline": "Answers without a calculator app",
-          "sub": "Type the sum. Tap the result to copy it."
+          "shot": "04_smart_input.png",
+          "headline": "One field that knows what you typed",
+          "sub": "A sum gets an answer, a link opens, 5m pasta starts a timer."
         },
         {
-          "shot": "04_widgets.png",
-          "headline": "Add a widget by typing its name",
-          "sub": "No long press, no scrolling a tray."
-        },
-        {
-          "shot": "05_browser.png",
-          "headline": "A browser with ad blocking built in",
-          "sub": "Web results open here, not in another app."
+          "shot": "05_widgets.png",
+          "headline": "Fewer icons means more room for widgets",
+          "sub": "Tap the wallpaper to show them, tap again to hide."
         },
         {
           "shot": "06_tabs.png",
-          "headline": "Every tab, one swipe from the home screen",
-          "sub": "Swipe up on the search bar to see them all."
+          "headline": "An ad-free browser with searchable history",
+          "sub": "Every tab is one swipe from the home screen."
         }
       ]
     }
