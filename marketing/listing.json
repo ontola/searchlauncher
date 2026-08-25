@@ -31,6 +31,8 @@
     "tablet10": { "size": [2560, 1600], "device_width": 0.3, "radius": 0.05 }
   },
 
+  "_propositions": "Both sets say the same six things in the same order. Only the capture differs, so a copy change means editing two entries, not two sets of images.",
+
   "sets": [
     {
       "name": "phone",
@@ -45,8 +47,8 @@
         },
         {
           "shot": "02_search_youtube.jpg",
-          "headline": "Search YouTube without opening it",
-          "sub": "Type y, then whatever you are after."
+          "headline": "Search inside apps, not just for them",
+          "sub": "y for YouTube, m for Maps, w for Wikipedia. Add your own for anything else."
         },
         {
           "shot": "03_calculator.jpg",
@@ -72,7 +74,6 @@
     },
 
     {
-      "_comment": "Needs real tablet screenshots in screenshots-tablet/ first. See README.",
       "name": "tablet10",
       "device": "tablet10",
       "palette": "carbon",
@@ -85,13 +86,28 @@
         },
         {
           "shot": "02_search_youtube.png",
-          "headline": "Search YouTube without opening it",
-          "sub": "Type y, then whatever you are after."
+          "headline": "Search inside apps, not just for them",
+          "sub": "y for YouTube, m for Maps, w for Wikipedia. Add your own for anything else."
         },
         {
-          "shot": "03_browser.png",
+          "shot": "03_calculator.png",
+          "headline": "Answers without a calculator app",
+          "sub": "Type the sum. Tap the result to copy it."
+        },
+        {
+          "shot": "04_widgets.png",
+          "headline": "Add a widget by typing its name",
+          "sub": "No long press, no scrolling a tray."
+        },
+        {
+          "shot": "05_browser.png",
           "headline": "A browser with ad blocking built in",
           "sub": "Web results open here, not in another app."
+        },
+        {
+          "shot": "06_tabs.png",
+          "headline": "Every tab, one swipe from the home screen",
+          "sub": "Swipe up on the search bar to see them all."
         }
       ]
     }

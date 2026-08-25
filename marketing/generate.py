@@ -116,10 +116,20 @@ def compose(shot_path, headline, sub, out_path, spec, palette):
     text_col = tuple(palette["text"])
     sub_col = tuple(palette["subtext"])
 
-    # Portrait stacks headline over device; landscape puts the text beside it, because a
-    # wide canvas with a centred column of text leaves the sides empty.
-    text_w = int(W * (0.42 if landscape else 0.84))
-    title_px = int((W if not landscape else W * 0.5) * spec.get("title_scale", 0.072))
+    with Image.open(shot_path) as probe:
+        shot_aspect = probe.width / probe.height
+
+    # Beside the device only when the shot is portrait and the canvas is not: a tall screenshot
+    # leaves the sides of a wide canvas empty, so the text fills them. A landscape shot on a
+    # landscape canvas is already as wide as the canvas, and putting text next to it just draws
+    # the headline underneath the device.
+    side_by_side = landscape and shot_aspect < 1
+
+    text_w = int(W * (0.42 if side_by_side else 0.84))
+    title_px = int((W * 0.5 if side_by_side else W) * spec.get("title_scale", 0.072))
+    if landscape and not side_by_side:
+        # A full-width canvas would otherwise give a headline the size of a poster.
+        title_px = int(title_px * 0.55)
     ft = font(title_px, "Bold")
     fs = font(int(title_px * 0.5), "Regular")
 
@@ -127,7 +137,7 @@ def compose(shot_path, headline, sub, out_path, spec, palette):
     sub_lines = wrap(draw, sub, fs, text_w) if sub else []
     block_h = len(title_lines) * int(title_px * 1.18) + len(sub_lines) * int(title_px * 0.66)
 
-    if landscape:
+    if side_by_side:
         tx = int(W * 0.07)
         y = (H - block_h) // 2
         align = "left"
@@ -147,15 +157,20 @@ def compose(shot_path, headline, sub, out_path, spec, palette):
             draw.text((x, y), line, font=fs, fill=sub_col)
             y += int(title_px * 0.66)
 
-    if landscape:
+    if side_by_side:
         # Fit to the canvas height, not its width: a portrait screenshot sized by width
         # overflows a wide canvas top and bottom, whatever the fraction.
-        with Image.open(shot_path) as probe:
-            aspect = probe.width / probe.height
         target_h = int(H * spec.get("device_height", 0.84))
-        body = device(shot_path, max(1, int(target_h * aspect)), spec.get("radius", 0.085))
+        body = device(shot_path, max(1, int(target_h * shot_aspect)), spec.get("radius", 0.085))
         dev_x = int(W - body.size[0] - W * 0.08)
         dev_y = (H - body.size[1]) // 2
+    elif landscape:
+        # Headline on top, device filling what is left, so a wide shot keeps its own shape.
+        avail_h = H - y - int(H * 0.06)
+        width_from_height = int(avail_h * shot_aspect)
+        body = device(shot_path, min(int(W * 0.86), width_from_height), spec.get("radius", 0.085))
+        dev_x = (W - body.size[0]) // 2
+        dev_y = int(y + H * 0.03)
     else:
         body = device(shot_path, int(W * spec["device_width"]), spec.get("radius", 0.085))
         dev_x = (W - body.size[0]) // 2

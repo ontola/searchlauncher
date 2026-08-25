@@ -17,6 +17,11 @@ gen/
 out/
 release/
 
+# The store listing images are generated too, but they are what gets uploaded, so they
+# are kept in the repo: reviewable in a diff, and usable without running the generator.
+!marketing/out/
+!marketing/out/**
+
 # Gradle files
 .gradle/
 build/
