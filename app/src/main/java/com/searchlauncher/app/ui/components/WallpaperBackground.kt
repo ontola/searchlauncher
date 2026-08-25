@@ -13,10 +13,12 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -64,6 +66,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.datastore.preferences.core.edit
 import coil.compose.AsyncImage
+import com.searchlauncher.app.data.WidgetData
 import com.searchlauncher.app.ui.MainActivity
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.WidgetHostViewFactory
@@ -172,6 +175,10 @@ fun WallpaperBackground(
     }
   val showWidgets by showWidgetsFlow.collectAsState(initial = true)
 
+  // Hoisted above the background's gestures because a tap means different things depending on
+  // whether a widget is being edited.
+  var activeWidgetId by remember { mutableIntStateOf(-1) }
+
   Box(
     modifier =
       modifier
@@ -193,14 +200,21 @@ fun WallpaperBackground(
         .pointerInput(Unit) {
           detectTapGestures(
             onTap = {
-              val newState = !showWidgets
-              val scope = CoroutineScope(Dispatchers.IO)
-              scope.launch {
-                context.dataStore.edit { preferences ->
-                  preferences[PreferencesKeys.SHOW_WIDGETS] = newState
+              if (activeWidgetId != -1) {
+                // Tapping away from a widget being edited means "done". It leaves the editor and
+                // stops there: hiding the widgets in the same gesture would take away the thing
+                // that was just being arranged. A second tap then toggles them as it always does.
+                activeWidgetId = -1
+              } else {
+                val newState = !showWidgets
+                val scope = CoroutineScope(Dispatchers.IO)
+                scope.launch {
+                  context.dataStore.edit { preferences ->
+                    preferences[PreferencesKeys.SHOW_WIDGETS] = newState
+                  }
                 }
+                onTap()
               }
-              onTap()
             },
             onLongPress = { offset -> onLongPress(offset) },
           )
@@ -225,8 +239,6 @@ fun WallpaperBackground(
 
     val app = context.applicationContext as com.searchlauncher.app.SearchLauncherApp
     val widgets by app.widgetRepository.widgets.collectAsState(initial = emptyList())
-
-    var activeWidgetId by remember { mutableIntStateOf(-1) }
 
     var resizeHeight by remember { mutableStateOf(400f) }
 
@@ -278,210 +290,257 @@ fun WallpaperBackground(
             )
           }
 
-          Column(
-            modifier =
-              Modifier.fillMaxWidth()
-                .padding(top = 24.dp, start = 16.dp, end = 16.dp, bottom = bottomPadding + 80.dp)
-                .nestedScroll(nestedScrollConnection)
-                .verticalScroll(rememberScrollState())
-                .zIndex(2f), // List above backdrop?
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-          ) {
-            widgets.forEachIndexed { index, widget ->
-              androidx.compose.runtime.key(widget.id) {
-                class WidgetContainerView(context: android.content.Context) :
-                  android.widget.FrameLayout(context) {
-                  private var onLongPressListener: (() -> Unit)? = null
-                  private val gestureDetector =
-                    android.view.GestureDetector(
-                      context,
-                      object : android.view.GestureDetector.SimpleOnGestureListener() {
-                        override fun onLongPress(e: android.view.MotionEvent) {
-                          onLongPressListener?.invoke()
-                          // Cancel child touches by sending ACTION_CANCEL
-                          val cancelEvent =
-                            android.view.MotionEvent.obtain(
-                              e.downTime,
-                              e.eventTime,
-                              android.view.MotionEvent.ACTION_CANCEL,
-                              e.x,
-                              e.y,
-                              0,
-                            )
-                          (0 until childCount).forEach { i ->
-                            getChildAt(i).dispatchTouchEvent(cancelEvent)
-                          }
-                          cancelEvent.recycle()
-                        }
-                      },
-                    )
+          BoxWithConstraints(modifier = Modifier.fillMaxSize().zIndex(2f)) {
+            val columnSpacing = 8.dp
+            val topPadding = 24.dp
+            val listBottomPadding = bottomPadding + 80.dp
+            // As many columns as fit at the maximum width, so a phone keeps its single column and
+            // a tablet stops stretching one widget across the whole display.
+            val columnCount =
+              ((maxWidth + columnSpacing) / (WIDGET_COLUMN_MAX_WIDTH + columnSpacing))
+                .toInt()
+                .coerceAtLeast(1)
+            val columnHeight = maxHeight - topPadding - listBottomPadding
+            val widgetColumns =
+              remember(widgets, columnCount, columnHeight) {
+                packWidgetsIntoColumns(widgets, columnCount, columnHeight)
+              }
 
-                  fun setOnLongPressAction(action: () -> Unit) {
-                    onLongPressListener = action
-                  }
-
-                  override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean {
-                    gestureDetector.onTouchEvent(ev)
-                    return super.onInterceptTouchEvent(ev)
-                  }
-
-                  override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
-                    gestureDetector.onTouchEvent(ev)
-                    return super.dispatchTouchEvent(ev)
-                  }
-                }
-
-                val isResizing = activeWidgetId == widget.id
-                val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-                val maxWidgetHeight = configuration.screenHeightDp.dp - bottomPadding - 120.dp
-
-                val heightModifier =
-                  if (isResizing) {
-                    Modifier.height(resizeHeight.dp.coerceAtMost(maxWidgetHeight))
-                  } else if (widget.height != null) {
-                    Modifier.height(widget.height.dp.coerceAtMost(maxWidgetHeight))
-                  } else {
-                    Modifier.heightIn(max = maxWidgetHeight).wrapContentHeight()
-                  }
-
-                // If active, lift up. If not active but something else is, fade out.
-                val zIndex = if (isResizing) 10f else 0f
-                val alpha = if (activeWidgetId != -1 && !isResizing) 0.3f else 1f
-
-                Box(
+            Row(
+              modifier =
+                Modifier.fillMaxSize()
+                  .padding(
+                    top = topPadding,
+                    start = 16.dp,
+                    end = 16.dp,
+                    bottom = listBottomPadding,
+                  ),
+              horizontalArrangement = Arrangement.spacedBy(columnSpacing),
+            ) {
+              widgetColumns.forEachIndexed { columnIndex, columnWidgets ->
+                Column(
                   modifier =
-                    Modifier.fillMaxWidth().then(heightModifier).zIndex(zIndex).alpha(alpha)
+                    Modifier.weight(1f)
+                      .fillMaxHeight()
+                      .then(
+                        // Only the last column can hold more than it has room for, so it is the
+                        // only one that needs to scroll.
+                        if (columnIndex == widgetColumns.lastIndex) {
+                          Modifier.nestedScroll(nestedScrollConnection)
+                            .verticalScroll(rememberScrollState())
+                        } else {
+                          Modifier
+                        }
+                      ),
+                  verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                  // Drag Logic for Resize
-                  val density = androidx.compose.ui.platform.LocalDensity.current
-
-                  val androidViewModifier =
-                    if (isResizing || widget.height != null) {
-                      Modifier.fillMaxSize()
-                    } else {
-                      Modifier.fillMaxWidth()
-                    }
-
-                  val activity = context as? MainActivity
-                  // Asked once per id: a widget that cannot be drawn now will not start working
-                  // while the launcher is open, and the answer costs a binder call.
-                  val canRender =
-                    remember(widget.id, activity) {
-                      activity != null &&
-                        WidgetHostViewFactory.canRender(activity.appWidgetManager, widget.id)
-                    }
-
-                  if (!canRender) {
-                    MissingWidget(
-                      onRemove = {
-                        scope.launch {
-                          app.widgetRepository.removeWidgetId(widget.id)
-                          activity?.appWidgetHost?.deleteAppWidgetId(widget.id)
-                          if (activeWidgetId == widget.id) activeWidgetId = -1
-                        }
-                      },
-                      modifier = Modifier.fillMaxWidth(),
-                    )
-                  } else {
-                    AndroidView(
-                      factory = { ctx ->
-                        val container = WidgetContainerView(ctx)
-                        container.setOnLongPressAction {
-                          activeWidgetId = widget.id
-                          resizeHeight = widget.height?.toFloat() ?: 400f
-                        }
-
-                        val activity = ctx as? MainActivity
-                        if (activity != null) {
-                          val widgetView =
-                            WidgetHostViewFactory.createWidgetView(
-                              ctx,
-                              widget.id,
-                              activity.appWidgetHost,
-                              activity.appWidgetManager,
-                            )
-                          container.addView(widgetView)
-                        }
-                        container
-                      },
-                      update = { container ->
-                        container.setOnLongPressAction {
-                          activeWidgetId = widget.id
-                          resizeHeight = widget.height?.toFloat() ?: 400f
-                        }
-                      },
-                      modifier = androidViewModifier,
-                    )
-                  }
-
-                  // Edit Overlay (Border + Handles + Toolbar)
-                  if (activeWidgetId == widget.id) {
-                    // Border
-                    Box(
-                      modifier =
-                        Modifier.fillMaxSize()
-                          .background(Color.Transparent)
-                          .border(
-                            width = 2.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(16.dp),
-                          )
-                    )
-
-                    // Resize Handle (Bottom)
-                    Box(
-                      modifier =
-                        Modifier.align(Alignment.BottomCenter)
-                          .padding(bottom = 6.dp)
-                          .size(40.dp, 24.dp)
-                          .background(
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(12.dp),
-                          )
-                          .pointerInput(Unit) {
-                            detectDragGestures(
-                              onDragEnd = {
-                                scope.launch {
-                                  app.widgetRepository.updateWidgetHeight(
-                                    widget.id,
-                                    resizeHeight.toInt(),
+                  columnWidgets.forEach { widget ->
+                    androidx.compose.runtime.key(widget.id) {
+                      class WidgetContainerView(context: android.content.Context) :
+                        android.widget.FrameLayout(context) {
+                        private var onLongPressListener: (() -> Unit)? = null
+                        private val gestureDetector =
+                          android.view.GestureDetector(
+                            context,
+                            object : android.view.GestureDetector.SimpleOnGestureListener() {
+                              override fun onLongPress(e: android.view.MotionEvent) {
+                                onLongPressListener?.invoke()
+                                // Cancel child touches by sending ACTION_CANCEL
+                                val cancelEvent =
+                                  android.view.MotionEvent.obtain(
+                                    e.downTime,
+                                    e.eventTime,
+                                    android.view.MotionEvent.ACTION_CANCEL,
+                                    e.x,
+                                    e.y,
+                                    0,
                                   )
+                                (0 until childCount).forEach { i ->
+                                  getChildAt(i).dispatchTouchEvent(cancelEvent)
                                 }
+                                cancelEvent.recycle()
                               }
-                            ) { change, dragAmount ->
-                              change.consume()
-                              val newHeight = resizeHeight + (dragAmount.y / density.density)
-                              resizeHeight = newHeight.coerceIn(50f, maxWidgetHeight.value)
-                            }
-                          },
-                      contentAlignment = Alignment.Center,
-                    ) {
-                      Icon(
-                        imageVector = Icons.Default.ArrowDownward,
-                        contentDescription = "Resize",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(16.dp),
-                      )
-                    }
+                            },
+                          )
 
-                    // Toolbar (Top Right)
-                    WidgetEditToolbar(
-                      showMoveUp = index > 0,
-                      showMoveDown = index < widgets.size - 1,
-                      onMoveUp = { scope.launch { app.widgetRepository.moveWidgetUp(widget.id) } },
-                      onMoveDown = {
-                        scope.launch { app.widgetRepository.moveWidgetDown(widget.id) }
-                      },
-                      onDelete = {
-                        scope.launch {
-                          app.widgetRepository.removeWidgetId(widget.id)
-                          (context as? MainActivity)?.appWidgetHost?.deleteAppWidgetId(widget.id)
-                          activeWidgetId = -1
+                        fun setOnLongPressAction(action: () -> Unit) {
+                          onLongPressListener = action
                         }
-                      },
-                      onDone = { activeWidgetId = -1 },
-                      modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-                    )
+
+                        override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean {
+                          gestureDetector.onTouchEvent(ev)
+                          return super.onInterceptTouchEvent(ev)
+                        }
+
+                        override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+                          gestureDetector.onTouchEvent(ev)
+                          return super.dispatchTouchEvent(ev)
+                        }
+                      }
+
+                      val isResizing = activeWidgetId == widget.id
+                      val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+                      val maxWidgetHeight = configuration.screenHeightDp.dp - bottomPadding - 120.dp
+
+                      val heightModifier =
+                        if (isResizing) {
+                          Modifier.height(resizeHeight.dp.coerceAtMost(maxWidgetHeight))
+                        } else if (widget.height != null) {
+                          Modifier.height(widget.height.dp.coerceAtMost(maxWidgetHeight))
+                        } else {
+                          Modifier.heightIn(max = maxWidgetHeight).wrapContentHeight()
+                        }
+
+                      // If active, lift up. If not active but something else is, fade out.
+                      val zIndex = if (isResizing) 10f else 0f
+                      val alpha = if (activeWidgetId != -1 && !isResizing) 0.3f else 1f
+
+                      Box(
+                        modifier =
+                          Modifier.fillMaxWidth().then(heightModifier).zIndex(zIndex).alpha(alpha)
+                      ) {
+                        // Drag Logic for Resize
+                        val density = androidx.compose.ui.platform.LocalDensity.current
+
+                        val androidViewModifier =
+                          if (isResizing || widget.height != null) {
+                            Modifier.fillMaxSize()
+                          } else {
+                            Modifier.fillMaxWidth()
+                          }
+
+                        val activity = context as? MainActivity
+                        // Asked once per id: a widget that cannot be drawn now will not start
+                        // working
+                        // while the launcher is open, and the answer costs a binder call.
+                        val canRender =
+                          remember(widget.id, activity) {
+                            activity != null &&
+                              WidgetHostViewFactory.canRender(activity.appWidgetManager, widget.id)
+                          }
+
+                        if (!canRender) {
+                          MissingWidget(
+                            onRemove = {
+                              scope.launch {
+                                app.widgetRepository.removeWidgetId(widget.id)
+                                activity?.appWidgetHost?.deleteAppWidgetId(widget.id)
+                                if (activeWidgetId == widget.id) activeWidgetId = -1
+                              }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                          )
+                        } else {
+                          AndroidView(
+                            factory = { ctx ->
+                              val container = WidgetContainerView(ctx)
+                              container.setOnLongPressAction {
+                                activeWidgetId = widget.id
+                                resizeHeight = widget.height?.toFloat() ?: 400f
+                              }
+
+                              val activity = ctx as? MainActivity
+                              if (activity != null) {
+                                val widgetView =
+                                  WidgetHostViewFactory.createWidgetView(
+                                    ctx,
+                                    widget.id,
+                                    activity.appWidgetHost,
+                                    activity.appWidgetManager,
+                                  )
+                                container.addView(widgetView)
+                              }
+                              container
+                            },
+                            update = { container ->
+                              container.setOnLongPressAction {
+                                activeWidgetId = widget.id
+                                resizeHeight = widget.height?.toFloat() ?: 400f
+                              }
+                            },
+                            modifier = androidViewModifier,
+                          )
+                        }
+
+                        // Edit Overlay (Border + Handles + Toolbar)
+                        if (activeWidgetId == widget.id) {
+                          // Border
+                          Box(
+                            modifier =
+                              Modifier.fillMaxSize()
+                                .background(Color.Transparent)
+                                .border(
+                                  width = 2.dp,
+                                  color = MaterialTheme.colorScheme.primary,
+                                  shape = RoundedCornerShape(16.dp),
+                                )
+                          )
+
+                          // Resize Handle (Bottom)
+                          Box(
+                            modifier =
+                              Modifier.align(Alignment.BottomCenter)
+                                .padding(bottom = 6.dp)
+                                .size(40.dp, 24.dp)
+                                .background(
+                                  color = MaterialTheme.colorScheme.primary,
+                                  shape = RoundedCornerShape(12.dp),
+                                )
+                                .pointerInput(Unit) {
+                                  detectDragGestures(
+                                    onDragEnd = {
+                                      scope.launch {
+                                        app.widgetRepository.updateWidgetHeight(
+                                          widget.id,
+                                          resizeHeight.toInt(),
+                                        )
+                                      }
+                                    }
+                                  ) { change, dragAmount ->
+                                    change.consume()
+                                    val newHeight = resizeHeight + (dragAmount.y / density.density)
+                                    resizeHeight = newHeight.coerceIn(50f, maxWidgetHeight.value)
+                                  }
+                                },
+                            contentAlignment = Alignment.Center,
+                          ) {
+                            Icon(
+                              imageVector = Icons.Default.ArrowDownward,
+                              contentDescription = "Resize",
+                              tint = MaterialTheme.colorScheme.onPrimary,
+                              modifier = Modifier.size(16.dp),
+                            )
+                          }
+
+                          // Toolbar (Top Right). Move up and down reorder the whole list, which
+                          // is what decides both the order within a column and which column a
+                          // widget lands in, so the position here is the one in `widgets` rather
+                          // than in the column being drawn.
+                          val orderIndex = widgets.indexOfFirst { it.id == widget.id }
+                          WidgetEditToolbar(
+                            showMoveUp = orderIndex > 0,
+                            showMoveDown = orderIndex < widgets.size - 1,
+                            onMoveUp = {
+                              scope.launch { app.widgetRepository.moveWidgetUp(widget.id) }
+                            },
+                            onMoveDown = {
+                              scope.launch { app.widgetRepository.moveWidgetDown(widget.id) }
+                            },
+                            onDelete = {
+                              scope.launch {
+                                app.widgetRepository.removeWidgetId(widget.id)
+                                (context as? MainActivity)
+                                  ?.appWidgetHost
+                                  ?.deleteAppWidgetId(widget.id)
+                                activeWidgetId = -1
+                              }
+                            },
+                            onDone = { activeWidgetId = -1 },
+                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                          )
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -541,4 +600,47 @@ private fun MissingWidget(onRemove: () -> Unit, modifier: Modifier = Modifier) {
       }
     }
   }
+}
+
+/**
+ * Widest a widget column is allowed to get.
+ *
+ * A single column stretched across a tablet makes every widget the width of the display, which is
+ * neither what the widget was designed for nor a good use of the room. Past this width the screen
+ * gets another column instead.
+ */
+private val WIDGET_COLUMN_MAX_WIDTH = 420.dp
+
+/** Height assumed for a widget that has never been resized, matching the default it is given. */
+private val WIDGET_DEFAULT_HEIGHT = 200.dp
+
+/**
+ * Fills each column before moving to the next, so widgets keep the order they were added in and
+ * only spill sideways once a column is full.
+ *
+ * Anything still left over stays in the last column, which is the one that scrolls: better to have
+ * one column longer than the screen than to silently drop a widget the user added.
+ */
+internal fun packWidgetsIntoColumns(
+  widgets: List<WidgetData>,
+  columnCount: Int,
+  columnHeight: Dp,
+  spacing: Dp = 4.dp,
+): List<List<WidgetData>> {
+  if (columnCount <= 1 || widgets.isEmpty()) return listOf(widgets)
+
+  val columns = mutableListOf<MutableList<WidgetData>>(mutableListOf())
+  var used = 0.dp
+  for (widget in widgets) {
+    val height = widget.height?.dp ?: WIDGET_DEFAULT_HEIGHT
+    val needed = if (columns.last().isEmpty()) height else height + spacing
+    // Move on only while there are columns left to move to; the last one takes the remainder.
+    if (used + needed > columnHeight && columns.size < columnCount && columns.last().isNotEmpty()) {
+      columns.add(mutableListOf())
+      used = 0.dp
+    }
+    columns.last().add(widget)
+    used += if (columns.last().size == 1) height else height + spacing
+  }
+  return columns
 }
