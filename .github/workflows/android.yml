@@ -30,6 +30,11 @@ jobs:
         run: chmod +x gradlew
       - name: Check code formatting
         run: ./gradlew spotlessCheck
+      # Cheap, and catches the two things that only show up at upload time: store text that
+      # was edited in the generated file instead of the source, and a changelog too long
+      # for Play's 500-character limit. Standard library only, so nothing to install.
+      - name: Check store text
+        run: python3 marketing/copy.py --check
       - name: Decode Keystore
         if: ${{ env.SIGNING_KEY_STORE_BASE64 != '' }}
         run: |

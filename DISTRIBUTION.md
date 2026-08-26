@@ -54,6 +54,10 @@ run `marketing/copy.py`, so the text Play shows and the text F-Droid shows stay 
 | 10-inch tablet screenshots | `marketing/out/tablet10/*.png` (6, 2560x1440) |
 | Release notes | `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` |
 
+One changelog file serves both stores, so write it about the app rather than about a
+listing page, and keep it under Play's 500-character limit. `marketing/copy.py` enforces
+that for the version being released, and CI runs it.
+
 Upload the composed images from `marketing/out/`, not the plain captures — the plain ones
 are what F-Droid shows. See [marketing/README.md](marketing/README.md).
 

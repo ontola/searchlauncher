@@ -18,6 +18,19 @@ either store gives you.
 Keep the claims true. Every feature named below is one the app actually has; if a feature
 is removed, this file is what has to change first.
 
+## Changelogs
+
+Release notes are not in this file. They are one file per version code in
+`fastlane/metadata/android/en-US/changelogs/`, and **one file serves both stores**:
+F-Droid publishes it from the tag, and `fastlane supply` sends the same text to Play.
+
+So write about the app, not about a listing page. "The screenshots on this page are new"
+reads sensibly on F-Droid and means nothing on Play.
+
+Play refuses release notes over **500 characters**. `copy.py` fails if the changelog for
+the version in `app/build.gradle.kts` is over that, and CI runs it, so a tag cannot get
+as far as a rejected upload.
+
 ## Title
 
 Play allows 30 characters, F-Droid shows it as the app name.
