@@ -39,7 +39,12 @@ render behind in `out/`; delete it by hand.
 
 ## Where the screenshots come from
 
-`../screenshots` (phone) and `../screenshots-tablet` (tablet) hold the plain captures.
+The plain captures live where F-Droid already expects them, under
+`../fastlane/metadata/android/en-US/images`: `phoneScreenshots` and `tenInchScreenshots`.
+`listing.json` reads those directories directly, so the images F-Droid publishes and the
+images these renders are built from are the same files, and neither can drift from the
+other.
+
 Both are taken on emulators seeded with fictional data — never on a real phone, so no
 real contact, wallpaper or browsing history can reach a store listing.
 
@@ -83,9 +88,6 @@ silently turns `openstreetmap.org` into `opensreetmap.og`. Send anything that ha
 exact one character at a time with a pause, and read the field back before acting on it.
 A mistyped URL also lands in the browser history, where it then outranks the correct one
 in the result list.
-
-`fastlane/metadata/android/en-US/images/phoneScreenshots/` is a separate copy, and is
-what F-Droid actually publishes. It is not kept in sync automatically.
 
 ## Store requirements
 

@@ -38,7 +38,7 @@
       "name": "phone",
       "device": "phone",
       "palette": "carbon",
-      "source": "../screenshots",
+      "source": "../fastlane/metadata/android/en-US/images/phoneScreenshots",
       "images": [
         {
           "shot": "01_home.jpg",
@@ -77,7 +77,7 @@
       "name": "tablet10",
       "device": "tablet10",
       "palette": "carbon",
-      "source": "../screenshots-tablet",
+      "source": "../fastlane/metadata/android/en-US/images/tenInchScreenshots",
       "images": [
         {
           "shot": "01_home.png",

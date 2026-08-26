@@ -26,14 +26,14 @@ Android app that lets you search everything on your phone and on the web, and op
 ## Screenshots
 
 <p float="left">
-  <img src="screenshots/01_home.jpg" width="200" alt="Home screen with the keyboard already up" />
-  <img src="screenshots/02_anything.jpg" width="200" alt="One query reaching contacts, app shortcuts and settings" />
-  <img src="screenshots/03_search_youtube.jpg" width="200" alt="Searching YouTube from the home screen" />
-  <img src="screenshots/04_smart_input.jpg" width="200" alt="A sum answered straight in the search bar" />
-  <img src="screenshots/05_widgets.jpg" width="200" alt="A clock and a calendar widget on the home screen" />
-  <img src="screenshots/06_tabs.jpg" width="200" alt="Browser tabs as live previews on the home screen" />
-  <img src="screenshots/07_browser_menu.jpg" width="200" alt="Browser menu with bookmarks and tab controls" />
-  <img src="screenshots/08_settings.jpg" width="200" alt="Settings" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01_home.jpg" width="200" alt="Home screen with the keyboard already up" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/02_anything.jpg" width="200" alt="One query reaching contacts, app shortcuts and settings" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/03_search_youtube.jpg" width="200" alt="Searching YouTube from the home screen" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/04_smart_input.jpg" width="200" alt="A sum answered straight in the search bar" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/05_widgets.jpg" width="200" alt="A clock and a calendar widget on the home screen" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/06_tabs.jpg" width="200" alt="Browser tabs as live previews on the home screen" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/07_browser_menu.jpg" width="200" alt="Browser menu with bookmarks and tab controls" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/08_settings.jpg" width="200" alt="Settings" />
 </p>
 
 ## Use as Launcher or as a Widget
