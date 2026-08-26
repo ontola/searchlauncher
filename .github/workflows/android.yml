@@ -45,6 +45,17 @@ jobs:
       - name: Run unit tests
         run: ./gradlew test
 
+      # Play takes a bundle rather than an APK. Only worth building on a tag, since nothing
+      # else consumes it, and it is a second full R8 pass.
+      - name: Build App Bundle
+        if: startsWith(github.ref, 'refs/tags/v') && env.SIGNING_KEY_STORE_BASE64 != ''
+        env:
+          SIGNING_KEY_STORE_PATH: upload.jks
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: ./gradlew bundleRelease
+
       - name: Prepare Artifacts
         run: |
           mkdir -p artifacts
@@ -55,6 +66,13 @@ jobs:
         with:
           name: searchlauncher-apks
           path: artifacts/*.apk
+
+      - name: Upload App Bundle
+        if: startsWith(github.ref, 'refs/tags/v') && env.SIGNING_KEY_STORE_BASE64 != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: searchlauncher-aab
+          path: app/build/outputs/bundle/release/*.aab
 
   release:
     needs: build
@@ -76,3 +94,65 @@ jobs:
           overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  play:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    env:
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+    steps:
+      # Skips rather than fails when the secret is missing, so a fork or a repo that has not
+      # been connected to Play yet still gets a green build.
+      - name: Check for Play credentials
+        id: creds
+        run: |
+          if [ -n "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "PLAY_SERVICE_ACCOUNT_JSON is not set; skipping the Play upload." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/checkout@v3
+        if: steps.creds.outputs.present == 'true'
+
+      - name: Download App Bundle
+        if: steps.creds.outputs.present == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: searchlauncher-aab
+          path: bundle
+
+      - uses: ruby/setup-ruby@v1
+        if: steps.creds.outputs.present == 'true'
+        with:
+          ruby-version: "3.3"
+          bundler-cache: false
+
+      - name: Install fastlane
+        if: steps.creds.outputs.present == 'true'
+        run: gem install fastlane --no-document
+
+      - name: Upload to the internal track
+        if: steps.creds.outputs.present == 'true'
+        run: |
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > /tmp/play-key.json
+          # Release notes come from fastlane/metadata/android/en-US/changelogs/<versionCode>.txt,
+          # which supply reads without being told where it is.
+          #
+          # The listing text and images are deliberately NOT uploaded. The screenshots in
+          # fastlane/metadata are the plain captures F-Droid shows; Play gets the composed ones
+          # from marketing/out, which are uploaded by hand. Without these three flags supply
+          # would quietly replace the composed listing with the plain captures.
+          fastlane supply \
+            --package_name com.searchlauncher.app \
+            --aab "$(ls bundle/*.aab | head -1)" \
+            --track internal \
+            --release_status completed \
+            --json_key /tmp/play-key.json \
+            --skip_upload_metadata true \
+            --skip_upload_images true \
+            --skip_upload_screenshots true \
+            --skip_upload_changelogs false
+          rm -f /tmp/play-key.json

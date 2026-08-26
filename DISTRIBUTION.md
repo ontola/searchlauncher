@@ -7,6 +7,20 @@ here except the console forms is already in the repo.
 
 ### The bundle
 
+Tagging a release uploads it. The `play` job in
+[`.github/workflows/android.yml`](.github/workflows/android.yml) builds the bundle and
+hands it to the **internal** track with `fastlane supply`, taking the release notes from
+`fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`. Without the
+`PLAY_SERVICE_ACCOUNT_JSON` secret the job skips rather than fails, so a fork still gets a
+green build.
+
+The job never uploads the listing text or the images. The screenshots under
+`fastlane/metadata` are the plain captures F-Droid shows, and pushing those to Play would
+quietly replace the composed listing with them. Listing changes stay manual, which is
+fine: they change once a release, not once a build.
+
+To build one by hand:
+
 ```bash
 ./gradlew :app:bundleRelease     # app/build/outputs/bundle/release/app-release.aab
 ```
@@ -51,6 +65,28 @@ slot also has a higher floor: every side must be at least 1080px.
 
 `marketing/check.py` checks the generated images against all of this, so run it before an
 upload rather than finding out from the console.
+
+### Connecting CI to Play, once
+
+The upload needs a service account, which is four things in two consoles:
+
+1. **Google Cloud** — in the project linked to your Play account, enable the *Google Play
+   Android Developer API*, create a service account, and download a JSON key for it.
+2. **Play Console** — *Users and permissions* > *Invite new users*, paste the service
+   account's email, and give it access to this app with *Release apps to testing tracks*.
+   Permissions can take a few minutes to apply.
+3. **GitHub** — add the whole JSON file as a repository secret named
+   `PLAY_SERVICE_ACCOUNT_JSON`.
+4. **Upload one bundle by hand first.** Play will not accept an API upload for an app that
+   has never had a manual one, and the app has to exist in the console before any of this
+   works anyway.
+
+After that, `git tag v0.0.23 && git push origin v0.0.23` is the whole release: GitHub gets
+the APK, and Play's internal track gets the bundle.
+
+To promote further than internal, change `--track` in the workflow, or promote in the
+console. Note that **internal testing does not count towards the 14-day closed-testing
+requirement** below.
 
 ### Console forms
 
