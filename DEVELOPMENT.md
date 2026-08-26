@@ -45,7 +45,7 @@ Search is performed in two stages:
 ### First Time Setup
 ```bash
 # Clone the repository
-git clone https://github.com/joepio/searchlauncher.git
+git clone https://github.com/ontola/searchlauncher.git
 cd searchlauncher
 
 # Open in Android Studio

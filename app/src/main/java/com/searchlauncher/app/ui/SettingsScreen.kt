@@ -1396,7 +1396,7 @@ private fun AboutCard() {
         OutlinedButton(
           onClick = {
             val intent =
-              Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/joepio/searchlauncher"))
+              Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/ontola/searchlauncher"))
             context.startActivity(intent)
           },
           modifier = Modifier.weight(1f),
