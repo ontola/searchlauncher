@@ -27,8 +27,8 @@
 
   "devices": {
     "phone": { "size": [1080, 1920], "device_width": 0.66, "radius": 0.085 },
-    "tablet7": { "size": [1920, 1200], "device_width": 0.3, "radius": 0.05 },
-    "tablet10": { "size": [2560, 1600], "device_width": 0.3, "radius": 0.05 },
+    "tablet7": { "size": [1920, 1080], "device_width": 0.3, "radius": 0.05 },
+    "tablet10": { "size": [2560, 1440], "device_width": 0.3, "radius": 0.05 },
     "feature": { "size": [1024, 500], "device_width": 0.3, "radius": 0.085, "device_height": 0.94, "title_scale": 0.105 }
   },
 
@@ -83,6 +83,45 @@
         },
         {
           "shot": "06_tabs.jpg",
+          "headline": "An ad-free browser with searchable history",
+          "sub": "Every tab is one swipe from the home screen."
+        }
+      ]
+    },
+
+    {
+      "name": "tablet7",
+      "device": "tablet7",
+      "palette": "carbon",
+      "source": "../fastlane/metadata/android/en-US/images/tenInchScreenshots",
+      "images": [
+        {
+          "shot": "01_home.png",
+          "headline": "Your home screen opens with a keyboard",
+          "sub": "No swiping through pages of icons. Just type."
+        },
+        {
+          "shot": "02_anything.png",
+          "headline": "Search anything. Apps, contacts, settings",
+          "sub": "One field for everything on your device."
+        },
+        {
+          "shot": "03_search_youtube.png",
+          "headline": "Search inside apps, not just for them",
+          "sub": "Set your own shortcuts: y for YouTube, m for Maps, w for Wikipedia."
+        },
+        {
+          "shot": "04_smart_input.png",
+          "headline": "One field that knows what you typed",
+          "sub": "A sum gets an answer, a link opens, 5m pasta starts a timer."
+        },
+        {
+          "shot": "05_widgets.png",
+          "headline": "Fewer icons means more room for widgets",
+          "sub": "Tap the wallpaper to show them, tap again to hide."
+        },
+        {
+          "shot": "06_tabs.png",
           "headline": "An ad-free browser with searchable history",
           "sub": "Every tab is one swipe from the home screen."
         }

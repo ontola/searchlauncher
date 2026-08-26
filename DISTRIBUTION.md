@@ -30,14 +30,21 @@ reproducible — F-Droid verifies the GitHub release APK, which is a separate ar
 | App icon, 512x512 | `fastlane/metadata/android/en-US/images/icon.png` |
 | Feature graphic, 1024x500 | `marketing/out/feature/01_widgets.png` |
 | Phone screenshots | `marketing/out/phone/*.png` (6, 1080x1920) |
-| 10-inch tablet screenshots | `marketing/out/tablet10/*.png` (6, 2560x1600) |
+| 7-inch tablet screenshots | `marketing/out/tablet7/*.png` (6, 1920x1080) |
+| 10-inch tablet screenshots | `marketing/out/tablet10/*.png` (6, 2560x1440) |
 | Release notes | `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` |
 
 Upload the composed images from `marketing/out/`, not the plain captures — the plain ones
 are what F-Droid shows. See [marketing/README.md](marketing/README.md).
 
-Play accepts at most 8 screenshots per form factor and needs at least 2. There is no
-7-inch set; Play falls back to the 10-inch one.
+Play accepts at most 8 screenshots per form factor and needs at least 2. Both tablet
+slots are required once the app is not phone-only, and both want a **16:9 or 9:16**
+canvas — a 16:10 one is refused, which is why the tablet canvases are 1920x1080 and
+2560x1440 rather than matching the 16:10 shape of the captures inside them. The 10-inch
+slot also has a higher floor: every side must be at least 1080px.
+
+`marketing/check.py` checks the generated images against all of this, so run it before an
+upload rather than finding out from the console.
 
 ### Console forms
 

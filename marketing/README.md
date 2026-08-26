@@ -11,6 +11,7 @@ cd marketing
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python generate.py            # every set in listing.json
 .venv/bin/python generate.py phone      # just one
+.venv/bin/python check.py               # would a store take these?
 ```
 
 Output goes to `out/<set>/`, and is committed so the images can be uploaded without
@@ -93,8 +94,11 @@ in the result list.
 
 ## Store requirements
 
-Check the current rules before uploading — they move. At the time of writing Play wants
-between 2 and 8 screenshots per form factor, 16:9 or 9:16, with each side between 320px
-and 3840px, and separate sets for 7-inch and 10-inch tablets if the app should be
-treated as large-screen ready. The phone canvas here is 1080x1920 and the tablet one
-2560x1600.
+Check the current rules before uploading — they move, and `check.py` only knows the ones
+below. At the time of writing Play wants between 2 and 8 screenshots per form factor,
+each under 8MB, in a **16:9 or 9:16** canvas, with separate phone, 7-inch and 10-inch
+sets. Sides must be 320-3840px, except the 10-inch slot where the floor is 1080px.
+
+The aspect rule is about the canvas, not the capture inside it: the tablet screenshots
+are 16:10, but they are composed onto 1920x1080 and 2560x1440. The phone canvas is
+1080x1920, and the feature graphic has to be exactly 1024x500.
