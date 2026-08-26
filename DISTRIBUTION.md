@@ -70,8 +70,11 @@ upload rather than finding out from the console.
 
 The upload needs a service account, which is four things in two consoles:
 
-1. **Google Cloud** — in the project linked to your Play account, enable the *Google Play
-   Android Developer API*, create a service account, and download a JSON key for it.
+1. **Google Cloud** — in any project, enable the *Google Play Android Developer API*, create
+   a service account under *IAM & Admin*, and download a JSON key for it. It needs no
+   project roles; its access comes from Play, not from Cloud. The key downloads once and
+   cannot be downloaded again. Linking the project to your Play account used to be
+   required and no longer is.
 2. **Play Console** — *Users and permissions* > *Invite new users*, paste the service
    account's email, and give it access to this app with *Release apps to testing tracks*.
    Permissions can take a few minutes to apply.
