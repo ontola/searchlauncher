@@ -80,9 +80,21 @@ The upload needs a service account, which is four things in two consoles:
    Permissions can take a few minutes to apply.
 3. **GitHub** — add the whole JSON file as a repository secret named
    `PLAY_SERVICE_ACCOUNT_JSON`.
-4. **Upload one bundle by hand first.** Play will not accept an API upload for an app that
-   has never had a manual one, and the app has to exist in the console before any of this
-   works anyway.
+4. **Upload one bundle by hand first.** Play does not know the package until a bundle has
+   been uploaded through the console, and the API answers `404 Package not found` until
+   then, however correct the credentials are.
+
+Check the credentials without tagging anything:
+
+```bash
+python3 scripts/check-play-key.py ~/Downloads/your-key.json
+```
+
+It tells the three failure modes apart, which the error messages alone do not: a key the
+API rejects means the *Google Play Android Developer API* is not enabled; `404 Package not
+found` means no bundle has been uploaded by hand yet; `401` or `403` means the service
+account has not been invited in *Users and permissions*, or the invitation has not
+propagated yet.
 
 After that, `git tag v0.0.23 && git push origin v0.0.23` is the whole release: GitHub gets
 the APK, and Play's internal track gets the bundle.
