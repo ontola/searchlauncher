@@ -1,0 +1,5 @@
+The app itself is unchanged from 0.0.21.
+
+This release refreshes the screenshots on this page. They are all taken in dark mode
+now, they cover more of what the launcher does, and there is a tablet set for the first
+time.
