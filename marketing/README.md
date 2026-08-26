@@ -33,8 +33,10 @@ knows how to draw; it has no copy or colours in it.
   the headline above the device. Either way the device is fitted to the space left over,
   so it never runs off an edge.
 
-Both sets say the same six things in the same order, so a copy change means editing two
-entries rather than two sets of images. Renaming a source screenshot leaves the old
+Both screenshot sets say the same six things in the same order, so a copy change means
+editing two entries rather than two sets of images. The `feature` set is the odd one out:
+Play shows a single 1024x500 graphic above the listing, so it carries the app name rather
+than a proposition. Renaming a source screenshot leaves the old
 render behind in `out/`; delete it by hand.
 
 ## Where the screenshots come from

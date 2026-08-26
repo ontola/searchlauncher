@@ -21,6 +21,9 @@ release/
 # are kept in the repo: reviewable in a diff, and usable without running the generator.
 !marketing/out/
 !marketing/out/**
+# ...but the negation above would otherwise drag Finder droppings back in with them.
+marketing/out/**/.DS_Store
+marketing/out/.DS_Store
 
 # Gradle files
 .gradle/

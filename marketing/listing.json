@@ -28,12 +28,28 @@
   "devices": {
     "phone": { "size": [1080, 1920], "device_width": 0.66, "radius": 0.085 },
     "tablet7": { "size": [1920, 1200], "device_width": 0.3, "radius": 0.05 },
-    "tablet10": { "size": [2560, 1600], "device_width": 0.3, "radius": 0.05 }
+    "tablet10": { "size": [2560, 1600], "device_width": 0.3, "radius": 0.05 },
+    "feature": { "size": [1024, 500], "device_width": 0.3, "radius": 0.085, "device_height": 0.94, "title_scale": 0.105 }
   },
 
   "_propositions": "Both sets say the same six things in the same order. Only the capture differs, so a copy change means editing two entries, not two sets of images.",
 
   "sets": [
+    {
+      "_note": "Play shows one feature graphic, 1024x500, above the listing. It carries the app name rather than a proposition, because it sits over the title instead of in the carousel.",
+      "name": "feature",
+      "device": "feature",
+      "palette": "carbon",
+      "source": "../fastlane/metadata/android/en-US/images/phoneScreenshots",
+      "images": [
+        {
+          "shot": "05_widgets.jpg",
+          "headline": "SearchLauncher",
+          "sub": "Search your phone and the web"
+        }
+      ]
+    },
+
     {
       "name": "phone",
       "device": "phone",

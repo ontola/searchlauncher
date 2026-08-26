@@ -2,16 +2,73 @@
 
 ## Google Play Store
 
-### 1. Build Artifact
-The release bundle has been generated at:
-`app/build/outputs/bundle/release/app-release.aab`
+Play wants a bundle rather than an APK, and its own set of listing assets. Everything
+here except the console forms is already in the repo.
 
-### 2. Upload
-1. Go to the [Google Play Console](https://play.google.com/console).
-2. Select your app (or create a new one).
-3. Navigate to **Releases** > **Production** (or Testing).
-4. Create a new release and upload the `app-release.aab` file.
-5. Fill in the release notes and rollout.
+### The bundle
+
+```bash
+./gradlew :app:bundleRelease     # app/build/outputs/bundle/release/app-release.aab
+```
+
+It is signed with `upload.jks` at the repo root, alias `upload`, which is gitignored.
+Play re-signs with its own app signing key, so this one only proves the upload is yours:
+losing it means asking Google to reset the upload key, not losing the app. The path and
+passwords can be overridden with `SIGNING_KEY_STORE_PATH`, `SIGNING_STORE_PASSWORD`,
+`SIGNING_KEY_ALIAS` and `SIGNING_KEY_PASSWORD`.
+
+The bundle Play receives is not the APK F-Droid builds, and does not need to be
+reproducible — F-Droid verifies the GitHub release APK, which is a separate artifact.
+
+### What to upload where
+
+| Console field | File |
+| --- | --- |
+| App name (max 30) | `fastlane/metadata/android/en-US/title.txt` |
+| Short description (max 80) | `fastlane/metadata/android/en-US/short_description.txt` |
+| Full description (max 4000) | `fastlane/metadata/android/en-US/full_description.txt` |
+| App icon, 512x512 | `fastlane/metadata/android/en-US/images/icon.png` |
+| Feature graphic, 1024x500 | `marketing/out/feature/01_widgets.png` |
+| Phone screenshots | `marketing/out/phone/*.png` (6, 1080x1920) |
+| 10-inch tablet screenshots | `marketing/out/tablet10/*.png` (6, 2560x1600) |
+| Release notes | `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` |
+
+Upload the composed images from `marketing/out/`, not the plain captures — the plain ones
+are what F-Droid shows. See [marketing/README.md](marketing/README.md).
+
+Play accepts at most 8 screenshots per form factor and needs at least 2. There is no
+7-inch set; Play falls back to the 10-inch one.
+
+### Console forms
+
+**Privacy policy** — <https://searchlauncher.eu/privacy.html>, from
+[`website/privacy.html`](website/privacy.html).
+
+**Data safety.** What the app actually does, which is what the form should say:
+
+- Nothing is collected by default. Both network features are off until the user turns
+  them on in onboarding or Settings.
+- *Search suggestions*, when enabled, send what is typed to whichever provider the
+  shortcut names — DuckDuckGo, Bing, Google, Wikipedia and YouTube endpoints are in the
+  source. This is "shared, not collected": it goes to a third party, not to us.
+- *Crash reporting*, when enabled, sends stack traces to GlitchTip. Declare it as crash
+  logs, optional, not used for tracking.
+- Contacts, calendar and photos are read on the device to answer a query and are never
+  sent anywhere. They are permissions, not collected data.
+- The browser downloads a blocklist from the StevenBlack hosts project. That is an
+  inbound fetch with no user data in it.
+
+**Content rating** — a launcher with a browser in it. Answer the questionnaire honestly
+about user-generated content and web browsing; the browser makes the rating higher than
+the launcher alone would.
+
+**Target API** — Play requires 35 or later; this app targets 36.
+
+### Before the first production release
+
+A personal developer account created after November 2023 has to run a closed test with
+at least 12 testers who stay opted in for 14 days before production opens up. Organisation
+accounts are exempt. Start that clock early: it gates the release, not the review.
 
 ## F-Droid
 
