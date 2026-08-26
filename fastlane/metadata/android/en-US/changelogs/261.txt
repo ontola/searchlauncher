@@ -1,0 +1,3 @@
+Fixed: the app would not start on devices that use 16 KB memory pages, which some Android 15 phones do. One of the libraries it bundles was built for 4 KB pages only.
+
+Also: the Source code link in Settings now points at the right repository.
