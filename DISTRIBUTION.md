@@ -27,6 +27,12 @@ reproducible — F-Droid verifies the GitHub release APK, which is a separate ar
 | App name (max 30) | `fastlane/metadata/android/en-US/title.txt` |
 | Short description (max 80) | `fastlane/metadata/android/en-US/short_description.txt` |
 | Full description (max 4000) | `fastlane/metadata/android/en-US/full_description.txt` |
+
+Those three are generated. Edit [`marketing/store-copy.md`](marketing/store-copy.md) and
+run `marketing/copy.py`, so the text Play shows and the text F-Droid shows stay the same.
+
+| Image | File |
+| --- | --- |
 | App icon, 512x512 | `fastlane/metadata/android/en-US/images/icon.png` |
 | Feature graphic, 1024x500 | `marketing/out/feature/01_widgets.png` |
 | Phone screenshots | `marketing/out/phone/*.png` (6, 1080x1920) |

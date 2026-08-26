@@ -12,6 +12,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python generate.py            # every set in listing.json
 .venv/bin/python generate.py phone      # just one
 .venv/bin/python check.py               # would a store take these?
+.venv/bin/python copy.py                # write the store text from store-copy.md
 ```
 
 Output goes to `out/<set>/`, and is committed so the images can be uploaded without
@@ -39,6 +40,19 @@ editing two entries rather than two sets of images. The `feature` set is the odd
 Play shows a single 1024x500 graphic above the listing, so it carries the app name rather
 than a proposition. Renaming a source screenshot leaves the old
 render behind in `out/`; delete it by hand.
+
+## The listing text
+
+[`store-copy.md`](store-copy.md) holds the title, short description and full description,
+and `copy.py` writes them into `fastlane/metadata/android/en-US/*.txt`. F-Droid publishes
+those files from the tag, and Play's fields are filled from the same text, so editing the
+Markdown is the only way to change what either store says.
+
+`copy.py --check` fails if a generated file was edited by hand, if a field is over its
+character limit, or if the short description ends in a full stop — which F-Droid's linter
+refuses.
+
+Neither store renders Markdown. The fenced blocks are literal.
 
 ## Where the screenshots come from
 

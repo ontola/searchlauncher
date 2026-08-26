@@ -99,3 +99,7 @@ analysis/traces/
 
 # F-Droid submission generated files
 fdroid_submission/
+
+# Python bytecode from the marketing scripts
+__pycache__/
+*.pyc

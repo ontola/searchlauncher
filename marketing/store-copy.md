@@ -1,3 +1,47 @@
+# Store copy
+
+The text every store shows, in one place. `copy.py` writes it out to the fastlane files
+that F-Droid publishes and that Play's console fields are filled from, so the two cannot
+drift:
+
+```bash
+.venv/bin/python copy.py          # write the fastlane files, checking the limits
+.venv/bin/python copy.py --check  # only check, change nothing
+```
+
+Edit the fenced blocks below and nothing else — everything outside them is a note to
+whoever is editing. **Neither store renders Markdown**, so what is inside a block is
+literally what a reader sees: no `**bold**`, no `- ` bullets that you want rendered as
+dots. The capitalised lines are section headings because that is the most formatting
+either store gives you.
+
+Keep the claims true. Every feature named below is one the app actually has; if a feature
+is removed, this file is what has to change first.
+
+## Title
+
+Play allows 30 characters, F-Droid shows it as the app name.
+
+```
+SearchLauncher
+```
+
+## Short description
+
+Play allows 80 characters and shows it under the title. F-Droid calls it the summary and
+**its linter rejects a trailing full stop**, so do not add one.
+
+```
+Search apps, contacts and the web, and open results in an ad-free browser
+```
+
+## Full description
+
+Play allows 4000 characters. The order follows the six propositions the screenshots make,
+so someone scrolling the images and someone reading the text are told the same things in
+the same sequence.
+
+```
 Your home screen opens with a keyboard. One bar finds everything on your phone and everything on the web, and opens what you find in a browser that blocks ads.
 
 SEARCH ANYTHING
@@ -24,3 +68,4 @@ PRIVACY
 Nothing is sent anywhere by default. Search suggestions are optional, and when you turn them on, what you type goes to whichever provider the shortcut names. Crash reporting is opt-in. Contacts, calendar entries and photos are read on your device to answer what you typed and are never uploaded. The browser's blocklist is downloaded from the StevenBlack hosts project.
 
 SearchLauncher is free and open source: https://github.com/ontola/searchlauncher
+```
