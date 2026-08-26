@@ -58,10 +58,12 @@ Then, per emulator:
    `adb shell cmd package set-home-activity com.searchlauncher.app.debug/com.searchlauncher.app.ui.MainActivity`.
 2. Walk onboarding, granting contacts and calendar and turning autocomplete on — the
    YouTube suggestions in `03_search_youtube` need it.
-3. Seed contacts (Ada Lovelace, Grace Hopper, Alan Turing, Katherine Johnson, Mae
+3. `adb shell cmd uimode night yes`. Every capture is in dark mode, so the keyboard and
+   the result list sit on the dark canvas instead of glaring out of it.
+4. Seed contacts (Ada Lovelace, Grace Hopper, Alan Turing, Katherine Johnson, Mae
    Jemison, Maya Chen, Marcus Webb) with `content insert` against
    `content://com.android.contacts`.
-4. Add an analog clock and a calendar month widget from the launcher's own
+5. Add an analog clock and a calendar month widget from the launcher's own
    **Add Widget** menu, long-pressed on the wallpaper.
 
 The launcher's whole state — wallpapers, favourites, custom shortcuts — moves between
@@ -75,6 +77,12 @@ adb -s <to> shell 'run-as com.searchlauncher.app.debug sh -c "rm -rf files share
 
 Widget IDs do not survive the copy: the launcher shows a "Widget unavailable" card for
 each one, and they have to be removed and added again.
+
+`adb shell input text` drops characters on these emulators when the app is busy, which
+silently turns `openstreetmap.org` into `opensreetmap.og`. Send anything that has to be
+exact one character at a time with a pause, and read the field back before acting on it.
+A mistyped URL also lands in the browser history, where it then outranks the correct one
+in the result list.
 
 `fastlane/metadata/android/en-US/images/phoneScreenshots/` is a separate copy, and is
 what F-Droid actually publishes. It is not kept in sync automatically.
