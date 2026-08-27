@@ -70,6 +70,49 @@ slot also has a higher floor: every side must be at least 1080px.
 `marketing/check.py` checks the generated images against all of this, so run it before an
 upload rather than finding out from the console.
 
+### Signing keys
+
+Three keys are involved, and only one of them can ever change.
+
+| Key | SHA-256 | What it does |
+| --- | --- | --- |
+| Release key | `553f6280…` | Signs the APK on GitHub and the one F-Droid verifies |
+| Play app signing key | `c016abdc…` | Google-generated. Signs what Play delivers to a device |
+| Play upload key | — | Authenticates uploads. Never reaches a device |
+
+**The release key can never change.** F-Droid pins it in `AllowedAPKSigningKeys`, and every
+installed copy is signed with it. Swapping it would break reproducible-build verification
+and make the app un-updatable for existing users, because Android refuses an update signed
+by a different key. It lives in the `SIGNING_KEY_STORE_BASE64` secret.
+
+**Play delivers a different signature from F-Droid**, because Play App Signing is
+mandatory for new apps and Google generated its own key at enrolment. So the Play build
+and the F-Droid build are separate installs as far as Android is concerned: the same
+package name with different signatures cannot replace one another. Someone moving between
+the two has to uninstall and restore through the app's own export and import.
+
+That is deliberate. Matching them would mean giving Google the release key — the same key
+F-Droid pins — and the only moment to do it was at enrolment. An hour of listing work was
+not worth a third party holding it.
+
+**The upload key is the release key.** Play originally registered a different one, because
+the first bundle it ever received was built locally with `app/upload.jks` rather than by
+CI. That was corrected with *App integrity > Request upload key reset*, using the
+certificate from a published APK:
+
+```bash
+apksigner verify --print-certs-pem app-release.apk \
+  | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' > upload-key.pem
+```
+
+The APK is signed with v2/v3 schemes only, so there is no `META-INF/*.RSA` to read and
+`keytool -printcert -jarfile` prints nothing. The certificate is in the APK Signing Block,
+which is what `--print-certs-pem` reads.
+
+If the upload ever fails with *"signed with the wrong key"*, compare the two fingerprints
+in the error against the table above before changing anything. Making the release key
+match Play would be the wrong repair.
+
 ### Connecting CI to Play, once
 
 The upload needs a service account, which is four things in two consoles:
