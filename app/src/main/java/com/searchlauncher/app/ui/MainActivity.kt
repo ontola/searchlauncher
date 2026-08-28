@@ -525,7 +525,6 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
         Surface(modifier = Modifier.fillMaxSize(), color = backgroundColor) { MainScreen() }
       }
     }
-    Ime.installWarmup(this)
   }
 
   override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
@@ -598,7 +597,8 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
   override fun onWindowFocusChanged(hasFocus: Boolean) {
     super.onWindowFocusChanged(hasFocus)
     if (hasFocus && currentScreenState == Screen.Search && !inPictureInPicture) {
-      focusTrigger = System.currentTimeMillis()
+      // Show here, but do not bump [focusTrigger]: that restarts the Compose IME loop and
+      // cancels the request that onResume already started.
       Ime.onWindowFocused(this)
     }
   }

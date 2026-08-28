@@ -4,16 +4,12 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
-import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
-import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
-import android.widget.EditText
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import java.util.WeakHashMap
 
 /**
  * Shows the software keyboard as soon as this window can take it.
@@ -21,8 +17,9 @@ import java.util.WeakHashMap
  * The IME is started by the system when a focused, text-capable view exists at the moment the
  * window gains focus. Compose's search field is often not that view yet: it is created a frame or
  * two later, and [InputMethodManager.SHOW_IMPLICIT] then drops the follow-up request because the
- * user just dismissed another app's keyboard. A zero-size [EditText] is parked on the window until
- * the real field takes over, and show requests are explicit so they are not dropped.
+ * user just dismissed another app's keyboard. Show requests are explicit so they are not dropped,
+ * and the home screen parks the chrome bar at a reserved height so it does not ride the IME
+ * animation.
  */
 object Ime {
 
@@ -34,10 +31,31 @@ object Ime {
     WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or
       WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
 
-  private val warmups = WeakHashMap<Activity, EditText>()
+  /** Below this, a stored IME height is treated as missing rather than as a tiny keyboard. */
+  const val MIN_PLAUSIBLE_HEIGHT_PX = 101
+
+  /** Fraction of the window used as a stand-in until a real IME height has been measured. */
+  const val DEFAULT_HEIGHT_FRACTION = 0.36f
+
+  /** Hard ceiling: some IME windows report nearly the full screen while only the keys are not. */
+  const val MAX_HEIGHT_FRACTION = 0.5f
 
   fun applyWindowMode(window: Window) {
     window.setSoftInputMode(SOFT_INPUT_MODE)
+  }
+
+  /**
+   * Height the home screen should reserve for the keyboard, whether or not the IME has reported
+   * itself yet. Using the live inset here is what made the search bar hop: the IME animates from 0,
+   * and a dummy editor taking focus then giving it back made that animation run twice.
+   */
+  fun reservedHeightPx(storedPx: Int, containerHeightPx: Int): Int {
+    if (containerHeightPx <= 0) return storedPx.coerceAtLeast(0)
+    val maxPx = (containerHeightPx * MAX_HEIGHT_FRACTION).toInt()
+    if (storedPx in MIN_PLAUSIBLE_HEIGHT_PX..maxPx) return storedPx
+    return (containerHeightPx * DEFAULT_HEIGHT_FRACTION)
+      .toInt()
+      .coerceIn(MIN_PLAUSIBLE_HEIGHT_PX, maxPx.coerceAtLeast(MIN_PLAUSIBLE_HEIGHT_PX))
   }
 
   fun show(view: View) {
@@ -70,58 +88,10 @@ object Ime {
   fun isVisible(view: View): Boolean =
     ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true
 
-  /**
-   * Parks a real editor on [activity] so the window already has something the IME can bind to
-   * before Compose has focused the search field. Released once that field takes focus.
-   */
-  fun installWarmup(activity: Activity) {
-    if (warmups.containsKey(activity)) return
-    val editor =
-      EditText(activity).apply {
-        layoutParams = ViewGroup.LayoutParams(0, 0)
-        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        isFocusable = true
-        isFocusableInTouchMode = true
-        showSoftInputOnFocus = true
-        isCursorVisible = false
-        setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        imeOptions =
-          EditorInfo.IME_ACTION_GO or
-            EditorInfo.IME_FLAG_NO_FULLSCREEN or
-            EditorInfo.IME_FLAG_NO_EXTRACT_UI
-        inputType = EditorInfo.TYPE_CLASS_TEXT or EditorInfo.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-      }
-    (activity.window.decorView as ViewGroup).addView(editor)
-    editor.requestFocus()
-    editor.post { if (warmups[activity] === editor) editor.requestFocus() }
-    warmups[activity] = editor
-    if (activity.hasWindowFocus()) show(editor)
-  }
-
-  /**
-   * Called when the window itself has just taken focus. Re-asserts the warmup editor if Compose has
-   * not claimed focus yet, then asks the IME up on this same callback rather than on the next
-   * Compose frame.
-   */
   fun onWindowFocused(activity: Activity) {
-    val warmup = warmups[activity]
-    if (warmup != null) {
-      warmup.requestFocus()
-      show(warmup)
-    } else {
-      val view = activity.window.currentFocus ?: activity.window.decorView
-      show(view)
-    }
+    val view = activity.window.currentFocus ?: activity.window.decorView
+    show(view)
   }
-
-  fun releaseWarmup(activity: Activity) {
-    val editor = warmups.remove(activity) ?: return
-    editor.isFocusable = false
-    editor.isFocusableInTouchMode = false
-    (editor.parent as? ViewGroup)?.removeView(editor)
-  }
-
-  internal fun warmupFor(activity: Activity): EditText? = warmups[activity]
 
   private fun View.activityOrNull(): Activity? {
     var ctx = context

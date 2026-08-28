@@ -1,16 +1,8 @@
 package com.searchlauncher.app.ui
 
 import android.app.Activity
-import android.view.View
-import android.view.ViewGroup
 import android.view.WindowManager
-import android.view.inputmethod.EditorInfo
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -45,52 +37,30 @@ class ImeTest {
   }
 
   @Test
-  fun warmup_isAFocusedZeroSizeEditorUntilReleased() {
-    val activity = activity()
-    Ime.installWarmup(activity)
-    val warmup = Ime.warmupFor(activity)
-    assertNotNull(warmup)
-    val editor = warmup!!
-    assertTrue(editor.isFocused)
-    assertTrue(editor.isFocusableInTouchMode)
-    assertEquals(0, editor.layoutParams.width)
-    assertEquals(0, editor.layoutParams.height)
-    assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO, editor.importantForAccessibility)
-    assertTrue(editor.inputType and EditorInfo.TYPE_TEXT_FLAG_NO_SUGGESTIONS != 0)
-    assertTrue(editor.parent is ViewGroup)
-
-    Ime.releaseWarmup(activity)
-    assertNull(Ime.warmupFor(activity))
-    assertNull(editor.parent)
-    assertFalse(editor.isFocusable)
+  fun reservedHeight_usesStoredWhenPlausible() {
+    assertEquals(800, Ime.reservedHeightPx(storedPx = 800, containerHeightPx = 2400))
   }
 
   @Test
-  fun installWarmup_isIdempotent() {
-    val activity = activity()
-    Ime.installWarmup(activity)
-    val first = Ime.warmupFor(activity)
-    Ime.installWarmup(activity)
-    assertSame(first, Ime.warmupFor(activity))
-    Ime.releaseWarmup(activity)
+  fun reservedHeight_guessesWhenStoredIsMissingOrHuge() {
+    val guessed = (2400 * Ime.DEFAULT_HEIGHT_FRACTION).toInt()
+    assertEquals(guessed, Ime.reservedHeightPx(storedPx = 0, containerHeightPx = 2400))
+    assertEquals(guessed, Ime.reservedHeightPx(storedPx = 50, containerHeightPx = 2400))
+    assertEquals(guessed, Ime.reservedHeightPx(storedPx = 2000, containerHeightPx = 2400))
   }
 
   @Test
-  fun onWindowFocused_refocusesWarmupThenShowDoesNotThrow() {
+  fun reservedHeight_keepsStoredWhileContainerSizeIsUnknown() {
+    assertEquals(800, Ime.reservedHeightPx(storedPx = 800, containerHeightPx = 0))
+    assertEquals(0, Ime.reservedHeightPx(storedPx = 0, containerHeightPx = 0))
+  }
+
+  @Test
+  fun showAndHide_doNotThrow() {
     val activity = activity()
-    Ime.installWarmup(activity)
-    val warmup = Ime.warmupFor(activity)!!
-    warmup.clearFocus()
     Ime.onWindowFocused(activity)
-    assertTrue(warmup.isFocused)
     Ime.show(activity.window.decorView)
     Ime.hide(activity.window.decorView)
-    Ime.releaseWarmup(activity)
-  }
-
-  @Test
-  fun releaseWarmup_withoutInstall_isANoOp() {
-    Ime.releaseWarmup(activity())
   }
 
   private fun activity(): Activity = Robolectric.buildActivity(Activity::class.java).setup().get()

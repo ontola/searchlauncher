@@ -89,7 +89,6 @@ class SearchActivity : ComponentActivity(), KeyShortcutHost {
         riseWithKeyboard = true,
       )
     }
-    Ime.installWarmup(this)
   }
 
   override fun onWindowFocusChanged(hasFocus: Boolean) {

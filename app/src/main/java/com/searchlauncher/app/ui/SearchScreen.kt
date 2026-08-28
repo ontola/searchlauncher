@@ -110,7 +110,6 @@ import com.searchlauncher.app.util.traceSection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -718,32 +717,32 @@ fun SearchScreen(
   // happens is what the system needs to start the keyboard on the same frame — waiting for
   // window focus first, then requesting, is a frame (or several) too late.
   //
-  // SHOW_IMPLICIT used to drop the request whenever the user had just come from another app
-  // (they dismissed that app's keyboard), so we kept poking every 120ms. Explicit show plus
-  // per-frame retries replace that delay.
+  // Keep asking until the IME is really visible. The process is often still starting after a
+  // handful of frames, and giving up there left the keyboard arriving a beat later on tap.
   val windowInfo = androidx.compose.ui.platform.LocalWindowInfo.current
   val shouldShowKeyboard =
     rememberUpdatedState(isActive && !openingTab && !browserShowing && !inPip)
   LaunchedEffect(isActive, focusTrigger, browserShowing, openingTab, inPip) {
-    if (!shouldShowKeyboard.value) {
-      (context as? android.app.Activity)?.let { Ime.releaseWarmup(it) }
-      return@LaunchedEffect
-    }
-    val activity = context as? android.app.Activity
-    fun takeFocus(): Boolean {
-      val focused = focusRequester.requestFocus()
-      if (focused) activity?.let { Ime.releaseWarmup(it) }
-      return focused
-    }
-    takeFocus()
-    snapshotFlow { windowInfo.isWindowFocused }.first { it }
-    repeat(8) {
-      if (!windowInfo.isWindowFocused || !shouldShowKeyboard.value) return@LaunchedEffect
-      takeFocus()
-      Ime.show(view)
-      if (Ime.isVisible(view)) return@LaunchedEffect
-      withFrameNanos {}
-    }
+    if (!shouldShowKeyboard.value) return@LaunchedEffect
+    focusRequester.requestFocus()
+    snapshotFlow { windowInfo.isWindowFocused }
+      .collect { focused ->
+        if (!focused || !shouldShowKeyboard.value) return@collect
+        repeat(12) {
+          if (!windowInfo.isWindowFocused || !shouldShowKeyboard.value) return@collect
+          focusRequester.requestFocus()
+          Ime.show(view)
+          if (Ime.isVisible(view)) return@collect
+          withFrameNanos {}
+        }
+        repeat(30) {
+          if (!windowInfo.isWindowFocused || !shouldShowKeyboard.value) return@collect
+          focusRequester.requestFocus()
+          Ime.show(view)
+          if (Ime.isVisible(view)) return@collect
+          kotlinx.coroutines.delay(50)
+        }
+      }
   }
 
   // Tapping the field when it is already focused produces no focus change, so nothing would
@@ -902,19 +901,18 @@ fun SearchScreen(
    * Ceiling on what we are willing to believe a keyboard measures.
    *
    * The height is remembered so the bar can hold the keyboard's place before the IME reports
-   * itself, but a bogus reading could get in there and stick: the space reserved below is the
-   * *larger* of the stored and live values, so anything too big survives every later correction.
-   * Some IME windows span nearly the whole screen while only their lower part is keys, and a
-   * reading taken from one of those left the home screen squeezed into the top quarter with a black
-   * band beneath it until the IME settled and overwrote it.
+   * itself. A bogus reading could get in there and stick, so anything larger than half the window
+   * is ignored when saving. The home screen then parks at that stored height rather than following
+   * the live inset. Some IME windows span nearly the whole screen while only their lower part is
+   * keys, and a reading taken from one of those left the home screen squeezed into the top quarter
+   * with a black band beneath it until the IME settled and overwrote it.
    */
-  val maxPlausibleKeyboardPx = (windowInfo.containerSize.height * 0.5f).toInt()
+  val maxPlausibleKeyboardPx = (windowInfo.containerSize.height * Ime.MAX_HEIGHT_FRACTION).toInt()
 
-  // Read synchronously for initial value
+  // Read synchronously for initial value. Do not clamp against a zero max on the first frame
+  // (container size is often still 0), or a real stored height is thrown away and the bar jumps.
   var storedKeyboardHeight by remember {
-    mutableStateOf(
-      sharedPrefs.getInt(Prefs.Window.KEYBOARD_HEIGHT, 0).coerceAtMost(maxPlausibleKeyboardPx)
-    )
+    mutableStateOf(sharedPrefs.getInt(Prefs.Window.KEYBOARD_HEIGHT, 0))
   }
 
   val isMultiWindow = (context as? android.app.Activity)?.isInMultiWindowMode == true
@@ -926,7 +924,11 @@ fun SearchScreen(
    * than sitting in mid-air until the browser finally takes over.
    */
   LaunchedEffect(imeHeightPx) {
-    if (imeHeightPx > 100 && imeHeightPx <= maxPlausibleKeyboardPx && !isMultiWindow) {
+    if (
+      imeHeightPx >= Ime.MIN_PLAUSIBLE_HEIGHT_PX &&
+        imeHeightPx <= maxPlausibleKeyboardPx &&
+        !isMultiWindow
+    ) {
       // Wait for animation to settle (debounce)
       kotlinx.coroutines.delay(300)
       // If we are still active (didn't get cancelled by new value), save it
@@ -934,6 +936,9 @@ fun SearchScreen(
       sharedPrefs.edit().putInt(Prefs.Window.KEYBOARD_HEIGHT, imeHeightPx).apply()
     }
   }
+
+  val reservedKeyboardHeightPx =
+    Ime.reservedHeightPx(storedKeyboardHeight, windowInfo.containerSize.height)
 
   // The effective padding is the max of current IME or stored IME height
   // In multi-window/floating mode, we ignore stored height to avoid unnecessary gaps
@@ -954,7 +959,10 @@ fun SearchScreen(
         // Follows the IME down frame by frame while a tab opens, so the bar rides the keyboard
         // out instead of dropping once it has gone.
         openingTab -> imeHeightPx.toDp()
-        else -> kotlin.math.max(imeHeightPx, storedKeyboardHeight).toDp()
+        // Parked, not live: following the inset made the bar ride the IME up, then down, then
+        // up again whenever input restarted (a dummy editor, a focus handoff). The keys fill
+        // space the bar already holds.
+        else -> reservedKeyboardHeightPx.toDp()
       }
     }
 
@@ -969,7 +977,7 @@ fun SearchScreen(
    */
   val wallpaperBottomPadding =
     if (openingTab) {
-      with(density) { kotlin.math.max(imeHeightPx, storedKeyboardHeight).toDp() }
+      with(density) { reservedKeyboardHeightPx.toDp() }
     } else {
       bottomPadding
     }
