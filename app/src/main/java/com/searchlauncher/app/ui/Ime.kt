@@ -48,6 +48,18 @@ object Ime {
   }
 
   /**
+   * IME inset to pad the chrome with. Live values larger than [MAX_HEIGHT_FRACTION] of the screen
+   * are the IME window reporting itself as full-screen while the keys are not; using them shoved
+   * the search bar off the top. Fall back to the stored height so the bar stays put for that frame.
+   */
+  fun insetForLayoutPx(imePx: Int, storedPx: Int, containerHeightPx: Int): Int {
+    if (containerHeightPx <= 0) return imePx.coerceAtLeast(0)
+    val maxPx = (containerHeightPx * MAX_HEIGHT_FRACTION).toInt()
+    if (imePx in 0..maxPx) return imePx
+    return reservedHeightPx(storedPx, containerHeightPx)
+  }
+
+  /**
    * Height to keep for the wallpaper while a tab is opening and the keys are on their way out. The
    * chrome bar follows the live inset so it does not sit in mid-air above an empty keyboard well.
    */
@@ -74,9 +86,9 @@ object Ime {
     if (activity != null && !activity.hasWindowFocus()) return false
     val window = view.windowOrNull()
     val target = window?.currentFocus ?: view
-    if (window != null) {
-      WindowCompat.getInsetsController(window, target).show(WindowInsetsCompat.Type.ime())
-    }
+    // Only [showSoftInput]. WindowInsetsController.show(ime()) also drives the Compose inset, and
+    // calling both (or calling either repeatedly) rewound the IME animation: the bar rode up over
+    // an empty IME window, dropped, then rose again when the keys finally drew.
     val imm = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
     // Flags 0 is an explicit show, not SHOW_IMPLICIT (dropped after another app's keyboard was
     // dismissed) and not SHOW_FORCED (which keeps the IME up in the next activity).

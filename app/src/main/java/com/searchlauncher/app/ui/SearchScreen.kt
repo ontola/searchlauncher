@@ -738,16 +738,15 @@ fun SearchScreen(
         while (windowInfo.isWindowFocused && shouldShowKeyboard.value) {
           runCatching { focusRequester.requestFocus() }
           if (Ime.isVisible(view)) break
-          // A handful of explicit asks covers the editor not being ready on the first frame.
-          // After that, wait: showSoftInput and WindowInsetsController.show both restart the
-          // IME animation if they are issued while it is already coming up.
-          if (shows < 3) {
+          // One ask, then one retry after a few frames if the editor was not ready. More than
+          // that restarts the IME animation and the bar hops.
+          if (shows == 0 || (shows == 1 && attempts == 8)) {
             Ime.show(view)
             shows++
           }
           attempts++
           if (attempts > 200) break
-          if (shows < 3) withFrameNanos {} else kotlinx.coroutines.delay(50)
+          if (shows < 2 && attempts < 8) withFrameNanos {} else kotlinx.coroutines.delay(50)
         }
       }
   }
@@ -948,10 +947,11 @@ fun SearchScreen(
   }
 
   val reservedKeyboardHeightPx = Ime.reservedHeightPx(storedKeyboardHeight, screenHeightPx)
+  val imeForLayoutPx = Ime.insetForLayoutPx(imeHeightPx, storedKeyboardHeight, screenHeightPx)
 
-  // Chrome follows the live IME inset, including on home. Parking at a stored height put the
-  // bar in mid-air above an empty well until the keys caught up — and catching up took longer
-  // because the show loop kept restarting that same animation.
+  // Chrome follows the live IME inset, including on home. A stored-height park put the bar in
+  // mid-air above an empty well; a full-screen IME reading shoved it off the top. [imeForLayoutPx]
+  // is the live inset with those two cases stripped.
   val navigationBarBottomPx = WindowInsets.navigationBars.getBottom(density)
   val bottomPadding =
     with(density) {
@@ -961,14 +961,14 @@ fun SearchScreen(
         // without the bar hopping.
         riseWithKeyboard ->
           kotlin.math
-            .max(imeHeightPx, navigationBarBottomPx - BROWSER_CHROME_BAR_OFFSET.roundToPx())
+            .max(imeForLayoutPx, navigationBarBottomPx - BROWSER_CHROME_BAR_OFFSET.roundToPx())
             .coerceAtLeast(0)
             .toDp()
-        isMultiWindow -> imeHeightPx.toDp()
+        isMultiWindow -> imeForLayoutPx.toDp()
         // Follows the IME down frame by frame while a tab opens, so the bar rides the keyboard
         // out instead of dropping once it has gone.
-        openingTab -> imeHeightPx.toDp()
-        else -> kotlin.math.max(imeHeightPx, navigationBarBottomPx).toDp()
+        openingTab -> imeForLayoutPx.toDp()
+        else -> kotlin.math.max(imeForLayoutPx, navigationBarBottomPx).toDp()
       }
     }
 

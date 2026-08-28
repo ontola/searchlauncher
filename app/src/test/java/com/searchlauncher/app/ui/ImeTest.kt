@@ -58,6 +58,21 @@ class ImeTest {
   }
 
   @Test
+  fun insetForLayout_usesLiveWhenPlausible() {
+    assertEquals(800, Ime.insetForLayoutPx(imePx = 800, storedPx = 900, containerHeightPx = 2400))
+    assertEquals(0, Ime.insetForLayoutPx(imePx = 0, storedPx = 900, containerHeightPx = 2400))
+  }
+
+  @Test
+  fun insetForLayout_ignoresFullScreenImeWindow() {
+    val reserved = Ime.reservedHeightPx(storedPx = 900, containerHeightPx = 2400)
+    assertEquals(
+      reserved,
+      Ime.insetForLayoutPx(imePx = 2300, storedPx = 900, containerHeightPx = 2400),
+    )
+  }
+
+  @Test
   fun showAndHide_doNotThrow() {
     val activity = activity()
     Ime.onWindowFocused(activity)
