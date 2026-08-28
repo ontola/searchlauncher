@@ -39,6 +39,7 @@ class ImeTest {
   @Test
   fun reservedHeight_usesStoredWhenPlausible() {
     assertEquals(800, Ime.reservedHeightPx(storedPx = 800, containerHeightPx = 2400))
+    assertEquals(901, Ime.reservedHeightPx(storedPx = 901, containerHeightPx = 2400))
   }
 
   @Test

@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -728,19 +729,14 @@ fun SearchScreen(
     snapshotFlow { windowInfo.isWindowFocused }
       .collect { focused ->
         if (!focused || !shouldShowKeyboard.value) return@collect
-        repeat(12) {
-          if (!windowInfo.isWindowFocused || !shouldShowKeyboard.value) return@collect
+        var frames = 0
+        while (windowInfo.isWindowFocused && shouldShowKeyboard.value) {
           focusRequester.requestFocus()
           Ime.show(view)
-          if (Ime.isVisible(view)) return@collect
-          withFrameNanos {}
-        }
-        repeat(30) {
-          if (!windowInfo.isWindowFocused || !shouldShowKeyboard.value) return@collect
-          focusRequester.requestFocus()
-          Ime.show(view)
-          if (Ime.isVisible(view)) return@collect
-          kotlinx.coroutines.delay(50)
+          if (Ime.isVisible(view)) break
+          if (frames < 12) withFrameNanos {} else kotlinx.coroutines.delay(50)
+          frames++
+          if (frames > 200) break
         }
       }
   }
@@ -895,6 +891,7 @@ fun SearchScreen(
     context.getSharedPreferences(Prefs.Window.FILE, Context.MODE_PRIVATE)
   }
   val density = LocalDensity.current
+  val screenHeightPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.roundToPx() }
   val imeHeightPx = WindowInsets.ime.getBottom(density)
 
   /**
@@ -906,8 +903,11 @@ fun SearchScreen(
    * the live inset. Some IME windows span nearly the whole screen while only their lower part is
    * keys, and a reading taken from one of those left the home screen squeezed into the top quarter
    * with a black band beneath it until the IME settled and overwrote it.
+   *
+   * Sized from the screen, not [androidx.compose.ui.platform.WindowInfo.containerSize]: that
+   * shrinks when the IME is up, which made the reserved height change and the bar jump.
    */
-  val maxPlausibleKeyboardPx = (windowInfo.containerSize.height * Ime.MAX_HEIGHT_FRACTION).toInt()
+  val maxPlausibleKeyboardPx = (screenHeightPx * Ime.MAX_HEIGHT_FRACTION).toInt()
 
   // Read synchronously for initial value. Do not clamp against a zero max on the first frame
   // (container size is often still 0), or a real stored height is thrown away and the bar jumps.
@@ -937,8 +937,7 @@ fun SearchScreen(
     }
   }
 
-  val reservedKeyboardHeightPx =
-    Ime.reservedHeightPx(storedKeyboardHeight, windowInfo.containerSize.height)
+  val reservedKeyboardHeightPx = Ime.reservedHeightPx(storedKeyboardHeight, screenHeightPx)
 
   // The effective padding is the max of current IME or stored IME height
   // In multi-window/floating mode, we ignore stored height to avoid unnecessary gaps
