@@ -45,6 +45,8 @@ object Ime {
       view.post { if (view.isAttachedToWindow) show(view) }
       return
     }
+    val activity = view.activityOrNull()
+    if (activity != null && !activity.hasWindowFocus()) return
     val window = view.windowOrNull()
     if (window != null) {
       WindowCompat.getInsetsController(window, view).show(WindowInsetsCompat.Type.ime())
@@ -121,12 +123,14 @@ object Ime {
 
   internal fun warmupFor(activity: Activity): EditText? = warmups[activity]
 
-  private fun View.windowOrNull(): Window? {
+  private fun View.activityOrNull(): Activity? {
     var ctx = context
     while (ctx is ContextWrapper) {
-      if (ctx is Activity) return ctx.window
+      if (ctx is Activity) return ctx
       ctx = ctx.baseContext
     }
     return null
   }
+
+  private fun View.windowOrNull(): Window? = activityOrNull()?.window
 }

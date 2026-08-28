@@ -738,6 +738,7 @@ fun SearchScreen(
     takeFocus()
     snapshotFlow { windowInfo.isWindowFocused }.first { it }
     repeat(8) {
+      if (!windowInfo.isWindowFocused || !shouldShowKeyboard.value) return@LaunchedEffect
       takeFocus()
       Ime.show(view)
       if (Ime.isVisible(view)) return@LaunchedEffect

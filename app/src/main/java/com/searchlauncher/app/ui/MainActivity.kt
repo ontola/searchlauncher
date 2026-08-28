@@ -589,6 +589,12 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     }
   }
 
+  override fun onPause() {
+    // Explicit hide so a SHOW_FORCED from the IME service cannot follow us into the next app.
+    Ime.hide(window.decorView)
+    super.onPause()
+  }
+
   override fun onWindowFocusChanged(hasFocus: Boolean) {
     super.onWindowFocusChanged(hasFocus)
     if (hasFocus && currentScreenState == Screen.Search && !inPictureInPicture) {
