@@ -3,6 +3,7 @@ package com.searchlauncher.app.ui
 import android.app.Activity
 import android.view.WindowManager
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -62,6 +63,12 @@ class ImeTest {
     Ime.onWindowFocused(activity)
     Ime.show(activity.window.decorView)
     Ime.hide(activity.window.decorView)
+  }
+
+  @Test
+  fun show_returnsFalseWhenTheWindowIsNotFocused() {
+    val activity = Robolectric.buildActivity(Activity::class.java).create().get()
+    assertFalse(Ime.show(activity.window.decorView))
   }
 
   private fun activity(): Activity = Robolectric.buildActivity(Activity::class.java).setup().get()

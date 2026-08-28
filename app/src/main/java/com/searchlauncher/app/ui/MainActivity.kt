@@ -588,17 +588,13 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     }
   }
 
-  override fun onPause() {
-    // Explicit hide so a SHOW_FORCED from the IME service cannot follow us into the next app.
-    Ime.hide(window.decorView)
-    super.onPause()
-  }
-
   override fun onWindowFocusChanged(hasFocus: Boolean) {
     super.onWindowFocusChanged(hasFocus)
     if (hasFocus && currentScreenState == Screen.Search && !inPictureInPicture) {
       // Show here, but do not bump [focusTrigger]: that restarts the Compose IME loop and
-      // cancels the request that onResume already started.
+      // cancels the request that onResume already started. Do not hide in onPause either —
+      // that tears the IME process down, and the next home arrival waits on a cold start.
+      // Without SHOW_FORCED the keyboard leaves with this window's focus.
       Ime.onWindowFocused(this)
     }
   }

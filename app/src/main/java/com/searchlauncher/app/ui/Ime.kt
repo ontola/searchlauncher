@@ -17,9 +17,12 @@ import androidx.core.view.WindowInsetsCompat
  * The IME is started by the system when a focused, text-capable view exists at the moment the
  * window gains focus. Compose's search field is often not that view yet: it is created a frame or
  * two later, and [InputMethodManager.SHOW_IMPLICIT] then drops the follow-up request because the
- * user just dismissed another app's keyboard. Show requests are explicit so they are not dropped,
- * and the home screen parks the chrome bar at a reserved height so it does not ride the IME
- * animation.
+ * user just dismissed another app's keyboard. Show requests are explicit so they are not dropped.
+ *
+ * Calling [show] again while the IME is already on its way restarts its appearance animation, so
+ * callers should treat a `true` return as "accepted" and wait rather than keep poking. Hiding from
+ * [Activity.onPause] is also avoided: that tears the IME process down, and the next home arrival
+ * then waits on a cold start.
  */
 object Ime {
 
@@ -45,9 +48,8 @@ object Ime {
   }
 
   /**
-   * Height the home screen should reserve for the keyboard, whether or not the IME has reported
-   * itself yet. Using the live inset here is what made the search bar hop: the IME animates from 0,
-   * and a dummy editor taking focus then giving it back made that animation run twice.
+   * Height to keep for the wallpaper while a tab is opening and the keys are on their way out. The
+   * chrome bar follows the live inset so it does not sit in mid-air above an empty keyboard well.
    */
   fun reservedHeightPx(storedPx: Int, containerHeightPx: Int): Int {
     if (containerHeightPx <= 0) return storedPx.coerceAtLeast(0)
@@ -58,22 +60,27 @@ object Ime {
       .coerceIn(MIN_PLAUSIBLE_HEIGHT_PX, maxPx.coerceAtLeast(MIN_PLAUSIBLE_HEIGHT_PX))
   }
 
-  fun show(view: View) {
+  /**
+   * Asks the IME to appear for [view]'s window. Returns true if the input method accepted the
+   * request (the keys may still be animating in). Returns false if this window cannot take the IME
+   * yet — not attached, not focused, or no editor to bind.
+   */
+  fun show(view: View): Boolean {
     if (!view.isAttachedToWindow) {
       view.post { if (view.isAttachedToWindow) show(view) }
-      return
+      return false
     }
     val activity = view.activityOrNull()
-    if (activity != null && !activity.hasWindowFocus()) return
+    if (activity != null && !activity.hasWindowFocus()) return false
     val window = view.windowOrNull()
-    if (window != null) {
-      WindowCompat.getInsetsController(window, view).show(WindowInsetsCompat.Type.ime())
-    }
     val target = window?.currentFocus ?: view
+    if (window != null) {
+      WindowCompat.getInsetsController(window, target).show(WindowInsetsCompat.Type.ime())
+    }
     val imm = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
     // Flags 0 is an explicit show, not SHOW_IMPLICIT (dropped after another app's keyboard was
     // dismissed) and not SHOW_FORCED (which keeps the IME up in the next activity).
-    imm.showSoftInput(target, 0)
+    return imm.showSoftInput(target, 0)
   }
 
   fun hide(view: View) {

@@ -96,11 +96,6 @@ class SearchActivity : ComponentActivity(), KeyShortcutHost {
     if (hasFocus) Ime.onWindowFocused(this)
   }
 
-  override fun onPause() {
-    Ime.hide(window.decorView)
-    super.onPause()
-  }
-
   /**
    * Pushes whatever is behind this translucent window — the web page, the launcher — out of focus,
    * ramping the radius up so the backdrop settles along with the rest of the overlay instead of
