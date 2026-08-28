@@ -3,7 +3,6 @@ package com.searchlauncher.app.ui
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.os.Build
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
@@ -52,10 +51,9 @@ object Ime {
     }
     val target = window?.currentFocus ?: view
     val imm = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-    // SHOW_FORCED is ignored from API 33; the insets-controller call above is its replacement.
-    @Suppress("DEPRECATION")
-    val flags = if (Build.VERSION.SDK_INT < 33) InputMethodManager.SHOW_FORCED else 0
-    imm.showSoftInput(target, flags)
+    // Flags 0 is an explicit show, not SHOW_IMPLICIT (dropped after another app's keyboard was
+    // dismissed) and not SHOW_FORCED (which keeps the IME up in the next activity).
+    imm.showSoftInput(target, 0)
   }
 
   fun hide(view: View) {
