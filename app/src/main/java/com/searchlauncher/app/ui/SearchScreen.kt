@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -268,12 +269,6 @@ fun SearchScreen(
   val view = LocalView.current
   val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
-  // Use InputMethodManager for more reliable keyboard control
-  val imm = remember {
-    context.getSystemService(Context.INPUT_METHOD_SERVICE)
-      as android.view.inputmethod.InputMethodManager
-  }
-
   fun retractKeyboardForTab() {
     openingTab = true
     // Focus goes with it. Asking only the keyboard to leave was right when the browser was another
@@ -283,10 +278,7 @@ fun SearchScreen(
     // is what happened when a result was picked from the in-tab search and the page opened with the
     // keyboard still up.
     focusManager.clearFocus()
-    // Straight to the IMM like the rest of this screen's keyboard handling: the field keeps focus
-    // (the launcher is still the foreground app until the browser arrives), so only the keyboard
-    // itself is asked to go.
-    imm.hideSoftInputFromWindow(view.windowToken, 0)
+    Ime.hide(view)
   }
 
   // Every browser tab is a window of its own, so that the system's app switcher lists tabs the way
@@ -721,22 +713,35 @@ fun SearchScreen(
     }
   }
 
-  // Ask for the keyboard on activation. The IME can only be shown once the window actually
-  // holds focus — returning to the home screen often delivers focus late, so wait for it
-  // instead of guessing with fixed retries, then keep asking until the IME is really visible.
+  // Focus the field as soon as it exists, even before this window has focus. The IME can only
+  // actually appear once the window is focused, but an editor that is already focused when that
+  // happens is what the system needs to start the keyboard on the same frame — waiting for
+  // window focus first, then requesting, is a frame (or several) too late.
+  //
+  // SHOW_IMPLICIT used to drop the request whenever the user had just come from another app
+  // (they dismissed that app's keyboard), so we kept poking every 120ms. Explicit show plus
+  // per-frame retries replace that delay.
   val windowInfo = androidx.compose.ui.platform.LocalWindowInfo.current
-  LaunchedEffect(isActive, focusTrigger, browserShowing, openingTab) {
-    if (isActive && !openingTab && !browserShowing) {
-      snapshotFlow { windowInfo.isWindowFocused }.first { it }
-      repeat(10) {
-        focusRequester.requestFocus()
-        imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-        kotlinx.coroutines.delay(120)
-        val imeVisible =
-          androidx.core.view.ViewCompat.getRootWindowInsets(view)
-            ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
-        if (imeVisible) return@LaunchedEffect
-      }
+  val shouldShowKeyboard =
+    rememberUpdatedState(isActive && !openingTab && !browserShowing && !inPip)
+  LaunchedEffect(isActive, focusTrigger, browserShowing, openingTab, inPip) {
+    if (!shouldShowKeyboard.value) {
+      (context as? android.app.Activity)?.let { Ime.releaseWarmup(it) }
+      return@LaunchedEffect
+    }
+    val activity = context as? android.app.Activity
+    fun takeFocus(): Boolean {
+      val focused = focusRequester.requestFocus()
+      if (focused) activity?.let { Ime.releaseWarmup(it) }
+      return focused
+    }
+    takeFocus()
+    snapshotFlow { windowInfo.isWindowFocused }.first { it }
+    repeat(8) {
+      takeFocus()
+      Ime.show(view)
+      if (Ime.isVisible(view)) return@LaunchedEffect
+      withFrameNanos {}
     }
   }
 
@@ -747,7 +752,7 @@ fun SearchScreen(
     searchFieldInteractionSource.interactions.collect { interaction ->
       if (interaction is androidx.compose.foundation.interaction.PressInteraction.Release) {
         focusRequester.requestFocus()
-        imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        Ime.show(view)
       }
     }
   }
@@ -1850,18 +1855,25 @@ fun SearchScreen(
                 }
               },
               modifier =
-                Modifier.weight(1f).focusRequester(focusRequester).onKeyEvent { event ->
-                  if (
-                    event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
-                      displayQuery.isEmpty() &&
-                      activeShortcut != null
-                  ) {
-                    onQueryChange("")
-                    true
-                  } else {
-                    false
+                Modifier.weight(1f)
+                  .focusRequester(focusRequester)
+                  .onFocusChanged { state ->
+                    if (state.isFocused && shouldShowKeyboard.value) {
+                      Ime.show(view)
+                    }
                   }
-                },
+                  .onKeyEvent { event ->
+                    if (
+                      event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
+                        displayQuery.isEmpty() &&
+                        activeShortcut != null
+                    ) {
+                      onQueryChange("")
+                      true
+                    } else {
+                      false
+                    }
+                  },
               textStyle =
                 LocalTextStyle.current.copy(fontSize = 16.sp, color = LocalContentColor.current),
               // Autocorrect off keeps the query literal: package names, commands and URL fragments
