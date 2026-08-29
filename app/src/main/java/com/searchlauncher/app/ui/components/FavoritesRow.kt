@@ -6,10 +6,27 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -19,6 +36,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -31,7 +49,7 @@ import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.ThemedIcons
 import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.ui.toImageBitmap
-import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
@@ -63,6 +81,11 @@ fun FavoritesRow(
    * menus identical. Left out, an item offers only what this row can do by itself.
    */
   menuActions: ((SearchResult) -> ResultMenuActions)? = null,
+  /**
+   * How many rows pinned favorites may wrap onto. [FAVORITES_MAX_ROWS_AUTO] grows as needed (up to
+   * [FAVORITES_MAX_ROWS_CAP]); `1`–`4` cap growth at that many rows.
+   */
+  maxRows: Int = FAVORITES_MAX_ROWS_AUTO,
 ) {
   if (favorites.isEmpty() && history.isEmpty()) return
 
@@ -71,56 +94,67 @@ fun FavoritesRow(
 
   val minIconSizeDp = minIconSizeSetting.dp
   val dividerGapDp = 16.dp
+  val minSpacingDp = 6.dp
+  val rowSpacingDp = 4.dp
 
   BoxWithConstraints(
     modifier =
       Modifier.fillMaxWidth().wrapContentHeight().padding(horizontal = 16.dp, vertical = 2.dp),
     contentAlignment = Alignment.Center,
   ) {
-    val minSpacingDp = 6.dp
     val spacingPx = with(density) { minSpacingDp.toPx() }
     val minIconSizePx = with(density) { minIconSizeDp.toPx() }
     val dividerGapPx = with(density) { dividerGapDp.toPx() }
+    val rowSpacingPx = with(density) { rowSpacingDp.toPx() }
     val totalWidthPx = constraints.maxWidth.toFloat()
 
-    // Dynamically calculate how many history items we can actually fit
+    val measured =
+      remember(
+        favorites.size,
+        history.size,
+        historyLimit,
+        totalWidthPx,
+        minIconSizeSetting,
+        drawDivider,
+        expandToFill,
+        maxRows,
+      ) {
+        computeFavoritesBarLayout(
+            totalWidthPx = totalWidthPx,
+            favoriteCount = favorites.size,
+            historyLimit = historyLimit,
+            minIconSizePx = minIconSizePx,
+            spacingPx = spacingPx,
+            dividerGapPx = dividerGapPx,
+            drawDivider = drawDivider,
+            expandToFill = expandToFill,
+            maxRowsSetting = maxRows,
+          )
+          .also { onCapacityChanged(it.historyCapacity) }
+      }
+
     val visibleHistory =
-      remember(favorites, history, totalWidthPx, historyLimit, minIconSizeSetting, drawDivider) {
-        val effectiveLimit =
-          if (historyLimit >= 0) {
-            historyLimit
-          } else {
-            val showDividerInitial = drawDivider && favorites.isNotEmpty() && history.isNotEmpty()
-            val gapToReserve = if (showDividerInitial) dividerGapPx else 0f
-
-            // Calculate max items that fit at min size
-            // Use +0.5 to be slightly more generous (floor vs round) to avoid 'too few' icons
-            val maxTotalItems =
-              ((totalWidthPx + spacingPx - gapToReserve + (spacingPx / 2f)) /
-                  (minIconSizePx + spacingPx))
-                .toInt()
-            (maxTotalItems - favorites.size).coerceAtLeast(0)
-          }
-
-        onCapacityChanged(effectiveLimit)
-        val visible = history.take(effectiveLimit)
+      remember(history, measured.historyCapacity, reverseHistory) {
+        val visible = history.take(measured.historyCapacity)
         if (reverseHistory) visible.reversed() else visible
       }
 
     val allItems = favorites + visibleHistory
     val boundaryIndex = favorites.size
-    val showDivider = drawDivider && favorites.isNotEmpty() && visibleHistory.isNotEmpty()
+    val showDivider = measured.showDivider
 
     // State for dragging
     var draggedItemId by remember { mutableStateOf<String?>(null) }
     var dragPosition by remember { mutableStateOf(Offset.Zero) }
-    var totalDragX by remember { mutableStateOf(0f) }
+    var totalDrag by remember { mutableStateOf(0f) }
     var currentOrder by remember(allItems) { mutableStateOf(allItems.map { it.favoriteKey }) }
     var showMenuForIndex by remember { mutableStateOf<Int?>(null) }
     var dragBoundaryIndex by remember(boundaryIndex) { mutableStateOf(boundaryIndex) }
     var initialDragIndex by remember { mutableStateOf(-1) }
 
     val totalCount = allItems.size
+    val itemsPerRow = measured.itemsPerRow
+    val rowCount = measured.rowCount
 
     // Update dragBoundaryIndex whenever order changes during drag
     LaunchedEffect(draggedItemId, currentOrder) {
@@ -170,26 +204,10 @@ fun FavoritesRow(
       }
     val iconBitmaps = themedIconBitmaps ?: plainIconBitmaps
 
-    // Calculate layout metrics
-    // We reserve space for the divider gap if needed
-    val effectiveSpacingCount = totalCount - 1
-    val baseReservedSpace =
-      (spacingPx * effectiveSpacingCount) + (if (showDivider) dividerGapPx else 0f)
-
-    val calculatedSizePx =
-      if (totalCount > 0) (totalWidthPx - baseReservedSpace) / totalCount else 0f
-    val preferredIconSizePx = with(density) { minIconSizeSetting.dp.toPx() }
-    val finalIconSizePx =
-      when {
-        calculatedSizePx <= 0f -> 1f
-        expandToFill -> calculatedSizePx
-        else -> minOf(preferredIconSizePx, calculatedSizePx)
-      }
+    val finalIconSizePx = measured.iconSizePx
     val finalIconSize = with(density) { finalIconSizePx.toDp() }
-
-    val itemWidthPx = finalIconSizePx + spacingPx
-    val contentWidthPx = (totalCount * finalIconSizePx) + baseReservedSpace - spacingPx
-    val startX = (totalWidthPx - contentWidthPx) / 2
+    val barHeightPx = barHeightPx(rowCount, finalIconSizePx, rowSpacingPx)
+    val barHeight = with(density) { barHeightPx.toDp() }
 
     val effectiveBoundary = if (draggedItemId != null) dragBoundaryIndex else boundaryIndex
     val effectiveShowDivider =
@@ -198,32 +216,38 @@ fun FavoritesRow(
       } else {
         showDivider
       }
+    val effectiveLastRowFavs =
+      if (rowCount <= 1) effectiveBoundary
+      else (effectiveBoundary - itemsPerRow * (rowCount - 1)).coerceIn(0, itemsPerRow)
 
-    // Helper to calculate relative X (without startX) for an item at a specific index
-    fun getRelativeXForIndex(index: Int): Float {
-      var x = index * (finalIconSizePx + spacingPx)
-      if (effectiveShowDivider && index >= effectiveBoundary) {
-        x += dividerGapPx
-      }
-      return x
-    }
+    fun xForIndex(index: Int): Float =
+      itemX(
+        index = index,
+        totalCount = totalCount,
+        itemsPerRow = itemsPerRow,
+        iconSizePx = finalIconSizePx,
+        spacingPx = spacingPx,
+        totalWidthPx = totalWidthPx,
+        showDivider = effectiveShowDivider,
+        lastRowFavoriteCount = effectiveLastRowFavs,
+        dividerGapPx = dividerGapPx,
+        rowCount = rowCount,
+      )
 
-    // Original helper for drag logic (includes startX)
-    fun getXPositionForIndex(index: Int): Float {
-      return startX + getRelativeXForIndex(index)
-    }
+    fun yForIndex(index: Int): Float = itemY(index, itemsPerRow, finalIconSizePx, rowSpacingPx)
 
-    Box(modifier = Modifier.fillMaxWidth().height(finalIconSize)) {
-      // Background Divider
-      if (effectiveShowDivider) {
-        val relativeDividerX =
-          getRelativeXForIndex(effectiveBoundary) - (dividerGapPx / 2) - (spacingPx / 2)
+    Box(modifier = Modifier.fillMaxWidth().height(barHeight)) {
+      if (effectiveShowDivider && effectiveLastRowFavs > 0) {
+        val dividerIndex = effectiveBoundary.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
+        val dividerX = xForIndex(dividerIndex) - (dividerGapPx / 2) - (spacingPx / 2)
+        val dividerY = yForIndex((rowCount - 1) * itemsPerRow)
         Box(
           modifier =
-            Modifier.offset(x = with(density) { (startX + relativeDividerX).toDp() })
-              .width(1.5.dp)
-              .height(finalIconSize * 0.7f)
-              .align(Alignment.CenterStart)
+            Modifier.offset(
+                x = with(density) { dividerX.toDp() },
+                y = with(density) { (dividerY + finalIconSizePx * 0.15f).toDp() },
+              )
+              .size(width = 1.5.dp, height = finalIconSize * 0.7f)
               .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
         )
       }
@@ -237,50 +261,49 @@ fun FavoritesRow(
 
           // Use static position for the Box receiving gestures to avoid fighting the animation
           val displayIndex = if (isGhost) initialDragIndex else currentIndex
-          val relativeX = getRelativeXForIndex(displayIndex)
-          val relativeXDp = with(density) { relativeX.toDp() }
+          val xDp = with(density) { xForIndex(displayIndex).toDp() }
+          val yDp = with(density) { yForIndex(displayIndex).toDp() }
 
-          // Animate ONLY the relative position, not the startX group shift
-          val animatedRelativeXDp by
-            animateDpAsState(targetValue = relativeXDp, label = "ItemAnimation")
-          val startXDp = with(density) { startX.toDp() }
+          val animatedXDp by animateDpAsState(targetValue = xDp, label = "ItemAnimationX")
+          val animatedYDp by animateDpAsState(targetValue = yDp, label = "ItemAnimationY")
 
           Box(
             modifier =
-              Modifier.offset(x = startXDp + animatedRelativeXDp)
+              Modifier.offset(x = animatedXDp, y = animatedYDp)
                 .size(finalIconSize)
                 .clip(RoundedCornerShape(12.dp))
                 .graphicsLayer { alpha = if (isGhost) 0f else 1f }
                 .pointerInput(itemKey) { detectTapGestures(onTap = { onLaunch(result) }) }
-                .pointerInput(itemKey, startX, itemWidthPx) {
+                .pointerInput(itemKey, itemsPerRow, finalIconSizePx) {
                   detectDragGesturesAfterLongPress(
                     onDragStart = { offset ->
                       val freshIndex = currentOrder.indexOf(itemKey).takeIf { it != -1 } ?: 0
                       initialDragIndex = freshIndex
 
-                      // Calculate CURRENT visual position for smooth handoff
-                      val currentVisualXPx = startX + with(density) { animatedRelativeXDp.toPx() }
+                      val currentVisualXPx = with(density) { animatedXDp.toPx() }
+                      val currentVisualYPx = with(density) { animatedYDp.toPx() }
 
                       draggedItemId = itemKey
-                      dragPosition = Offset(currentVisualXPx + offset.x, offset.y)
-                      totalDragX = 0f
+                      dragPosition =
+                        Offset(currentVisualXPx + offset.x, currentVisualYPx + offset.y)
+                      totalDrag = 0f
                       haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     },
                     onDrag = { change, dragAmount ->
                       change.consume()
                       dragPosition += dragAmount
-                      totalDragX += abs(dragAmount.x)
+                      totalDrag += hypot(dragAmount.x, dragAmount.y)
 
                       val draggedId = draggedItemId ?: return@detectDragGesturesAfterLongPress
                       val dragIdx = currentOrder.indexOf(draggedId)
                       if (dragIdx == -1) return@detectDragGesturesAfterLongPress
 
-                      // Calculate target index by finding which item center it's closest to
                       var bestIndex = 0
                       var minDistance = Float.MAX_VALUE
                       for (i in 0 until totalCount) {
-                        val centerX = getXPositionForIndex(i) + finalIconSizePx / 2
-                        val dist = abs(dragPosition.x - centerX)
+                        val centerX = xForIndex(i) + finalIconSizePx / 2
+                        val centerY = yForIndex(i) + finalIconSizePx / 2
+                        val dist = hypot(dragPosition.x - centerX, dragPosition.y - centerY)
                         if (dist < minDistance) {
                           minDistance = dist
                           bestIndex = i
@@ -300,34 +323,29 @@ fun FavoritesRow(
                       val finalIdx = currentOrder.indexOf(draggedId)
                       val dragThreshold = with(density) { 10.dp.toPx() }
 
-                      if (finalIdx != -1 && totalDragX < dragThreshold) {
+                      if (finalIdx != -1 && totalDrag < dragThreshold) {
                         showMenuForIndex = finalIdx
                       } else {
-                        // REORDER / MOVE Logic
                         val wasFavorite = favorites.any { it.favoriteKey == draggedId }
                         val isNowInFavoriteZone = finalIdx < boundaryIndex
 
                         if (!wasFavorite && isNowInFavoriteZone) {
-                          // History item moved to favorites!
                           onToggleFavorite(result)
-                          // The SearchScreen will re-trigger a fetch and update currentOrder
                         } else if (wasFavorite && isNowInFavoriteZone) {
-                          // Just reordering within favorites
                           onReorder(currentOrder.take(boundaryIndex))
                         } else if (wasFavorite && !isNowInFavoriteZone) {
-                          // Favorite moved out - unfavorite it? (User didn't ask but it's natural)
                           onToggleFavorite(result)
                         }
                       }
 
                       draggedItemId = null
                       initialDragIndex = -1
-                      totalDragX = 0f
+                      totalDrag = 0f
                     },
                     onDragCancel = {
                       draggedItemId = null
                       initialDragIndex = -1
-                      totalDragX = 0f
+                      totalDrag = 0f
                     },
                   )
                 },
@@ -338,11 +356,10 @@ fun FavoritesRow(
               Image(
                 bitmap = imageBitmap,
                 contentDescription = result.title,
-                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.size(finalIconSize * 0.8f),
               )
             } else {
-              // Fallback placeholder for missing icons
               Box(
                 modifier =
                   Modifier.size(finalIconSize * 0.7f)
@@ -360,17 +377,13 @@ fun FavoritesRow(
               }
             }
 
-            // Context Menu
             DropdownMenu(
-              expanded = showMenuForIndex == currentIndex, // Use currentIndex for menu
+              expanded = showMenuForIndex == currentIndex,
               onDismissRequest = { showMenuForIndex = null },
               modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
               properties = PopupProperties(focusable = false),
             ) {
               val isFavorite = favorites.any { it.favoriteKey == result.favoriteKey }
-              // The favourite entry is the one thing that reads differently here — an item in this
-              // row is already a favourite, so it offers to remove rather than to add — and that
-              // comes out of isFavorite rather than out of a different menu.
               val actions =
                 menuActions?.invoke(result)
                   ?: ResultMenuActions(onToggleFavorite = { onToggleFavorite(result) })
@@ -387,13 +400,11 @@ fun FavoritesRow(
       }
     }
 
-    // 2. Drag Overlay
-    // Positioned using global coordinates derived from gesture
     draggedItemId?.let { id ->
       val result = allItems.find { it.favoriteKey == id } ?: return@let
       val imageBitmap = iconBitmaps[id] ?: return@let
 
-      Box(modifier = Modifier.fillMaxWidth().height(finalIconSize)) {
+      Box(modifier = Modifier.fillMaxWidth().height(barHeight)) {
         Box(
           modifier =
             Modifier.offset {
@@ -418,7 +429,7 @@ fun FavoritesRow(
           Image(
             bitmap = imageBitmap,
             contentDescription = result.title,
-            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            contentScale = ContentScale.Fit,
             modifier = Modifier.size(finalIconSize * 0.8f),
           )
         }

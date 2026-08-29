@@ -90,6 +90,7 @@ import com.searchlauncher.app.ui.browser.indexOfTabShowing
 import com.searchlauncher.app.ui.browser.rememberBrowserTabSwipeState
 import com.searchlauncher.app.ui.components.BookmarkDialog
 import com.searchlauncher.app.ui.components.ConsentDialog
+import com.searchlauncher.app.ui.components.FAVORITES_MAX_ROWS_AUTO
 import com.searchlauncher.app.ui.components.FavoritesRow
 import com.searchlauncher.app.ui.components.PrivacyPolicyDialog
 import com.searchlauncher.app.ui.components.ResultMenuActions
@@ -209,6 +210,13 @@ fun SearchScreen(
       .collectAsState(initial = false)
   val minIconSizeSetting by
     remember { MinIconSize.flow(context) }.collectAsState(initial = MinIconSize.cached(context))
+  val favoritesMaxRows by
+    remember {
+        context.dataStore.data.map {
+          it[PreferencesKeys.FAVORITES_MAX_ROWS] ?: FAVORITES_MAX_ROWS_AUTO
+        }
+      }
+      .collectAsState(initial = FAVORITES_MAX_ROWS_AUTO)
   val autocorrectEnabled by
     remember { context.dataStore.data.map { it[PreferencesKeys.SEARCH_AUTOCORRECT] ?: false } }
       .collectAsState(initial = false)
@@ -1664,6 +1672,7 @@ fun SearchScreen(
                   favorites = searchOptionFavorites,
                   history = searchOptionExtras,
                   minIconSizeSetting = minIconSizeSetting,
+                  maxRows = favoritesMaxRows,
                   expandToFill = true,
                   reverseHistory = false,
                   drawDivider = false,
@@ -1713,6 +1722,7 @@ fun SearchScreen(
                   history = historyItems,
                   historyLimit = historyLimit,
                   minIconSizeSetting = minIconSizeSetting,
+                  maxRows = favoritesMaxRows,
                   onLaunch = { result ->
                     if (result is SearchResult.SearchIntent) {
                       searchRepository.reportUsageAsync(result.namespace, result.id)

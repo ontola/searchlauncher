@@ -1,0 +1,219 @@
+package com.searchlauncher.app.ui.components
+
+/**
+ * How many rows the favorites bar may grow to.
+ *
+ * `-1` means Auto: add a row when pinned favorites no longer fit at the preferred icon size, up to
+ * [FAVORITES_MAX_ROWS_CAP]. `1`–`4` cap growth at that many rows; overflowing items shrink to fit,
+ * which is the original single-row behaviour when the cap is 1.
+ */
+const val FAVORITES_MAX_ROWS_AUTO = -1
+const val FAVORITES_MAX_ROWS_CAP = 4
+
+/** Grid + icon metrics for one measurement of the favorites bar. */
+internal data class FavoritesBarLayout(
+  val rowCount: Int,
+  val itemsPerRow: Int,
+  val iconSizePx: Float,
+  val historyCapacity: Int,
+  val showDivider: Boolean,
+  /** Pinned items sitting on the last row; the divider (if any) follows this many. */
+  val lastRowFavoriteCount: Int,
+)
+
+internal fun resolveFavoritesMaxRows(setting: Int): Int =
+  if (setting < 0) FAVORITES_MAX_ROWS_CAP else setting.coerceIn(1, FAVORITES_MAX_ROWS_CAP)
+
+/**
+ * How many icons fit in [totalWidthPx] at [iconSizePx], matching the original single-row formula
+ * (slightly generous via `+ spacing/2` so a near-fit still counts).
+ */
+internal fun itemsThatFit(
+  totalWidthPx: Float,
+  iconSizePx: Float,
+  spacingPx: Float,
+  reservedGapPx: Float = 0f,
+): Int {
+  val stride = iconSizePx + spacingPx
+  if (stride <= 0f) return 1
+  return ((totalWidthPx + spacingPx - reservedGapPx + (spacingPx / 2f)) / stride)
+    .toInt()
+    .coerceAtLeast(0)
+}
+
+internal fun ceilDiv(value: Int, divisor: Int): Int {
+  if (divisor <= 0) return value
+  if (value <= 0) return 0
+  return (value + divisor - 1) / divisor
+}
+
+/**
+ * Decide rows, grid width, icon size, and how many history items the last row can take.
+ *
+ * Rows grow for overflowing favorites first. History then fills leftover slots on the last row; a
+ * fixed history limit may shrink icons so that many items still fit in the chosen row count. Auto
+ * history never adds a row of its own.
+ */
+internal fun computeFavoritesBarLayout(
+  totalWidthPx: Float,
+  favoriteCount: Int,
+  historyLimit: Int,
+  minIconSizePx: Float,
+  spacingPx: Float,
+  dividerGapPx: Float,
+  drawDivider: Boolean,
+  expandToFill: Boolean,
+  maxRowsSetting: Int,
+): FavoritesBarLayout {
+  val maxRows = resolveFavoritesMaxRows(maxRowsSetting)
+  val preferredPerRow = itemsThatFit(totalWidthPx, minIconSizePx, spacingPx).coerceAtLeast(1)
+
+  val favRows =
+    if (favoriteCount <= 0) 0 else ceilDiv(favoriteCount, preferredPerRow).coerceAtLeast(1)
+  val rowCount =
+    when {
+      favoriteCount <= 0 -> 1
+      else -> favRows.coerceIn(1, maxRows)
+    }
+
+  var itemsPerRow =
+    if (favoriteCount > rowCount * preferredPerRow) {
+      ceilDiv(favoriteCount, rowCount).coerceAtLeast(1)
+    } else {
+      preferredPerRow
+    }
+
+  fun lastRowFavs(perRow: Int): Int {
+    if (favoriteCount <= 0) return 0
+    val fullRows = (rowCount - 1).coerceAtLeast(0)
+    return (favoriteCount - fullRows * perRow).coerceIn(1, perRow)
+  }
+
+  fun historySlots(perRow: Int, lastFavs: Int): Int {
+    if (historyLimit == 0) return 0
+    val gap = if (drawDivider && lastFavs > 0) dividerGapPx else 0f
+    val lastRowCap =
+      if (gap > 0f) {
+        // Capacity at the preferred size when we have not already shrunk past it; once perRow is
+        // larger than preferred, the grid itself is the limit (icons will shrink in phase 2).
+        if (perRow > preferredPerRow) perRow
+        else itemsThatFit(totalWidthPx, minIconSizePx, spacingPx, gap)
+      } else {
+        perRow
+      }
+    return (lastRowCap - lastFavs).coerceAtLeast(0)
+  }
+
+  var lastFavs = lastRowFavs(itemsPerRow)
+  var slots = historySlots(itemsPerRow, lastFavs)
+
+  val historyCapacity =
+    when {
+      historyLimit == 0 -> 0
+      historyLimit > 0 -> {
+        val wanted = historyLimit
+        if (wanted > slots) {
+          val totalWanted = favoriteCount + wanted
+          itemsPerRow = ceilDiv(totalWanted, rowCount).coerceAtLeast(1)
+          lastFavs = lastRowFavs(itemsPerRow)
+          slots = (itemsPerRow - lastFavs).coerceAtLeast(0)
+        }
+        wanted.coerceAtMost(slots)
+      }
+      else -> slots
+    }
+
+  val visibleTotal = favoriteCount + historyCapacity
+  val showDivider = drawDivider && favoriteCount > 0 && historyCapacity > 0
+  lastFavs = lastRowFavs(itemsPerRow)
+
+  val fullestRow = if (rowCount <= 1) visibleTotal.coerceAtLeast(1) else itemsPerRow
+  val gapForSize = if (rowCount <= 1 && showDivider) dividerGapPx else 0f
+  val iconSizePx =
+    computeIconSizePx(
+      totalWidthPx = totalWidthPx,
+      itemCount = fullestRow,
+      spacingPx = spacingPx,
+      reservedGapPx = gapForSize,
+      preferredIconSizePx = minIconSizePx,
+      expandToFill = expandToFill,
+    )
+
+  return FavoritesBarLayout(
+    rowCount = rowCount,
+    itemsPerRow = itemsPerRow,
+    iconSizePx = iconSizePx,
+    historyCapacity = historyCapacity,
+    showDivider = showDivider,
+    lastRowFavoriteCount = if (rowCount <= 1) favoriteCount else lastFavs,
+  )
+}
+
+internal fun computeIconSizePx(
+  totalWidthPx: Float,
+  itemCount: Int,
+  spacingPx: Float,
+  reservedGapPx: Float,
+  preferredIconSizePx: Float,
+  expandToFill: Boolean,
+): Float {
+  if (itemCount <= 0) return preferredIconSizePx.coerceAtLeast(1f)
+  val reserved = spacingPx * (itemCount - 1) + reservedGapPx
+  val calculated = (totalWidthPx - reserved) / itemCount
+  return when {
+    calculated <= 0f -> 1f
+    expandToFill -> calculated
+    else -> minOf(preferredIconSizePx, calculated)
+  }
+}
+
+internal fun itemRow(index: Int, itemsPerRow: Int): Int =
+  if (itemsPerRow <= 0) 0 else index / itemsPerRow
+
+internal fun itemCol(index: Int, itemsPerRow: Int): Int =
+  if (itemsPerRow <= 0) index else index % itemsPerRow
+
+internal fun rowItemCount(row: Int, totalCount: Int, itemsPerRow: Int): Int {
+  if (itemsPerRow <= 0) return totalCount
+  val start = row * itemsPerRow
+  return (totalCount - start).coerceIn(0, itemsPerRow)
+}
+
+/**
+ * Left edge of [index] within the bar, including per-row centering and the last-row divider gap.
+ */
+internal fun itemX(
+  index: Int,
+  totalCount: Int,
+  itemsPerRow: Int,
+  iconSizePx: Float,
+  spacingPx: Float,
+  totalWidthPx: Float,
+  showDivider: Boolean,
+  lastRowFavoriteCount: Int,
+  dividerGapPx: Float,
+  rowCount: Int,
+): Float {
+  val row = itemRow(index, itemsPerRow)
+  val col = itemCol(index, itemsPerRow)
+  val countInRow = rowItemCount(row, totalCount, itemsPerRow)
+  val lastRow = (rowCount - 1).coerceAtLeast(0)
+  val dividerInRow =
+    showDivider && row == lastRow && lastRowFavoriteCount > 0 && countInRow > lastRowFavoriteCount
+  val gap = if (dividerInRow) dividerGapPx else 0f
+  val contentWidth = countInRow * iconSizePx + (countInRow - 1).coerceAtLeast(0) * spacingPx + gap
+  val startX = (totalWidthPx - contentWidth) / 2f
+  var x = startX + col * (iconSizePx + spacingPx)
+  if (dividerInRow && col >= lastRowFavoriteCount) x += dividerGapPx
+  return x
+}
+
+internal fun itemY(index: Int, itemsPerRow: Int, iconSizePx: Float, rowSpacingPx: Float): Float {
+  val row = itemRow(index, itemsPerRow)
+  return row * (iconSizePx + rowSpacingPx)
+}
+
+internal fun barHeightPx(rowCount: Int, iconSizePx: Float, rowSpacingPx: Float): Float {
+  if (rowCount <= 0) return 0f
+  return rowCount * iconSizePx + (rowCount - 1) * rowSpacingPx
+}
