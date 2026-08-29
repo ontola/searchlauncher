@@ -5,8 +5,10 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import android.widget.FrameLayout
 import android.window.OnBackInvokedDispatcher
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -98,6 +100,33 @@ class SearchActivity : ComponentActivity(), KeyShortcutHost {
         riseWithKeyboard = true,
       )
     }
+    interceptBackBeforeIme()
+  }
+
+  /**
+   * BACK is delivered to the IME before [dispatchKeyEvent], so intercepting there is too late: the
+   * first press only hides the keyboard. Walking the focused field's parents with
+   * [ViewGroup.dispatchKeyEventPreIme] is the path that still sees that press.
+   */
+  private fun interceptBackBeforeIme() {
+    val content = findViewById<ViewGroup>(android.R.id.content)
+    val child = content.getChildAt(0) ?: return
+    content.removeView(child)
+    val wrapper =
+      object : FrameLayout(this) {
+        override fun dispatchKeyEventPreIme(event: KeyEvent): Boolean {
+          if (closeOverlayOnBackKey(event) { finish() }) return true
+          return super.dispatchKeyEventPreIme(event)
+        }
+      }
+    wrapper.addView(
+      child,
+      FrameLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.MATCH_PARENT,
+      ),
+    )
+    content.addView(wrapper)
   }
 
   /**
