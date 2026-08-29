@@ -193,6 +193,19 @@ class FavoritesBarLayoutTest {
   }
 
   @Test
+  fun `recents stay newest-first left to right`() {
+    val newestFirst = listOf("camera", "gallery", "messages", "files")
+    assertEquals(
+      listOf("camera", "gallery", "messages"),
+      takeHistoryForDisplay(newestFirst, capacity = 3, reverse = false),
+    )
+    assertEquals(
+      listOf("messages", "gallery", "camera"),
+      takeHistoryForDisplay(newestFirst, capacity = 3, reverse = true),
+    )
+  }
+
+  @Test
   fun `item cells are row-major`() {
     assertEquals(0, itemRow(4, itemsPerRow = 6))
     assertEquals(4, itemCol(4, itemsPerRow = 6))
