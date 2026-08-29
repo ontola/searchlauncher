@@ -85,6 +85,7 @@ import com.searchlauncher.app.R
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.DownloadIndexer
 import com.searchlauncher.app.ui.browser.AdBlocker
+import com.searchlauncher.app.ui.components.FAVORITES_MAX_ROWS_AUTO
 import com.searchlauncher.app.ui.components.PrivacyPolicyDialog
 import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
 import com.searchlauncher.app.util.CustomActionHandler
@@ -165,7 +166,7 @@ fun SettingsScreen(
           modifier = Modifier.padding(16.dp),
           verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-          Text(text = "History", style = MaterialTheme.typography.titleMedium)
+          Text(text = "Favorites bar", style = MaterialTheme.typography.titleMedium)
 
           val scope = rememberCoroutineScope()
 
@@ -173,7 +174,55 @@ fun SettingsScreen(
             remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
               .collectAsState(initial = -1)
 
+          val favoritesMaxRows =
+            remember {
+                context.dataStore.data.map {
+                  it[PreferencesKeys.FAVORITES_MAX_ROWS] ?: FAVORITES_MAX_ROWS_AUTO
+                }
+              }
+              .collectAsState(initial = FAVORITES_MAX_ROWS_AUTO)
+
           Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(text = "Rows", style = MaterialTheme.typography.bodyMedium)
+            Text(
+              text = "Add another row when favorites no longer fit at the icon size below.",
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            )
+
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              val rowModes =
+                listOf("Auto" to FAVORITES_MAX_ROWS_AUTO, "1" to 1, "2" to 2, "3" to 3, "4" to 4)
+              rowModes.forEach { (label, value) ->
+                val isSelected = favoritesMaxRows.value == value
+                if (isSelected) {
+                  Button(
+                    onClick = { /* Already selected */},
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                  ) {
+                    Text(label, style = MaterialTheme.typography.labelMedium)
+                  }
+                } else {
+                  OutlinedButton(
+                    onClick = {
+                      scope.launch {
+                        context.dataStore.edit { it[PreferencesKeys.FAVORITES_MAX_ROWS] = value }
+                      }
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                  ) {
+                    Text(label, style = MaterialTheme.typography.labelMedium)
+                  }
+                }
+              }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
             Text(text = "Show App History Icons", style = MaterialTheme.typography.bodyMedium)
 
             Row(

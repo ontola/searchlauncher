@@ -124,6 +124,7 @@ import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.ResultLauncher
 import com.searchlauncher.app.ui.SearchActivity
 import com.searchlauncher.app.ui.components.BookmarkDialog
+import com.searchlauncher.app.ui.components.FAVORITES_MAX_ROWS_AUTO
 import com.searchlauncher.app.ui.components.FavoritesRow
 import com.searchlauncher.app.ui.components.SearchChromeBar
 import com.searchlauncher.app.ui.dataStore
@@ -535,6 +536,13 @@ internal fun BrowserScreen(
       .collectAsState(initial = -1)
   val minIconSizeSetting by
     remember { MinIconSize.flow(context) }.collectAsState(initial = MinIconSize.cached(context))
+  val favoritesMaxRows by
+    remember {
+        context.dataStore.data.map {
+          it[PreferencesKeys.FAVORITES_MAX_ROWS] ?: FAVORITES_MAX_ROWS_AUTO
+        }
+      }
+      .collectAsState(initial = FAVORITES_MAX_ROWS_AUTO)
   val historyItems =
     remember(allRecentItems, favoriteIds, historyLimit, privateMode) {
       if (privateMode || historyLimit == 0) emptyList()
@@ -1998,6 +2006,7 @@ internal fun BrowserScreen(
           historyItems = historyItems,
           historyLimit = historyLimit,
           minIconSizeSetting = minIconSizeSetting,
+          maxRows = favoritesMaxRows,
           showFavorites = showFavorites,
           barColor = chromeBarColor,
           barContentColor = chromeBarContentColor,
@@ -2276,6 +2285,7 @@ private fun BrowserLauncherChrome(
   historyItems: List<SearchResult>,
   historyLimit: Int,
   minIconSizeSetting: Int,
+  maxRows: Int,
   showFavorites: Boolean,
   barColor: Color,
   barContentColor: Color,
@@ -2368,6 +2378,7 @@ private fun BrowserLauncherChrome(
           history = historyItems,
           historyLimit = historyLimit,
           minIconSizeSetting = minIconSizeSetting,
+          maxRows = maxRows,
           onLaunch = onLaunchFavorite,
           onToggleFavorite = onToggleFavorite,
           onReorder = onReorder,

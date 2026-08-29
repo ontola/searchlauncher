@@ -23,6 +23,12 @@ object PreferencesKeys {
   val BROWSER_SHOW_FAVORITES = booleanPreferencesKey("browser_show_favorites")
   val HISTORY_LIMIT = intPreferencesKey("history_limit")
   val MIN_ICON_SIZE = intPreferencesKey("min_icon_size")
+  /**
+   * How many rows the favorites bar may wrap onto. `-1` is Auto (grow as needed, up to four);
+   * `1`–`4` cap growth at that many rows. See
+   * [com.searchlauncher.app.ui.components.FAVORITES_MAX_ROWS_AUTO].
+   */
+  val FAVORITES_MAX_ROWS = intPreferencesKey("favorites_max_rows")
   val AUTO_THEME_FROM_WALLPAPER = booleanPreferencesKey("auto_theme_from_wallpaper")
   val THEMED_ICONS = booleanPreferencesKey("themed_icons")
   val SEARCH_SHORTCUTS_ENABLED = booleanPreferencesKey("search_shortcuts_enabled")
