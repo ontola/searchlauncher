@@ -186,7 +186,7 @@ fun SettingsScreen(
             Text(text = "Rows", style = MaterialTheme.typography.bodyMedium)
             Text(
               text =
-                "Add another row when favorites no longer fit. Recents fill leftover spots on the last row.",
+                "Auto wraps when favorites overflow. A number always uses that many rows, filled with recents.",
               style = MaterialTheme.typography.labelSmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )

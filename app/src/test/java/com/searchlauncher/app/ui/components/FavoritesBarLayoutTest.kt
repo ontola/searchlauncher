@@ -81,6 +81,17 @@ class FavoritesBarLayoutTest {
   }
 
   @Test
+  fun `a fixed row count uses that many rows and fills leftover cells with recents`() {
+    val result = layout(favorites = 4, maxRows = 2)
+    assertEquals(2, result.rowCount)
+    assertEquals(10, result.itemsPerRow)
+    // Two rows of 10 minus 4 favorites = 16 recents.
+    assertEquals(16, result.historyCapacity)
+    assertEquals(4, result.lastRowFavoriteCount)
+    assertEquals(icon, result.iconSizePx, 0.01f)
+  }
+
+  @Test
   fun `auto history never adds a row of its own`() {
     val few = layout(favorites = 3, historyLimit = -1)
     assertEquals(1, few.rowCount)
