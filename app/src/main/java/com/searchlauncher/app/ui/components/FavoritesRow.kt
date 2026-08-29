@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.favoriteKey
+import com.searchlauncher.app.data.isFavoritable
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.ThemedIcons
 import com.searchlauncher.app.ui.dataStore
@@ -71,8 +72,11 @@ fun FavoritesRow(
    * than would fill it at [minIconSizeSetting].
    */
   expandToFill: Boolean = false,
-  /** History is newest-first and sits against the divider; set false to keep the given order. */
-  reverseHistory: Boolean = true,
+  /**
+   * History is newest-first. Default keeps that left to right after the favorites. Set true to
+   * reverse the slice so the newest sits at the trailing end instead.
+   */
+  reverseHistory: Boolean = false,
   /** Draw the gap between pinned items and the fill/history items. */
   drawDivider: Boolean = true,
   /**
@@ -82,8 +86,8 @@ fun FavoritesRow(
    */
   menuActions: ((SearchResult) -> ResultMenuActions)? = null,
   /**
-   * How many rows pinned favorites may wrap onto. [FAVORITES_MAX_ROWS_AUTO] grows as needed (up to
-   * [FAVORITES_MAX_ROWS_CAP]); `1`–`4` cap growth at that many rows.
+   * How many rows the bar uses. [FAVORITES_MAX_ROWS_AUTO] grows as needed (up to
+   * [FAVORITES_MAX_ROWS_CAP]); `1`–`4` always use that many rows, filled with recents.
    */
   maxRows: Int = FAVORITES_MAX_ROWS_AUTO,
 ) {
@@ -135,8 +139,7 @@ fun FavoritesRow(
 
     val visibleHistory =
       remember(history, measured.historyCapacity, reverseHistory) {
-        val visible = history.take(measured.historyCapacity)
-        if (reverseHistory) visible.reversed() else visible
+        takeHistoryForDisplay(history, measured.historyCapacity, reverseHistory)
       }
 
     val allItems = favorites + visibleHistory
@@ -217,8 +220,11 @@ fun FavoritesRow(
         showDivider
       }
     val effectiveLastRowFavs =
-      if (rowCount <= 1) effectiveBoundary
-      else (effectiveBoundary - itemsPerRow * (rowCount - 1)).coerceIn(0, itemsPerRow)
+      if (rowCount <= 1 || itemsPerRow <= 0) effectiveBoundary
+      else {
+        val rem = effectiveBoundary % itemsPerRow
+        if (rem == 0) 0 else rem
+      }
 
     fun xForIndex(index: Int): Float =
       itemX(
@@ -243,7 +249,7 @@ fun FavoritesRow(
         val dividerX =
           if (rowCount > 1) xForIndex(dividerIndex) - (spacingPx / 2)
           else xForIndex(dividerIndex) - (dividerGapPx / 2) - (spacingPx / 2)
-        val dividerY = yForIndex((rowCount - 1) * itemsPerRow)
+        val dividerY = yForIndex(dividerIndex)
         Box(
           modifier =
             Modifier.offset(
@@ -332,7 +338,7 @@ fun FavoritesRow(
                         val wasFavorite = favorites.any { it.favoriteKey == draggedId }
                         val isNowInFavoriteZone = finalIdx < boundaryIndex
 
-                        if (!wasFavorite && isNowInFavoriteZone) {
+                        if (!wasFavorite && isNowInFavoriteZone && result.isFavoritable()) {
                           onToggleFavorite(result)
                         } else if (wasFavorite && isNowInFavoriteZone) {
                           onReorder(currentOrder.take(boundaryIndex))

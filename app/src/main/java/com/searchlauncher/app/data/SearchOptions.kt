@@ -21,6 +21,34 @@ object SearchOptions {
   }
 
   /**
+   * Id usage stats are stored and read under. Indexed results use `search_google`; the query-time
+   * bar uses `google`; a typed alias hit uses `shortcut_g`. All three must count as the same
+   * shortcut or the bar never sees the usage the results list just recorded.
+   */
+  fun canonicalId(raw: String, aliasToId: (String) -> String? = { null }): String {
+    val id = normalizeId(raw)
+    if (id.startsWith("shortcut_")) {
+      val alias = id.removePrefix("shortcut_")
+      return aliasToId(alias) ?: id
+    }
+    return id
+  }
+
+  /** Same default tilt [SearchRepository.getSearchShortcuts] gives unused Google / Play Store. */
+  fun defaultUsageBoost(id: String): Int =
+    when (normalizeId(id)) {
+      "google" -> 2
+      "playstore" -> 1
+      else -> 0
+    }
+
+  /** Alternate ids that may already be stored for [raw] from older reportUsage call sites. */
+  fun usageIdAliases(raw: String, aliasToId: (String) -> String? = { null }): List<String> {
+    val canonical = canonicalId(raw, aliasToId)
+    return listOf(canonical, raw, normalizeId(raw), "search_$canonical").distinct()
+  }
+
+  /**
    * Splits [shortcuts] into pinned favorites (in [favoriteIds] order) and the remaining options
    * that fill unused slots in the bar.
    */
@@ -36,17 +64,34 @@ object SearchOptions {
   }
 
   /**
-   * Orders the fill slots by how often each option was used, most-used first, so an option migrates
-   * toward the divider as the user picks it. The sort is stable, so options nobody has used yet
-   * keep their incoming order instead of shuffling on every launch.
-   *
-   * Pinned favorites are deliberately not sorted this way: their order is the one the user set by
-   * dragging, and usage counts must not overrule it.
+   * Orders fill slots the same way results do: most-used first (Google / Play Store slightly ahead
+   * when unused), then the built-in catalog. Pinned favorites keep the drag order.
    */
   fun byUsage(
     shortcuts: List<SearchShortcut>,
     usageCount: (SearchShortcut) -> Int,
-  ): List<SearchShortcut> = shortcuts.sortedByDescending(usageCount)
+  ): List<SearchShortcut> {
+    val counts = shortcuts.associate { it.id to usageCount(it) }
+    return rankByUsage(shortcuts, { it.id }, { it.description }) { counts[it] ?: 0 }
+  }
+
+  /**
+   * The same order [com.searchlauncher.app.data.SearchRepository.getSearchShortcuts] appends onto
+   * the results list: most-used first (with the Google / Play Store tilt), then the built-in
+   * catalog order. The query-time favorites bar uses this so a tap that moves a shortcut in results
+   * also moves it in the bar.
+   */
+  fun <T> rankByUsage(
+    items: List<T>,
+    idOf: (T) -> String,
+    titleOf: (T) -> String,
+    usageCount: (String) -> Int,
+  ): List<T> =
+    items.sortedWith(
+      compareByDescending<T> { usageCount(idOf(it)) + defaultUsageBoost(idOf(it)) }
+        .thenBy { DefaultShortcuts.searchShortcutOrder(idOf(it)) }
+        .thenBy { titleOf(it) }
+    )
 
   /**
    * The term to send to a search option. An alias prefix (`y cats`) is stripped so tapping Google

@@ -190,14 +190,38 @@ object SearchRanker {
     usageStats: Map<String, Int>,
     namespace: String,
     id: String,
-  ): Int = usageStats[usageKey(namespace, id)] ?: usageStats[id] ?: 0
+  ): Int {
+    if (namespace != SearchOptions.NAMESPACE) {
+      return usageStats[usageKey(namespace, id)] ?: usageStats[id] ?: 0
+    }
+    for (alias in SearchOptions.usageIdAliases(id)) {
+      usageStats[usageKey(namespace, alias)]?.let {
+        return it
+      }
+      usageStats[alias]?.let {
+        return it
+      }
+    }
+    return 0
+  }
 
   private fun getQueryUsagePoints(
     queryUsageStats: Map<String, Int>,
     query: String?,
     namespace: String,
     id: String,
-  ): Int = query?.let { queryUsageStats[queryUsageKey(it, namespace, id)] } ?: 0
+  ): Int {
+    if (query == null) return 0
+    if (namespace != SearchOptions.NAMESPACE) {
+      return queryUsageStats[queryUsageKey(query, namespace, id)] ?: 0
+    }
+    for (alias in SearchOptions.usageIdAliases(id)) {
+      queryUsageStats[queryUsageKey(query, namespace, alias)]?.let {
+        return it
+      }
+    }
+    return 0
+  }
 
   private fun normalizedUsageQuery(query: String?): String? =
     query?.trim()?.lowercase()?.replace(Regex("\\s+"), " ")?.takeIf { it.isNotEmpty() }

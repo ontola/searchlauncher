@@ -81,6 +81,17 @@ class FavoritesBarLayoutTest {
   }
 
   @Test
+  fun `a fixed row count uses that many rows and fills leftover cells with recents`() {
+    val result = layout(favorites = 4, maxRows = 2)
+    assertEquals(2, result.rowCount)
+    assertEquals(10, result.itemsPerRow)
+    // Two rows of 10 minus 4 favorites = 16 recents.
+    assertEquals(16, result.historyCapacity)
+    assertEquals(4, result.lastRowFavoriteCount)
+    assertEquals(icon, result.iconSizePx, 0.01f)
+  }
+
+  @Test
   fun `auto history never adds a row of its own`() {
     val few = layout(favorites = 3, historyLimit = -1)
     assertEquals(1, few.rowCount)
@@ -131,6 +142,67 @@ class FavoritesBarLayoutTest {
     assertEquals(1, resolveFavoritesMaxRows(1))
     assertEquals(FAVORITES_MAX_ROWS_CAP, resolveFavoritesMaxRows(99))
     assertEquals(2, resolveFavoritesMaxRows(2))
+  }
+
+  @Test
+  fun `icon size stays available for a fixed row count even when history is auto`() {
+    assertTrue(shouldShowFavoritesIconSizeSetting(historyLimit = -1, maxRowsSetting = 2))
+    assertTrue(shouldShowFavoritesIconSizeSetting(historyLimit = 0, maxRowsSetting = 2))
+    assertTrue(shouldShowFavoritesIconSizeSetting(historyLimit = 5, maxRowsSetting = 2))
+    assertTrue(
+      shouldShowFavoritesIconSizeSetting(
+        historyLimit = -1,
+        maxRowsSetting = FAVORITES_MAX_ROWS_AUTO,
+      )
+    )
+    assertFalse(
+      shouldShowFavoritesIconSizeSetting(historyLimit = 0, maxRowsSetting = FAVORITES_MAX_ROWS_AUTO)
+    )
+  }
+
+  @Test
+  fun `a larger icon size still applies with a fixed row count and auto history`() {
+    val compact =
+      computeFavoritesBarLayout(
+        totalWidthPx = width,
+        favoriteCount = 4,
+        historyLimit = -1,
+        minIconSizePx = 32f,
+        spacingPx = spacing,
+        dividerGapPx = divider,
+        drawDivider = true,
+        expandToFill = false,
+        maxRowsSetting = 2,
+      )
+    val large =
+      computeFavoritesBarLayout(
+        totalWidthPx = width,
+        favoriteCount = 4,
+        historyLimit = -1,
+        minIconSizePx = 64f,
+        spacingPx = spacing,
+        dividerGapPx = divider,
+        drawDivider = true,
+        expandToFill = false,
+        maxRowsSetting = 2,
+      )
+    assertEquals(2, compact.rowCount)
+    assertEquals(2, large.rowCount)
+    assertTrue(large.iconSizePx > compact.iconSizePx)
+    assertTrue(large.itemsPerRow < compact.itemsPerRow)
+  }
+
+  @Test
+  fun `recents stay newest-first left to right`() {
+    val newestFirst = listOf("camera", "gallery", "messages", "files")
+    assertEquals(
+      listOf("camera", "gallery", "messages"),
+      takeHistoryForDisplay(newestFirst, capacity = 3, reverse = false),
+    )
+    assertEquals(
+      listOf("messages", "gallery", "camera"),
+      takeHistoryForDisplay(newestFirst, capacity = 3, reverse = true),
+    )
   }
 
   @Test

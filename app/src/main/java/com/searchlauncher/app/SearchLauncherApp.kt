@@ -48,6 +48,9 @@ class SearchLauncherApp : Application() {
   val favoritesRepositoryOrNull: FavoritesRepository?
     get() = if (::favoritesRepository.isInitialized) favoritesRepository else null
 
+  val historyRepositoryOrNull: HistoryRepository?
+    get() = if (::historyRepository.isInitialized) historyRepository else null
+
   override fun onCreate() {
     super.onCreate()
     // The private browser gets an isolated WebView process/profile and must not initialize the

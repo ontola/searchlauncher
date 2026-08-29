@@ -76,6 +76,8 @@ object Prefs {
   object History {
     const val FILE = "history"
     const val IDS = "history_ids"
+    /** Last-used millis keyed by the same ids as [IDS], so recents can mix with open tabs. */
+    const val TIMES = "history_times"
   }
 
   /** Last-used chat app per contact (keys are contact ids, so no fixed key names). */

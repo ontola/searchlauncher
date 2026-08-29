@@ -1,11 +1,11 @@
 package com.searchlauncher.app.ui.components
 
 /**
- * How many rows the favorites bar may grow to.
+ * How many rows the favorites bar uses.
  *
  * `-1` means Auto: add a row when pinned favorites no longer fit at the preferred icon size, up to
- * [FAVORITES_MAX_ROWS_CAP]. `1`–`4` cap growth at that many rows; overflowing items shrink to fit,
- * which is the original single-row behaviour when the cap is 1.
+ * [FAVORITES_MAX_ROWS_CAP]. `1`–`4` always use that many rows, filling leftover cells with recents.
+ * Overflowing favorites shrink to fit.
  */
 const val FAVORITES_MAX_ROWS_AUTO = -1
 const val FAVORITES_MAX_ROWS_CAP = 4
@@ -17,12 +17,16 @@ internal data class FavoritesBarLayout(
   val iconSizePx: Float,
   val historyCapacity: Int,
   val showDivider: Boolean,
-  /** Pinned items sitting on the last row; the divider (if any) follows this many. */
+  /** Pinned items on the row that holds the divider; the divider (if any) follows this many. */
   val lastRowFavoriteCount: Int,
 )
 
 internal fun resolveFavoritesMaxRows(setting: Int): Int =
   if (setting < 0) FAVORITES_MAX_ROWS_CAP else setting.coerceIn(1, FAVORITES_MAX_ROWS_CAP)
+
+/** Icon size is useful whenever history can pack a row, or a fixed row count sizes the grid. */
+internal fun shouldShowFavoritesIconSizeSetting(historyLimit: Int, maxRowsSetting: Int): Boolean =
+  historyLimit != 0 || maxRowsSetting > 0
 
 /**
  * How many icons fit in [totalWidthPx] at [iconSizePx], matching the original single-row formula
@@ -48,11 +52,10 @@ internal fun ceilDiv(value: Int, divisor: Int): Int {
 }
 
 /**
- * Decide rows, grid width, icon size, and how many history items the last row can take.
+ * Decide rows, grid width, icon size, and how many history items leftover cells can take.
  *
- * Rows grow for overflowing favorites first. History then fills leftover slots on the last row; a
- * fixed history limit may shrink icons so that many items still fit in the chosen row count. Auto
- * history never adds a row of its own.
+ * Auto grows only when favorites overflow. A fixed count always uses that many rows and fills the
+ * extra cells with recents. A fixed history limit may shrink icons so that many items still fit.
  */
 internal fun computeFavoritesBarLayout(
   totalWidthPx: Float,
@@ -65,6 +68,7 @@ internal fun computeFavoritesBarLayout(
   expandToFill: Boolean,
   maxRowsSetting: Int,
 ): FavoritesBarLayout {
+  val autoRows = maxRowsSetting < 0
   val maxRows = resolveFavoritesMaxRows(maxRowsSetting)
   val preferredPerRow = itemsThatFit(totalWidthPx, minIconSizePx, spacingPx).coerceAtLeast(1)
 
@@ -72,8 +76,9 @@ internal fun computeFavoritesBarLayout(
     if (favoriteCount <= 0) 0 else ceilDiv(favoriteCount, preferredPerRow).coerceAtLeast(1)
   val rowCount =
     when {
-      favoriteCount <= 0 -> 1
-      else -> favRows.coerceIn(1, maxRows)
+      autoRows && favoriteCount <= 0 -> 1
+      autoRows -> favRows.coerceIn(1, maxRows)
+      else -> maxRows
     }
 
   var itemsPerRow =
@@ -83,19 +88,19 @@ internal fun computeFavoritesBarLayout(
       preferredPerRow
     }
 
-  fun lastRowFavs(perRow: Int): Int {
-    if (favoriteCount <= 0) return 0
-    val fullRows = (rowCount - 1).coerceAtLeast(0)
-    return (favoriteCount - fullRows * perRow).coerceIn(1, perRow)
+  /** Favorites sitting on the row that holds the first leftover / history cell. */
+  fun favsOnBoundaryRow(perRow: Int): Int {
+    if (favoriteCount <= 0 || perRow <= 0) return 0
+    val rem = favoriteCount % perRow
+    return if (rem == 0) perRow else rem
   }
 
-  fun historySlots(perRow: Int, lastFavs: Int): Int {
+  fun historySlots(perRow: Int, boundaryFavs: Int): Int {
     if (historyLimit == 0) return 0
-    // A multi-row bar is a grid: leftover cells on the last row fill with recents. The divider
-    // sits in existing spacing so it does not steal a slot. A single row still reserves the
-    // original gap, matching the old dock.
-    if (rowCount > 1) return (perRow - lastFavs).coerceAtLeast(0)
-    val gap = if (drawDivider && lastFavs > 0) dividerGapPx else 0f
+    // A multi-row bar is a grid: every leftover cell fills with recents. The divider sits in
+    // existing spacing so it does not steal a slot. A single row still reserves the original gap.
+    if (rowCount > 1) return (rowCount * perRow - favoriteCount).coerceAtLeast(0)
+    val gap = if (drawDivider && boundaryFavs > 0) dividerGapPx else 0f
     val lastRowCap =
       if (gap > 0f) {
         if (perRow > preferredPerRow) perRow
@@ -103,10 +108,10 @@ internal fun computeFavoritesBarLayout(
       } else {
         perRow
       }
-    return (lastRowCap - lastFavs).coerceAtLeast(0)
+    return (lastRowCap - boundaryFavs).coerceAtLeast(0)
   }
 
-  var lastFavs = lastRowFavs(itemsPerRow)
+  var lastFavs = favsOnBoundaryRow(itemsPerRow)
   var slots = historySlots(itemsPerRow, lastFavs)
 
   val historyCapacity =
@@ -117,8 +122,8 @@ internal fun computeFavoritesBarLayout(
         if (wanted > slots) {
           val totalWanted = favoriteCount + wanted
           itemsPerRow = ceilDiv(totalWanted, rowCount).coerceAtLeast(1)
-          lastFavs = lastRowFavs(itemsPerRow)
-          slots = (itemsPerRow - lastFavs).coerceAtLeast(0)
+          lastFavs = favsOnBoundaryRow(itemsPerRow)
+          slots = (rowCount * itemsPerRow - favoriteCount).coerceAtLeast(0)
         }
         wanted.coerceAtMost(slots)
       }
@@ -127,7 +132,7 @@ internal fun computeFavoritesBarLayout(
 
   val visibleTotal = favoriteCount + historyCapacity
   val showDivider = drawDivider && favoriteCount > 0 && historyCapacity > 0
-  lastFavs = lastRowFavs(itemsPerRow)
+  lastFavs = favsOnBoundaryRow(itemsPerRow)
 
   val fullestRow = if (rowCount <= 1) visibleTotal.coerceAtLeast(1) else itemsPerRow
   val gapForSize = if (rowCount <= 1 && showDivider) dividerGapPx else 0f
@@ -167,6 +172,12 @@ internal fun computeIconSizePx(
     expandToFill -> calculated
     else -> minOf(preferredIconSizePx, calculated)
   }
+}
+
+/** Newest-first history, left to right unless [reverse] puts the newest at the trailing end. */
+internal fun <T> takeHistoryForDisplay(history: List<T>, capacity: Int, reverse: Boolean): List<T> {
+  val visible = history.take(capacity.coerceAtLeast(0))
+  return if (reverse) visible.reversed() else visible
 }
 
 internal fun itemRow(index: Int, itemsPerRow: Int): Int =

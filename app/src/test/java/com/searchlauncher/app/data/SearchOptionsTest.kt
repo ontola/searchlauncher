@@ -57,10 +57,42 @@ class SearchOptionsTest {
   }
 
   @Test
-  fun `byUsage keeps unused options in their incoming order`() {
+  fun `byUsage applies the same unused tilt as results`() {
     val ordered = SearchOptions.byUsage(shortcuts) { 0 }
 
-    assertEquals(shortcuts.map { it.id }, ordered.map { it.id })
+    assertEquals("google", ordered[0].id)
+    assertEquals("playstore", ordered[1].id)
+  }
+
+  @Test
+  fun `canonicalId collapses indexed and alias result ids`() {
+    assertEquals("google", SearchOptions.canonicalId("google"))
+    assertEquals("google", SearchOptions.canonicalId("search_google"))
+    assertEquals("google", SearchOptions.canonicalId("search_shortcuts/google"))
+    assertEquals(
+      "google",
+      SearchOptions.canonicalId("shortcut_g") { alias -> if (alias == "g") "google" else null },
+    )
+  }
+
+  @Test
+  fun `usage aliases include the indexed search_ id the results list records`() {
+    val aliases = SearchOptions.usageIdAliases("google")
+    assertTrue("google" in aliases)
+    assertTrue("search_google" in aliases)
+  }
+
+  @Test
+  fun `rankByUsage matches results when usage was stored under search_google`() {
+    val extras = SearchOptions.partition(shortcuts, SearchOptions.DEFAULT_FAVORITE_IDS).second
+    val stored = mapOf("search_wikipedia" to 8, "search_bing" to 3)
+    val ranked =
+      SearchOptions.rankByUsage(extras, { it.id }, { it.description }) { id ->
+        SearchOptions.usageIdAliases(id).maxOf { stored[it] ?: 0 }
+      }
+
+    assertEquals("wikipedia", ranked.first().id)
+    assertEquals("bing", ranked[1].id)
   }
 
   @Test

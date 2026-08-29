@@ -114,7 +114,9 @@ import coil.compose.AsyncImage
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.data.applyHistoryLimit
 import com.searchlauncher.app.data.favoriteKey
+import com.searchlauncher.app.data.mergeRecentsByTime
 import com.searchlauncher.app.ui.KeyShortcutHost
 import com.searchlauncher.app.ui.KeyShortcuts
 import com.searchlauncher.app.ui.MainActivity
@@ -543,13 +545,31 @@ internal fun BrowserScreen(
         }
       }
       .collectAsState(initial = FAVORITES_MAX_ROWS_AUTO)
+  val noEntries = remember {
+    MutableStateFlow(emptyList<com.searchlauncher.app.data.HistoryEntry>())
+  }
+  val historyEntries by (app.historyRepositoryOrNull?.historyEntries ?: noEntries).collectAsState()
+  val openTabRecents = if (privateMode) emptyList() else openTabsAsRecents(context)
   val historyItems =
-    remember(allRecentItems, favoriteIds, historyLimit, privateMode) {
+    remember(
+      allRecentItems,
+      favoriteIds,
+      historyLimit,
+      privateMode,
+      openTabRecents,
+      historyEntries,
+    ) {
       if (privateMode || historyLimit == 0) emptyList()
       else {
         val favoriteKeys = favoriteIds.toSet()
-        val filtered = allRecentItems.filter { it.favoriteKey !in favoriteKeys }
-        if (historyLimit >= 0) filtered.take(historyLimit) else filtered
+        val filteredApps = allRecentItems.filter { it.favoriteKey !in favoriteKeys }
+        val merged =
+          mergeRecentsByTime(
+            filteredApps,
+            historyEntries.associate { it.id to it.lastUsedMs },
+            openTabRecents,
+          )
+        applyHistoryLimit(merged.map { it.result }, historyLimit)
       }
     }
   // Hidden by default while browsing: the page is the focus, and the row is a lot of UI.

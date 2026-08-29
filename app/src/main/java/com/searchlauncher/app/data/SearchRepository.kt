@@ -18,6 +18,7 @@ import androidx.datastore.preferences.core.edit
 import com.google.common.util.concurrent.ListenableFuture
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.ui.PreferencesKeys
+import com.searchlauncher.app.ui.browser.toSearchResult
 import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.util.FuzzyMatch
 import com.searchlauncher.app.util.SystemUtils
@@ -1269,14 +1270,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             val app = context.applicationContext as? SearchLauncherApp
             val repoShortcuts = app?.searchShortcutRepository?.items?.value ?: emptyList()
             val sortedRepoShortcuts =
-              repoShortcuts.sortedWith(
-                compareByDescending<com.searchlauncher.app.data.SearchShortcut> { shortcut ->
-                    getGlobalUsageCount("search_shortcuts", shortcut.id) +
-                      getDefaultSearchShortcutBoost(shortcut.id)
-                  }
-                  .thenBy { shortcut -> DefaultShortcuts.searchShortcutOrder(shortcut.id) }
-                  .thenBy { shortcut -> shortcut.description }
-              )
+              SearchOptions.rankByUsage(repoShortcuts, { it.id }, { it.description }) { id ->
+                getGlobalUsageCount(SearchOptions.NAMESPACE, id)
+              }
             sortedRepoShortcuts.map { shortcut ->
               val cacheKey = "search_shortcut_${shortcut.id}"
               var icon = iconRepository.getMemory(cacheKey)
@@ -1298,14 +1294,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             }
           } else {
             val sortedShortcuts =
-              shortcuts.sortedWith(
-                compareByDescending<AppSearchDocument> { doc ->
-                    getGlobalUsageCount(doc.namespace, doc.id) +
-                      getDefaultSearchShortcutBoost(doc.id)
-                  }
-                  .thenBy { doc -> DefaultShortcuts.searchShortcutOrder(doc.id) }
-                  .thenBy { doc -> doc.name }
-              )
+              SearchOptions.rankByUsage(shortcuts, { it.id }, { it.name }) { id ->
+                getGlobalUsageCount(SearchOptions.NAMESPACE, id)
+              }
             coroutineScope {
               sortedShortcuts
                 .map { doc -> async { convertDocumentToResult(wrap(doc), 100, saveToDisk = true) } }
@@ -1320,13 +1311,6 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         Sentry.captureException(e)
         return@withContext emptyList()
       }
-    }
-
-  private fun getDefaultSearchShortcutBoost(id: String): Int =
-    when (id.removePrefix("search_")) {
-      "google" -> 2
-      "playstore" -> 1
-      else -> 0
     }
 
   suspend fun reportUsage(
@@ -1370,11 +1354,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         // Manual usage persistence. Global usage is deliberately weak during ranking; query usage
         // captures "when I type these letters, prefer this result".
-        val usageKey = usageKey(namespace, id)
+        val storedId = canonicalUsageId(namespace, id)
+        val usageKey = usageKey(namespace, storedId)
         usageStats[usageKey] = (usageStats[usageKey] ?: 0) + 1
         _usageRevision.update { it + 1 }
         normalizedUsageQuery(query)?.let { normalizedQuery ->
-          recordQueryUsage(normalizedQuery, namespace, id)
+          recordQueryUsage(normalizedQuery, namespace, storedId)
         }
         saveUsageStats()
 
@@ -1944,7 +1929,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private fun searchOpenTabs(query: String): List<SearchResult> {
     val tabs = com.searchlauncher.app.ui.browser.BrowserTabStore.tabs?.items ?: return emptyList()
     return tabs.mapNotNull { tab ->
-      if (tab.url.startsWith("about:")) return@mapNotNull null
+      val result = tab.toSearchResult(context) ?: return@mapNotNull null
       val address = tab.url.removePrefix("https://").removePrefix("http://").removeSuffix("/")
       val title = tab.title?.takeUnless(String::isBlank)
       // Either the page's name or its address can be what the user remembers it by.
@@ -1954,20 +1939,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           FuzzyMatch.calculateScore(query, address),
         )
       if (score < RankingScores.BROWSER_TAB_MIN_SCORE) return@mapNotNull null
-
-      SearchResult.BrowserTab(
-        id = "browser_tab_${tab.id}",
-        title = title ?: address,
-        // Says what the result is rather than repeating the address, which the title usually
-        // already conveys and which no other result type shows either.
-        subtitle = "Open tab",
-        icon =
-          tab.favicon?.let { BitmapDrawable(context.resources, it) }
-            ?: context.getDrawable(com.searchlauncher.app.R.drawable.ic_globe),
-        rankingScore = RankingScores.BROWSER_TAB_BASE + score,
-        tabId = tab.id,
-        url = tab.url,
-      )
+      result.copy(rankingScore = RankingScores.BROWSER_TAB_BASE + score)
     }
   }
 
@@ -2387,8 +2359,35 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private fun normalizedUsageQuery(query: String?): String? =
     query?.trim()?.lowercase()?.replace(Regex("\\s+"), " ")?.takeIf { it.isNotEmpty() }
 
-  private fun getGlobalUsageCount(namespace: String, id: String): Int =
-    usageStats[usageKey(namespace, id)] ?: usageStats[id] ?: 0
+  private fun searchShortcutAliasToId(alias: String): String? =
+    (context.applicationContext as? SearchLauncherApp)
+      ?.searchShortcutRepository
+      ?.items
+      ?.value
+      ?.find { it.alias.equals(alias, ignoreCase = true) }
+      ?.id
+
+  private fun canonicalUsageId(namespace: String, id: String): String =
+    if (namespace == SearchOptions.NAMESPACE) {
+      SearchOptions.canonicalId(id, ::searchShortcutAliasToId)
+    } else {
+      id
+    }
+
+  private fun getGlobalUsageCount(namespace: String, id: String): Int {
+    if (namespace != SearchOptions.NAMESPACE) {
+      return usageStats[usageKey(namespace, id)] ?: usageStats[id] ?: 0
+    }
+    for (alias in SearchOptions.usageIdAliases(id, ::searchShortcutAliasToId)) {
+      usageStats[usageKey(namespace, alias)]?.let {
+        return it
+      }
+      usageStats[alias]?.let {
+        return it
+      }
+    }
+    return 0
+  }
 
   private fun recordQueryUsage(query: String, namespace: String, id: String) {
     val queryLength = query.length.coerceAtLeast(1)
