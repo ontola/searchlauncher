@@ -975,17 +975,15 @@ fun SearchScreen(
   /**
    * What the wallpaper reserves at the bottom, which is not what the chrome bar reserves.
    *
-   * The bar follows the keyboard down frame by frame as a tab opens, so that it rides the keyboard
-   * out rather than dropping once it has gone. A full-screen picture cannot do that: the same
-   * padding shrinking under it resizes the image, and the wallpaper visibly grows during the very
-   * transition that is meant to be carrying it off to one side. So it keeps holding the keyboard's
-   * room throughout, exactly as it does at rest.
+   * The bar follows the live IME so it can rise with the keys. The picture cannot: the same padding
+   * changing under it resizes the image, which is the wallpaper sliding as the keyboard pops up.
+   * Home (and a tab opening) therefore keep the stored keyboard height whether the IME is up or
+   * not. The overlay has no wallpaper, so it can share the chrome inset.
    */
   val wallpaperBottomPadding =
-    if (openingTab) {
-      with(density) { reservedKeyboardHeightPx.toDp() }
-    } else {
-      bottomPadding
+    when {
+      riseWithKeyboard || isMultiWindow -> bottomPadding
+      else -> with(density) { reservedKeyboardHeightPx.toDp() }
     }
 
   var chromeBarHeightPx by remember { mutableIntStateOf(0) }
