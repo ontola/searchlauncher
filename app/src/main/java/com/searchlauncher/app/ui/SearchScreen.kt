@@ -72,8 +72,10 @@ import com.searchlauncher.app.data.SearchOptions
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.SearchShortcut
+import com.searchlauncher.app.data.applyHistoryLimit
 import com.searchlauncher.app.data.favoriteKey
 import com.searchlauncher.app.data.isFavoritable
+import com.searchlauncher.app.data.mergeRecentsByTime
 import com.searchlauncher.app.ui.browser.BrowserActivity
 import com.searchlauncher.app.ui.browser.BrowserTab
 import com.searchlauncher.app.ui.browser.BrowserTabStore
@@ -87,6 +89,7 @@ import com.searchlauncher.app.ui.browser.TAB_STRIP_LABEL_HEIGHT
 import com.searchlauncher.app.ui.browser.browserDestination
 import com.searchlauncher.app.ui.browser.browserTabSwipe
 import com.searchlauncher.app.ui.browser.indexOfTabShowing
+import com.searchlauncher.app.ui.browser.openTabsAsRecents
 import com.searchlauncher.app.ui.browser.rememberBrowserTabSwipeState
 import com.searchlauncher.app.ui.components.BookmarkDialog
 import com.searchlauncher.app.ui.components.ConsentDialog
@@ -230,13 +233,21 @@ fun SearchScreen(
   // Sync back to the boot cache so the next cold start renders at this size immediately.
   LaunchedEffect(minIconSizeSetting) { MinIconSize.updateCache(context, minIconSizeSetting) }
 
+  val openTabRecents = openTabsAsRecents(context)
+  val historyEntries by app.historyRepository.historyEntries.collectAsState()
   val historyItems =
-    remember(rawHistoryItems, favoriteIds, historyLimit) {
+    remember(rawHistoryItems, favoriteIds, historyLimit, openTabRecents, historyEntries) {
       if (historyLimit == 0) emptyList()
       else {
         val favoriteKeys = favoriteIds.toSet()
-        val filtered = rawHistoryItems.filter { it.favoriteKey !in favoriteKeys }
-        if (historyLimit >= 0) filtered.take(historyLimit) else filtered
+        val filteredApps = rawHistoryItems.filter { it.favoriteKey !in favoriteKeys }
+        val merged =
+          mergeRecentsByTime(
+            filteredApps,
+            historyEntries.associate { it.id to it.lastUsedMs },
+            openTabRecents,
+          )
+        applyHistoryLimit(merged.map { it.result }, historyLimit)
       }
     }
 
