@@ -239,7 +239,10 @@ fun FavoritesRow(
     Box(modifier = Modifier.fillMaxWidth().height(barHeight)) {
       if (effectiveShowDivider && effectiveLastRowFavs > 0) {
         val dividerIndex = effectiveBoundary.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
-        val dividerX = xForIndex(dividerIndex) - (dividerGapPx / 2) - (spacingPx / 2)
+        // Multi-row: the divider sits in the grid spacing. Single-row: the original reserved gap.
+        val dividerX =
+          if (rowCount > 1) xForIndex(dividerIndex) - (spacingPx / 2)
+          else xForIndex(dividerIndex) - (dividerGapPx / 2) - (spacingPx / 2)
         val dividerY = yForIndex((rowCount - 1) * itemsPerRow)
         Box(
           modifier =

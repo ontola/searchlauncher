@@ -57,9 +57,17 @@ class FavoritesBarLayoutTest {
     assertEquals(2, result.rowCount)
     assertEquals(10, result.itemsPerRow)
     assertEquals(icon, result.iconSizePx, 0.01f)
-    // 20 slots − 14 favorites = 6 leftover on the last row (divider reduces that a little).
-    assertTrue(result.historyCapacity in 5..6)
+    // Last row keeps the leftover 4 favorites and fills the other 6 cells with recents.
+    assertEquals(6, result.historyCapacity)
     assertEquals(4, result.lastRowFavoriteCount)
+  }
+
+  @Test
+  fun `last row leftover cells are offered to recents`() {
+    val result = layout(favorites = 12)
+    assertEquals(2, result.rowCount)
+    assertEquals(2, result.lastRowFavoriteCount)
+    assertEquals(8, result.historyCapacity)
   }
 
   @Test
@@ -142,6 +150,39 @@ class FavoritesBarLayoutTest {
     assertEquals(0f, y0, 0.01f)
     assertEquals(36f, y1, 0.01f)
     assertEquals(68f, barHeightPx(2, iconSizePx = 32f, rowSpacingPx = 4f), 0.01f)
+  }
+
+  @Test
+  fun `a short last row lines up with the first column of the grid`() {
+    val firstColRow0 =
+      itemX(
+        index = 0,
+        totalCount = 12,
+        itemsPerRow = 10,
+        iconSizePx = 32f,
+        spacingPx = 6f,
+        totalWidthPx = width,
+        showDivider = true,
+        lastRowFavoriteCount = 2,
+        dividerGapPx = divider,
+        rowCount = 2,
+      )
+    val firstColRow1 =
+      itemX(
+        index = 10,
+        totalCount = 12,
+        itemsPerRow = 10,
+        iconSizePx = 32f,
+        spacingPx = 6f,
+        totalWidthPx = width,
+        showDivider = true,
+        lastRowFavoriteCount = 2,
+        dividerGapPx = divider,
+        rowCount = 2,
+      )
+    assertEquals(firstColRow0, firstColRow1, 0.01f)
+    // Must not be independently centered (that would sit near the middle of the bar).
+    assertTrue(firstColRow1 < width / 4f)
   }
 
   @Test
