@@ -91,11 +91,13 @@ internal fun computeFavoritesBarLayout(
 
   fun historySlots(perRow: Int, lastFavs: Int): Int {
     if (historyLimit == 0) return 0
+    // A multi-row bar is a grid: leftover cells on the last row fill with recents. The divider
+    // sits in existing spacing so it does not steal a slot. A single row still reserves the
+    // original gap, matching the old dock.
+    if (rowCount > 1) return (perRow - lastFavs).coerceAtLeast(0)
     val gap = if (drawDivider && lastFavs > 0) dividerGapPx else 0f
     val lastRowCap =
       if (gap > 0f) {
-        // Capacity at the preferred size when we have not already shrunk past it; once perRow is
-        // larger than preferred, the grid itself is the limit (icons will shrink in phase 2).
         if (perRow > preferredPerRow) perRow
         else itemsThatFit(totalWidthPx, minIconSizePx, spacingPx, gap)
       } else {
@@ -180,7 +182,10 @@ internal fun rowItemCount(row: Int, totalCount: Int, itemsPerRow: Int): Int {
 }
 
 /**
- * Left edge of [index] within the bar, including per-row centering and the last-row divider gap.
+ * Left edge of [index] within the bar.
+ *
+ * A single row stays centered as a group, with the original divider gap. Multiple rows share one
+ * column grid so a short last row lines up under the first instead of floating in the middle.
  */
 internal fun itemX(
   index: Int,
@@ -196,8 +201,13 @@ internal fun itemX(
 ): Float {
   val row = itemRow(index, itemsPerRow)
   val col = itemCol(index, itemsPerRow)
-  val countInRow = rowItemCount(row, totalCount, itemsPerRow)
   val lastRow = (rowCount - 1).coerceAtLeast(0)
+  if (rowCount > 1) {
+    val gridWidth = itemsPerRow * iconSizePx + (itemsPerRow - 1).coerceAtLeast(0) * spacingPx
+    val startX = (totalWidthPx - gridWidth) / 2f
+    return startX + col * (iconSizePx + spacingPx)
+  }
+  val countInRow = rowItemCount(row, totalCount, itemsPerRow)
   val dividerInRow =
     showDivider && row == lastRow && lastRowFavoriteCount > 0 && countInRow > lastRowFavoriteCount
   val gap = if (dividerInRow) dividerGapPx else 0f

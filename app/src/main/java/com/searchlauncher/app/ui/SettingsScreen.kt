@@ -185,7 +185,8 @@ fun SettingsScreen(
           Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(text = "Rows", style = MaterialTheme.typography.bodyMedium)
             Text(
-              text = "Add another row when favorites no longer fit at the icon size below.",
+              text =
+                "Add another row when favorites no longer fit. Recents fill leftover spots on the last row.",
               style = MaterialTheme.typography.labelSmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
