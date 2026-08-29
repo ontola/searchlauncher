@@ -1,0 +1,1 @@
+Favorites that no longer fit at your icon size now wrap onto extra rows instead of shrinking. Settings → Favorites bar has a Rows control (Auto, or cap at 1–4). Recents still fill leftover spots on the last row.
