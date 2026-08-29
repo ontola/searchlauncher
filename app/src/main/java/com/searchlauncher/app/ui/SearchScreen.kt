@@ -180,7 +180,8 @@ fun SearchScreen(
       val (favored, extras) = SearchOptions.partition(searchShortcuts, searchOptionIds)
       fun intents(list: List<SearchShortcut>) =
         list.map { it.toSearchIntent(iconGenerator.getColoredSearchIcon(it.color, it.alias)) }
-      // Only the fill slots are usage-ordered; [favored] keeps the order the user dragged it into.
+      // Same usage order as the shortcut results appended below the query. [favored] stays in
+      // drag order; only the fill slots move when a shortcut is used.
       val ranked =
         SearchOptions.byUsage(extras) {
           searchRepository.globalUsage(SearchOptions.NAMESPACE, it.id)
