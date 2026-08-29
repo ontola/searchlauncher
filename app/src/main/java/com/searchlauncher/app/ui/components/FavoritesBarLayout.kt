@@ -174,6 +174,12 @@ internal fun computeIconSizePx(
   }
 }
 
+/** Newest-first history, left to right unless [reverse] puts the newest at the trailing end. */
+internal fun <T> takeHistoryForDisplay(history: List<T>, capacity: Int, reverse: Boolean): List<T> {
+  val visible = history.take(capacity.coerceAtLeast(0))
+  return if (reverse) visible.reversed() else visible
+}
+
 internal fun itemRow(index: Int, itemsPerRow: Int): Int =
   if (itemsPerRow <= 0) 0 else index / itemsPerRow
 

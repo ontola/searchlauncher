@@ -71,8 +71,11 @@ fun FavoritesRow(
    * than would fill it at [minIconSizeSetting].
    */
   expandToFill: Boolean = false,
-  /** History is newest-first and sits against the divider; set false to keep the given order. */
-  reverseHistory: Boolean = true,
+  /**
+   * History is newest-first. Default keeps that left to right after the favorites. Set true to
+   * reverse the slice so the newest sits at the trailing end instead.
+   */
+  reverseHistory: Boolean = false,
   /** Draw the gap between pinned items and the fill/history items. */
   drawDivider: Boolean = true,
   /**
@@ -135,8 +138,7 @@ fun FavoritesRow(
 
     val visibleHistory =
       remember(history, measured.historyCapacity, reverseHistory) {
-        val visible = history.take(measured.historyCapacity)
-        if (reverseHistory) visible.reversed() else visible
+        takeHistoryForDisplay(history, measured.historyCapacity, reverseHistory)
       }
 
     val allItems = favorites + visibleHistory
