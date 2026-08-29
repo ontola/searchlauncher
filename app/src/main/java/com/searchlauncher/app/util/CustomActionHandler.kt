@@ -1,7 +1,9 @@
 package com.searchlauncher.app.util
 
+import android.app.Activity
 import android.app.role.RoleManager
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.hardware.camera2.CameraManager
 import android.net.Uri
@@ -221,7 +223,14 @@ object CustomActionHandler {
     }
   }
 
+  /**
+   * [RoleManager.createRequestRoleIntent] must be started with [Activity.startActivityForResult].
+   * The system picker reads [Activity.getCallingPackage], which is only set for a for-result launch
+   * — [Context.startActivity] makes the picker finish immediately, so the settings button appeared
+   * to do nothing.
+   */
   private fun requestDefaultBrowserRole(context: Context) {
+    val activity = context.findActivity()
     try {
       val roleManager = context.getSystemService(Context.ROLE_SERVICE) as RoleManager
       if (roleManager.isRoleHeld(RoleManager.ROLE_BROWSER)) {
@@ -233,20 +242,26 @@ object CustomActionHandler {
           .show()
         return
       }
-      if (roleManager.isRoleAvailable(RoleManager.ROLE_BROWSER)) {
-        // No FLAG_ACTIVITY_NEW_TASK: the role picker expects to return a result to the calling
-        // task, and callers here are always a real foreground Activity context (never
-        // ApplicationContext). Requesting a new task made the system dialog silently no-op on
-        // some devices instead of showing.
-        context.startActivity(roleManager.createRequestRoleIntent(RoleManager.ROLE_BROWSER))
+      if (activity != null && roleManager.isRoleAvailable(RoleManager.ROLE_BROWSER)) {
+        @Suppress("DEPRECATION")
+        activity.startActivityForResult(
+          roleManager.createRequestRoleIntent(RoleManager.ROLE_BROWSER),
+          REQUEST_DEFAULT_BROWSER,
+        )
         return
       }
     } catch (e: Exception) {
       e.printStackTrace()
       // Fall through to the manual default-apps settings screen below.
     }
+    openDefaultAppsSettings(context)
+  }
+
+  private fun openDefaultAppsSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+    if (context.findActivity() == null) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     try {
-      context.startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+      context.startActivity(intent)
     } catch (e: Exception) {
       Toast.makeText(context, "Default apps settings not available", Toast.LENGTH_SHORT).show()
     }
@@ -263,4 +278,16 @@ object CustomActionHandler {
       Toast.makeText(context, "Developer options not available", Toast.LENGTH_SHORT).show()
     }
   }
+
+  private const val REQUEST_DEFAULT_BROWSER = 0x51B0
+}
+
+/** Walks [ContextWrapper]s so a Compose [LocalContext] still finds its Activity. */
+internal fun Context.findActivity(): Activity? {
+  var current: Context? = this
+  while (current is ContextWrapper) {
+    if (current is Activity) return current
+    current = current.baseContext
+  }
+  return null
 }
