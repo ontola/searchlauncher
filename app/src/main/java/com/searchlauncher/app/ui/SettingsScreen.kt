@@ -88,6 +88,7 @@ import com.searchlauncher.app.ui.browser.AdBlocker
 import com.searchlauncher.app.ui.components.FAVORITES_MAX_ROWS_AUTO
 import com.searchlauncher.app.ui.components.PrivacyPolicyDialog
 import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
+import com.searchlauncher.app.ui.components.shouldShowFavoritesIconSizeSetting
 import com.searchlauncher.app.util.CustomActionHandler
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -270,7 +271,10 @@ fun SettingsScreen(
               }
             }
 
-            AnimatedVisibility(visible = historyLimit.value != 0) {
+            AnimatedVisibility(
+              visible =
+                shouldShowFavoritesIconSizeSetting(historyLimit.value, favoritesMaxRows.value)
+            ) {
               val minIconSize =
                 remember {
                     context.dataStore.data.map {
@@ -338,8 +342,11 @@ fun SettingsScreen(
                 )
                 Text(
                   text =
-                    if (historyLimit.value == -1) "Smaller icons allow more history items to fit."
-                    else "Adjust the maximum size for your favorite and history icons.",
+                    when {
+                      favoritesMaxRows.value > 0 -> "Larger icons mean fewer apps on each row."
+                      historyLimit.value == -1 -> "Smaller icons allow more history items to fit."
+                      else -> "Adjust the maximum size for your favorite and history icons."
+                    },
                   style = MaterialTheme.typography.labelSmall,
                   color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )

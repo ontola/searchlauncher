@@ -24,6 +24,10 @@ internal data class FavoritesBarLayout(
 internal fun resolveFavoritesMaxRows(setting: Int): Int =
   if (setting < 0) FAVORITES_MAX_ROWS_CAP else setting.coerceIn(1, FAVORITES_MAX_ROWS_CAP)
 
+/** Icon size is useful whenever history can pack a row, or a fixed row count sizes the grid. */
+internal fun shouldShowFavoritesIconSizeSetting(historyLimit: Int, maxRowsSetting: Int): Boolean =
+  historyLimit != 0 || maxRowsSetting > 0
+
 /**
  * How many icons fit in [totalWidthPx] at [iconSizePx], matching the original single-row formula
  * (slightly generous via `+ spacing/2` so a near-fit still counts).

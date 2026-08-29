@@ -145,6 +145,54 @@ class FavoritesBarLayoutTest {
   }
 
   @Test
+  fun `icon size stays available for a fixed row count even when history is auto`() {
+    assertTrue(shouldShowFavoritesIconSizeSetting(historyLimit = -1, maxRowsSetting = 2))
+    assertTrue(shouldShowFavoritesIconSizeSetting(historyLimit = 0, maxRowsSetting = 2))
+    assertTrue(shouldShowFavoritesIconSizeSetting(historyLimit = 5, maxRowsSetting = 2))
+    assertTrue(
+      shouldShowFavoritesIconSizeSetting(
+        historyLimit = -1,
+        maxRowsSetting = FAVORITES_MAX_ROWS_AUTO,
+      )
+    )
+    assertFalse(
+      shouldShowFavoritesIconSizeSetting(historyLimit = 0, maxRowsSetting = FAVORITES_MAX_ROWS_AUTO)
+    )
+  }
+
+  @Test
+  fun `a larger icon size still applies with a fixed row count and auto history`() {
+    val compact =
+      computeFavoritesBarLayout(
+        totalWidthPx = width,
+        favoriteCount = 4,
+        historyLimit = -1,
+        minIconSizePx = 32f,
+        spacingPx = spacing,
+        dividerGapPx = divider,
+        drawDivider = true,
+        expandToFill = false,
+        maxRowsSetting = 2,
+      )
+    val large =
+      computeFavoritesBarLayout(
+        totalWidthPx = width,
+        favoriteCount = 4,
+        historyLimit = -1,
+        minIconSizePx = 64f,
+        spacingPx = spacing,
+        dividerGapPx = divider,
+        drawDivider = true,
+        expandToFill = false,
+        maxRowsSetting = 2,
+      )
+    assertEquals(2, compact.rowCount)
+    assertEquals(2, large.rowCount)
+    assertTrue(large.iconSizePx > compact.iconSizePx)
+    assertTrue(large.itemsPerRow < compact.itemsPerRow)
+  }
+
+  @Test
   fun `item cells are row-major`() {
     assertEquals(0, itemRow(4, itemsPerRow = 6))
     assertEquals(4, itemCol(4, itemsPerRow = 6))
