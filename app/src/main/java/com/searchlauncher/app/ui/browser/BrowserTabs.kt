@@ -1,7 +1,9 @@
 package com.searchlauncher.app.ui.browser
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
 import android.os.Bundle
 import android.webkit.WebView
 import androidx.compose.runtime.Stable
@@ -12,6 +14,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.searchlauncher.app.R
+import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.data.TimedRecent
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 
@@ -22,6 +27,8 @@ import kotlin.math.abs
  */
 internal class BrowserTab(initialUrl: String, restoredId: Long? = null) {
   val id: Long = restoredId ?: System.nanoTime()
+  /** Wall-clock time this tab was opened, used to sit it among app recents. */
+  val openedAtMs: Long = System.currentTimeMillis()
   var url by mutableStateOf(initialUrl)
   var title by mutableStateOf<String?>(null)
   var desktopMode by mutableStateOf(false)
@@ -428,4 +435,29 @@ private fun Bitmap.scaledToWidth(targetWidth: Int): Bitmap? {
   val targetHeight = (height.toFloat() * targetWidth / width).toInt().coerceAtLeast(1)
   return runCatching { Bitmap.createScaledBitmap(this, targetWidth, targetHeight, true) }
     .getOrNull()
+}
+
+/** Recents / search result for an open tab. Blank `about:` pages have nothing to show. */
+internal fun BrowserTab.toSearchResult(context: Context): SearchResult.BrowserTab? {
+  if (url.startsWith("about:")) return null
+  val address = url.removePrefix("https://").removePrefix("http://").removeSuffix("/")
+  val pageTitle = title?.takeUnless(String::isBlank)
+  val icon =
+    favicon?.takeUnless { it.isRecycled }?.let { BitmapDrawable(context.resources, it) }
+      ?: runCatching { context.getDrawable(R.drawable.ic_globe) }.getOrNull()
+  return SearchResult.BrowserTab(
+    id = "browser_tab_$id",
+    title = pageTitle ?: address.ifBlank { "Tab" },
+    subtitle = "Open tab",
+    icon = icon,
+    tabId = id,
+    url = url,
+  )
+}
+
+internal fun openTabsAsRecents(context: Context): List<TimedRecent> {
+  val tabs = BrowserTabStore.tabs?.items ?: return emptyList()
+  return tabs.mapNotNull { tab ->
+    tab.toSearchResult(context)?.let { TimedRecent(it, tab.openedAtMs) }
+  }
 }

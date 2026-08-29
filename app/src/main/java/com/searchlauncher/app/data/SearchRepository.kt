@@ -18,6 +18,7 @@ import androidx.datastore.preferences.core.edit
 import com.google.common.util.concurrent.ListenableFuture
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.ui.PreferencesKeys
+import com.searchlauncher.app.ui.browser.toSearchResult
 import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.util.FuzzyMatch
 import com.searchlauncher.app.util.SystemUtils
@@ -1928,7 +1929,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private fun searchOpenTabs(query: String): List<SearchResult> {
     val tabs = com.searchlauncher.app.ui.browser.BrowserTabStore.tabs?.items ?: return emptyList()
     return tabs.mapNotNull { tab ->
-      if (tab.url.startsWith("about:")) return@mapNotNull null
+      val result = tab.toSearchResult(context) ?: return@mapNotNull null
       val address = tab.url.removePrefix("https://").removePrefix("http://").removeSuffix("/")
       val title = tab.title?.takeUnless(String::isBlank)
       // Either the page's name or its address can be what the user remembers it by.
@@ -1938,20 +1939,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           FuzzyMatch.calculateScore(query, address),
         )
       if (score < RankingScores.BROWSER_TAB_MIN_SCORE) return@mapNotNull null
-
-      SearchResult.BrowserTab(
-        id = "browser_tab_${tab.id}",
-        title = title ?: address,
-        // Says what the result is rather than repeating the address, which the title usually
-        // already conveys and which no other result type shows either.
-        subtitle = "Open tab",
-        icon =
-          tab.favicon?.let { BitmapDrawable(context.resources, it) }
-            ?: context.getDrawable(com.searchlauncher.app.R.drawable.ic_globe),
-        rankingScore = RankingScores.BROWSER_TAB_BASE + score,
-        tabId = tab.id,
-        url = tab.url,
-      )
+      result.copy(rankingScore = RankingScores.BROWSER_TAB_BASE + score)
     }
   }
 
