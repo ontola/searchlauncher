@@ -85,6 +85,16 @@ installed copy is signed with it. Swapping it would break reproducible-build ver
 and make the app un-updatable for existing users, because Android refuses an update signed
 by a different key. It lives in the `SIGNING_KEY_STORE_BASE64` secret.
 
+**Where the release key lives.** In the maintainer's password manager, keystore and
+passwords together. Until August 2026 it existed only as the `SIGNING_KEY_STORE_BASE64`,
+`SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS` and `SIGNING_KEY_PASSWORD` secrets, which
+GitHub will not let anyone read back — so the one irreplaceable thing in this project had
+no recoverable copy, and CI could sign releases when nobody else could. Recovering it
+needed a temporary `workflow_dispatch` job that encrypted the secrets to a throwaway
+certificate and uploaded only the ciphertext, since the repository is public. That job is
+in the history at `4d0a615` if it is ever needed again; it was deleted straight afterwards,
+because a job that decants the signing key on demand is worse than the problem it solved.
+
 **Play delivers a different signature from F-Droid**, because Play App Signing is
 mandatory for new apps and Google generated its own key at enrolment. So the Play build
 and the F-Droid build are separate installs as far as Android is concerned: the same
