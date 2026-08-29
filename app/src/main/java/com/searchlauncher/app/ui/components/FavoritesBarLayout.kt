@@ -28,6 +28,10 @@ internal fun resolveFavoritesMaxRows(setting: Int): Int =
 internal fun shouldShowFavoritesIconSizeSetting(historyLimit: Int, maxRowsSetting: Int): Boolean =
   historyLimit != 0 || maxRowsSetting > 0
 
+/** A query keeps the bar to one row so results stay on screen. Home still uses the Rows setting. */
+internal fun favoritesMaxRowsForBar(hasQuery: Boolean, setting: Int): Int =
+  if (hasQuery) 1 else setting
+
 /**
  * How many icons fit in [totalWidthPx] at [iconSizePx], matching the original single-row formula
  * (slightly generous via `+ spacing/2` so a near-fit still counts).
