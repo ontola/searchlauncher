@@ -82,8 +82,8 @@ fun FavoritesRow(
    */
   menuActions: ((SearchResult) -> ResultMenuActions)? = null,
   /**
-   * How many rows pinned favorites may wrap onto. [FAVORITES_MAX_ROWS_AUTO] grows as needed (up to
-   * [FAVORITES_MAX_ROWS_CAP]); `1`–`4` cap growth at that many rows.
+   * How many rows the bar uses. [FAVORITES_MAX_ROWS_AUTO] grows as needed (up to
+   * [FAVORITES_MAX_ROWS_CAP]); `1`–`4` always use that many rows, filled with recents.
    */
   maxRows: Int = FAVORITES_MAX_ROWS_AUTO,
 ) {
@@ -217,8 +217,11 @@ fun FavoritesRow(
         showDivider
       }
     val effectiveLastRowFavs =
-      if (rowCount <= 1) effectiveBoundary
-      else (effectiveBoundary - itemsPerRow * (rowCount - 1)).coerceIn(0, itemsPerRow)
+      if (rowCount <= 1 || itemsPerRow <= 0) effectiveBoundary
+      else {
+        val rem = effectiveBoundary % itemsPerRow
+        if (rem == 0) 0 else rem
+      }
 
     fun xForIndex(index: Int): Float =
       itemX(
@@ -243,7 +246,7 @@ fun FavoritesRow(
         val dividerX =
           if (rowCount > 1) xForIndex(dividerIndex) - (spacingPx / 2)
           else xForIndex(dividerIndex) - (dividerGapPx / 2) - (spacingPx / 2)
-        val dividerY = yForIndex((rowCount - 1) * itemsPerRow)
+        val dividerY = yForIndex(dividerIndex)
         Box(
           modifier =
             Modifier.offset(
