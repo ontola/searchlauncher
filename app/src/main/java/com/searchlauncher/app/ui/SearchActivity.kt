@@ -44,10 +44,7 @@ class SearchActivity : ComponentActivity(), KeyShortcutHost {
       android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
     )
 
-    window.setSoftInputMode(
-      android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING or
-        android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
-    )
+    Ime.applyWindowMode(window)
 
     animateBackdropBlur()
 
@@ -140,6 +137,11 @@ class SearchActivity : ComponentActivity(), KeyShortcutHost {
     ) {
       finish()
     }
+  }
+
+  override fun onWindowFocusChanged(hasFocus: Boolean) {
+    super.onWindowFocusChanged(hasFocus)
+    if (hasFocus) Ime.onWindowFocused(this)
   }
 
   /**

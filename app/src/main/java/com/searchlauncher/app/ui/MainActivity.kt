@@ -477,8 +477,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     appWidgetHost = android.appwidget.AppWidgetHost(applicationContext, APPWIDGET_HOST_ID)
     queryState = savedInstanceState?.getString(KEY_ACTIVE_QUERY) ?: restoreRecentQuery()
     enableEdgeToEdge()
-    // Keep keyboard always visible
-    window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+    Ime.applyWindowMode(window)
 
     setContent {
       val themeColor =
@@ -586,18 +585,17 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     super.onResume()
     if (currentScreenState == Screen.Search) {
       focusTrigger = System.currentTimeMillis()
-      // Trigger again after delay for screen unlock scenarios
-      lifecycleScope.launch {
-        kotlinx.coroutines.delay(200)
-        focusTrigger = System.currentTimeMillis()
-      }
     }
   }
 
   override fun onWindowFocusChanged(hasFocus: Boolean) {
     super.onWindowFocusChanged(hasFocus)
-    if (hasFocus && currentScreenState == Screen.Search) {
-      focusTrigger = System.currentTimeMillis()
+    if (hasFocus && currentScreenState == Screen.Search && !inPictureInPicture) {
+      // Show here, but do not bump [focusTrigger]: that restarts the Compose IME loop and
+      // cancels the request that onResume already started. Do not hide in onPause either —
+      // that tears the IME process down, and the next home arrival waits on a cold start.
+      // Without SHOW_FORCED the keyboard leaves with this window's focus.
+      Ime.onWindowFocused(this)
     }
   }
 

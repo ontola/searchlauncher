@@ -53,6 +53,8 @@ class SearchLauncherApp : Application() {
 
   override fun onCreate() {
     super.onCreate()
+    // Bind InputMethodManager now so the first keyboard show is not also a ServiceManager lookup.
+    getSystemService(Context.INPUT_METHOD_SERVICE)
     // The private browser gets an isolated WebView process/profile and must not initialize the
     // launcher's indexes, repositories, analytics, or other persistent application services.
     if (Application.getProcessName().endsWith(":incognito")) return

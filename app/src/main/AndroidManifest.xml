@@ -76,7 +76,7 @@
             android:launchMode="singleTask"
             android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
-            android:windowSoftInputMode="adjustResize"
+            android:windowSoftInputMode="stateAlwaysVisible|adjustNothing"
             android:theme="@style/Theme.SearchLauncher">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -143,7 +143,8 @@
             android:exported="false"
             android:launchMode="singleTask"
             android:taskAffinity=""
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:windowSoftInputMode="stateAlwaysVisible|adjustNothing" />
 
         <!-- Search Widget -->
         <receiver android:name=".widget.SearchWidget"

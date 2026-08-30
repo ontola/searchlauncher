@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -59,6 +60,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -114,7 +116,6 @@ import com.searchlauncher.app.util.traceSection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -145,9 +146,9 @@ fun SearchScreen(
   /** Moves only on a real home intent; [focusTrigger] also moves on any return of focus. */
   homeTrigger: Long = 0L,
   /**
-   * Let the chrome bar rise with the keyboard instead of reserving its height up front. Right for
-   * the search overlay, which opens as the keyboard comes up; the home screen keeps the space
-   * reserved so its layout doesn't shift underneath the user.
+   * Overlay-only inset tweak: the bar tracks the IME and sits a little over the nav bar. Home uses
+   * the same live inset without that overlap so the bar and keys travel together rather than the
+   * bar parking above an empty well.
    */
   riseWithKeyboard: Boolean = false,
 ) {
@@ -289,12 +290,6 @@ fun SearchScreen(
   val view = LocalView.current
   val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
-  // Use InputMethodManager for more reliable keyboard control
-  val imm = remember {
-    context.getSystemService(Context.INPUT_METHOD_SERVICE)
-      as android.view.inputmethod.InputMethodManager
-  }
-
   fun retractKeyboardForTab() {
     openingTab = true
     // Focus goes with it. Asking only the keyboard to leave was right when the browser was another
@@ -304,10 +299,7 @@ fun SearchScreen(
     // is what happened when a result was picked from the in-tab search and the page opened with the
     // keyboard still up.
     focusManager.clearFocus()
-    // Straight to the IMM like the rest of this screen's keyboard handling: the field keeps focus
-    // (the launcher is still the foreground app until the browser arrives), so only the keyboard
-    // itself is asked to go.
-    imm.hideSoftInputFromWindow(view.windowToken, 0)
+    Ime.hide(view)
   }
 
   // Every browser tab is a window of its own, so that the system's app switcher lists tabs the way
@@ -742,23 +734,42 @@ fun SearchScreen(
     }
   }
 
-  // Ask for the keyboard on activation. The IME can only be shown once the window actually
-  // holds focus — returning to the home screen often delivers focus late, so wait for it
-  // instead of guessing with fixed retries, then keep asking until the IME is really visible.
+  // Focus the field as soon as it exists, even before this window has focus. The IME can only
+  // actually appear once the window is focused, but an editor that is already focused when that
+  // happens is what the system needs to start the keyboard on the same frame — waiting for
+  // window focus first, then requesting, is a frame (or several) too late.
+  //
+  // Ask once the window can take it, then wait. Calling show again after the IME has accepted
+  // the request restarts its appearance animation, which is what made the keys land late and
+  // the bar hop as the inset rewound.
   val windowInfo = androidx.compose.ui.platform.LocalWindowInfo.current
-  LaunchedEffect(isActive, focusTrigger, browserShowing, openingTab) {
-    if (isActive && !openingTab && !browserShowing) {
-      snapshotFlow { windowInfo.isWindowFocused }.first { it }
-      repeat(10) {
-        focusRequester.requestFocus()
-        imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-        kotlinx.coroutines.delay(120)
-        val imeVisible =
-          androidx.core.view.ViewCompat.getRootWindowInsets(view)
-            ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
-        if (imeVisible) return@LaunchedEffect
-      }
+  val shouldShowKeyboard =
+    rememberUpdatedState(isActive && !openingTab && !browserShowing && !inPip)
+  LaunchedEffect(isActive, focusTrigger, browserShowing, openingTab, inPip) {
+    if (!shouldShowKeyboard.value) {
+      Ime.hide(view)
+      return@LaunchedEffect
     }
+    runCatching { focusRequester.requestFocus() }
+    snapshotFlow { windowInfo.isWindowFocused }
+      .collect { focused ->
+        if (!focused || !shouldShowKeyboard.value) return@collect
+        var shows = 0
+        var attempts = 0
+        while (windowInfo.isWindowFocused && shouldShowKeyboard.value) {
+          runCatching { focusRequester.requestFocus() }
+          if (Ime.isVisible(view)) break
+          // One ask, then one retry after a few frames if the editor was not ready. More than
+          // that restarts the IME animation and the bar hops.
+          if (shows == 0 || (shows == 1 && attempts == 8)) {
+            Ime.show(view)
+            shows++
+          }
+          attempts++
+          if (attempts > 200) break
+          if (shows < 2 && attempts < 8) withFrameNanos {} else kotlinx.coroutines.delay(50)
+        }
+      }
   }
 
   // Tapping the field when it is already focused produces no focus change, so nothing would
@@ -768,7 +779,7 @@ fun SearchScreen(
     searchFieldInteractionSource.interactions.collect { interaction ->
       if (interaction is androidx.compose.foundation.interaction.PressInteraction.Release) {
         focusRequester.requestFocus()
-        imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        Ime.show(view)
       }
     }
   }
@@ -911,25 +922,27 @@ fun SearchScreen(
     context.getSharedPreferences(Prefs.Window.FILE, Context.MODE_PRIVATE)
   }
   val density = LocalDensity.current
+  val screenHeightPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.roundToPx() }
   val imeHeightPx = WindowInsets.ime.getBottom(density)
 
   /**
    * Ceiling on what we are willing to believe a keyboard measures.
    *
-   * The height is remembered so the bar can hold the keyboard's place before the IME reports
-   * itself, but a bogus reading could get in there and stick: the space reserved below is the
-   * *larger* of the stored and live values, so anything too big survives every later correction.
-   * Some IME windows span nearly the whole screen while only their lower part is keys, and a
-   * reading taken from one of those left the home screen squeezed into the top quarter with a black
-   * band beneath it until the IME settled and overwrote it.
+   * The height is remembered so the wallpaper can keep its crop while a tab opens and the keys
+   * retract. A bogus reading could get in there and stick, so anything larger than half the window
+   * is ignored when saving. Some IME windows span nearly the whole screen while only their lower
+   * part is keys, and a reading taken from one of those left the home screen squeezed into the top
+   * quarter with a black band beneath it until the IME settled and overwrote it.
+   *
+   * Sized from the screen, not [androidx.compose.ui.platform.WindowInfo.containerSize]: that
+   * shrinks when the IME is up.
    */
-  val maxPlausibleKeyboardPx = (windowInfo.containerSize.height * 0.5f).toInt()
+  val maxPlausibleKeyboardPx = (screenHeightPx * Ime.MAX_HEIGHT_FRACTION).toInt()
 
-  // Read synchronously for initial value
+  // Read synchronously for initial value. Do not clamp against a zero max on the first frame
+  // (container size is often still 0), or a real stored height is thrown away and the bar jumps.
   var storedKeyboardHeight by remember {
-    mutableStateOf(
-      sharedPrefs.getInt(Prefs.Window.KEYBOARD_HEIGHT, 0).coerceAtMost(maxPlausibleKeyboardPx)
-    )
+    mutableStateOf(sharedPrefs.getInt(Prefs.Window.KEYBOARD_HEIGHT, 0))
   }
 
   val isMultiWindow = (context as? android.app.Activity)?.isInMultiWindowMode == true
@@ -941,7 +954,11 @@ fun SearchScreen(
    * than sitting in mid-air until the browser finally takes over.
    */
   LaunchedEffect(imeHeightPx) {
-    if (imeHeightPx > 100 && imeHeightPx <= maxPlausibleKeyboardPx && !isMultiWindow) {
+    if (
+      imeHeightPx >= Ime.MIN_PLAUSIBLE_HEIGHT_PX &&
+        imeHeightPx <= maxPlausibleKeyboardPx &&
+        !isMultiWindow
+    ) {
       // Wait for animation to settle (debounce)
       kotlinx.coroutines.delay(300)
       // If we are still active (didn't get cancelled by new value), save it
@@ -950,43 +967,44 @@ fun SearchScreen(
     }
   }
 
-  // The effective padding is the max of current IME or stored IME height
-  // In multi-window/floating mode, we ignore stored height to avoid unnecessary gaps
+  val reservedKeyboardHeightPx = Ime.reservedHeightPx(storedKeyboardHeight, screenHeightPx)
+  val imeForLayoutPx = Ime.insetForLayoutPx(imeHeightPx, storedKeyboardHeight, screenHeightPx)
+
+  // Chrome follows the live IME inset, including on home. A stored-height park put the bar in
+  // mid-air above an empty well; a full-screen IME reading shoved it off the top. [imeForLayoutPx]
+  // is the live inset with those two cases stripped.
   val navigationBarBottomPx = WindowInsets.navigationBars.getBottom(density)
   val bottomPadding =
     with(density) {
       when {
         // Tracks the IME inset frame by frame as the keyboard animates in, so the bar travels up
-        // with the keys. Reserving the stored height instead would park it at the final position
-        // before the keyboard has even started to appear. At rest it lands exactly on the bar it
-        // replaces, so the overlay opens without the bar hopping.
+        // with the keys. At rest it lands exactly on the bar it replaces, so the overlay opens
+        // without the bar hopping.
         riseWithKeyboard ->
           kotlin.math
-            .max(imeHeightPx, navigationBarBottomPx - BROWSER_CHROME_BAR_OFFSET.roundToPx())
+            .max(imeForLayoutPx, navigationBarBottomPx - BROWSER_CHROME_BAR_OFFSET.roundToPx())
             .coerceAtLeast(0)
             .toDp()
-        isMultiWindow -> imeHeightPx.toDp()
+        isMultiWindow -> imeForLayoutPx.toDp()
         // Follows the IME down frame by frame while a tab opens, so the bar rides the keyboard
         // out instead of dropping once it has gone.
-        openingTab -> imeHeightPx.toDp()
-        else -> kotlin.math.max(imeHeightPx, storedKeyboardHeight).toDp()
+        openingTab -> imeForLayoutPx.toDp()
+        else -> kotlin.math.max(imeForLayoutPx, navigationBarBottomPx).toDp()
       }
     }
 
   /**
    * What the wallpaper reserves at the bottom, which is not what the chrome bar reserves.
    *
-   * The bar follows the keyboard down frame by frame as a tab opens, so that it rides the keyboard
-   * out rather than dropping once it has gone. A full-screen picture cannot do that: the same
-   * padding shrinking under it resizes the image, and the wallpaper visibly grows during the very
-   * transition that is meant to be carrying it off to one side. So it keeps holding the keyboard's
-   * room throughout, exactly as it does at rest.
+   * The bar follows the live IME so it can rise with the keys. The picture cannot: the same padding
+   * changing under it resizes the image, which is the wallpaper sliding as the keyboard pops up.
+   * Home (and a tab opening) therefore keep the stored keyboard height whether the IME is up or
+   * not. The overlay has no wallpaper, so it can share the chrome inset.
    */
   val wallpaperBottomPadding =
-    if (openingTab) {
-      with(density) { kotlin.math.max(imeHeightPx, storedKeyboardHeight).toDp() }
-    } else {
-      bottomPadding
+    when {
+      riseWithKeyboard || isMultiWindow -> bottomPadding
+      else -> with(density) { reservedKeyboardHeightPx.toDp() }
     }
 
   var chromeBarHeightPx by remember { mutableIntStateOf(0) }
@@ -1880,18 +1898,25 @@ fun SearchScreen(
                 }
               },
               modifier =
-                Modifier.weight(1f).focusRequester(focusRequester).onKeyEvent { event ->
-                  if (
-                    event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
-                      displayQuery.isEmpty() &&
-                      activeShortcut != null
-                  ) {
-                    onQueryChange("")
-                    true
-                  } else {
-                    false
+                Modifier.weight(1f)
+                  .focusRequester(focusRequester)
+                  .onFocusChanged { state ->
+                    if (state.isFocused && shouldShowKeyboard.value) {
+                      Ime.show(view)
+                    }
                   }
-                },
+                  .onKeyEvent { event ->
+                    if (
+                      event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
+                        displayQuery.isEmpty() &&
+                        activeShortcut != null
+                    ) {
+                      onQueryChange("")
+                      true
+                    } else {
+                      false
+                    }
+                  },
               textStyle =
                 LocalTextStyle.current.copy(fontSize = 16.sp, color = LocalContentColor.current),
               // Autocorrect off keeps the query literal: package names, commands and URL fragments
