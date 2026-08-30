@@ -1,0 +1,1 @@
+No more photos or all-files permission just to show the wallpaper — the system wallpaper shows through. Widgets stay above a multi-row favorites bar instead of sliding under it. Unused Bluetooth permissions are gone.
