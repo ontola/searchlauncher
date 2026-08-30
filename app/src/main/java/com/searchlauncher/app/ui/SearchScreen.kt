@@ -104,6 +104,7 @@ import com.searchlauncher.app.ui.components.SearchResultItem
 import com.searchlauncher.app.ui.components.ShortcutDialog
 import com.searchlauncher.app.ui.components.SnippetDialog
 import com.searchlauncher.app.ui.components.WallpaperBackground
+import com.searchlauncher.app.ui.components.favoritesMaxRowsForBar
 import com.searchlauncher.app.ui.components.homeWidgetsEnabled
 import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
 import com.searchlauncher.app.ui.onboarding.OnboardingManager
@@ -1010,6 +1011,7 @@ fun SearchScreen(
   var chromeBarHeightPx by remember { mutableIntStateOf(0) }
   var favoritesRowHeightPx by remember { mutableIntStateOf(0) }
   val showingSearchOptions = query.isNotBlank()
+  val barMaxRows = favoritesMaxRowsForBar(showingSearchOptions, favoritesMaxRows)
   val favoritesRowVisible =
     if (showingSearchOptions) {
       searchOptionFavorites.isNotEmpty() || searchOptionExtras.isNotEmpty()
@@ -1710,7 +1712,7 @@ fun SearchScreen(
                   favorites = searchOptionFavorites,
                   history = searchOptionExtras,
                   minIconSizeSetting = minIconSizeSetting,
-                  maxRows = favoritesMaxRows,
+                  maxRows = barMaxRows,
                   expandToFill = true,
                   reverseHistory = false,
                   drawDivider = false,
@@ -1760,7 +1762,7 @@ fun SearchScreen(
                   history = historyItems,
                   historyLimit = historyLimit,
                   minIconSizeSetting = minIconSizeSetting,
-                  maxRows = favoritesMaxRows,
+                  maxRows = barMaxRows,
                   onLaunch = { result ->
                     if (result is SearchResult.SearchIntent) {
                       searchRepository.reportUsageAsync(result.namespace, result.id)

@@ -206,6 +206,19 @@ class FavoritesBarLayoutTest {
   }
 
   @Test
+  fun `a query forces one row even when the setting allows more`() {
+    assertEquals(1, favoritesMaxRowsForBar(hasQuery = true, setting = 3))
+    assertEquals(1, favoritesMaxRowsForBar(hasQuery = true, setting = FAVORITES_MAX_ROWS_AUTO))
+    assertEquals(3, favoritesMaxRowsForBar(hasQuery = false, setting = 3))
+    assertEquals(
+      FAVORITES_MAX_ROWS_AUTO,
+      favoritesMaxRowsForBar(hasQuery = false, setting = FAVORITES_MAX_ROWS_AUTO),
+    )
+    val searching = layout(favorites = 14, maxRows = favoritesMaxRowsForBar(true, 3))
+    assertEquals(1, searching.rowCount)
+  }
+
+  @Test
   fun `item cells are row-major`() {
     assertEquals(0, itemRow(4, itemsPerRow = 6))
     assertEquals(4, itemCol(4, itemsPerRow = 6))
