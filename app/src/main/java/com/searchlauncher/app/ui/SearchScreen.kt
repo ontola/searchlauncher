@@ -102,6 +102,7 @@ import com.searchlauncher.app.ui.components.SearchResultItem
 import com.searchlauncher.app.ui.components.ShortcutDialog
 import com.searchlauncher.app.ui.components.SnippetDialog
 import com.searchlauncher.app.ui.components.WallpaperBackground
+import com.searchlauncher.app.ui.components.homeWidgetsEnabled
 import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
 import com.searchlauncher.app.ui.onboarding.OnboardingManager
 import com.searchlauncher.app.ui.onboarding.OnboardingStep
@@ -1064,7 +1065,12 @@ fun SearchScreen(
     closing?.let { BrowserTabTasks.close(context, it.id) }
   }
 
-  BackHandler(enabled = tabsOverviewOpen) { tabsOverviewOpen = false }
+  // The overlay is its own activity: back has to finish it, not merely hide the keyboard. The
+  // activity also intercepts BACK before the IME (see SearchActivity); this covers the case where
+  // the keys are already gone.
+  BackHandler(enabled = tabsOverviewOpen || riseWithKeyboard) {
+    if (tabsOverviewOpen) tabsOverviewOpen = false else onDismiss()
+  }
 
   // Pressing home while already on the launcher never stops the activity, so the lifecycle reset
   // below cannot catch it. The launcher bumps this instead whenever a home intent arrives, and
@@ -1479,18 +1485,20 @@ fun SearchScreen(
               leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
             )
           }
-          DropdownMenuItem(
-            text = { Text("Add Widget") },
-            onClick = {
-              showBackgroundMenu = false
-              onAddWidget()
-            },
-            // Not the plain Add the wallpaper entry uses — two identical plus icons in one menu
-            // would say nothing about which is which.
-            leadingIcon = { Icon(Icons.Default.Widgets, contentDescription = null) },
-          )
+          if (homeWidgetsEnabled(context)) {
+            DropdownMenuItem(
+              text = { Text("Add Widget") },
+              onClick = {
+                showBackgroundMenu = false
+                onAddWidget()
+              },
+              // Not the plain Add the wallpaper entry uses — two identical plus icons in one menu
+              // would say nothing about which is which.
+              leadingIcon = { Icon(Icons.Default.Widgets, contentDescription = null) },
+            )
+          }
           val widgets by app.widgetRepository.widgets.collectAsState(initial = emptyList())
-          if (showWidgetsSetting && widgets.isNotEmpty()) {
+          if (homeWidgetsEnabled(context) && showWidgetsSetting && widgets.isNotEmpty()) {
             DropdownMenuItem(
               text = { Text("Clear Widgets") },
               onClick = {

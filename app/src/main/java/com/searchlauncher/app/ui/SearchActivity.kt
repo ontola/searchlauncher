@@ -4,8 +4,12 @@ import android.animation.ValueAnimator
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import android.widget.FrameLayout
+import android.window.OnBackInvokedDispatcher
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -18,15 +22,19 @@ import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.ui.browser.BrowserActivity
 
 class SearchActivity : ComponentActivity(), KeyShortcutHost {
-  override var keyShortcutHandler: ((android.view.KeyEvent) -> Boolean)? = null
+  override var keyShortcutHandler: ((KeyEvent) -> Boolean)? = null
 
-  override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+  override fun dispatchKeyEvent(event: KeyEvent): Boolean {
     if (keyShortcutHandler?.invoke(event) == true) return true
+    // Consume BACK before the IME does. Otherwise the first press only hides the keyboard and the
+    // overlay stays up until a second press finishes this activity.
+    if (closeOverlayOnBackKey(event) { finish() }) return true
     return super.dispatchKeyEvent(event)
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    closeOverlayOnPredictiveBack()
     enableEdgeToEdge()
 
     // Make window transparent
@@ -92,6 +100,46 @@ class SearchActivity : ComponentActivity(), KeyShortcutHost {
         riseWithKeyboard = true,
       )
     }
+    interceptBackBeforeIme()
+  }
+
+  /**
+   * BACK is delivered to the IME before [dispatchKeyEvent], so intercepting there is too late: the
+   * first press only hides the keyboard. Walking the focused field's parents with
+   * [ViewGroup.dispatchKeyEventPreIme] is the path that still sees that press.
+   */
+  private fun interceptBackBeforeIme() {
+    val content = findViewById<ViewGroup>(android.R.id.content)
+    val child = content.getChildAt(0) ?: return
+    content.removeView(child)
+    val wrapper =
+      object : FrameLayout(this) {
+        override fun dispatchKeyEventPreIme(event: KeyEvent): Boolean {
+          if (closeOverlayOnBackKey(event) { finish() }) return true
+          return super.dispatchKeyEventPreIme(event)
+        }
+      }
+    wrapper.addView(
+      child,
+      FrameLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.MATCH_PARENT,
+      ),
+    )
+    content.addView(wrapper)
+  }
+
+  /**
+   * Gesture back on API 33+ never becomes a [KeyEvent]. The IME registers at default priority to
+   * hide itself, so this overlay has to sit above that or the first swipe only drops the keyboard.
+   */
+  private fun closeOverlayOnPredictiveBack() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    onBackInvokedDispatcher.registerOnBackInvokedCallback(
+      OnBackInvokedDispatcher.PRIORITY_OVERLAY
+    ) {
+      finish()
+    }
   }
 
   /**
@@ -134,4 +182,14 @@ class SearchActivity : ComponentActivity(), KeyShortcutHost {
     const val EXTRA_CHROME_COLOR = "chrome_color"
     const val EXTRA_INITIAL_QUERY = "initial_query"
   }
+}
+
+/**
+ * Whether [event] is a back press that should close the search overlay rather than being handed to
+ * the IME. Down is consumed so the keyboard never sees it; the overlay closes on up.
+ */
+internal fun closeOverlayOnBackKey(event: KeyEvent, close: () -> Unit): Boolean {
+  if (event.keyCode != KeyEvent.KEYCODE_BACK) return false
+  if (event.action == KeyEvent.ACTION_UP) close()
+  return true
 }

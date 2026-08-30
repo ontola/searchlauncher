@@ -78,6 +78,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
+ * Widgets are hosted by [MainActivity]'s [android.appwidget.AppWidgetHost]. The browser's
+ * translucent search overlay is a different activity, so drawing them there produced "Widget
+ * unavailable" cards for every bound id.
+ */
+internal fun homeWidgetsEnabled(context: android.content.Context): Boolean = context is MainActivity
+
+/**
  * Page of the endlessly looping pager that shows [uriString], defaulting to the first image.
  *
  * The loop is centred on the middle of the index space so swiping backwards works from the start.
@@ -163,6 +170,9 @@ fun WallpaperBackground(
   savedUriResolved: Boolean = true,
 ) {
   val context = LocalContext.current
+  // The browser overlay is a different activity and has no AppWidgetHost. Drawing widgets there
+  // produced an error card for every bound id; they belong on the home screen only.
+  val widgetsEnabled = homeWidgetsEnabled(context)
 
   val contentModifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
 
@@ -206,11 +216,13 @@ fun WallpaperBackground(
                 // that was just being arranged. A second tap then toggles them as it always does.
                 activeWidgetId = -1
               } else {
-                val newState = !showWidgets
-                val scope = CoroutineScope(Dispatchers.IO)
-                scope.launch {
-                  context.dataStore.edit { preferences ->
-                    preferences[PreferencesKeys.SHOW_WIDGETS] = newState
+                if (widgetsEnabled) {
+                  val newState = !showWidgets
+                  val scope = CoroutineScope(Dispatchers.IO)
+                  scope.launch {
+                    context.dataStore.edit { preferences ->
+                      preferences[PreferencesKeys.SHOW_WIDGETS] = newState
+                    }
                   }
                 }
                 onTap()
@@ -267,7 +279,7 @@ fun WallpaperBackground(
       }
     }
 
-    if (widgets.isNotEmpty()) {
+    if (widgetsEnabled && widgets.isNotEmpty()) {
       AnimatedVisibility(visible = showWidgets, enter = fadeIn(), exit = fadeOut()) {
         val isAnyWidgetActive = activeWidgetId != -1
         if (isAnyWidgetActive) {
