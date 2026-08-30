@@ -746,18 +746,28 @@ fun SearchScreen(
   val windowInfo = androidx.compose.ui.platform.LocalWindowInfo.current
   val shouldShowKeyboard =
     rememberUpdatedState(isActive && !openingTab && !browserShowing && !inPip)
+  // The inset is watched as well as window focus. Back is not routed through this screen, so a
+  // system dismissal reaches us only as the IME inset going away — and window focus does not move
+  // when it does. Waiting on focus alone left one Back press with the keys gone for good, above the
+  // band the wallpaper reserves for them.
+  val imeInsets = WindowInsets.ime
+  val imeInsetDensity = LocalDensity.current
   LaunchedEffect(isActive, focusTrigger, browserShowing, openingTab, inPip) {
     if (!shouldShowKeyboard.value) {
       Ime.hide(view)
       return@LaunchedEffect
     }
     runCatching { focusRequester.requestFocus() }
-    snapshotFlow { windowInfo.isWindowFocused }
-      .collect { focused ->
-        if (!focused || !shouldShowKeyboard.value) return@collect
+    snapshotFlow { windowInfo.isWindowFocused && imeInsets.getBottom(imeInsetDensity) <= 0 }
+      .collect { keyboardWanted ->
+        if (!keyboardWanted || !shouldShowKeyboard.value) return@collect
         var shows = 0
         var attempts = 0
-        while (windowInfo.isWindowFocused && shouldShowKeyboard.value) {
+        while (
+          windowInfo.isWindowFocused &&
+            shouldShowKeyboard.value &&
+            imeInsets.getBottom(imeInsetDensity) <= 0
+        ) {
           runCatching { focusRequester.requestFocus() }
           if (Ime.isVisible(view)) break
           // One ask, then one retry after a few frames if the editor was not ready. More than
