@@ -168,6 +168,11 @@ fun WallpaperBackground(
   onSwipeDownLeft: () -> Unit = {},
   onSwipeDownRight: () -> Unit = {},
   savedUriResolved: Boolean = true,
+  /**
+   * Measured favorites bar plus search chrome, sitting above [bottomPadding]. Extra favorites rows
+   * grow this; a one-row guess left widgets sitting under a taller bar.
+   */
+  bottomSectionHeight: Dp = WIDGET_BOTTOM_SECTION_FALLBACK,
 ) {
   val context = LocalContext.current
   // The browser overlay is a different activity and has no AppWidgetHost. Drawing widgets there
@@ -306,7 +311,7 @@ fun WallpaperBackground(
           BoxWithConstraints(modifier = Modifier.fillMaxSize().zIndex(2f)) {
             val columnSpacing = 8.dp
             val topPadding = 24.dp
-            val listBottomPadding = bottomPadding + 80.dp
+            val listBottomPadding = widgetsListBottomPadding(bottomPadding, bottomSectionHeight)
             // As many columns as fit at the maximum width, so a phone keeps its single column and
             // a tablet stops stretching one widget across the whole display.
             val columnCount =
@@ -393,7 +398,8 @@ fun WallpaperBackground(
 
                       val isResizing = activeWidgetId == widget.id
                       val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-                      val maxWidgetHeight = configuration.screenHeightDp.dp - bottomPadding - 120.dp
+                      val maxWidgetHeight =
+                        configuration.screenHeightDp.dp - listBottomPadding - 40.dp
 
                       val heightModifier =
                         if (isResizing) {
@@ -626,6 +632,32 @@ private val WIDGET_COLUMN_MAX_WIDTH = 420.dp
 
 /** Height assumed for a widget that has never been resized, matching the default it is given. */
 private val WIDGET_DEFAULT_HEIGHT = 200.dp
+
+/**
+ * Gap between the widget list and the favorites / chrome block, matching the chrome column's own
+ * bottom padding.
+ */
+internal val WIDGET_BOTTOM_SECTION_GAP = 12.dp
+
+/**
+ * Used until the favorites bar and chrome have been measured, and as a floor so a missing
+ * measurement does not drop widgets onto the search bar.
+ */
+internal val WIDGET_BOTTOM_SECTION_FALLBACK = 80.dp
+
+/**
+ * How far the widget list sits above the bottom of the home screen.
+ *
+ * [keyboardInset] is the IME / nav reserve the wallpaper already uses. [bottomSection] is the
+ * measured favorites bar plus search chrome — extra rows grow it, which is why a hardcoded 80.dp
+ * left the bottom of a widget behind a two-row favorites bar.
+ */
+internal fun widgetsListBottomPadding(
+  keyboardInset: Dp,
+  bottomSection: Dp,
+  gap: Dp = WIDGET_BOTTOM_SECTION_GAP,
+  minReserve: Dp = WIDGET_BOTTOM_SECTION_FALLBACK,
+): Dp = keyboardInset + (bottomSection + gap).coerceAtLeast(minReserve)
 
 /**
  * Fills each column before moving to the next, so widgets keep the order they were added in and

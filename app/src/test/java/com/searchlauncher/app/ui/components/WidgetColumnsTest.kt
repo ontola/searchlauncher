@@ -56,4 +56,24 @@ class WidgetColumnsTest {
     val columns = packWidgetsIntoColumns(all, columnCount = 2, columnHeight = 250.dp)
     assertEquals(listOf(listOf(all[0]), listOf(all[1])), columns)
   }
+
+  @Test
+  fun `widget list uses the measured favorites and chrome height`() {
+    // One-row guess was 80.dp; two rows of 48.dp icons plus a 56.dp chrome bar is taller.
+    val twoRowSection = 48.dp + 8.dp + 48.dp + 56.dp
+    assertEquals(
+      160.dp + 12.dp,
+      widgetsListBottomPadding(keyboardInset = 0.dp, bottomSection = twoRowSection),
+    )
+    assertEquals(
+      300.dp + 160.dp + 12.dp,
+      widgetsListBottomPadding(keyboardInset = 300.dp, bottomSection = twoRowSection),
+    )
+  }
+
+  @Test
+  fun `widget list keeps the one-row reserve until the bar has been measured`() {
+    assertEquals(80.dp, widgetsListBottomPadding(keyboardInset = 0.dp, bottomSection = 0.dp))
+    assertEquals(380.dp, widgetsListBottomPadding(keyboardInset = 300.dp, bottomSection = 0.dp))
+  }
 }
