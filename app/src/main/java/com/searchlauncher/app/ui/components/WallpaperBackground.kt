@@ -52,6 +52,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -169,10 +170,15 @@ fun WallpaperBackground(
   onSwipeDownRight: () -> Unit = {},
   savedUriResolved: Boolean = true,
   /**
-   * Measured favorites bar plus search chrome, sitting above [bottomPadding]. Extra favorites rows
-   * grow this; a one-row guess left widgets sitting under a taller bar.
+   * Measured favorites bar plus search chrome. Extra favorites rows grow this; a one-row guess left
+   * widgets sitting under a taller bar.
    */
   bottomSectionHeight: Dp = WIDGET_BOTTOM_SECTION_FALLBACK,
+  /**
+   * IME / nav inset the chrome bar actually sits on. Widgets have to use this, not the wallpaper's
+   * stored keyboard height, or they slide under the live favorites bar.
+   */
+  chromeBottomPadding: Dp = bottomPadding,
 ) {
   val context = LocalContext.current
   // The browser overlay is a different activity and has no AppWidgetHost. Drawing widgets there
@@ -311,7 +317,8 @@ fun WallpaperBackground(
           BoxWithConstraints(modifier = Modifier.fillMaxSize().zIndex(2f)) {
             val columnSpacing = 8.dp
             val topPadding = 24.dp
-            val listBottomPadding = widgetsListBottomPadding(bottomPadding, bottomSectionHeight)
+            val listBottomPadding =
+              widgetsListBottomPadding(chromeBottomPadding, bottomSectionHeight)
             // As many columns as fit at the maximum width, so a phone keeps its single column and
             // a tablet stops stretching one widget across the whole display.
             val columnCount =
@@ -327,12 +334,8 @@ fun WallpaperBackground(
             Row(
               modifier =
                 Modifier.fillMaxSize()
-                  .padding(
-                    top = topPadding,
-                    start = 16.dp,
-                    end = 16.dp,
-                    bottom = listBottomPadding,
-                  ),
+                  .padding(top = topPadding, start = 16.dp, end = 16.dp, bottom = listBottomPadding)
+                  .clipToBounds(),
               horizontalArrangement = Arrangement.spacedBy(columnSpacing),
             ) {
               widgetColumns.forEachIndexed { columnIndex, columnWidgets ->
@@ -648,9 +651,9 @@ internal val WIDGET_BOTTOM_SECTION_FALLBACK = 80.dp
 /**
  * How far the widget list sits above the bottom of the home screen.
  *
- * [keyboardInset] is the IME / nav reserve the wallpaper already uses. [bottomSection] is the
- * measured favorites bar plus search chrome — extra rows grow it, which is why a hardcoded 80.dp
- * left the bottom of a widget behind a two-row favorites bar.
+ * [keyboardInset] is the IME / nav inset the chrome bar sits on. [bottomSection] is the measured
+ * favorites bar plus search chrome — extra rows grow it, which is why a hardcoded 80.dp left the
+ * bottom of a widget behind a two-row favorites bar.
  */
 internal fun widgetsListBottomPadding(
   keyboardInset: Dp,

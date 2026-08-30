@@ -76,4 +76,12 @@ class WidgetColumnsTest {
     assertEquals(80.dp, widgetsListBottomPadding(keyboardInset = 0.dp, bottomSection = 0.dp))
     assertEquals(380.dp, widgetsListBottomPadding(keyboardInset = 300.dp, bottomSection = 0.dp))
   }
+
+  @Test
+  fun `a taller favorites block reserves more than the one-row fallback`() {
+    val oneRow = widgetsListBottomPadding(keyboardInset = 200.dp, bottomSection = 56.dp)
+    val twoRows = widgetsListBottomPadding(keyboardInset = 200.dp, bottomSection = 160.dp)
+    assertEquals(280.dp, oneRow)
+    assertEquals(200.dp + 160.dp + 12.dp, twoRows)
+  }
 }

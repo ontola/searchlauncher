@@ -1301,6 +1301,7 @@ fun SearchScreen(
           WallpaperBackground(
             showBackgroundImage = showBackgroundImage,
             bottomPadding = wallpaperBottomPadding,
+            chromeBottomPadding = bottomPadding,
             bottomSectionHeight = with(density) { bottomSectionHeightPx.toDp() },
             folderImages = folderImages,
             lastImageUriString = lastImageUriString,
