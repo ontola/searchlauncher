@@ -1,0 +1,1 @@
+Back in the in-app browser now closes the search overlay in one press instead of only hiding the keyboard. Home-screen widgets no longer try to draw in that overlay.
