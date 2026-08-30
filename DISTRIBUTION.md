@@ -174,8 +174,9 @@ requirement** below.
   source. This is "shared, not collected": it goes to a third party, not to us.
 - *Crash reporting*, when enabled, sends stack traces to GlitchTip. Declare it as crash
   logs, optional, not used for tracking.
-- Contacts, calendar and photos are read on the device to answer a query and are never
-  sent anywhere. They are permissions, not collected data.
+- Contacts and calendar are read on the device to answer a query and are never sent
+  anywhere. They are permissions, not collected data. Custom wallpapers are chosen
+  with the system photo picker; the app does not request storage or photos access.
 - The browser downloads a blocklist from the StevenBlack hosts project. That is an
   inbound fetch with no user data in it.
 

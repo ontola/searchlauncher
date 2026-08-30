@@ -19,10 +19,10 @@ import java.util.concurrent.TimeUnit
  * checking storage/media permissions) is the caller's responsibility.
  *
  * Two sources, in order of preference. A SAF grant on the Downloads folder ([grantedTreeUri]) sees
- * every file in it. Without one, MediaStore is all that is left, and on Android 13+ it only
- * surfaces media the app holds a READ_MEDIA_* grant for plus files this app itself downloaded -
- * every PDF, archive and document belonging to another app is filtered out before the cursor sees
- * it. That gap is why the tree grant exists: it covers those without asking for All files access.
+ * every file in it. Without one, MediaStore is all that is left, and without a storage or media
+ * grant it typically only surfaces files this app itself downloaded — every PDF, archive and
+ * document belonging to another app is filtered out before the cursor sees it. That gap is why the
+ * tree grant exists: it covers those without asking for All files access.
  */
 class DownloadIndexer(private val context: Context) {
 

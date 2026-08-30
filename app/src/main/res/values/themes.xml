@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.SearchLauncher" parent="Theme.Material3.DayNight.NoActionBar" />
+    <!--
+      The home screen is a launcher: when the user has not added a custom wallpaper, the system
+      wallpaper shows through the window. Copying that image would need storage or photos access.
+    -->
+    <style name="Theme.SearchLauncher" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowShowWallpaper">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
 
     <!--
       The browser opens into its own task, so the system draws a starting window for it before any

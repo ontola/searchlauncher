@@ -57,16 +57,15 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
   /**
    * The opening offer of the optional permissions, and which of them are worth offering.
    *
-   * They are asked for here rather than where they happen to be needed, because they were not
-   * reachable before: photo access arrived as a bare system dialog in the first seconds, with
-   * nothing on screen to say what it was for, and contact or calendar access was never requested at
-   * all — the app only ever checked them and dropped a hint in the search bar, so the one way to
-   * turn those searches on was to find SearchLauncher in Android's settings. Whatever is missing is
-   * explained on screen first, and the system prompts follow only on yes.
+   * They are asked for here rather than where they happen to be needed, because contact or calendar
+   * access was never requested at all — the app only ever checked them and dropped a hint in the
+   * search bar, so the one way to turn those searches on was to find SearchLauncher in Android's
+   * settings. Whatever is missing is explained on screen first, and the system prompts follow only
+   * on yes. The system wallpaper is shown through the window; it is never copied, so photos and
+   * storage access are not offered.
    */
   var showOnboardingPermissions by mutableStateOf(false)
   var onboardingOffersContacts by mutableStateOf(false)
-  var onboardingOffersPhotos by mutableStateOf(false)
   var onboardingOffersCalendar by mutableStateOf(false)
 
   private val exportBackupLauncher =
@@ -101,17 +100,13 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
 
   /**
    * Asks for whichever optional permissions were accepted in the opening offer, then puts each one
-   * straight to use: the wallpaper is imported and contacts are indexed on the spot, so saying yes
-   * visibly does something rather than leaving the user to guess whether it took.
+   * straight to use: contacts and calendar are indexed on the spot, so saying yes visibly does
+   * something rather than leaving the user to guess whether it took.
    */
   private val requestOnboardingPermissionsLauncher =
     registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
       val app = application as SearchLauncherApp
       lifecycleScope.launch {
-        if (results[android.Manifest.permission.READ_MEDIA_IMAGES] == true) {
-          app.wallpaperRepository.addSystemWallpaper()
-          app.searchRepository.indexDownloads()
-        }
         if (results[android.Manifest.permission.READ_CONTACTS] == true) {
           app.searchRepository.indexContacts()
         }
@@ -699,15 +694,11 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
         }
         .collectAsState(initial = true)
 
-    LaunchedEffect(isFirstRun, managedWallpapers.isEmpty(), onboardingPermissionsAsked) {
+    LaunchedEffect(isFirstRun, onboardingPermissionsAsked) {
       if (isFirstRun) {
         context.dataStore.edit { it[PreferencesKeys.IS_FIRST_RUN] = false }
       }
 
-      val photosGranted =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-          context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
       val contactsGranted =
         context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) ==
           android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -715,21 +706,12 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
         context.checkSelfPermission(android.Manifest.permission.READ_CALENDAR) ==
           android.content.pm.PackageManager.PERMISSION_GRANTED
 
-      // Nothing to ask about: the wallpaper can just be taken.
-      if (managedWallpapers.isEmpty() && photosGranted) {
-        android.util.Log.d("MainActivity", "Permission already granted, importing wallpaper")
-        val result = app.wallpaperRepository.addSystemWallpaper()
-        android.util.Log.d("MainActivity", "System wallpaper import result: $result")
-      }
-
       // Offer only what is actually missing, and only once. Someone who already granted both, or
       // who said no last time, is not asked again.
-      val offerPhotos = managedWallpapers.isEmpty() && !photosGranted
       val offerContacts = !contactsGranted
       val offerCalendar = !calendarGranted
-      if (!onboardingPermissionsAsked && (offerPhotos || offerContacts || offerCalendar)) {
+      if (!onboardingPermissionsAsked && (offerContacts || offerCalendar)) {
         (context as? MainActivity)?.let {
-          it.onboardingOffersPhotos = offerPhotos
           it.onboardingOffersContacts = offerContacts
           it.onboardingOffersCalendar = offerCalendar
           it.showOnboardingPermissions = true
@@ -783,7 +765,6 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
 
     if (showOnboardingPermissions) {
       var wantContacts by remember { mutableStateOf(true) }
-      var wantPhotos by remember { mutableStateOf(true) }
       var wantCalendar by remember { mutableStateOf(true) }
 
       // Remembers that the offer was made whichever way it is answered, including a tap outside,
@@ -802,9 +783,6 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
               }
               if (onboardingOffersCalendar && wantCalendar) {
                 add(android.Manifest.permission.READ_CALENDAR)
-              }
-              if (onboardingOffersPhotos && wantPhotos) {
-                add(android.Manifest.permission.READ_MEDIA_IMAGES)
               }
             }
         if (wanted.isNotEmpty()) {
@@ -842,19 +820,6 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
                   Text("Calendar")
                   Text(
                     "Find events coming up in the next week.",
-                    style = MaterialTheme.typography.bodySmall,
-                  )
-                }
-              }
-            }
-            if (onboardingOffersPhotos) {
-              Spacer(modifier = Modifier.height(8.dp))
-              Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Checkbox(checked = wantPhotos, onCheckedChange = { wantPhotos = it })
-                Column {
-                  Text("Wallpaper")
-                  Text(
-                    "Use the wallpaper you already have as the background.",
                     style = MaterialTheme.typography.bodySmall,
                   )
                 }
