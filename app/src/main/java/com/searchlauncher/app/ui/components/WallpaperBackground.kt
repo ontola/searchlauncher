@@ -325,16 +325,18 @@ fun WallpaperBackground(
               ((maxWidth + columnSpacing) / (WIDGET_COLUMN_MAX_WIDTH + columnSpacing))
                 .toInt()
                 .coerceAtLeast(1)
-            val columnHeight = maxHeight - topPadding - listBottomPadding
+            val widgetListHeight = (maxHeight - topPadding - listBottomPadding).coerceAtLeast(0.dp)
             val widgetColumns =
-              remember(widgets, columnCount, columnHeight) {
-                packWidgetsIntoColumns(widgets, columnCount, columnHeight)
+              remember(widgets, columnCount, widgetListHeight) {
+                packWidgetsIntoColumns(widgets, columnCount, widgetListHeight)
               }
 
             Row(
               modifier =
-                Modifier.fillMaxSize()
-                  .padding(top = topPadding, start = 16.dp, end = 16.dp, bottom = listBottomPadding)
+                Modifier.padding(top = topPadding)
+                  .fillMaxWidth()
+                  .height(widgetListHeight)
+                  .padding(start = 16.dp, end = 16.dp)
                   .clipToBounds(),
               horizontalArrangement = Arrangement.spacedBy(columnSpacing),
             ) {
@@ -359,6 +361,11 @@ fun WallpaperBackground(
                     androidx.compose.runtime.key(widget.id) {
                       class WidgetContainerView(context: android.content.Context) :
                         android.widget.FrameLayout(context) {
+                        init {
+                          clipChildren = true
+                          clipToPadding = true
+                        }
+
                         private var onLongPressListener: (() -> Unit)? = null
                         private val gestureDetector =
                           android.view.GestureDetector(

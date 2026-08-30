@@ -1010,6 +1010,7 @@ fun SearchScreen(
 
   var chromeBarHeightPx by remember { mutableIntStateOf(0) }
   var favoritesRowHeightPx by remember { mutableIntStateOf(0) }
+  var bottomDockHeightPx by remember { mutableIntStateOf(0) }
   val showingSearchOptions = query.isNotBlank()
   val barMaxRows = favoritesMaxRowsForBar(showingSearchOptions, favoritesMaxRows)
   val favoritesRowVisible =
@@ -1019,8 +1020,10 @@ fun SearchScreen(
       favorites.isNotEmpty() || historyItems.isNotEmpty()
     }
   /** Everything pinned to the bottom of the home screen: the favorites row and the chrome bar. */
+  /** Favorites plus search chrome, as one measured block so extra favorites rows are included. */
   val bottomSectionHeightPx =
-    chromeBarHeightPx + if (favoritesRowVisible) favoritesRowHeightPx else 0
+    bottomDockHeightPx.takeIf { it > 0 }
+      ?: (chromeBarHeightPx + if (favoritesRowVisible) favoritesRowHeightPx else 0)
   // Tabs overview, opened by the same up-swipe on the chrome bar that opens it in the browser.
   // The tabs are the browser's own live objects, so closing one here closes it there too.
   var overviewTabs by remember { mutableStateOf<BrowserTabs?>(null) }
@@ -1302,7 +1305,8 @@ fun SearchScreen(
             showBackgroundImage = showBackgroundImage,
             bottomPadding = wallpaperBottomPadding,
             chromeBottomPadding = bottomPadding,
-            bottomSectionHeight = with(density) { bottomSectionHeightPx.toDp() },
+            // 16.dp is the gap the chrome column leaves above the favorites bar.
+            bottomSectionHeight = with(density) { bottomSectionHeightPx.toDp() } + 16.dp,
             folderImages = folderImages,
             lastImageUriString = lastImageUriString,
             savedUriResolved = savedUriResolved,
@@ -1702,486 +1706,499 @@ fun SearchScreen(
             Spacer(modifier = Modifier.height(4.dp))
           }
 
-          // Measured as a block: the tabs overview stacks on top of the whole bottom section, so an
-          // open favorites row has to push the strip up with it rather than be drawn over.
-          if (favoritesRowVisible) {
-            Column(
-              modifier =
-                Modifier.contentMaxWidth().onSizeChanged { favoritesRowHeightPx = it.height }
-            ) {
-              if (showingSearchOptions) {
-                FavoritesRow(
-                  favorites = searchOptionFavorites,
-                  history = searchOptionExtras,
-                  minIconSizeSetting = minIconSizeSetting,
-                  maxRows = barMaxRows,
-                  expandToFill = true,
-                  reverseHistory = false,
-                  drawDivider = false,
-                  onLaunch = { result ->
-                    val intent = result as? SearchResult.SearchIntent
-                    val shortcut =
-                      searchShortcuts.find { it.id == result.id || it.alias == intent?.trigger }
-                    val term = SearchOptions.searchTerm(query, searchShortcuts)
-                    if (shortcut != null && intent != null && term.isNotBlank()) {
-                      launchShortcutSearch(
-                        context = context,
-                        searchRepository = searchRepository,
-                        shortcut = shortcut,
-                        result = intent,
-                        query = term,
-                        privateWebResults = privateWebResults,
-                        wasFirstResult = false,
-                        openInBrowser = { openInBrowser(it) },
-                        onDismiss = onDismiss,
-                      )
-                    } else if (intent != null) {
-                      searchRepository.reportUsageAsync(intent.namespace, intent.id)
-                      onQueryChange(intent.trigger + " ")
-                    }
-                  },
-                  onToggleFavorite = { result ->
-                    app.favoritesRepository.toggleSearchOption(result)
-                  },
-                  onReorder = { newOrder ->
-                    app.favoritesRepository.updateSearchOptionOrder(newOrder)
-                  },
-                  onCapacityChanged = {},
-                  // The same menu the results list offers, so long-pressing an option here and
-                  // long-pressing it in the results are the same gesture with the same answer.
-                  // Only pinning differs: in this row "favourite" means the search-options bar,
-                  // not the app favourites, and it must not clear the query it is searching.
-                  menuActions = { result ->
-                    menuActionsFor(result, -1)
-                      .copy(
-                        onToggleFavorite = { app.favoritesRepository.toggleSearchOption(result) }
-                      )
-                  },
-                )
-              } else {
-                FavoritesRow(
-                  favorites = favorites,
-                  history = historyItems,
-                  historyLimit = historyLimit,
-                  minIconSizeSetting = minIconSizeSetting,
-                  maxRows = barMaxRows,
-                  onLaunch = { result ->
-                    if (result is SearchResult.SearchIntent) {
-                      searchRepository.reportUsageAsync(result.namespace, result.id)
-                      onQueryChange(result.trigger + " ")
-                    } else {
-                      resultLauncher.launch(result, reportUsage = true)
-                      onDismiss()
-                    }
-                  },
-                  onToggleFavorite = { result -> app.favoritesRepository.toggleFavorite(result) },
-                  onReorder = { newOrder ->
-                    app.favoritesRepository.updateOrder(newOrder)
-                    scope.launch {
-                      onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites)
-                    }
-                  },
-                  onCapacityChanged = { limit ->
-                    searchRepository.updateObservedHistoryLimit(limit)
-                  },
-                  // The same menu the results list offers, so long-pressing an app here and
-                  // long-pressing it in the results are the same gesture with the same answer.
-                  menuActions = { result -> menuActionsFor(result, -1) },
-                )
-              }
-              Spacer(modifier = Modifier.height(2.dp))
-            }
-          }
-
-          SearchChromeBar(
-            isIndexing = isIndexing,
-            modifier =
-              Modifier.onSizeChanged { chromeBarHeightPx = it.height }
-                .browserTabSwipe(
-                  state = browserTabSwipe,
-                  enabled = browserTabSwipeEnabled,
-                  tabsOverviewOpen = tabsOverviewOpen,
-                  onOpenTabsOverview = ::openTabsOverview,
-                  onCloseTabsOverview = { tabsOverviewOpen = false },
-                  onCommitLastTab = ::retractKeyboardForTab,
-                  // The preview has finished travelling and is standing where the page belongs;
-                  // the tab's own window opens onto it without a transition of its own.
-                  onOpenLastTab = { BrowserTabTasks.openNewestTab(context) },
-                ),
-            color = chromeBarColor ?: MaterialTheme.colorScheme.surface,
-            contentColor =
-              chromeBarColor?.let {
-                if (it.luminance() > 0.5f) Color(0xFF1C1B1F) else Color(0xFFEDE8EE)
-              } ?: MaterialTheme.colorScheme.onSurface,
-            // As a browser overlay the bar floats over the page, which may be the exact same
-            // color — a shadow keeps it readable as its own layer.
-            shadowElevation = if (chromeBarColor != null) 8.dp else 0.dp,
+          // Measured as a block: the tabs overview and the widget list both sit on top of this
+          // dock, so extra favorites rows push them up rather than drawing over them.
+          Column(
+            modifier = Modifier.contentMaxWidth().onSizeChanged { bottomDockHeightPx = it.height }
           ) {
-            val activeShortcut =
-              remember(query) {
-                var shortcut =
-                  app.searchShortcutRepository.items.value.find {
-                    query.startsWith("${it.alias} ", ignoreCase = true)
-                  }
-                if (shortcut == null) {
-                  shortcut =
-                    com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.find {
-                      query.startsWith("${it.alias} ", ignoreCase = true)
-                    }
-                }
-                shortcut
-              }
-
-            if (activeShortcut != null) {
-              Surface(
-                color = androidx.compose.ui.graphics.Color(activeShortcut.color ?: 0xFF808080),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.padding(end = 8.dp),
+            if (favoritesRowVisible) {
+              Column(
+                modifier =
+                  Modifier.contentMaxWidth().onSizeChanged { favoritesRowHeightPx = it.height }
               ) {
-                Row(
-                  verticalAlignment = Alignment.CenterVertically,
-                  modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                ) {
-                  val defaultShortcut =
-                    com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.find {
-                      it.alias == activeShortcut.alias
-                    }
-                  val label =
-                    (activeShortcut.shortLabel
-                        ?: defaultShortcut?.shortLabel
-                        ?: activeShortcut.description)
-                      .replace("Search ", "", ignoreCase = true)
-                      .replace("Ask ", "", ignoreCase = true)
-                      .trim()
-                  Text(
-                    text = label,
-                    color = androidx.compose.ui.graphics.Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                if (showingSearchOptions) {
+                  FavoritesRow(
+                    favorites = searchOptionFavorites,
+                    history = searchOptionExtras,
+                    minIconSizeSetting = minIconSizeSetting,
+                    maxRows = barMaxRows,
+                    expandToFill = true,
+                    reverseHistory = false,
+                    drawDivider = false,
+                    onLaunch = { result ->
+                      val intent = result as? SearchResult.SearchIntent
+                      val shortcut =
+                        searchShortcuts.find { it.id == result.id || it.alias == intent?.trigger }
+                      val term = SearchOptions.searchTerm(query, searchShortcuts)
+                      if (shortcut != null && intent != null && term.isNotBlank()) {
+                        launchShortcutSearch(
+                          context = context,
+                          searchRepository = searchRepository,
+                          shortcut = shortcut,
+                          result = intent,
+                          query = term,
+                          privateWebResults = privateWebResults,
+                          wasFirstResult = false,
+                          openInBrowser = { openInBrowser(it) },
+                          onDismiss = onDismiss,
+                        )
+                      } else if (intent != null) {
+                        searchRepository.reportUsageAsync(intent.namespace, intent.id)
+                        onQueryChange(intent.trigger + " ")
+                      }
+                    },
+                    onToggleFavorite = { result ->
+                      app.favoritesRepository.toggleSearchOption(result)
+                    },
+                    onReorder = { newOrder ->
+                      app.favoritesRepository.updateSearchOptionOrder(newOrder)
+                    },
+                    onCapacityChanged = {},
+                    // The same menu the results list offers, so long-pressing an option here and
+                    // long-pressing it in the results are the same gesture with the same answer.
+                    // Only pinning differs: in this row "favourite" means the search-options bar,
+                    // not the app favourites, and it must not clear the query it is searching.
+                    menuActions = { result ->
+                      menuActionsFor(result, -1)
+                        .copy(
+                          onToggleFavorite = { app.favoritesRepository.toggleSearchOption(result) }
+                        )
+                    },
+                  )
+                } else {
+                  FavoritesRow(
+                    favorites = favorites,
+                    history = historyItems,
+                    historyLimit = historyLimit,
+                    minIconSizeSetting = minIconSizeSetting,
+                    maxRows = barMaxRows,
+                    onLaunch = { result ->
+                      if (result is SearchResult.SearchIntent) {
+                        searchRepository.reportUsageAsync(result.namespace, result.id)
+                        onQueryChange(result.trigger + " ")
+                      } else {
+                        resultLauncher.launch(result, reportUsage = true)
+                        onDismiss()
+                      }
+                    },
+                    onToggleFavorite = { result -> app.favoritesRepository.toggleFavorite(result) },
+                    onReorder = { newOrder ->
+                      app.favoritesRepository.updateOrder(newOrder)
+                      scope.launch {
+                        onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites)
+                      }
+                    },
+                    onCapacityChanged = { limit ->
+                      searchRepository.updateObservedHistoryLimit(limit)
+                    },
+                    // The same menu the results list offers, so long-pressing an app here and
+                    // long-pressing it in the results are the same gesture with the same answer.
+                    menuActions = { result -> menuActionsFor(result, -1) },
                   )
                 }
+                Spacer(modifier = Modifier.height(2.dp))
               }
             }
 
-            val displayQuery =
+            SearchChromeBar(
+              isIndexing = isIndexing,
+              modifier =
+                Modifier.onSizeChanged { chromeBarHeightPx = it.height }
+                  .browserTabSwipe(
+                    state = browserTabSwipe,
+                    enabled = browserTabSwipeEnabled,
+                    tabsOverviewOpen = tabsOverviewOpen,
+                    onOpenTabsOverview = ::openTabsOverview,
+                    onCloseTabsOverview = { tabsOverviewOpen = false },
+                    onCommitLastTab = ::retractKeyboardForTab,
+                    // The preview has finished travelling and is standing where the page belongs;
+                    // the tab's own window opens onto it without a transition of its own.
+                    onOpenLastTab = { BrowserTabTasks.openNewestTab(context) },
+                  ),
+              color = chromeBarColor ?: MaterialTheme.colorScheme.surface,
+              contentColor =
+                chromeBarColor?.let {
+                  if (it.luminance() > 0.5f) Color(0xFF1C1B1F) else Color(0xFFEDE8EE)
+                } ?: MaterialTheme.colorScheme.onSurface,
+              // As a browser overlay the bar floats over the page, which may be the exact same
+              // color — a shadow keeps it readable as its own layer.
+              shadowElevation = if (chromeBarColor != null) 8.dp else 0.dp,
+            ) {
+              val activeShortcut =
+                remember(query) {
+                  var shortcut =
+                    app.searchShortcutRepository.items.value.find {
+                      query.startsWith("${it.alias} ", ignoreCase = true)
+                    }
+                  if (shortcut == null) {
+                    shortcut =
+                      com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.find {
+                        query.startsWith("${it.alias} ", ignoreCase = true)
+                      }
+                  }
+                  shortcut
+                }
+
               if (activeShortcut != null) {
-                query.substring("${activeShortcut.alias} ".length)
-              } else {
-                query
+                Surface(
+                  color = androidx.compose.ui.graphics.Color(activeShortcut.color ?: 0xFF808080),
+                  shape = RoundedCornerShape(16.dp),
+                  modifier = Modifier.padding(end = 8.dp),
+                ) {
+                  Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                  ) {
+                    val defaultShortcut =
+                      com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.find {
+                        it.alias == activeShortcut.alias
+                      }
+                    val label =
+                      (activeShortcut.shortLabel
+                          ?: defaultShortcut?.shortLabel
+                          ?: activeShortcut.description)
+                        .replace("Search ", "", ignoreCase = true)
+                        .replace("Ask ", "", ignoreCase = true)
+                        .trim()
+                    Text(
+                      text = label,
+                      color = androidx.compose.ui.graphics.Color.White,
+                      fontSize = 14.sp,
+                      fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                    )
+                  }
+                }
               }
 
-            var textFieldValue by remember {
-              mutableStateOf(
-                androidx.compose.ui.text.input.TextFieldValue(
-                  text = displayQuery,
-                  selection = androidx.compose.ui.text.TextRange(displayQuery.length),
-                )
-              )
-            }
+              val displayQuery =
+                if (activeShortcut != null) {
+                  query.substring("${activeShortcut.alias} ".length)
+                } else {
+                  query
+                }
 
-            // Update TextFieldValue when displayQuery changes externally (e.g. from "Add Widget")
-            LaunchedEffect(displayQuery) {
-              if (textFieldValue.text != displayQuery) {
-                textFieldValue =
-                  textFieldValue.copy(
+              var textFieldValue by remember {
+                mutableStateOf(
+                  androidx.compose.ui.text.input.TextFieldValue(
                     text = displayQuery,
                     selection = androidx.compose.ui.text.TextRange(displayQuery.length),
                   )
+                )
               }
-            }
 
-            BasicTextField(
-              value = textFieldValue,
-              onValueChange = { newValue ->
-                textFieldValue = newValue
-                val newText = newValue.text
-                if (activeShortcut != null) {
-                  onQueryChange("${activeShortcut.alias} $newText")
-                } else {
-                  onQueryChange(newText)
+              // Update TextFieldValue when displayQuery changes externally (e.g. from "Add Widget")
+              LaunchedEffect(displayQuery) {
+                if (textFieldValue.text != displayQuery) {
+                  textFieldValue =
+                    textFieldValue.copy(
+                      text = displayQuery,
+                      selection = androidx.compose.ui.text.TextRange(displayQuery.length),
+                    )
                 }
-              },
-              modifier =
-                Modifier.weight(1f)
-                  .focusRequester(focusRequester)
-                  .onFocusChanged { state ->
-                    if (state.isFocused && shouldShowKeyboard.value) {
-                      Ime.show(view)
-                    }
-                  }
-                  .onKeyEvent { event ->
-                    if (
-                      event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
-                        displayQuery.isEmpty() &&
-                        activeShortcut != null
-                    ) {
-                      onQueryChange("")
-                      true
-                    } else {
-                      false
-                    }
-                  },
-              textStyle =
-                LocalTextStyle.current.copy(fontSize = 16.sp, color = LocalContentColor.current),
-              // Autocorrect off keeps the query literal: package names, commands and URL fragments
-              // are not dictionary words, and a silent rewrite is harder to notice than a typo.
-              keyboardOptions =
-                KeyboardOptions(imeAction = ImeAction.Go, autoCorrectEnabled = autocorrectEnabled),
-              keyboardActions =
-                KeyboardActions(
-                  onGo = {
-                    val topResult =
-                      searchResults.getOrNull(keyboardSelectedIndex) ?: searchResults.firstOrNull()
-                    if (topResult != null) {
-                      if (topResult is SearchResult.SearchIntent) {
-                        if (isFallbackMode && query.isNotEmpty()) {
-                          // In fallback mode (e.g. random
-                          // text), 'Go' should perform the
-                          // search
-                          // using the top shortcut, instead
-                          // of just expanding the filter.
-                          val shortcut =
-                            app.searchShortcutRepository.items.value.find {
-                              it.alias == topResult.trigger
-                            }
+              }
 
-                          if (shortcut != null) {
-                            launchShortcutSearch(
-                              context = context,
-                              searchRepository = searchRepository,
-                              shortcut = shortcut,
-                              result = topResult,
-                              query = query,
-                              privateWebResults = privateWebResults,
-                              wasFirstResult = keyboardSelectedIndex == 0,
-                              openInBrowser = { openInBrowser(it) },
-                              onDismiss = onDismiss,
-                            )
+              BasicTextField(
+                value = textFieldValue,
+                onValueChange = { newValue ->
+                  textFieldValue = newValue
+                  val newText = newValue.text
+                  if (activeShortcut != null) {
+                    onQueryChange("${activeShortcut.alias} $newText")
+                  } else {
+                    onQueryChange(newText)
+                  }
+                },
+                modifier =
+                  Modifier.weight(1f)
+                    .focusRequester(focusRequester)
+                    .onFocusChanged { state ->
+                      if (state.isFocused && shouldShowKeyboard.value) {
+                        Ime.show(view)
+                      }
+                    }
+                    .onKeyEvent { event ->
+                      if (
+                        event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
+                          displayQuery.isEmpty() &&
+                          activeShortcut != null
+                      ) {
+                        onQueryChange("")
+                        true
+                      } else {
+                        false
+                      }
+                    },
+                textStyle =
+                  LocalTextStyle.current.copy(fontSize = 16.sp, color = LocalContentColor.current),
+                // Autocorrect off keeps the query literal: package names, commands and URL
+                // fragments
+                // are not dictionary words, and a silent rewrite is harder to notice than a typo.
+                keyboardOptions =
+                  KeyboardOptions(
+                    imeAction = ImeAction.Go,
+                    autoCorrectEnabled = autocorrectEnabled,
+                  ),
+                keyboardActions =
+                  KeyboardActions(
+                    onGo = {
+                      val topResult =
+                        searchResults.getOrNull(keyboardSelectedIndex)
+                          ?: searchResults.firstOrNull()
+                      if (topResult != null) {
+                        if (topResult is SearchResult.SearchIntent) {
+                          if (isFallbackMode && query.isNotEmpty()) {
+                            // In fallback mode (e.g. random
+                            // text), 'Go' should perform the
+                            // search
+                            // using the top shortcut, instead
+                            // of just expanding the filter.
+                            val shortcut =
+                              app.searchShortcutRepository.items.value.find {
+                                it.alias == topResult.trigger
+                              }
+
+                            if (shortcut != null) {
+                              launchShortcutSearch(
+                                context = context,
+                                searchRepository = searchRepository,
+                                shortcut = shortcut,
+                                result = topResult,
+                                query = query,
+                                privateWebResults = privateWebResults,
+                                wasFirstResult = keyboardSelectedIndex == 0,
+                                openInBrowser = { openInBrowser(it) },
+                                onDismiss = onDismiss,
+                              )
+                            } else {
+                              // Should not happen if data
+                              // integrity is good, but
+                              // fallback:
+                              onQueryChange(topResult.trigger + " ")
+                            }
                           } else {
-                            // Should not happen if data
-                            // integrity is good, but
-                            // fallback:
+                            // Normal mode: pressing enter on a
+                            // shortcut expands it (sub-search)
                             onQueryChange(topResult.trigger + " ")
                           }
                         } else {
-                          // Normal mode: pressing enter on a
-                          // shortcut expands it (sub-search)
-                          onQueryChange(topResult.trigger + " ")
+                          launchResultPreferringPrivateBrowser(
+                            context = context,
+                            result = topResult,
+                            query = query,
+                            searchShortcuts = searchShortcuts,
+                            privateWebResults = privateWebResults,
+                            resultLauncher = resultLauncher,
+                            wasFirstResult = keyboardSelectedIndex == 0,
+                          )
+                          onDismiss()
                         }
-                      } else {
-                        launchResultPreferringPrivateBrowser(
-                          context = context,
-                          result = topResult,
-                          query = query,
-                          searchShortcuts = searchShortcuts,
-                          privateWebResults = privateWebResults,
-                          resultLauncher = resultLauncher,
-                          wasFirstResult = keyboardSelectedIndex == 0,
-                        )
-                        onDismiss()
                       }
                     }
-                  }
-                ),
-              cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-              interactionSource = searchFieldInteractionSource,
-              decorationBox = { innerTextField ->
-                Box(contentAlignment = Alignment.CenterStart) {
-                  if (displayQuery.isEmpty() && activeShortcut == null) {
-                    if (isListening) {
-                      Text(
-                        text = "Listening...",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 16.sp,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                      )
-                    } else {
-                      AnimatedContent(
-                        targetState = currentHint,
-                        transitionSpec = { fadeIn() togetherWith fadeOut() },
-                        label = "HintAnimation",
-                      ) { targetHint ->
+                  ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                interactionSource = searchFieldInteractionSource,
+                decorationBox = { innerTextField ->
+                  Box(contentAlignment = Alignment.CenterStart) {
+                    if (displayQuery.isEmpty() && activeShortcut == null) {
+                      if (isListening) {
                         Text(
-                          text = targetHint,
-                          color = LocalContentColor.current.copy(alpha = 0.72f),
+                          text = "Listening...",
+                          color = MaterialTheme.colorScheme.primary,
                           fontSize = 16.sp,
                           maxLines = 1,
                           overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         )
+                      } else {
+                        AnimatedContent(
+                          targetState = currentHint,
+                          transitionSpec = { fadeIn() togetherWith fadeOut() },
+                          label = "HintAnimation",
+                        ) { targetHint ->
+                          Text(
+                            text = targetHint,
+                            color = LocalContentColor.current.copy(alpha = 0.72f),
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                          )
+                        }
                       }
                     }
+                    innerTextField()
                   }
-                  innerTextField()
-                }
-              },
-            )
+                },
+              )
 
-            if (query.isNotEmpty()) {
-              // Resolved once and shared by the badge, the tap and the menu, so what the button
-              // shows, what it does and what the menu ticks cannot drift apart.
-              val engines =
-                remember(searchShortcuts) {
-                  (com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts + searchShortcuts)
-                    .filter { it.urlTemplate.startsWith("http") }
-                    .distinctBy { it.id }
-                }
-              val engine =
-                remember(engines, defaultSearchEngineId) {
-                  engines.firstOrNull { it.id == defaultSearchEngineId }
-                    ?: engines.firstOrNull { it.id == "google" }
-                    ?: engines.first()
-                }
-              var engineMenuOpen by remember { mutableStateOf(false) }
+              if (query.isNotEmpty()) {
+                // Resolved once and shared by the badge, the tap and the menu, so what the button
+                // shows, what it does and what the menu ticks cannot drift apart.
+                val engines =
+                  remember(searchShortcuts) {
+                    (com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts + searchShortcuts)
+                      .filter { it.urlTemplate.startsWith("http") }
+                      .distinctBy { it.id }
+                  }
+                val engine =
+                  remember(engines, defaultSearchEngineId) {
+                    engines.firstOrNull { it.id == defaultSearchEngineId }
+                      ?: engines.firstOrNull { it.id == "google" }
+                      ?: engines.first()
+                  }
+                var engineMenuOpen by remember { mutableStateOf(false) }
 
-              Box {
-                // Drawn here rather than scaled down from the generator's 40dp bitmap, which at
-                // this
-                // size rounded off into a circle. Same recipe as the badges in the result list —
-                // the
-                // engine's colour, its alias on it — at a fifth of the side, which is the corner
-                // they
-                // are drawn with, so the two read as the same shape.
-                Surface(
-                  color = Color(engine.color ?: 0xFF808080),
-                  shape = RoundedCornerShape(percent = 20),
-                  modifier =
-                    Modifier.size(24.dp)
-                      .combinedClickable(
-                        onClick = {
-                          openBrowser(context, engine.urlForQuery(query), privateWebResults) {
-                            openInBrowser(it)
-                          }
-                          onDismiss()
-                        },
-                        onLongClick = { engineMenuOpen = true },
-                      ),
-                ) {
-                  Box(contentAlignment = Alignment.Center) {
+                Box {
+                  // Drawn here rather than scaled down from the generator's 40dp bitmap, which at
+                  // this
+                  // size rounded off into a circle. Same recipe as the badges in the result list —
+                  // the
+                  // engine's colour, its alias on it — at a fifth of the side, which is the corner
+                  // they
+                  // are drawn with, so the two read as the same shape.
+                  Surface(
+                    color = Color(engine.color ?: 0xFF808080),
+                    shape = RoundedCornerShape(percent = 20),
+                    modifier =
+                      Modifier.size(24.dp)
+                        .combinedClickable(
+                          onClick = {
+                            openBrowser(context, engine.urlForQuery(query), privateWebResults) {
+                              openInBrowser(it)
+                            }
+                            onDismiss()
+                          },
+                          onLongClick = { engineMenuOpen = true },
+                        ),
+                  ) {
+                    Box(contentAlignment = Alignment.Center) {
+                      Text(
+                        text = engine.alias.uppercase(),
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        maxLines = 1,
+                      )
+                    }
+                  }
+
+                  // The same list the settings page offers, written to the same preference, so
+                  // changing
+                  // it here is changing it there.
+                  DropdownMenu(
+                    expanded = engineMenuOpen,
+                    onDismissRequest = { engineMenuOpen = false },
+                  ) {
                     Text(
-                      text = engine.alias.uppercase(),
-                      color = Color.White,
-                      fontSize = 11.sp,
-                      fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                      maxLines = 1,
+                      text = "Set default search engine",
+                      style = MaterialTheme.typography.labelMedium,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
+                    engines.forEach { candidate ->
+                      DropdownMenuItem(
+                        text = { Text(candidate.shortLabel ?: candidate.description) },
+                        onClick = {
+                          engineMenuOpen = false
+                          scope.launch {
+                            context.dataStore.edit { preferences ->
+                              preferences[PreferencesKeys.DEFAULT_SEARCH_ENGINE] = candidate.id
+                            }
+                          }
+                        },
+                        leadingIcon = {
+                          Surface(
+                            color = Color(candidate.color ?: 0xFF808080),
+                            shape = RoundedCornerShape(percent = 20),
+                            modifier = Modifier.size(24.dp),
+                          ) {
+                            Box(contentAlignment = Alignment.Center) {
+                              Text(
+                                text = candidate.alias.uppercase(),
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                maxLines = 1,
+                              )
+                            }
+                          }
+                        },
+                        trailingIcon = {
+                          if (candidate.id == engine.id) {
+                            Icon(Icons.Default.Check, contentDescription = "Current default")
+                          }
+                        },
+                      )
+                    }
                   }
                 }
-
-                // The same list the settings page offers, written to the same preference, so
-                // changing
-                // it here is changing it there.
-                DropdownMenu(
-                  expanded = engineMenuOpen,
-                  onDismissRequest = { engineMenuOpen = false },
-                ) {
-                  Text(
-                    text = "Set default search engine",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                  )
-                  engines.forEach { candidate ->
-                    DropdownMenuItem(
-                      text = { Text(candidate.shortLabel ?: candidate.description) },
-                      onClick = {
-                        engineMenuOpen = false
-                        scope.launch {
-                          context.dataStore.edit { preferences ->
-                            preferences[PreferencesKeys.DEFAULT_SEARCH_ENGINE] = candidate.id
-                          }
-                        }
-                      },
-                      leadingIcon = {
-                        Surface(
-                          color = Color(candidate.color ?: 0xFF808080),
-                          shape = RoundedCornerShape(percent = 20),
-                          modifier = Modifier.size(24.dp),
-                        ) {
-                          Box(contentAlignment = Alignment.Center) {
-                            Text(
-                              text = candidate.alias.uppercase(),
-                              color = Color.White,
-                              fontSize = 11.sp,
-                              fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                              maxLines = 1,
-                            )
-                          }
-                        }
-                      },
-                      trailingIcon = {
-                        if (candidate.id == engine.id) {
-                          Icon(Icons.Default.Check, contentDescription = "Current default")
-                        }
-                      },
-                    )
-                  }
-                }
-              }
-              IconButton(
-                onClick = { onQueryChange("") },
-                modifier = Modifier.size(32.dp).padding(4.dp),
-              ) {
-                Icon(
-                  imageVector = Icons.Default.Close,
-                  contentDescription = "Clear",
-                  tint = LocalContentColor.current,
-                )
-              }
-            } else {
-              // First, because it is the one that comes and goes: only once the browser has tabs to
-              // show. Unlike in the browser, where there is always at least one, a launcher that
-              // has
-              // never opened a page has nothing to count. Sitting between the other two, it shoved
-              // the mic sideways the moment a tab appeared, so the two buttons that are always
-              // there
-              // never settled anywhere. Leading the row, it grows away from them instead.
-              if (browserTabSwipeEnabled && openTabCount > 0) {
-                BrowserTabsButton(
-                  tabCount = openTabCount,
-                  onClick = {
-                    if (tabsOverviewOpen) tabsOverviewOpen = false else openTabsOverview()
-                  },
-                )
-              }
-
-              IconButton(
-                onClick = startOrStopVoiceSearch,
-                modifier = Modifier.size(32.dp).padding(4.dp),
-              ) {
-                Icon(
-                  imageVector = Icons.Default.Mic,
-                  contentDescription = "Voice Search",
-                  tint =
-                    if (isListening) MaterialTheme.colorScheme.primary
-                    else LocalContentColor.current,
-                )
-              }
-
-              if (onOpenBrowserContext != null) {
                 IconButton(
-                  onClick = onOpenBrowserContext,
+                  onClick = { onQueryChange("") },
                   modifier = Modifier.size(32.dp).padding(4.dp),
                 ) {
                   Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Browser menu",
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Clear",
                     tint = LocalContentColor.current,
                   )
                 }
               } else {
+                // First, because it is the one that comes and goes: only once the browser has tabs
+                // to
+                // show. Unlike in the browser, where there is always at least one, a launcher that
+                // has
+                // never opened a page has nothing to count. Sitting between the other two, it
+                // shoved
+                // the mic sideways the moment a tab appeared, so the two buttons that are always
+                // there
+                // never settled anywhere. Leading the row, it grows away from them instead.
+                if (browserTabSwipeEnabled && openTabCount > 0) {
+                  BrowserTabsButton(
+                    tabCount = openTabCount,
+                    onClick = {
+                      if (tabsOverviewOpen) tabsOverviewOpen = false else openTabsOverview()
+                    },
+                  )
+                }
+
                 IconButton(
-                  onClick = {
-                    scope.launch { onboardingManager.markStepComplete(OnboardingStep.OpenSettings) }
-                    onOpenSettings()
-                  },
+                  onClick = startOrStopVoiceSearch,
                   modifier = Modifier.size(32.dp).padding(4.dp),
                 ) {
                   Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "Settings",
-                    tint = LocalContentColor.current,
+                    imageVector = Icons.Default.Mic,
+                    contentDescription = "Voice Search",
+                    tint =
+                      if (isListening) MaterialTheme.colorScheme.primary
+                      else LocalContentColor.current,
                   )
+                }
+
+                if (onOpenBrowserContext != null) {
+                  IconButton(
+                    onClick = onOpenBrowserContext,
+                    modifier = Modifier.size(32.dp).padding(4.dp),
+                  ) {
+                    Icon(
+                      imageVector = Icons.Default.MoreVert,
+                      contentDescription = "Browser menu",
+                      tint = LocalContentColor.current,
+                    )
+                  }
+                } else {
+                  IconButton(
+                    onClick = {
+                      scope.launch {
+                        onboardingManager.markStepComplete(OnboardingStep.OpenSettings)
+                      }
+                      onOpenSettings()
+                    },
+                    modifier = Modifier.size(32.dp).padding(4.dp),
+                  ) {
+                    Icon(
+                      imageVector = Icons.Default.Settings,
+                      contentDescription = "Settings",
+                      tint = LocalContentColor.current,
+                    )
+                  }
                 }
               }
             }
