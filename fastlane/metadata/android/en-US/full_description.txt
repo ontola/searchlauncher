@@ -21,6 +21,6 @@ Swipe through your own wallpapers. The theme colour can follow the wallpaper beh
 Use it as your default launcher, or as a widget on the launcher you already have.
 
 PRIVACY
-Nothing is sent anywhere by default. Search suggestions are optional, and when you turn them on, what you type goes to whichever provider the shortcut names. Crash reporting is opt-in. Contacts, calendar entries and photos are read on your device to answer what you typed and are never uploaded. The browser's blocklist is downloaded from the StevenBlack hosts project.
+Nothing is sent anywhere by default. Search suggestions are optional, and when you turn them on, what you type goes to whichever provider the shortcut names. Crash reporting is opt-in. Contacts and calendar entries are read on your device to answer what you typed and are never uploaded. The browser's blocklist is downloaded from the StevenBlack hosts project.
 
 SearchLauncher is free and open source: https://github.com/ontola/searchlauncher

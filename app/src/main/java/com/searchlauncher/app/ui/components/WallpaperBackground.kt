@@ -243,7 +243,8 @@ fun WallpaperBackground(
         onPageChanged = onPageChanged,
       )
     } else {
-      // Show system wallpaper through a transparent background when no custom images are selected
+      // No custom images: the theme window is transparent with FLAG_SHOW_WALLPAPER, so the
+      // system wallpaper shows through without the app reading storage or photos.
       Box(modifier = contentModifier.background(androidx.compose.ui.graphics.Color.Transparent))
     }
 

@@ -56,7 +56,7 @@ Android app that lets you search everything on your phone and on the web, and op
   - Usage stats (optional, for smart app sorting)
   - Contacts (optional, for contact search)
   - Calendar (optional, for events in the next week)
-  - Photos / media (optional, for wallpaper import and media in Downloads)
+  - Downloads folder (optional, via the system folder picker — not All files access)
 
 ## Building
 

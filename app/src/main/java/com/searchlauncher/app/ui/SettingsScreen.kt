@@ -508,7 +508,8 @@ private fun DownloadsFolderPermission() {
 
   PermissionStatus(
     title = "Downloads folder",
-    description = "Search every file in Downloads, not just photos and video.",
+    description =
+      "Search every file in Downloads. Uses the system folder picker, not All files access.",
     granted = granted,
     onGrant = { picker.launch(DownloadIndexer.initialPickerUri()) },
   )
@@ -1256,7 +1257,7 @@ private fun WallpaperManagementCard() {
         }
       } else {
         Text(
-          text = "No custom wallpapers added. Using defaults.",
+          text = "No custom wallpapers added. The system wallpaper shows through.",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
           modifier = Modifier.padding(vertical = 8.dp),
