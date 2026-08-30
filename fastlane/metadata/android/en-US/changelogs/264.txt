@@ -1,0 +1,1 @@
+Back in the in-app browser closes the search overlay in one press. Widgets stay on the home screen. While searching, the favorites bar stays one row. The keyboard appears with the search bar instead of leaving an empty well.
