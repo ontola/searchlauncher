@@ -15,12 +15,13 @@ object KeyShortcuts {
     keyCode: Int,
     ctrl: Boolean = false,
     shift: Boolean = false,
+    alt: Boolean = false,
   ): Boolean {
     if (event.action != KeyEvent.ACTION_DOWN) return false
     if (event.keyCode != keyCode) return false
     if (ctrl != isCtrl(event)) return false
     if (shift != event.isShiftPressed) return false
-    return !event.isAltPressed
+    return alt == event.isAltPressed
   }
 }
 
