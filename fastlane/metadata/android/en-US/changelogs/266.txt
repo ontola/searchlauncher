@@ -1,0 +1,1 @@
+Snippets added, edited, or deleted in Settings show up in search straight away. Optional lock to portrait keeps the home screen upright when auto-rotate is on.
