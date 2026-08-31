@@ -1753,15 +1753,37 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   // indexContacts - Removed
 
+  /** Persists a snippet then rebuilds the snippets namespace so search sees it immediately. */
+  suspend fun saveSnippet(alias: String, content: String, previousAlias: String? = null) {
+    val app = context.applicationContext as SearchLauncherApp
+    if (previousAlias != null) {
+      app.snippetsRepository.updateItem(previousAlias, alias, content)
+    } else {
+      app.snippetsRepository.addItem(alias, content)
+    }
+    indexSnippets()
+  }
+
+  /** Removes a snippet then rebuilds the snippets namespace so search drops it immediately. */
+  suspend fun deleteSnippet(alias: String) {
+    val app = context.applicationContext as SearchLauncherApp
+    app.snippetsRepository.deleteItem(alias)
+    indexSnippets()
+  }
+
   suspend fun indexSnippets() =
     withContext(IndexingDispatchers.limited) {
       pauseIndexingIfSearchIsActive()
-      val session = appSearchSession ?: return@withContext
+      val docs = snippetIndexer.buildDocuments()
 
       try {
-        val docs = snippetIndexer.buildDocuments()
-        putDocuments(session, docs)
-        removeMissingDocuments(session, "snippets", docs.map { it.id }.toSet())
+        val session = appSearchSession
+        if (session != null) {
+          putDocuments(session, docs)
+          removeMissingDocuments(session, "snippets", docs.map { it.id }.toSet())
+        }
+        // Keep the in-memory snapshot in sync even if AppSearch is not ready yet, so a snippet
+        // added from Settings is searchable without waiting for a full reindex or restart.
         replaceCollection("snippets", docs)
         android.util.Log.d("SearchRepository", "Indexed ${docs.size} snippets")
       } catch (e: Exception) {

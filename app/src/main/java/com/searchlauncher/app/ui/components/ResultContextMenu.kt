@@ -171,7 +171,7 @@ internal fun ResultContextMenuItems(
       text = { Text("Delete") },
       onClick = {
         val app = context.applicationContext as SearchLauncherApp
-        CoroutineScope(Dispatchers.IO).launch { app.snippetsRepository.deleteItem(result.alias) }
+        CoroutineScope(Dispatchers.IO).launch { app.searchRepository.deleteSnippet(result.alias) }
         onCloseMenu()
       },
       leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
