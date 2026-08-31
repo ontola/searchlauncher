@@ -2243,13 +2243,9 @@ fun SearchScreen(
       isEditMode = snippetEditMode,
       onDismiss = { showSnippetDialog = false },
       onConfirm = { alias, content ->
+        val previousAlias = snippetItemToEdit?.alias.takeIf { snippetEditMode }
         scope.launch(Dispatchers.IO) {
-          if (snippetEditMode && snippetItemToEdit != null) {
-            app.snippetsRepository.updateItem(snippetItemToEdit!!.alias, alias, content)
-          } else {
-            app.snippetsRepository.addItem(alias, content)
-          }
-          app.searchRepository.indexSnippets()
+          app.searchRepository.saveSnippet(alias, content, previousAlias)
         }
         showSnippetDialog = false
       },

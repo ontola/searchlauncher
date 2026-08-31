@@ -32,6 +32,7 @@ class SearchRepositoryTest {
     }
     File(context.filesDir, "usage_stats.json").delete()
     File(context.filesDir, "query_usage_stats.json").delete()
+    (context.applicationContext as SearchLauncherApp).snippetsRepository.clearAll()
   }
 
   @Test
@@ -791,5 +792,50 @@ class SearchRepositoryTest {
         documentByNamespaceAndId = emptyMap(),
       )
     assertTrue(placeHits.any { it.first.doc.namespace == "calendar" && it.first.doc.id == "9/1" })
+  }
+
+  @Test
+  fun `saveSnippet makes a new snippet searchable without a full reindex`() = runBlocking {
+    repository.saveSnippet("first_test", "test")
+
+    val results =
+      repository.searchApps("first_test", limit = 5, includeSuggestions = false).getOrThrow()
+    val match = results.filterIsInstance<SearchResult.Snippet>().first()
+    assertEquals("first_test", match.alias)
+    assertEquals("test", match.content)
+  }
+
+  @Test
+  fun `saveSnippet updates an existing snippet in search immediately`() = runBlocking {
+    repository.saveSnippet("first_test", "old content")
+    repository.saveSnippet("first_test_renamed", "new content", previousAlias = "first_test")
+
+    val oldAliasResults =
+      repository.searchApps("first_test", limit = 5, includeSuggestions = false).getOrThrow()
+    assertTrue(
+      "The old alias should no longer be a snippet hit",
+      oldAliasResults.filterIsInstance<SearchResult.Snippet>().none { it.alias == "first_test" },
+    )
+
+    val renamedResults =
+      repository
+        .searchApps("first_test_renamed", limit = 5, includeSuggestions = false)
+        .getOrThrow()
+    val match = renamedResults.filterIsInstance<SearchResult.Snippet>().first()
+    assertEquals("first_test_renamed", match.alias)
+    assertEquals("new content", match.content)
+  }
+
+  @Test
+  fun `deleteSnippet removes it from search immediately`() = runBlocking {
+    repository.saveSnippet("first_test", "test")
+    repository.deleteSnippet("first_test")
+
+    val results =
+      repository.searchApps("first_test", limit = 5, includeSuggestions = false).getOrThrow()
+    assertTrue(
+      "Deleted snippets must leave the live index, not wait for the next restart",
+      results.filterIsInstance<SearchResult.Snippet>().isEmpty(),
+    )
   }
 }
