@@ -473,6 +473,13 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     queryState = savedInstanceState?.getString(KEY_ACTIVE_QUERY) ?: restoreRecentQuery()
     enableEdgeToEdge()
     Ime.applyWindowMode(window)
+    PortraitLock.apply(this, PortraitLock.cached(this))
+    lifecycleScope.launch {
+      PortraitLock.flow(this@MainActivity).distinctUntilChanged().collect { locked ->
+        PortraitLock.updateCache(this@MainActivity, locked)
+        PortraitLock.apply(this@MainActivity, locked)
+      }
+    }
 
     setContent {
       val themeColor =
@@ -538,6 +545,9 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
   ) {
     super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
     inPictureInPicture = isInPictureInPictureMode
+    if (!isInPictureInPictureMode) {
+      PortraitLock.apply(this, PortraitLock.cached(this))
+    }
   }
 
   override fun enterPipIfEligible(): Boolean {

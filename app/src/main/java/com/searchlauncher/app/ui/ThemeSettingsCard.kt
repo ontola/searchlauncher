@@ -74,8 +74,39 @@ fun ThemeSettingsCard() {
   var showColorPickerDialog by remember { mutableStateOf(false) }
   var showImageColorPickerDialog by remember { mutableStateOf(false) }
 
+  val lockPortrait by
+    remember { PortraitLock.flow(context) }.collectAsState(initial = PortraitLock.cached(context))
+
   Card(modifier = Modifier.fillMaxWidth()) {
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+          Text(text = "Lock to portrait", style = MaterialTheme.typography.titleMedium)
+          Text(
+            text = "Keep the home screen in portrait even when auto-rotate is on.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Switch(
+          checked = lockPortrait,
+          onCheckedChange = { checked ->
+            scope.launch {
+              context.dataStore.edit { preferences ->
+                preferences[PreferencesKeys.LOCK_PORTRAIT] = checked
+              }
+              PortraitLock.updateCache(context, checked)
+            }
+          },
+        )
+      }
+
+      HorizontalDivider()
+
       // OLED Toggle (only if dark mode is enabled or system is dark)
       Row(
         modifier = Modifier.fillMaxWidth(),

@@ -34,6 +34,12 @@ object PreferencesKeys {
   val SEARCH_SHORTCUTS_ENABLED = booleanPreferencesKey("search_shortcuts_enabled")
 
   /**
+   * When true, the home screen stays in portrait even if the device has auto-rotate on. Off by
+   * default so the launcher follows the system orientation like any other activity.
+   */
+  val LOCK_PORTRAIT = booleanPreferencesKey("lock_portrait")
+
+  /**
    * Whether the keyboard may autocorrect what is typed into the search bar. Off by default: a query
    * is usually a name, a command or a URL fragment, and having it silently rewritten into a
    * dictionary word is worse than a typo the user can see.
