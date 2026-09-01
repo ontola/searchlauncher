@@ -341,6 +341,7 @@ object DefaultShortcuts {
         alias = "y",
         urlTemplate = "https://www.youtube.com/results?search_query=%s",
         description = "YouTube Search",
+        packageName = "com.google.android.youtube",
         suggestionUrl =
           "http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=%s",
         color = 0xFFFF0000,
