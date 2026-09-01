@@ -74,6 +74,7 @@ import com.searchlauncher.app.data.SearchOptions
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.SearchShortcut
+import com.searchlauncher.app.data.ShortcutLaunch
 import com.searchlauncher.app.data.applyHistoryLimit
 import com.searchlauncher.app.data.favoriteKey
 import com.searchlauncher.app.data.isFavoritable
@@ -2383,14 +2384,40 @@ private fun launchShortcutSearch(
 ) {
   try {
     val url = shortcut.urlForQuery(query)
-    // Not every shortcut template is a web URL — market:, spotify: and geo: ones name an app, and
-    // the WebView can only answer those with ERR_UNKNOWN_URL_SCHEME.
-    if (url.startsWith("http://") || url.startsWith("https://")) {
-      openBrowser(context, url, privateWebResults, openInBrowser)
-    } else {
-      context.startActivity(
-        Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      )
+    // Web templates are loaded in the in-app browser so they keep working with no extra app.
+    // When the shortcut names one (YouTube, …) and that app can handle the URL, prefer it —
+    // private browsing stays in the private browser, since the app would not be private.
+    val openedInApp =
+      !privateWebResults &&
+        run {
+          val appIntent =
+            ShortcutLaunch.preferredAppIntent(
+              context.packageManager,
+              url,
+              shortcut.packageName,
+              query,
+            )
+          if (appIntent != null) {
+            try {
+              context.startActivity(appIntent)
+              true
+            } catch (_: Exception) {
+              false
+            }
+          } else {
+            false
+          }
+        }
+    if (!openedInApp) {
+      // Not every shortcut template is a web URL — market:, spotify: and geo: ones name an app,
+      // and the WebView can only answer those with ERR_UNKNOWN_URL_SCHEME.
+      if (url.startsWith("http://") || url.startsWith("https://")) {
+        openBrowser(context, url, privateWebResults, openInBrowser)
+      } else {
+        context.startActivity(
+          Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+      }
     }
     if (!privateWebResults) {
       searchRepository.reportUsageAsync(result.namespace, result.id, query, wasFirstResult)

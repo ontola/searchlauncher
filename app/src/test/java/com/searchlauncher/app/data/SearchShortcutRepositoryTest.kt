@@ -103,4 +103,46 @@ class SearchShortcutRepositoryTest {
     assertEquals(DefaultShortcuts.searchShortcuts.map { it.id }.toSet(), ids.toSet())
     assertEquals(ids.size, ids.distinct().size)
   }
+
+  @Test
+  fun `a persisted youtube without a package is pointed at the youtube app`() {
+    persist(
+      SearchShortcut(
+        "youtube",
+        "y",
+        "https://www.youtube.com/results?search_query=%s",
+        "YouTube Search",
+      )
+    )
+
+    val youtube = SearchShortcutRepository(context).items.value.first { it.id == "youtube" }
+    assertEquals("com.google.android.youtube", youtube.packageName)
+    assertEquals("https://www.youtube.com/results?search_query=%s", youtube.urlTemplate)
+  }
+
+  @Test
+  fun `a youtube the user pointed at a different url is left without a package`() {
+    val custom = "https://www.youtube.com/results?search_query=%s&sp=EgIQAQ%253D%253D"
+    persist(SearchShortcut("youtube", "y", custom, "YouTube Search"))
+
+    val youtube = SearchShortcutRepository(context).items.value.first { it.id == "youtube" }
+    assertEquals(custom, youtube.urlTemplate)
+    assertEquals(null, youtube.packageName)
+  }
+
+  @Test
+  fun `a user's youtube alias is kept while the package is filled in`() {
+    persist(
+      SearchShortcut(
+        "youtube",
+        "yt",
+        "https://www.youtube.com/results?search_query=%s",
+        "YouTube Search",
+      )
+    )
+
+    val youtube = SearchShortcutRepository(context).items.value.first { it.id == "youtube" }
+    assertEquals("yt", youtube.alias)
+    assertEquals("com.google.android.youtube", youtube.packageName)
+  }
 }
