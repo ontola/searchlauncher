@@ -112,6 +112,7 @@ class SearchActivity : ComponentActivity(), KeyShortcutHost {
     val wrapper =
       object : FrameLayout(this) {
         override fun dispatchKeyEventPreIme(event: KeyEvent): Boolean {
+          if (keyShortcutHandler?.invoke(event) == true) return true
           if (closeOverlayOnBackKey(event) { finish() }) return true
           return super.dispatchKeyEventPreIme(event)
         }

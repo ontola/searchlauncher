@@ -22,9 +22,13 @@ import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,6 +39,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
@@ -43,7 +48,9 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
@@ -57,6 +64,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -119,7 +127,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
-@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun SearchScreen(
   query: String,
@@ -233,6 +241,41 @@ fun SearchScreen(
   val useBuiltInKeyboard = builtInKeyboardEnabled && !riseWithKeyboard && browserTabId == null
   var keyboardDismissed by remember { mutableStateOf(false) }
 
+  val defaultSearchEngineId by
+    remember {
+        context.dataStore.data.map { it[PreferencesKeys.DEFAULT_SEARCH_ENGINE] ?: "google" }
+      }
+      .collectAsState(initial = "google")
+
+  // The web engines the search bar can hand a query to, resolved once and shared by the badge, its
+  // menu and the Tab cycle below, so what the badge shows and what Enter does cannot drift apart.
+  val searchEngines =
+    remember(searchShortcuts) {
+      (com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts + searchShortcuts)
+        .filter { it.urlTemplate.startsWith("http") }
+        .distinctBy { it.id }
+    }
+  /**
+   * The engine Tab has walked to, if the user has walked to one. Null means the badge is simply
+   * showing the default, and Enter belongs to the result list rather than to the badge.
+   *
+   * Saved, not merely remembered: resizing this window on a tablet recreates the activity, and a
+   * query that has been aimed at an engine should still be aimed at it on the other side.
+   */
+  var selectedEngineId by rememberSaveable { mutableStateOf<String?>(null) }
+  val searchEngine =
+    remember(searchEngines, defaultSearchEngineId, selectedEngineId) {
+      val wanted = selectedEngineId ?: defaultSearchEngineId
+      searchEngines.firstOrNull { it.id == wanted }
+        ?: searchEngines.firstOrNull { it.id == "google" }
+        ?: searchEngines.first()
+    }
+  // A cleared query takes the badge's selection with it: the next query starts on the default.
+  LaunchedEffect(query.isEmpty()) { if (query.isEmpty()) selectedEngineId = null }
+  val searchFieldInteractionSource = remember { MutableInteractionSource() }
+  /** Enter only belongs to the search field while the field has it; dialogs keep their own. */
+  val searchFieldFocused by searchFieldInteractionSource.collectIsFocusedAsState()
+
   // Sync back to the boot cache so the next cold start renders at this size immediately.
   LaunchedEffect(minIconSizeSetting) { MinIconSize.updateCache(context, minIconSizeSetting) }
 
@@ -311,39 +354,6 @@ fun SearchScreen(
   // The tabs were briefly hosted in this composition instead, which made the movement seamless but
   // put every page inside the launcher's own home task — the one task the app switcher never shows.
   // That is the trade this makes the other way.
-  val shortcutHost = context as? KeyShortcutHost
-  val searchShortcutHandler = rememberUpdatedState { event: android.view.KeyEvent ->
-    when {
-      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_ESCAPE) -> {
-        if (query.isNotEmpty()) onQueryChange("") else onDismiss()
-        true
-      }
-      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_L, ctrl = true) ||
-        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_K, ctrl = true) ||
-        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_F, ctrl = true) -> {
-        focusRequester.requestFocus()
-        true
-      }
-      searchResults.isNotEmpty() &&
-        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_DPAD_UP) -> {
-        // reverseLayout: index 0 sits next to the search bar, higher indices are above it.
-        keyboardSelectedIndex = (keyboardSelectedIndex + 1).coerceAtMost(searchResults.lastIndex)
-        scope.launch { listState.scrollToItem(keyboardSelectedIndex) }
-        true
-      }
-      searchResults.isNotEmpty() &&
-        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_DPAD_DOWN) -> {
-        keyboardSelectedIndex = (keyboardSelectedIndex - 1).coerceAtLeast(0)
-        scope.launch { listState.scrollToItem(keyboardSelectedIndex) }
-        true
-      }
-      else -> false
-    }
-  }
-  DisposableEffect(shortcutHost) {
-    shortcutHost?.keyShortcutHandler = { searchShortcutHandler.value(it) }
-    onDispose { shortcutHost?.keyShortcutHandler = null }
-  }
   /**
    * Whether a tab's preview is on screen to any degree, part way in under a finger or fully across
    * with its window on the way. Derived so that a swipe, which moves the offset every frame, only
@@ -650,6 +660,129 @@ fun SearchScreen(
       )
     }
 
+  /**
+   * Runs the query on the badge's engine — the badge's own tap, and Enter once Tab has aimed it.
+   */
+  fun searchWithSelectedEngine() {
+    openBrowser(context, searchEngine.urlForQuery(query), privateWebResults) { openInBrowser(it) }
+    onDismiss()
+  }
+
+  /** Walks the badge [step] engines along, wrapping, and marks the badge as the Enter target. */
+  fun cycleSelectedEngine(step: Int) {
+    selectedEngineId = cycleSearchEngineId(searchEngines, searchEngine.id, step)
+  }
+
+  /**
+   * Opens whatever the keyboard is currently on. Shared by Enter, the IME's Go key, and the
+   * built-in keyboard's Go so those ways of committing a query cannot behave differently.
+   *
+   * Once Tab has aimed the engine badge, Go/Enter run the query on that engine instead.
+   */
+  fun submitSearch() {
+    if (query.isNotEmpty() && selectedEngineId != null) {
+      searchWithSelectedEngine()
+      return
+    }
+    val topResult = searchResults.getOrNull(keyboardSelectedIndex) ?: searchResults.firstOrNull()
+    if (topResult == null) return
+    if (topResult is SearchResult.SearchIntent) {
+      if (isFallbackMode && query.isNotEmpty()) {
+        // In fallback mode (e.g. random text), 'Go' should perform the search using the top
+        // shortcut, instead of just expanding the filter.
+        val shortcut =
+          app.searchShortcutRepository.items.value.find { it.alias == topResult.trigger }
+        if (shortcut != null) {
+          launchShortcutSearch(
+            context = context,
+            searchRepository = searchRepository,
+            shortcut = shortcut,
+            result = topResult,
+            query = query,
+            privateWebResults = privateWebResults,
+            wasFirstResult = keyboardSelectedIndex == 0,
+            openInBrowser = { openInBrowser(it) },
+            onDismiss = onDismiss,
+          )
+        } else {
+          // Should not happen if data integrity is good, but fallback:
+          onQueryChange(topResult.trigger + " ")
+        }
+      } else {
+        // Normal mode: pressing enter on a shortcut expands it (sub-search)
+        onQueryChange(topResult.trigger + " ")
+      }
+    } else {
+      launchResultPreferringPrivateBrowser(
+        context = context,
+        result = topResult,
+        query = query,
+        searchShortcuts = searchShortcuts,
+        privateWebResults = privateWebResults,
+        resultLauncher = resultLauncher,
+        wasFirstResult = keyboardSelectedIndex == 0,
+      )
+      onDismiss()
+    }
+  }
+
+  val shortcutHost = context as? KeyShortcutHost
+  val searchShortcutHandler = rememberUpdatedState { event: android.view.KeyEvent ->
+    when {
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_ESCAPE) -> {
+        if (query.isNotEmpty()) onQueryChange("") else onDismiss()
+        true
+      }
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_L, ctrl = true) ||
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_K, ctrl = true) ||
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_F, ctrl = true) -> {
+        focusRequester.requestFocus()
+        true
+      }
+      // Enter is only ours while this window and the search field hold focus. Taken here, on
+      // the PreIme path, so a hardware keyboard and the on-screen Go key cannot commit a query
+      // differently — including when Tab has aimed the engine badge.
+      (searchFieldFocused || (view.hasWindowFocus() && view.hasFocus())) &&
+        (KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_ENTER) ||
+          KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_NUMPAD_ENTER)) -> {
+        submitSearch()
+        true
+      }
+      // Tab walks the engine badge along the same list its long-press menu offers, so a query can
+      // be aimed at YouTube or Wikipedia without going back to the alias prefix.
+      (searchFieldFocused || (view.hasWindowFocus() && view.hasFocus())) &&
+        query.isNotEmpty() &&
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_TAB, shift = true) -> {
+        cycleSelectedEngine(-1)
+        true
+      }
+      (searchFieldFocused || (view.hasWindowFocus() && view.hasFocus())) &&
+        query.isNotEmpty() &&
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_TAB) -> {
+        cycleSelectedEngine(1)
+        true
+      }
+      searchResults.isNotEmpty() &&
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_DPAD_UP) -> {
+        // reverseLayout: index 0 sits next to the search bar, higher indices are above it.
+        keyboardSelectedIndex = (keyboardSelectedIndex + 1).coerceAtMost(searchResults.lastIndex)
+        scope.launch { listState.scrollToItem(keyboardSelectedIndex) }
+        true
+      }
+      searchResults.isNotEmpty() &&
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_DPAD_DOWN) -> {
+        keyboardSelectedIndex = (keyboardSelectedIndex - 1).coerceAtLeast(0)
+        scope.launch { listState.scrollToItem(keyboardSelectedIndex) }
+        true
+      }
+      else -> false
+    }
+  }
+  DisposableEffect(shortcutHost) {
+    shortcutHost?.keyShortcutHandler = { searchShortcutHandler.value(it) }
+    onDispose { shortcutHost?.keyShortcutHandler = null }
+  }
+
   // Determine current step using derivedStateOf so that intermediate state changes
   // (e.g. completedSteps updating async from DataStore) only trigger recomposition
   // when the actual computed step changes — avoids brief flashes of wrong steps.
@@ -826,57 +959,6 @@ fun SearchScreen(
       }
     }
 
-  fun submitSearch() {
-    val topResult = selectedSearchResult
-    if (topResult != null) {
-      if (topResult is SearchResult.SearchIntent) {
-        if (isFallbackMode && query.isNotEmpty()) {
-          // In fallback mode (e.g. random
-          // text), 'Go' should perform the
-          // search
-          // using the top shortcut, instead
-          // of just expanding the filter.
-          val shortcut =
-            app.searchShortcutRepository.items.value.find { it.alias == topResult.trigger }
-
-          if (shortcut != null) {
-            launchShortcutSearch(
-              context = context,
-              searchRepository = searchRepository,
-              shortcut = shortcut,
-              result = topResult,
-              query = query,
-              privateWebResults = privateWebResults,
-              wasFirstResult = keyboardSelectedIndex == 0,
-              openInBrowser = { openInBrowser(it) },
-              onDismiss = onDismiss,
-            )
-          } else {
-            // Should not happen if data
-            // integrity is good, but
-            // fallback:
-            onQueryChange(topResult.trigger + " ")
-          }
-        } else {
-          // Normal mode: pressing enter on a
-          // shortcut expands it (sub-search)
-          onQueryChange(topResult.trigger + " ")
-        }
-      } else {
-        launchResultPreferringPrivateBrowser(
-          context = context,
-          result = topResult,
-          query = query,
-          searchShortcuts = searchShortcuts,
-          privateWebResults = privateWebResults,
-          resultLauncher = resultLauncher,
-          wasFirstResult = keyboardSelectedIndex == 0,
-        )
-        onDismiss()
-      }
-    }
-  }
-
   // Focus the field as soon as it exists, even before this window has focus. The IME can only
   // actually appear once the window is focused, but an editor that is already focused when that
   // happens is what the system needs to start the keyboard on the same frame — waiting for
@@ -927,7 +1009,6 @@ fun SearchScreen(
 
   // Tapping the field when it is already focused produces no focus change, so nothing would
   // re-open a dismissed keyboard; show it explicitly on every press.
-  val searchFieldInteractionSource = remember { MutableInteractionSource() }
   LaunchedEffect(searchFieldInteractionSource, useBuiltInKeyboard) {
     searchFieldInteractionSource.interactions.collect { interaction ->
       if (interaction is androidx.compose.foundation.interaction.PressInteraction.Release) {
@@ -2031,6 +2112,34 @@ fun SearchScreen(
                           Ime.show(view)
                         }
                       }
+                      .onPreviewKeyEvent { event ->
+                        val native = event.nativeKeyEvent
+                        when {
+                          KeyShortcuts.matches(native, android.view.KeyEvent.KEYCODE_ENTER) ||
+                            KeyShortcuts.matches(
+                              native,
+                              android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
+                            ) -> {
+                            submitSearch()
+                            true
+                          }
+                          query.isNotEmpty() &&
+                            KeyShortcuts.matches(
+                              native,
+                              android.view.KeyEvent.KEYCODE_TAB,
+                              shift = true,
+                            ) -> {
+                            cycleSelectedEngine(-1)
+                            true
+                          }
+                          query.isNotEmpty() &&
+                            KeyShortcuts.matches(native, android.view.KeyEvent.KEYCODE_TAB) -> {
+                            cycleSelectedEngine(1)
+                            true
+                          }
+                          else -> false
+                        }
+                      }
                       .onKeyEvent { event ->
                         if (
                           event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
@@ -2093,6 +2202,98 @@ fun SearchScreen(
               }
 
               if (query.isNotEmpty()) {
+                // Hoisted to the top of this screen, where Tab walks it too, so what the button
+                // shows, what it does and what the menu ticks cannot drift apart.
+                val engines = searchEngines
+                val engine = searchEngine
+                var engineMenuOpen by remember { mutableStateOf(false) }
+
+                Box {
+                  // Drawn here rather than scaled down from the generator's 40dp bitmap, which at
+                  // this
+                  // size rounded off into a circle. Same recipe as the badges in the result list —
+                  // the
+                  // engine's colour, its alias on it — at a fifth of the side, which is the corner
+                  // they
+                  // are drawn with, so the two read as the same shape.
+                  Surface(
+                    color = Color(engine.color ?: 0xFF808080),
+                    shape = RoundedCornerShape(percent = 20),
+                    // Tab aiming the badge is what makes Enter go here rather than to the result
+                    // list, so the badge has to say when it is the one holding Enter.
+                    border =
+                      if (selectedEngineId != null)
+                        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                      else null,
+                    modifier =
+                      Modifier.size(24.dp)
+                        .combinedClickable(
+                          onClick = { searchWithSelectedEngine() },
+                          onLongClick = { engineMenuOpen = true },
+                        ),
+                  ) {
+                    Box(contentAlignment = Alignment.Center) {
+                      Text(
+                        text = engine.alias.uppercase(),
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        maxLines = 1,
+                      )
+                    }
+                  }
+
+                  // The same list the settings page offers, written to the same preference, so
+                  // changing
+                  // it here is changing it there.
+                  DropdownMenu(
+                    expanded = engineMenuOpen,
+                    onDismissRequest = { engineMenuOpen = false },
+                  ) {
+                    Text(
+                      text = "Set default search engine",
+                      style = MaterialTheme.typography.labelMedium,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    engines.forEach { candidate ->
+                      DropdownMenuItem(
+                        text = { Text(candidate.shortLabel ?: candidate.description) },
+                        onClick = {
+                          engineMenuOpen = false
+                          selectedEngineId = null
+                          scope.launch {
+                            context.dataStore.edit { preferences ->
+                              preferences[PreferencesKeys.DEFAULT_SEARCH_ENGINE] = candidate.id
+                            }
+                          }
+                        },
+                        leadingIcon = {
+                          Surface(
+                            color = Color(candidate.color ?: 0xFF808080),
+                            shape = RoundedCornerShape(percent = 20),
+                            modifier = Modifier.size(24.dp),
+                          ) {
+                            Box(contentAlignment = Alignment.Center) {
+                              Text(
+                                text = candidate.alias.uppercase(),
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                maxLines = 1,
+                              )
+                            }
+                          }
+                        },
+                        trailingIcon = {
+                          if (candidate.id == engine.id) {
+                            Icon(Icons.Default.Check, contentDescription = "Current default")
+                          }
+                        },
+                      )
+                    }
+                  }
+                }
                 IconButton(
                   onClick = { onQueryChange("") },
                   modifier = Modifier.size(32.dp).padding(4.dp),
@@ -2339,6 +2540,23 @@ private fun closeBrowserWindow(context: Context) {
 
 private fun copyUrlToClipboard(context: Context, url: String) {
   SystemUtils.copyUrlToClipboard(context, url, label = "Page URL")
+}
+
+/**
+ * The id of the engine [step] places along from [currentId] in [engines], wrapping at both ends so
+ * Tab keeps going round the list rather than stopping at YouTube.
+ *
+ * Null when there is nothing to walk, which leaves the badge on the default.
+ */
+internal fun cycleSearchEngineId(
+  engines: List<SearchShortcut>,
+  currentId: String,
+  step: Int,
+): String? {
+  if (engines.isEmpty()) return null
+  val here = engines.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
+  val size = engines.size
+  return engines[((here + step) % size + size) % size].id
 }
 
 /**
