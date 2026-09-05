@@ -28,6 +28,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -270,8 +271,9 @@ fun SearchScreen(
     }
   // A cleared query takes the badge's selection with it: the next query starts on the default.
   LaunchedEffect(query.isEmpty()) { if (query.isEmpty()) selectedEngineId = null }
+  val searchFieldInteractionSource = remember { MutableInteractionSource() }
   /** Enter only belongs to the search field while the field has it; dialogs keep their own. */
-  var searchFieldFocused by remember { mutableStateOf(false) }
+  val searchFieldFocused by searchFieldInteractionSource.collectIsFocusedAsState()
 
   // Sync back to the boot cache so the next cold start renders at this size immediately.
   LaunchedEffect(minIconSizeSetting) { MinIconSize.updateCache(context, minIconSizeSetting) }
@@ -1006,7 +1008,6 @@ fun SearchScreen(
 
   // Tapping the field when it is already focused produces no focus change, so nothing would
   // re-open a dismissed keyboard; show it explicitly on every press.
-  val searchFieldInteractionSource = remember { MutableInteractionSource() }
   LaunchedEffect(searchFieldInteractionSource, useBuiltInKeyboard) {
     searchFieldInteractionSource.interactions.collect { interaction ->
       if (interaction is androidx.compose.foundation.interaction.PressInteraction.Release) {
@@ -2106,21 +2107,42 @@ fun SearchScreen(
                     Modifier.weight(1f)
                       .focusRequester(focusRequester)
                       .onFocusChanged { state ->
-                        searchFieldFocused = state.isFocused
                         if (state.isFocused && shouldShowKeyboard.value && !useBuiltInKeyboard) {
                           Ime.show(view)
                         }
                       }
                       .onKeyEvent { event ->
-                        if (
-                          event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
+                        val native = event.nativeKeyEvent
+                        when {
+                          native.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
                             displayQuery.isEmpty() &&
-                            activeShortcut != null
-                        ) {
-                          onQueryChange("")
-                          true
-                        } else {
-                          false
+                            activeShortcut != null -> {
+                            onQueryChange("")
+                            true
+                          }
+                          KeyShortcuts.matches(native, android.view.KeyEvent.KEYCODE_ENTER) ||
+                            KeyShortcuts.matches(
+                              native,
+                              android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
+                            ) -> {
+                            submitSearch()
+                            true
+                          }
+                          query.isNotEmpty() &&
+                            KeyShortcuts.matches(
+                              native,
+                              android.view.KeyEvent.KEYCODE_TAB,
+                              shift = true,
+                            ) -> {
+                            cycleSelectedEngine(-1)
+                            true
+                          }
+                          query.isNotEmpty() &&
+                            KeyShortcuts.matches(native, android.view.KeyEvent.KEYCODE_TAB) -> {
+                            cycleSelectedEngine(1)
+                            true
+                          }
+                          else -> false
                         }
                       },
                   textStyle =
