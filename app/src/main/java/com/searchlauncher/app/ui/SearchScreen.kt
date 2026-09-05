@@ -113,6 +113,7 @@ import com.searchlauncher.app.ui.components.SearchResultItem
 import com.searchlauncher.app.ui.components.ShortcutDialog
 import com.searchlauncher.app.ui.components.SnippetDialog
 import com.searchlauncher.app.ui.components.WallpaperBackground
+import com.searchlauncher.app.ui.components.builtInHomeKeyboardVisible
 import com.searchlauncher.app.ui.components.favoritesMaxRowsForBar
 import com.searchlauncher.app.ui.components.homeWidgetsEnabled
 import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
@@ -1215,7 +1216,14 @@ fun SearchScreen(
   // mid-air above an empty well; a full-screen IME reading shoved it off the top. [imeForLayoutPx]
   // is the live inset with those two cases stripped.
   val navigationBarBottomPx = WindowInsets.navigationBars.getBottom(density)
-  val builtInKeyboardVisible = useBuiltInKeyboard && shouldShowKeyboard.value && !keyboardDismissed
+  val builtInKeyboardVisible =
+    builtInHomeKeyboardVisible(
+      useBuiltInKeyboard = useBuiltInKeyboard,
+      keyboardDismissed = keyboardDismissed,
+      openingTab = openingTab,
+      browserShowing = browserShowing,
+      inPip = inPip,
+    )
   val builtInKeyboardHeight = minOf(243.dp, (LocalConfiguration.current.screenHeightDp * 0.45f).dp)
   val bottomPadding =
     with(density) {
@@ -1335,7 +1343,9 @@ fun SearchScreen(
   // The overlay is its own activity: back has to finish it, not merely hide the keyboard. The
   // activity also intercepts BACK before the IME (see SearchActivity); this covers the case where
   // the keys are already gone.
-  BackHandler(enabled = builtInKeyboardVisible && !tabsOverviewOpen) { keyboardDismissed = true }
+  BackHandler(enabled = isActive && builtInKeyboardVisible && !tabsOverviewOpen) {
+    keyboardDismissed = true
+  }
 
   BackHandler(enabled = tabsOverviewOpen || riseWithKeyboard) {
     if (tabsOverviewOpen) tabsOverviewOpen = false else onDismiss()
