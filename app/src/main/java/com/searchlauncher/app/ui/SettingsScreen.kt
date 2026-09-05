@@ -90,6 +90,7 @@ import com.searchlauncher.app.ui.components.PrivacyPolicyDialog
 import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
 import com.searchlauncher.app.ui.components.shouldShowFavoritesIconSizeSetting
 import com.searchlauncher.app.util.CustomActionHandler
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -612,7 +613,9 @@ private fun SnippetsCard() {
                 )
               }
               IconButton(
-                onClick = { scope.launch { app.snippetsRepository.deleteItem(item.alias) } }
+                onClick = {
+                  scope.launch(Dispatchers.IO) { app.searchRepository.deleteSnippet(item.alias) }
+                }
               ) {
                 Icon(
                   imageVector = Icons.Default.Close,
@@ -641,14 +644,11 @@ private fun SnippetsCard() {
       isEditMode = editingItem != null,
       onDismiss = { showDialog = false },
       onConfirm = { alias, content ->
-        scope.launch {
-          if (editingItem != null) {
-            app.snippetsRepository.updateItem(editingItem!!.alias, alias, content)
-          } else {
-            app.snippetsRepository.addItem(alias, content)
-          }
-          showDialog = false
+        val previousAlias = editingItem?.alias
+        scope.launch(Dispatchers.IO) {
+          app.searchRepository.saveSnippet(alias, content, previousAlias)
         }
+        showDialog = false
       },
     )
   }
@@ -674,6 +674,9 @@ private fun DefaultSearchEngineCard() {
       .collectAsState(initial = "google")
   val selectedEngine = engines.firstOrNull { it.id == selectedEngineId } ?: engines.firstOrNull()
   var menuExpanded by remember { mutableStateOf(false) }
+  val builtInKeyboardEnabled by
+    remember { HomeKeyboardPreference.flow(context) }
+      .collectAsState(initial = HomeKeyboardPreference.cached(context))
   val autocorrectEnabled by
     remember { context.dataStore.data.map { it[PreferencesKeys.SEARCH_AUTOCORRECT] ?: false } }
       .collectAsState(initial = false)
@@ -681,6 +684,24 @@ private fun DefaultSearchEngineCard() {
   Card(modifier = Modifier.fillMaxWidth()) {
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       Text(text = "Search", style = MaterialTheme.typography.titleMedium)
+
+      Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+          Text("Use built-in keyboard", style = MaterialTheme.typography.bodyMedium)
+          Text(
+            "Home search only. Turn off to use your own keyboard. The built-in keyboard supports " +
+              "QWERTY and accented letters; use your own for swipe typing or other languages.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Switch(
+          checked = builtInKeyboardEnabled,
+          onCheckedChange = { enabled ->
+            scope.launch { HomeKeyboardPreference.set(context, enabled) }
+          },
+        )
+      }
 
       Row(
         modifier = Modifier.fillMaxWidth(),
@@ -723,7 +744,7 @@ private fun DefaultSearchEngineCard() {
         verticalAlignment = Alignment.CenterVertically,
       ) {
         Column(modifier = Modifier.weight(1f)) {
-          Text(text = "Keyboard autocorrect", style = MaterialTheme.typography.bodyMedium)
+          Text(text = "System keyboard autocorrect", style = MaterialTheme.typography.bodyMedium)
           Text(
             text =
               "Let the keyboard correct what you type in the search bar. Off keeps queries " +
@@ -1358,7 +1379,7 @@ private fun BackupRestoreCard(onExportBackup: () -> Unit) {
       Text(text = "Backup & Restore", style = MaterialTheme.typography.titleMedium)
       Text(
         text =
-          "Export all your data (Snippets, Shortcuts, Favorites, Background) to a .searchlauncher file",
+          "Export settings, snippets, shortcuts, favorites, browser bookmarks, widgets and optional backgrounds to a .searchlauncher file",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )

@@ -47,6 +47,16 @@ object Ime {
     window.setSoftInputMode(SOFT_INPUT_MODE)
   }
 
+  /** Keep Android from automatically showing an IME behind the embedded home keyboard. */
+  fun applyHomeWindowMode(window: Window, builtInKeyboard: Boolean) {
+    if (builtInKeyboard) {
+      window.setSoftInputMode(
+        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
+          WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+      )
+    } else applyWindowMode(window)
+  }
+
   /**
    * IME inset to pad the chrome with. Live values larger than [MAX_HEIGHT_FRACTION] of the screen
    * are the IME window reporting itself as full-screen while the keys are not; using them shoved

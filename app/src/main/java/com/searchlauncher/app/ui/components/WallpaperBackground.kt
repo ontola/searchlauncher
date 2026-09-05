@@ -450,6 +450,7 @@ fun WallpaperBackground(
 
                         if (!canRender) {
                           MissingWidget(
+                            onReplace = { activity?.requestWidgetReplacement(widget) },
                             onRemove = {
                               scope.launch {
                                 app.widgetRepository.removeWidgetId(widget.id)
@@ -585,17 +586,22 @@ fun WallpaperBackground(
  * Stands in for a widget the host cannot draw, most often one whose id came back from a backup and
  * no longer belongs to anything.
  *
- * It exists because the alternative was worse: an empty view still claimed the widget's space, so
- * the home screen had a silent gap in it and no way to work out what was wrong or clear it. This
- * says what happened and offers the removal, since the widget cannot be recovered — the id is gone,
- * and rebinding one needs a provider this launcher never stored.
+ * It exists because an empty view still claims the widget's space and leaves no clue how to
+ * recover. New backups retain the provider, so tapping the card can reconnect it directly; older
+ * backups fall back to the widget picker. Removal remains available when the provider app is
+ * actually gone.
  */
 @Composable
-private fun MissingWidget(onRemove: () -> Unit, modifier: Modifier = Modifier) {
+private fun MissingWidget(
+  onReplace: () -> Unit,
+  onRemove: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
   Box(
     modifier =
       modifier
         .padding(horizontal = 16.dp)
+        .clickable(onClick = onReplace)
         .background(
           MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
           RoundedCornerShape(16.dp),
@@ -619,11 +625,14 @@ private fun MissingWidget(onRemove: () -> Unit, modifier: Modifier = Modifier) {
       }
       Text(
         text =
-          "Its app is gone, or it was restored from a backup. Widgets cannot be restored, so this " +
-            "one has to be added again.",
+          "Its binding could not be restored automatically. Replace it to reconnect the same " +
+            "widget or choose another one.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onErrorContainer,
       )
+      TextButton(onClick = onReplace, contentPadding = PaddingValues(0.dp)) {
+        Text(text = "Replace", color = MaterialTheme.colorScheme.onErrorContainer)
+      }
       TextButton(onClick = onRemove, contentPadding = PaddingValues(0.dp)) {
         Text(text = "Remove", color = MaterialTheme.colorScheme.onErrorContainer)
       }

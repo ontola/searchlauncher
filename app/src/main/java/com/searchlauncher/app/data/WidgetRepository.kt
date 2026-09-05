@@ -9,9 +9,14 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 
-@kotlinx.serialization.Serializable data class WidgetData(val id: Int, val height: Int? = null)
+@kotlinx.serialization.Serializable
+data class WidgetData(val id: Int, val height: Int? = null, val provider: String? = null)
 
 class WidgetRepository(private val context: Context) {
+  companion object {
+    const val APPWIDGET_HOST_ID = 1002
+  }
+
   private val WIDGETS_KEY = stringPreferencesKey("widgets_data")
   // Legacy key for migration
   private val WIDGET_IDS_KEY = stringPreferencesKey("widget_ids")
@@ -29,6 +34,7 @@ class WidgetRepository(private val context: Context) {
               WidgetData(
                 id = obj.getInt("id"),
                 height = if (obj.has("height")) obj.getInt("height") else null,
+                provider = obj.optString("provider").takeIf { it.isNotEmpty() },
               )
             )
           }
@@ -59,6 +65,7 @@ class WidgetRepository(private val context: Context) {
         val obj = org.json.JSONObject()
         obj.put("id", item.id)
         item.height?.let { obj.put("height", it) }
+        item.provider?.let { obj.put("provider", it) }
         jsonArray.put(obj)
       }
       preferences[WIDGETS_KEY] = jsonArray.toString()
@@ -79,6 +86,23 @@ class WidgetRepository(private val context: Context) {
     val current = widgets.first()
     val newList = current.filter { it.id != appWidgetId }
     saveWidgets(newList)
+  }
+
+  suspend fun replaceWidgetId(oldAppWidgetId: Int, newAppWidgetId: Int, provider: String? = null) {
+    val current = widgets.first()
+    val newList =
+      current.map {
+        if (it.id == oldAppWidgetId) {
+          it.copy(id = newAppWidgetId, provider = provider ?: it.provider)
+        } else {
+          it
+        }
+      }
+    saveWidgets(newList)
+  }
+
+  suspend fun replaceAll(widgets: List<WidgetData>) {
+    saveWidgets(widgets)
   }
 
   suspend fun clearAllWidgets() {

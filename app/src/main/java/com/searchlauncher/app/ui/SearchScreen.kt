@@ -23,6 +23,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -48,6 +49,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
@@ -76,6 +78,7 @@ import com.searchlauncher.app.data.SearchOptions
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.SearchShortcut
+import com.searchlauncher.app.data.ShortcutLaunch
 import com.searchlauncher.app.data.applyHistoryLimit
 import com.searchlauncher.app.data.favoriteKey
 import com.searchlauncher.app.data.isFavoritable
@@ -122,6 +125,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun SearchScreen(
   query: String,
@@ -229,11 +233,11 @@ fun SearchScreen(
   val autocorrectEnabled by
     remember { context.dataStore.data.map { it[PreferencesKeys.SEARCH_AUTOCORRECT] ?: false } }
       .collectAsState(initial = false)
-  val defaultSearchEngineId by
-    remember {
-        context.dataStore.data.map { it[PreferencesKeys.DEFAULT_SEARCH_ENGINE] ?: "google" }
-      }
-      .collectAsState(initial = "google")
+  val builtInKeyboardEnabled by
+    remember { HomeKeyboardPreference.flow(context) }
+      .collectAsState(initial = HomeKeyboardPreference.cached(context))
+  val useBuiltInKeyboard = builtInKeyboardEnabled && !riseWithKeyboard && browserTabId == null
+  var keyboardDismissed by remember { mutableStateOf(false) }
 
   // The web engines the search bar can hand a query to, resolved once and shared by the badge, its
   // menu and the Tab cycle below, so what the badge shows and what Enter does cannot drift apart.
@@ -661,10 +665,16 @@ fun SearchScreen(
   }
 
   /**
-   * Opens whatever the keyboard is currently on. Shared by Enter and by the IME's Go key so the
-   * hardware and on-screen ways of committing a query cannot behave differently.
+   * Opens whatever the keyboard is currently on. Shared by Enter, the IME's Go key, and the
+   * built-in keyboard's Go so those ways of committing a query cannot behave differently.
+   *
+   * Once Tab has aimed the engine badge, Go/Enter run the query on that engine instead.
    */
-  fun openSelectedResult() {
+  fun submitSearch() {
+    if (query.isNotEmpty() && selectedEngineId != null) {
+      searchWithSelectedEngine()
+      return
+    }
     val topResult = searchResults.getOrNull(keyboardSelectedIndex) ?: searchResults.firstOrNull()
     if (topResult == null) return
     if (topResult is SearchResult.SearchIntent) {
@@ -720,14 +730,13 @@ fun SearchScreen(
         focusRequester.requestFocus()
         true
       }
-      // Enter is only ours while the search field holds focus. The field is multi-line as far as
-      // the IME is concerned, so left alone a hardware Enter would type a newline into the query
-      // rather than open anything; taken here, before the IME sees it, it opens the selection.
+      // Enter is only ours while the search field holds focus. Taken here, before the IME sees
+      // it, so a hardware keyboard and the on-screen Go key cannot commit a query differently —
+      // including when Tab has aimed the engine badge.
       searchFieldFocused &&
         (KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_ENTER) ||
           KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_NUMPAD_ENTER)) -> {
-        if (query.isNotEmpty() && selectedEngineId != null) searchWithSelectedEngine()
-        else openSelectedResult()
+        submitSearch()
         true
       }
       // Tab walks the engine badge along the same list its long-press menu offers, so a query can
@@ -850,6 +859,97 @@ fun SearchScreen(
     }
   }
 
+  val activeShortcut =
+    remember(query) {
+      var shortcut =
+        app.searchShortcutRepository.items.value.find {
+          query.startsWith("${it.alias} ", ignoreCase = true)
+        }
+      if (shortcut == null) {
+        shortcut =
+          com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.find {
+            query.startsWith("${it.alias} ", ignoreCase = true)
+          }
+      }
+      shortcut
+    }
+
+  val displayQuery =
+    if (activeShortcut != null) {
+      query.substring("${activeShortcut.alias} ".length)
+    } else {
+      query
+    }
+
+  var textFieldValue by remember {
+    mutableStateOf(
+      androidx.compose.ui.text.input.TextFieldValue(
+        text = displayQuery,
+        selection = androidx.compose.ui.text.TextRange(displayQuery.length),
+      )
+    )
+  }
+
+  // Update TextFieldValue when displayQuery changes externally (e.g. from "Add Widget")
+  LaunchedEffect(displayQuery) {
+    if (textFieldValue.text != displayQuery) {
+      textFieldValue =
+        textFieldValue.copy(
+          text = displayQuery,
+          selection = androidx.compose.ui.text.TextRange(displayQuery.length),
+        )
+    }
+  }
+
+  fun updateSearchField(newValue: androidx.compose.ui.text.input.TextFieldValue) {
+    textFieldValue = newValue
+    onQueryChange(
+      if (activeShortcut != null) "${activeShortcut.alias} ${newValue.text}" else newValue.text
+    )
+  }
+
+  val selectedSearchResult =
+    searchResults.getOrNull(keyboardSelectedIndex) ?: searchResults.firstOrNull()
+  var selectedResultIcon by
+    remember(
+      selectedSearchResult?.id,
+      selectedSearchResult?.namespace,
+      selectedSearchResult?.icon,
+    ) {
+      mutableStateOf(selectedSearchResult?.icon)
+    }
+  LaunchedEffect(selectedSearchResult, useBuiltInKeyboard) {
+    if (useBuiltInKeyboard && selectedResultIcon == null) {
+      selectedSearchResult?.let { selectedResultIcon = searchRepository.loadIcon(it) }
+    }
+  }
+  val keyboardShortcutHints =
+    remember(searchShortcuts) {
+      searchShortcuts
+        .filter { it.alias.length == 1 && it.alias[0].isLetter() }
+        .associate {
+          it.alias[0].lowercaseChar() to
+            com.searchlauncher.app.ui.components.KeyboardShortcutHint(
+              label = it.shortLabel ?: it.description,
+              icon =
+                iconGenerator
+                  .getColoredSearchIcon(it.color ?: 0xFF808080, it.alias)
+                  ?.toImageBitmap(),
+            )
+        }
+    }
+
+  val pendingSpaceShortcut =
+    if (activeShortcut == null) {
+      pendingKeyboardShortcut(textFieldValue, searchShortcuts)
+    } else null
+  val pendingSpaceIcon =
+    remember(pendingSpaceShortcut) {
+      pendingSpaceShortcut?.let {
+        iconGenerator.getColoredSearchIcon(it.color, it.alias)?.toImageBitmap()
+      }
+    }
+
   // Focus the field as soon as it exists, even before this window has focus. The IME can only
   // actually appear once the window is focused, but an editor that is already focused when that
   // happens is what the system needs to start the keyboard on the same frame — waiting for
@@ -861,12 +961,22 @@ fun SearchScreen(
   val windowInfo = androidx.compose.ui.platform.LocalWindowInfo.current
   val shouldShowKeyboard =
     rememberUpdatedState(isActive && !openingTab && !browserShowing && !inPip)
-  LaunchedEffect(isActive, focusTrigger, browserShowing, openingTab, inPip) {
+  LaunchedEffect(isActive, focusTrigger, browserShowing, openingTab, inPip, useBuiltInKeyboard) {
+    keyboardDismissed = false
+    if (!riseWithKeyboard && browserTabId == null) {
+      (context as? android.app.Activity)?.window?.let {
+        Ime.applyHomeWindowMode(it, useBuiltInKeyboard)
+      }
+    }
     if (!shouldShowKeyboard.value) {
       Ime.hide(view)
       return@LaunchedEffect
     }
     runCatching { focusRequester.requestFocus() }
+    if (useBuiltInKeyboard) {
+      Ime.hide(view)
+      return@LaunchedEffect
+    }
     snapshotFlow { windowInfo.isWindowFocused }
       .collect { focused ->
         if (!focused || !shouldShowKeyboard.value) return@collect
@@ -891,11 +1001,12 @@ fun SearchScreen(
   // Tapping the field when it is already focused produces no focus change, so nothing would
   // re-open a dismissed keyboard; show it explicitly on every press.
   val searchFieldInteractionSource = remember { MutableInteractionSource() }
-  LaunchedEffect(searchFieldInteractionSource) {
+  LaunchedEffect(searchFieldInteractionSource, useBuiltInKeyboard) {
     searchFieldInteractionSource.interactions.collect { interaction ->
       if (interaction is androidx.compose.foundation.interaction.PressInteraction.Release) {
         focusRequester.requestFocus()
-        Ime.show(view)
+        keyboardDismissed = false
+        if (!useBuiltInKeyboard) Ime.show(view)
       }
     }
   }
@@ -1086,13 +1197,18 @@ fun SearchScreen(
   val reservedKeyboardHeightPx = Ime.reservedHeightPx(storedKeyboardHeight, screenHeightPx)
   val imeForLayoutPx = Ime.insetForLayoutPx(imeHeightPx, storedKeyboardHeight, screenHeightPx)
 
-  // Chrome follows the live IME inset, including on home. A stored-height park put the bar in
+  // With the system keyboard, chrome follows the live IME inset. A stored-height park put the bar
+  // in
   // mid-air above an empty well; a full-screen IME reading shoved it off the top. [imeForLayoutPx]
   // is the live inset with those two cases stripped.
   val navigationBarBottomPx = WindowInsets.navigationBars.getBottom(density)
+  val builtInKeyboardVisible = useBuiltInKeyboard && shouldShowKeyboard.value && !keyboardDismissed
+  val builtInKeyboardHeight = minOf(243.dp, (LocalConfiguration.current.screenHeightDp * 0.45f).dp)
   val bottomPadding =
     with(density) {
       when {
+        useBuiltInKeyboard ->
+          navigationBarBottomPx.toDp() + if (builtInKeyboardVisible) builtInKeyboardHeight else 0.dp
         // Tracks the IME inset frame by frame as the keyboard animates in, so the bar travels up
         // with the keys. At rest it lands exactly on the bar it replaces, so the overlay opens
         // without the bar hopping.
@@ -1119,6 +1235,7 @@ fun SearchScreen(
    */
   val wallpaperBottomPadding =
     when {
+      useBuiltInKeyboard -> builtInKeyboardHeight + with(density) { navigationBarBottomPx.toDp() }
       riseWithKeyboard || isMultiWindow -> bottomPadding
       else -> with(density) { reservedKeyboardHeightPx.toDp() }
     }
@@ -1135,7 +1252,6 @@ fun SearchScreen(
       favorites.isNotEmpty() || historyItems.isNotEmpty()
     }
   /** Everything pinned to the bottom of the home screen: the favorites row and the chrome bar. */
-  /** Favorites plus search chrome, as one measured block so extra favorites rows are included. */
   val bottomSectionHeightPx =
     bottomDockHeightPx.takeIf { it > 0 }
       ?: (chromeBarHeightPx + if (favoritesRowVisible) favoritesRowHeightPx else 0)
@@ -1206,6 +1322,8 @@ fun SearchScreen(
   // The overlay is its own activity: back has to finish it, not merely hide the keyboard. The
   // activity also intercepts BACK before the IME (see SearchActivity); this covers the case where
   // the keys are already gone.
+  BackHandler(enabled = builtInKeyboardVisible && !tabsOverviewOpen) { keyboardDismissed = true }
+
   BackHandler(enabled = tabsOverviewOpen || riseWithKeyboard) {
     if (tabsOverviewOpen) tabsOverviewOpen = false else onDismiss()
   }
@@ -1420,7 +1538,6 @@ fun SearchScreen(
             showBackgroundImage = showBackgroundImage,
             bottomPadding = wallpaperBottomPadding,
             chromeBottomPadding = bottomPadding,
-            // 16.dp is the gap the chrome column leaves above the favorites bar.
             bottomSectionHeight = with(density) { bottomSectionHeightPx.toDp() } + 16.dp,
             folderImages = folderImages,
             lastImageUriString = lastImageUriString,
@@ -1821,8 +1938,7 @@ fun SearchScreen(
             Spacer(modifier = Modifier.height(4.dp))
           }
 
-          // Measured as a block: the tabs overview and the widget list both sit on top of this
-          // dock, so extra favorites rows push them up rather than drawing over them.
+          // Measure favorites and chrome together so widgets clear multi-row favorites.
           Column(
             modifier = Modifier.contentMaxWidth().onSizeChanged { bottomDockHeightPx = it.height }
           ) {
@@ -1939,21 +2055,6 @@ fun SearchScreen(
               // color — a shadow keeps it readable as its own layer.
               shadowElevation = if (chromeBarColor != null) 8.dp else 0.dp,
             ) {
-              val activeShortcut =
-                remember(query) {
-                  var shortcut =
-                    app.searchShortcutRepository.items.value.find {
-                      query.startsWith("${it.alias} ", ignoreCase = true)
-                    }
-                  if (shortcut == null) {
-                    shortcut =
-                      com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.find {
-                        query.startsWith("${it.alias} ", ignoreCase = true)
-                      }
-                  }
-                  shortcut
-                }
-
               if (activeShortcut != null) {
                 Surface(
                   color = androidx.compose.ui.graphics.Color(activeShortcut.color ?: 0xFF808080),
@@ -1985,115 +2086,85 @@ fun SearchScreen(
                 }
               }
 
-              val displayQuery =
-                if (activeShortcut != null) {
-                  query.substring("${activeShortcut.alias} ".length)
-                } else {
-                  query
+              androidx.compose.ui.platform.InterceptPlatformTextInput(
+                interceptor = { request, next ->
+                  if (useBuiltInKeyboard) kotlinx.coroutines.awaitCancellation()
+                  else next.startInputMethod(request)
                 }
-
-              var textFieldValue by remember {
-                mutableStateOf(
-                  androidx.compose.ui.text.input.TextFieldValue(
-                    text = displayQuery,
-                    selection = androidx.compose.ui.text.TextRange(displayQuery.length),
-                  )
-                )
-              }
-
-              // Update TextFieldValue when displayQuery changes externally (e.g. from "Add Widget")
-              LaunchedEffect(displayQuery) {
-                if (textFieldValue.text != displayQuery) {
-                  textFieldValue =
-                    textFieldValue.copy(
-                      text = displayQuery,
-                      selection = androidx.compose.ui.text.TextRange(displayQuery.length),
-                    )
-                }
-              }
-
-              BasicTextField(
-                value = textFieldValue,
-                onValueChange = { newValue ->
-                  textFieldValue = newValue
-                  val newText = newValue.text
-                  if (activeShortcut != null) {
-                    onQueryChange("${activeShortcut.alias} $newText")
-                  } else {
-                    onQueryChange(newText)
-                  }
-                },
-                modifier =
-                  Modifier.weight(1f)
-                    .focusRequester(focusRequester)
-                    .onFocusChanged { state ->
-                      searchFieldFocused = state.isFocused
-                      if (state.isFocused && shouldShowKeyboard.value) {
-                        Ime.show(view)
+              ) {
+                BasicTextField(
+                  value = textFieldValue,
+                  onValueChange = ::updateSearchField,
+                  singleLine = true,
+                  modifier =
+                    Modifier.weight(1f)
+                      .focusRequester(focusRequester)
+                      .onFocusChanged { state ->
+                        searchFieldFocused = state.isFocused
+                        if (state.isFocused && shouldShowKeyboard.value && !useBuiltInKeyboard) {
+                          Ime.show(view)
+                        }
                       }
-                    }
-                    .onKeyEvent { event ->
-                      if (
-                        event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
-                          displayQuery.isEmpty() &&
-                          activeShortcut != null
-                      ) {
-                        onQueryChange("")
-                        true
-                      } else {
-                        false
-                      }
-                    },
-                textStyle =
-                  LocalTextStyle.current.copy(fontSize = 16.sp, color = LocalContentColor.current),
-                // Autocorrect off keeps the query literal: package names, commands and URL
-                // fragments
-                // are not dictionary words, and a silent rewrite is harder to notice than a typo.
-                keyboardOptions =
-                  KeyboardOptions(
-                    imeAction = ImeAction.Go,
-                    autoCorrectEnabled = autocorrectEnabled,
-                  ),
-                keyboardActions =
-                  KeyboardActions(
-                    onGo = {
-                      if (query.isNotEmpty() && selectedEngineId != null) searchWithSelectedEngine()
-                      else openSelectedResult()
-                    }
-                  ),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                interactionSource = searchFieldInteractionSource,
-                decorationBox = { innerTextField ->
-                  Box(contentAlignment = Alignment.CenterStart) {
-                    if (displayQuery.isEmpty() && activeShortcut == null) {
-                      if (isListening) {
-                        Text(
-                          text = "Listening...",
-                          color = MaterialTheme.colorScheme.primary,
-                          fontSize = 16.sp,
-                          maxLines = 1,
-                          overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        )
-                      } else {
-                        AnimatedContent(
-                          targetState = currentHint,
-                          transitionSpec = { fadeIn() togetherWith fadeOut() },
-                          label = "HintAnimation",
-                        ) { targetHint ->
+                      .onKeyEvent { event ->
+                        if (
+                          event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
+                            displayQuery.isEmpty() &&
+                            activeShortcut != null
+                        ) {
+                          onQueryChange("")
+                          true
+                        } else {
+                          false
+                        }
+                      },
+                  textStyle =
+                    LocalTextStyle.current.copy(
+                      fontSize = 16.sp,
+                      color = LocalContentColor.current,
+                    ),
+                  // Autocorrect off keeps the query literal: package names, commands and URL
+                  // fragments
+                  // are not dictionary words, and a silent rewrite is harder to notice than a typo.
+                  keyboardOptions =
+                    KeyboardOptions(
+                      imeAction = ImeAction.Go,
+                      autoCorrectEnabled = autocorrectEnabled,
+                    ),
+                  keyboardActions = KeyboardActions(onGo = { submitSearch() }),
+                  cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                  interactionSource = searchFieldInteractionSource,
+                  decorationBox = { innerTextField ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                      if (displayQuery.isEmpty() && activeShortcut == null) {
+                        if (isListening) {
                           Text(
-                            text = targetHint,
-                            color = LocalContentColor.current.copy(alpha = 0.72f),
+                            text = "Listening...",
+                            color = MaterialTheme.colorScheme.primary,
                             fontSize = 16.sp,
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                           )
+                        } else {
+                          AnimatedContent(
+                            targetState = currentHint,
+                            transitionSpec = { fadeIn() togetherWith fadeOut() },
+                            label = "HintAnimation",
+                          ) { targetHint ->
+                            Text(
+                              text = targetHint,
+                              color = LocalContentColor.current.copy(alpha = 0.72f),
+                              fontSize = 16.sp,
+                              maxLines = 1,
+                              overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            )
+                          }
                         }
                       }
+                      innerTextField()
                     }
-                    innerTextField()
-                  }
-                },
-              )
+                  },
+                )
+              }
 
               if (query.isNotEmpty()) {
                 // Hoisted to the top of this screen, where Tab walks it too, so what the button
@@ -2263,6 +2334,31 @@ fun SearchScreen(
           }
         }
       }
+      if (builtInKeyboardVisible) {
+        com.searchlauncher.app.ui.components.HomeSearchKeyboard(
+          modifier =
+            Modifier.align(Alignment.BottomCenter)
+              .padding(bottom = with(density) { navigationBarBottomPx.toDp() })
+              .fillMaxWidth()
+              .height(builtInKeyboardHeight),
+          onText = { updateSearchField(textFieldValue.insertKeyboardText(it)) },
+          onBackspace = {
+            if (displayQuery.isEmpty() && activeShortcut != null) onQueryChange("")
+            else updateSearchField(textFieldValue.deleteKeyboardText())
+          },
+          onGo = ::submitSearch,
+          shortcutHints = if (query.isEmpty()) keyboardShortcutHints else emptyMap(),
+          spaceShortcutLabel = pendingSpaceShortcut?.let { it.shortLabel ?: it.description },
+          spaceShortcutIcon = pendingSpaceIcon,
+          goIcon =
+            rememberThemedIconBitmap(
+              selectedResultIcon,
+              (selectedSearchResult as? SearchResult.App)?.packageName,
+            ),
+          goDescription =
+            selectedSearchResult?.let { "Go: ${it.title}" } ?: "Go: open search result",
+        )
+      }
     }
   }
 
@@ -2301,13 +2397,9 @@ fun SearchScreen(
       isEditMode = snippetEditMode,
       onDismiss = { showSnippetDialog = false },
       onConfirm = { alias, content ->
+        val previousAlias = snippetItemToEdit?.alias.takeIf { snippetEditMode }
         scope.launch(Dispatchers.IO) {
-          if (snippetEditMode && snippetItemToEdit != null) {
-            app.snippetsRepository.updateItem(snippetItemToEdit!!.alias, alias, content)
-          } else {
-            app.snippetsRepository.addItem(alias, content)
-          }
-          app.searchRepository.indexSnippets()
+          app.searchRepository.saveSnippet(alias, content, previousAlias)
         }
         showSnippetDialog = false
       },
@@ -2462,14 +2554,40 @@ private fun launchShortcutSearch(
 ) {
   try {
     val url = shortcut.urlForQuery(query)
-    // Not every shortcut template is a web URL — market:, spotify: and geo: ones name an app, and
-    // the WebView can only answer those with ERR_UNKNOWN_URL_SCHEME.
-    if (url.startsWith("http://") || url.startsWith("https://")) {
-      openBrowser(context, url, privateWebResults, openInBrowser)
-    } else {
-      context.startActivity(
-        Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      )
+    // Web templates are loaded in the in-app browser so they keep working with no extra app.
+    // When the shortcut names one (YouTube, …) and that app can handle the URL, prefer it —
+    // private browsing stays in the private browser, since the app would not be private.
+    val openedInApp =
+      !privateWebResults &&
+        run {
+          val appIntent =
+            ShortcutLaunch.preferredAppIntent(
+              context.packageManager,
+              url,
+              shortcut.packageName,
+              query,
+            )
+          if (appIntent != null) {
+            try {
+              context.startActivity(appIntent)
+              true
+            } catch (_: Exception) {
+              false
+            }
+          } else {
+            false
+          }
+        }
+    if (!openedInApp) {
+      // Not every shortcut template is a web URL — market:, spotify: and geo: ones name an app,
+      // and the WebView can only answer those with ERR_UNKNOWN_URL_SCHEME.
+      if (url.startsWith("http://") || url.startsWith("https://")) {
+        openBrowser(context, url, privateWebResults, openInBrowser)
+      } else {
+        context.startActivity(
+          Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+      }
     }
     if (!privateWebResults) {
       searchRepository.reportUsageAsync(result.namespace, result.id, query, wasFirstResult)

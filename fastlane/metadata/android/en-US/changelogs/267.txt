@@ -1,0 +1,1 @@
+YouTube search opens the YouTube app when it's installed, and falls back to youtube.com in the browser when it isn't.

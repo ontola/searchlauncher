@@ -73,7 +73,7 @@ class SearchShortcutRepository(context: Context) {
     // Merge in any new default shortcuts that are missing from persisted items
     val defaults = DefaultShortcuts.searchShortcuts
     val missingDefaults = defaults.filter { default -> persistedItems.none { it.id == default.id } }
-    val migrated = migrateSupersededTemplates(persistedItems)
+    val migrated = migratePersistedShortcuts(persistedItems)
 
     if (missingDefaults.isNotEmpty() || migrated != persistedItems) {
       saveItems(migrated + missingDefaults)
@@ -84,17 +84,35 @@ class SearchShortcutRepository(context: Context) {
   }
 
   /**
-   * Rewrites shortcuts whose default URL template was replaced by a better one. Matching on the
-   * superseded template means a shortcut the user edited themselves is left alone — only one still
-   * carrying the old default is moved forward. New defaults arrive through [missingDefaults]
-   * instead; this is for ids that already exist and would otherwise keep the stale template
-   * forever, since nothing short of "Reset Defaults" rewrites them.
+   * Rewrites stock shortcuts that a previous version persisted, without touching ones the user
+   * edited themselves.
+   *
+   * URL templates are matched against [SUPERSEDED_TEMPLATES] so only a shortcut still carrying the
+   * old default is moved forward. Package names are filled in when the default now names an app
+   * (YouTube → `com.google.android.youtube`) and this copy still has the stock URL with no package
+   * of its own — that is how existing installs pick up "open in the app if installed" without a
+   * Reset Defaults.
+   *
+   * New ids arrive through [missingDefaults] instead; this is for ids that already exist and would
+   * otherwise keep the stale data forever.
    */
-  private fun migrateSupersededTemplates(items: List<SearchShortcut>): List<SearchShortcut> =
-    items.map { item ->
+  private fun migratePersistedShortcuts(items: List<SearchShortcut>): List<SearchShortcut> {
+    val defaultsById = DefaultShortcuts.searchShortcuts.associateBy { it.id }
+    return items.map { item ->
+      var updated = item
       val replacement = SUPERSEDED_TEMPLATES[item.id to item.urlTemplate]
-      if (replacement == null) item else item.copy(urlTemplate = replacement)
+      if (replacement != null) updated = updated.copy(urlTemplate = replacement)
+      val default = defaultsById[item.id]
+      if (
+        updated.packageName == null &&
+          default?.packageName != null &&
+          updated.urlTemplate == default.urlTemplate
+      ) {
+        updated = updated.copy(packageName = default.packageName)
+      }
+      updated
     }
+  }
 
   fun resetToDefaults() {
     val defaults = DefaultShortcuts.searchShortcuts

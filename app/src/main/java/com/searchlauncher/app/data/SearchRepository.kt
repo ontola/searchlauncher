@@ -1456,6 +1456,36 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
     }
 
+  data class SavedBookmark(val url: String, val title: String)
+
+  /** Read durable bookmarks, including entries not yet loaded into the search snapshot. */
+  suspend fun exportBookmarks(): List<SavedBookmark> =
+    withContext(Dispatchers.IO) {
+      val session = checkNotNull(appSearchSession) { "Search is still starting; try again shortly" }
+      val results =
+        session.search("", SearchSpec.Builder().addFilterNamespaces("web_saved").build())
+      try {
+        val bookmarks = mutableListOf<SavedBookmark>()
+        var page = results.nextPageAsync.await()
+        while (page.isNotEmpty()) {
+          page.forEach {
+            val doc = it.genericDocument.toDocumentClass(AppSearchDocument::class.java)
+            bookmarks +=
+              SavedBookmark(
+                doc.description.orEmpty().ifBlank {
+                  requireNotNull(doc.intentUri) { "Bookmark has no URL" }
+                },
+                doc.name,
+              )
+          }
+          page = results.nextPageAsync.await()
+        }
+        bookmarks
+      } finally {
+        results.close()
+      }
+    }
+
   /**
    * Explicitly bookmarks a page from the browser. Unlike [indexWebUrl] this ignores the
    * store-web-history preference (it's a deliberate user action, not passive tracking) and lands in
@@ -1753,15 +1783,37 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
   // indexContacts - Removed
 
+  /** Persists a snippet then rebuilds the snippets namespace so search sees it immediately. */
+  suspend fun saveSnippet(alias: String, content: String, previousAlias: String? = null) {
+    val app = context.applicationContext as SearchLauncherApp
+    if (previousAlias != null) {
+      app.snippetsRepository.updateItem(previousAlias, alias, content)
+    } else {
+      app.snippetsRepository.addItem(alias, content)
+    }
+    indexSnippets()
+  }
+
+  /** Removes a snippet then rebuilds the snippets namespace so search drops it immediately. */
+  suspend fun deleteSnippet(alias: String) {
+    val app = context.applicationContext as SearchLauncherApp
+    app.snippetsRepository.deleteItem(alias)
+    indexSnippets()
+  }
+
   suspend fun indexSnippets() =
     withContext(IndexingDispatchers.limited) {
       pauseIndexingIfSearchIsActive()
-      val session = appSearchSession ?: return@withContext
+      val docs = snippetIndexer.buildDocuments()
 
       try {
-        val docs = snippetIndexer.buildDocuments()
-        putDocuments(session, docs)
-        removeMissingDocuments(session, "snippets", docs.map { it.id }.toSet())
+        val session = appSearchSession
+        if (session != null) {
+          putDocuments(session, docs)
+          removeMissingDocuments(session, "snippets", docs.map { it.id }.toSet())
+        }
+        // Keep the in-memory snapshot in sync even if AppSearch is not ready yet, so a snippet
+        // added from Settings is searchable without waiting for a full reindex or restart.
         replaceCollection("snippets", docs)
         android.util.Log.d("SearchRepository", "Indexed ${docs.size} snippets")
       } catch (e: Exception) {

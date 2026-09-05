@@ -1,5 +1,6 @@
 package com.searchlauncher.app.data
 
+import android.content.ComponentName
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import com.searchlauncher.app.ui.dataStore
@@ -19,22 +20,34 @@ class BackupManager(
   private val historyRepository: HistoryRepository,
   private val wallpaperRepository: WallpaperRepository,
   private val widgetRepository: WidgetRepository,
+  private val searchRepository: SearchRepository,
 ) {
   companion object {
-    const val BACKUP_VERSION = 2 // Bumped version for new format
+    const val BACKUP_VERSION = 4
     private const val MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB limit
+    private val WIDGET_DATASTORE_KEYS = setOf("widgets_data", "widget_ids")
   }
 
   suspend fun exportBackup(outputStream: OutputStream, includeWallpapers: Boolean): Result<Int> =
     withContext(Dispatchers.IO) {
       try {
         android.util.Log.d("BackupManager", "Starting export...")
+        val bookmarks = searchRepository.exportBookmarks()
         // Using BufferedWriter and JsonWriter for memory efficiency
         android.util.JsonWriter(outputStream.writer().buffered()).use { writer ->
           writer.setIndent("  ")
           writer.beginObject()
 
           writer.name("version").value(BACKUP_VERSION)
+
+          writer.name("bookmarks").beginArray()
+          bookmarks.forEach { bookmark ->
+            writer.beginObject()
+            writer.name("url").value(bookmark.url)
+            writer.name("title").value(bookmark.title)
+            writer.endObject()
+          }
+          writer.endArray()
 
           // 1. Export Snippets
           android.util.Log.d("BackupManager", "Exporting Snippets...")
@@ -136,10 +149,15 @@ class BackupManager(
           var widgetsCount = 0
           // Fetch widgets before writing
           val widgetsList = widgetRepository.widgets.first()
+          val appWidgetManager = android.appwidget.AppWidgetManager.getInstance(context)
           widgetsList.forEach { widget ->
             writer.beginObject()
             writer.name("id").value(widget.id)
             widget.height?.let { writer.name("height").value(it) }
+            val provider =
+              widget.provider
+                ?: appWidgetManager.getAppWidgetInfo(widget.id)?.provider?.flattenToString()
+            provider?.let { writer.name("provider").value(it) }
             writer.endObject()
             widgetsCount++
           }
@@ -154,6 +172,7 @@ class BackupManager(
           prefs.asMap().forEach { entry ->
             val key = entry.key
             val value = entry.value
+            if (key.name in WIDGET_DATASTORE_KEYS) return@forEach
             when (value) {
               is String -> {
                 writer.name(key.name).value(value)
@@ -186,7 +205,8 @@ class BackupManager(
           writer.endObject() // End root object
 
           val totalItems =
-            snippetsCount +
+            bookmarks.size +
+              snippetsCount +
               shortcutsCount +
               favoritesCount +
               historyCount +
@@ -216,6 +236,25 @@ class BackupManager(
               "Backup file version ($version) is newer than supported version ($BACKUP_VERSION)"
             )
           )
+        }
+
+        // Validate bookmarks before changing any existing data. Missing means an older backup.
+        val bookmarks =
+          backupData.optJSONArray("bookmarks")?.let { entries ->
+            List(entries.length()) { index ->
+              val entry = entries.getJSONObject(index)
+              val url = entry.getString("url").trim()
+              require(url.isNotEmpty()) { "Bookmark URL is empty" }
+              SearchRepository.SavedBookmark(url, entry.getString("title"))
+            }
+          }
+        if (backupData.has("bookmarks")) requireNotNull(bookmarks) { "Invalid bookmarks section" }
+        var bookmarksCount = 0
+        bookmarks?.forEach { bookmark ->
+          check(searchRepository.saveBookmark(bookmark.url, bookmark.title)) {
+            "Could not restore bookmark: ${bookmark.title}"
+          }
+          bookmarksCount++
         }
 
         var snippetsCount = 0
@@ -313,16 +352,47 @@ class BackupManager(
         // 6. Import Widgets
         if (backupData.has("widgets")) {
           val widgetsArray = backupData.getJSONArray("widgets")
-          widgetRepository.clearAllWidgets()
+          val restoredWidgets = mutableListOf<WidgetData>()
+          val appWidgetManager = android.appwidget.AppWidgetManager.getInstance(context)
+          val appWidgetHost =
+            android.appwidget.AppWidgetHost(context, WidgetRepository.APPWIDGET_HOST_ID)
           for (i in 0 until widgetsArray.length()) {
             val obj = widgetsArray.getJSONObject(i)
-            val id = obj.getInt("id")
-            widgetRepository.addWidgetId(id)
-            if (obj.has("height")) {
-              widgetRepository.updateWidgetHeight(id, obj.getInt("height"))
+            val oldId = obj.getInt("id")
+            val height = if (obj.has("height")) obj.getInt("height") else null
+            val providerName = obj.optString("provider").takeIf { it.isNotEmpty() }
+            var restoredId = oldId
+            val oldProvider = appWidgetManager.getAppWidgetInfo(oldId)?.provider?.flattenToString()
+
+            if (providerName != null && oldProvider != providerName) {
+              val provider = ComponentName.unflattenFromString(providerName)
+              val providerInfo =
+                provider?.let { component ->
+                  appWidgetManager.installedProviders.find { it.provider == component }
+                }
+              // Widgets with configuration must go through their activity. Leave those as a
+              // recoverable placeholder so one tap can bind and configure them correctly.
+              if (providerInfo != null && providerInfo.configure == null) {
+                val newId = appWidgetHost.allocateAppWidgetId()
+                val bound =
+                  try {
+                    appWidgetManager.bindAppWidgetIdIfAllowed(newId, providerInfo.provider)
+                  } catch (e: RuntimeException) {
+                    android.util.Log.w("BackupManager", "Could not restore $providerName", e)
+                    false
+                  }
+                if (bound) {
+                  restoredId = newId
+                } else {
+                  appWidgetHost.deleteAppWidgetId(newId)
+                }
+              }
             }
+
+            restoredWidgets += WidgetData(restoredId, height, providerName)
             widgetsCount++
           }
+          widgetRepository.replaceAll(restoredWidgets)
         }
 
         // 7. Import Settings
@@ -330,6 +400,7 @@ class BackupManager(
           val settingsObj = backupData.getJSONObject("settings")
           context.dataStore.edit { prefs ->
             settingsObj.keys().forEach { keyName ->
+              if (keyName in WIDGET_DATASTORE_KEYS) return@forEach
               val value = settingsObj.get(keyName)
               when (value) {
                 is String ->
@@ -351,6 +422,7 @@ class BackupManager(
 
         Result.success(
           ImportStats(
+            bookmarksCount = bookmarksCount,
             snippetsCount = snippetsCount,
             shortcutsCount = shortcutsCount,
             favoritesCount = favoritesCount,
@@ -367,6 +439,7 @@ class BackupManager(
     }
 
   data class ImportStats(
+    val bookmarksCount: Int,
     val snippetsCount: Int,
     val shortcutsCount: Int,
     val favoritesCount: Int,

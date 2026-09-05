@@ -1,0 +1,1 @@
+The home keyboard splits on wide screens, with a shortcut-preview spacebar on each side. Removed shortcut icons from letter keys. Backups now include browser bookmark URLs and titles, and imports merge them with existing bookmarks. Widget backups retain their provider and offer replacement when automatic restore is unavailable. Contact icons in favorites are now round.
