@@ -1,0 +1,1 @@
+New built-in home keyboard appears with the search bar. Wallpaper-colored keys show subtle search shortcut tags; Space previews shortcut searches and Go shows the selected result. Hold keys for 250 ms, slide to symbols or accents, then release to type. Switch to your own keyboard in Settings. Removed the redundant quick-search button beside Clear.

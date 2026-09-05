@@ -33,6 +33,9 @@ object PreferencesKeys {
   val THEMED_ICONS = booleanPreferencesKey("themed_icons")
   val SEARCH_SHORTCUTS_ENABLED = booleanPreferencesKey("search_shortcuts_enabled")
 
+  /** Built-in home search keyboard; other editors continue using the system keyboard. */
+  val BUILT_IN_KEYBOARD = booleanPreferencesKey("built_in_keyboard")
+
   /**
    * When true, the home screen stays in portrait even if the device has auto-rotate on. Off by
    * default so the launcher follows the system orientation like any other activity.

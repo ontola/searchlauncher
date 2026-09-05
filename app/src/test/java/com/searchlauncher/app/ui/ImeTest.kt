@@ -15,6 +15,22 @@ import org.robolectric.annotation.Config
 class ImeTest {
 
   @Test
+  fun homeKeyboardModeCanSwitchBackToSystemWithoutRecreatingActivity() {
+    val window = activity().window
+    Ime.applyHomeWindowMode(window, true)
+    assertEquals(
+      WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN,
+      window.attributes.softInputMode and WindowManager.LayoutParams.SOFT_INPUT_MASK_STATE,
+    )
+    assertEquals(
+      WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING,
+      window.attributes.softInputMode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST,
+    )
+    Ime.applyHomeWindowMode(window, false)
+    assertEquals(Ime.SOFT_INPUT_MODE, window.attributes.softInputMode)
+  }
+
+  @Test
   fun softInputMode_isAlwaysVisibleWithoutResizing() {
     val state = Ime.SOFT_INPUT_MODE and WindowManager.LayoutParams.SOFT_INPUT_MASK_STATE
     val adjust = Ime.SOFT_INPUT_MODE and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST
