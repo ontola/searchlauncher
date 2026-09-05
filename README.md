@@ -6,7 +6,7 @@ Android app that lets you search everything on your phone and on the web, and op
 
 ## Features
 
-- **Direct keyboard access** - Your homescreen now has a keyboard!
+- **Built-in home keyboard** - Home search opens with its own QWERTY keyboard, without waiting for the system keyboard animation. Includes numbers/symbols, hold-and-release symbols (hinted in the upper corner of each key; slide while holding to choose accents or alternatives), caps lock (hold Shift), and repeating backspace. Turn off **Settings → Search → Use built-in keyboard** for your preferred keyboard, swipe typing, or other languages. Browser fields and dialogs use your system keyboard.
 - **Search everything on your phone** - Apps, their shortcuts, device settings, downloads, upcoming calendar events, sorted smartly by usage.
 - **Search everything on the web** - Youtube, google, bing, maps, spotify... Or add your own custom shortcuts!
 - **Built-in ad-free browser** - Opens web results in-app, blocking ads and trackers by default. Browse privately in an isolated window. File uploads, picture-in-picture video, and hardware-keyboard shortcuts are included.

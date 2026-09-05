@@ -472,7 +472,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     appWidgetHost = android.appwidget.AppWidgetHost(applicationContext, APPWIDGET_HOST_ID)
     queryState = savedInstanceState?.getString(KEY_ACTIVE_QUERY) ?: restoreRecentQuery()
     enableEdgeToEdge()
-    Ime.applyWindowMode(window)
+    Ime.applyHomeWindowMode(window, HomeKeyboardPreference.cached(this))
 
     setContent {
       val themeColor =
@@ -585,7 +585,12 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
 
   override fun onWindowFocusChanged(hasFocus: Boolean) {
     super.onWindowFocusChanged(hasFocus)
-    if (hasFocus && currentScreenState == Screen.Search && !inPictureInPicture) {
+    if (
+      hasFocus &&
+        currentScreenState == Screen.Search &&
+        !inPictureInPicture &&
+        !HomeKeyboardPreference.cached(this)
+    ) {
       // Show here, but do not bump [focusTrigger]: that restarts the Compose IME loop and
       // cancels the request that onResume already started. Do not hide in onPause either —
       // that tears the IME process down, and the next home arrival waits on a cold start.

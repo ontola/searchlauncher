@@ -33,6 +33,9 @@ object PreferencesKeys {
   val THEMED_ICONS = booleanPreferencesKey("themed_icons")
   val SEARCH_SHORTCUTS_ENABLED = booleanPreferencesKey("search_shortcuts_enabled")
 
+  /** Built-in home search keyboard; other editors continue using the system keyboard. */
+  val BUILT_IN_KEYBOARD = booleanPreferencesKey("built_in_keyboard")
+
   /**
    * Whether the keyboard may autocorrect what is typed into the search bar. Off by default: a query
    * is usually a name, a command or a URL fragment, and having it silently rewritten into a
