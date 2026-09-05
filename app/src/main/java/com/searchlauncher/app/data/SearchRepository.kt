@@ -1456,6 +1456,36 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
     }
 
+  data class SavedBookmark(val url: String, val title: String)
+
+  /** Read durable bookmarks, including entries not yet loaded into the search snapshot. */
+  suspend fun exportBookmarks(): List<SavedBookmark> =
+    withContext(Dispatchers.IO) {
+      val session = checkNotNull(appSearchSession) { "Search is still starting; try again shortly" }
+      val results =
+        session.search("", SearchSpec.Builder().addFilterNamespaces("web_saved").build())
+      try {
+        val bookmarks = mutableListOf<SavedBookmark>()
+        var page = results.nextPageAsync.await()
+        while (page.isNotEmpty()) {
+          page.forEach {
+            val doc = it.genericDocument.toDocumentClass(AppSearchDocument::class.java)
+            bookmarks +=
+              SavedBookmark(
+                doc.description.orEmpty().ifBlank {
+                  requireNotNull(doc.intentUri) { "Bookmark has no URL" }
+                },
+                doc.name,
+              )
+          }
+          page = results.nextPageAsync.await()
+        }
+        bookmarks
+      } finally {
+        results.close()
+      }
+    }
+
   /**
    * Explicitly bookmarks a page from the browser. Unlike [indexWebUrl] this ignores the
    * store-web-history preference (it's a deliberate user action, not passive tracking) and lands in

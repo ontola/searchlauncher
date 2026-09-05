@@ -1379,7 +1379,7 @@ private fun BackupRestoreCard(onExportBackup: () -> Unit) {
       Text(text = "Backup & Restore", style = MaterialTheme.typography.titleMedium)
       Text(
         text =
-          "Export all your data (Snippets, Shortcuts, Favorites, Background) to a .searchlauncher file",
+          "Export settings, snippets, shortcuts, favorites, browser bookmarks, widgets and optional backgrounds to a .searchlauncher file",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )

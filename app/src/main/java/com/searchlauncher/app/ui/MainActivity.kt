@@ -29,6 +29,8 @@ import androidx.lifecycle.lifecycleScope
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.data.WidgetData
+import com.searchlauncher.app.data.WidgetRepository
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -83,7 +85,6 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
 
   lateinit var appWidgetManager: android.appwidget.AppWidgetManager
   lateinit var appWidgetHost: android.appwidget.AppWidgetHost
-  private val APPWIDGET_HOST_ID = 1002
   private val REQUEST_CONFIGURE_APPWIDGET = 10
 
   private val pickWallpapersLauncher =
@@ -117,6 +118,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     }
 
   private var pendingAppWidgetId = -1
+  private var pendingReplacementWidgetId = -1
 
   private val bindWidgetLauncher =
     registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -183,23 +185,39 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
           } else {
             android.util.Log.e("MainActivity", "Widget $appWidgetId NOT bound.")
             appWidgetHost.deleteAppWidgetId(appWidgetId)
+            pendingReplacementWidgetId = -1
             // Only show error if we really expected it to work (OK result) or user cancelled
             if (result.resultCode == RESULT_OK) {
               Toast.makeText(this, "Binding verification failed.", Toast.LENGTH_SHORT).show()
             }
           }
         } else {
+          pendingReplacementWidgetId = -1
           Toast.makeText(this, "Binding failed (No ID).", Toast.LENGTH_SHORT).show()
         }
       } else {
         // Explicit cancellation with no recovered ID (unlikely if pending logic works)
         android.util.Log.d("MainActivity", "bindWidgetLauncher cancelled/failed")
+        pendingReplacementWidgetId = -1
       }
     }
 
   fun requestWidgetPick() {
     updateQueryState("widgets ")
     focusTrigger = System.currentTimeMillis()
+  }
+
+  fun requestWidgetReplacement(widget: WidgetData) {
+    pendingReplacementWidgetId = widget.id
+    val provider =
+      widget.provider?.let(android.content.ComponentName::unflattenFromString)?.let { component ->
+        appWidgetManager.installedProviders.find { it.provider == component }
+      }
+    if (provider != null) {
+      onWidgetProviderSelected(provider)
+    } else {
+      showWidgetPicker.value = true
+    }
   }
 
   private fun onWidgetProviderSelected(providerInfo: android.appwidget.AppWidgetProviderInfo) {
@@ -216,6 +234,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
           android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_PROVIDER,
           providerInfo.provider,
         )
+        pendingAppWidgetId = appWidgetId
         bindWidgetLauncher.launch(intent)
       }
     } catch (e: SecurityException) {
@@ -240,6 +259,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
           bindWidgetLauncher.launch(intent)
         } catch (innerE: Exception) {
           android.util.Log.e("MainActivity", "Fallback failed", innerE)
+          pendingReplacementWidgetId = -1
           Toast.makeText(
               this,
               "Permission denied. Enable 'Restricted Settings' in App Info, then FORCE STOP the app.",
@@ -248,10 +268,12 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
             .show()
         }
       } else {
+        pendingReplacementWidgetId = -1
         Toast.makeText(this, "Allocation failed due to restriction.", Toast.LENGTH_SHORT).show()
       }
     } catch (e: Exception) {
       android.util.Log.e("MainActivity", "Error adding widget", e)
+      pendingReplacementWidgetId = -1
       Toast.makeText(this, "Error adding widget: ${e.message}", Toast.LENGTH_SHORT).show()
     }
     showWidgetPicker.value = false
@@ -265,7 +287,16 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
 
   private fun persistAddedWidget(appWidgetId: Int) {
     lifecycleScope.launch {
-      (application as SearchLauncherApp).widgetRepository.addWidgetId(appWidgetId)
+      val repository = (application as SearchLauncherApp).widgetRepository
+      val replacementId = pendingReplacementWidgetId
+      if (replacementId != -1) {
+        val provider = appWidgetManager.getAppWidgetInfo(appWidgetId)?.provider?.flattenToString()
+        repository.replaceWidgetId(replacementId, appWidgetId, provider)
+        appWidgetHost.deleteAppWidgetId(replacementId)
+        pendingReplacementWidgetId = -1
+      } else {
+        repository.addWidgetId(appWidgetId)
+      }
       dataStore.edit { prefs -> prefs[PreferencesKeys.SHOW_WIDGETS] = true }
     }
   }
@@ -469,7 +500,8 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     appWidgetManager = android.appwidget.AppWidgetManager.getInstance(applicationContext)
-    appWidgetHost = android.appwidget.AppWidgetHost(applicationContext, APPWIDGET_HOST_ID)
+    appWidgetHost =
+      android.appwidget.AppWidgetHost(applicationContext, WidgetRepository.APPWIDGET_HOST_ID)
     queryState = savedInstanceState?.getString(KEY_ACTIVE_QUERY) ?: restoreRecentQuery()
     enableEdgeToEdge()
     Ime.applyHomeWindowMode(window, HomeKeyboardPreference.cached(this))
@@ -650,6 +682,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
           "Widget $appWidgetId configuration cancelled, deleting ID",
         )
         appWidgetHost.deleteAppWidgetId(appWidgetId)
+        pendingReplacementWidgetId = -1
       }
     }
   }
@@ -1016,7 +1049,10 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
       WidgetPicker(
         appWidgetManager = appWidgetManager,
         onWidgetSelected = { info -> onWidgetProviderSelected(info) },
-        onDismiss = { showWidgetPicker.value = false },
+        onDismiss = {
+          pendingReplacementWidgetId = -1
+          showWidgetPicker.value = false
+        },
       )
     }
   }
@@ -1057,6 +1093,7 @@ private fun MainActivity.createBackupManager(): com.searchlauncher.app.data.Back
     historyRepository = app.historyRepository,
     wallpaperRepository = app.wallpaperRepository,
     widgetRepository = app.widgetRepository,
+    searchRepository = app.searchRepository,
   )
 }
 
@@ -1141,7 +1178,7 @@ private suspend fun MainActivity.performImport(uri: android.net.Uri) {
           if (result.isSuccess) {
             android.widget.Toast.makeText(
                 this@performImport,
-                "Import successful!",
+                "Import successful! ${result.getOrThrow().bookmarksCount} bookmarks restored.",
                 android.widget.Toast.LENGTH_LONG,
               )
               .show()
