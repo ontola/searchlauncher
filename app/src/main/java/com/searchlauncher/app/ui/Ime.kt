@@ -70,8 +70,9 @@ object Ime {
   }
 
   /**
-   * Height to keep for the wallpaper while a tab is opening and the keys are on their way out. The
-   * chrome bar follows the live inset so it does not sit in mid-air above an empty keyboard well.
+   * Height to keep for the wallpaper and the home search bar whether the IME is up or not. Overlay
+   * search still tracks the live inset ([systemKeyboardChromeInsetPx]) so it can open onto rising
+   * keys.
    */
   fun reservedHeightPx(storedPx: Int, containerHeightPx: Int): Int {
     if (containerHeightPx <= 0) return storedPx.coerceAtLeast(0)
@@ -81,6 +82,30 @@ object Ime {
       .toInt()
       .coerceIn(MIN_PLAUSIBLE_HEIGHT_PX, maxPx.coerceAtLeast(MIN_PLAUSIBLE_HEIGHT_PX))
   }
+
+  /**
+   * Bottom inset for chrome when the system IME is in use.
+   *
+   * Home parks at [reservedPx] so the search bar and favorites do not travel with the keyboard
+   * animation. Overlay search ([riseWithKeyboard]) and a tab that is opening still follow
+   * [imeForLayoutPx] so the bar can ride the keys in or out.
+   */
+  fun systemKeyboardChromeInsetPx(
+    riseWithKeyboard: Boolean,
+    isMultiWindow: Boolean,
+    openingTab: Boolean,
+    imeForLayoutPx: Int,
+    reservedPx: Int,
+    navigationBarBottomPx: Int,
+    overlayNavOverlapPx: Int,
+  ): Int =
+    when {
+      riseWithKeyboard ->
+        maxOf(imeForLayoutPx, navigationBarBottomPx - overlayNavOverlapPx).coerceAtLeast(0)
+      isMultiWindow -> imeForLayoutPx
+      openingTab -> imeForLayoutPx
+      else -> maxOf(reservedPx, navigationBarBottomPx)
+    }
 
   /**
    * Asks the IME to appear for [view]'s window. Returns true if the input method accepted the

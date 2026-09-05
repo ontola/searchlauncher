@@ -80,6 +80,76 @@ class ImeTest {
   }
 
   @Test
+  fun homeChromeParksAtReservedHeightWhileImeAnimates() {
+    val reserved = 900
+    val nav = 120
+    assertEquals(
+      reserved,
+      Ime.systemKeyboardChromeInsetPx(
+        riseWithKeyboard = false,
+        isMultiWindow = false,
+        openingTab = false,
+        imeForLayoutPx = 0,
+        reservedPx = reserved,
+        navigationBarBottomPx = nav,
+        overlayNavOverlapPx = 24,
+      ),
+    )
+    assertEquals(
+      reserved,
+      Ime.systemKeyboardChromeInsetPx(
+        riseWithKeyboard = false,
+        isMultiWindow = false,
+        openingTab = false,
+        imeForLayoutPx = 400,
+        reservedPx = reserved,
+        navigationBarBottomPx = nav,
+        overlayNavOverlapPx = 24,
+      ),
+    )
+  }
+
+  @Test
+  fun overlayAndOpeningTabFollowLiveIme() {
+    assertEquals(
+      400,
+      Ime.systemKeyboardChromeInsetPx(
+        riseWithKeyboard = true,
+        isMultiWindow = false,
+        openingTab = false,
+        imeForLayoutPx = 400,
+        reservedPx = 900,
+        navigationBarBottomPx = 120,
+        overlayNavOverlapPx = 24,
+      ),
+    )
+    assertEquals(
+      200,
+      Ime.systemKeyboardChromeInsetPx(
+        riseWithKeyboard = false,
+        isMultiWindow = false,
+        openingTab = true,
+        imeForLayoutPx = 200,
+        reservedPx = 900,
+        navigationBarBottomPx = 120,
+        overlayNavOverlapPx = 24,
+      ),
+    )
+    assertEquals(
+      300,
+      Ime.systemKeyboardChromeInsetPx(
+        riseWithKeyboard = false,
+        isMultiWindow = true,
+        openingTab = false,
+        imeForLayoutPx = 300,
+        reservedPx = 900,
+        navigationBarBottomPx = 120,
+        overlayNavOverlapPx = 24,
+      ),
+    )
+  }
+
+  @Test
   fun insetForLayout_ignoresFullScreenImeWindow() {
     val reserved = Ime.reservedHeightPx(storedPx = 900, containerHeightPx = 2400)
     assertEquals(
