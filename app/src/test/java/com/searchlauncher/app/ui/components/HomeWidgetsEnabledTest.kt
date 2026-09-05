@@ -26,4 +26,10 @@ class HomeWidgetsEnabledTest {
     assertFalse(homeWidgetsEnabled(ApplicationProvider.getApplicationContext()))
     assertFalse(homeWidgetsEnabled(mockk<Activity>(relaxed = true)))
   }
+
+  @Test
+  fun widgetLayoutEditingIsOnUntilLocked() {
+    assertTrue(widgetLayoutEditingEnabled(widgetsLocked = false))
+    assertFalse(widgetLayoutEditingEnabled(widgetsLocked = true))
+  }
 }
