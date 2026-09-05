@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -738,10 +739,10 @@ fun SearchScreen(
         focusRequester.requestFocus()
         true
       }
-      // Enter is only ours while the search field holds focus. Taken here, before the IME sees
-      // it, so a hardware keyboard and the on-screen Go key cannot commit a query differently —
-      // including when Tab has aimed the engine badge.
-      searchFieldFocused &&
+      // Enter is only ours while this window and the search field hold focus. Taken here, on
+      // the PreIme path, so a hardware keyboard and the on-screen Go key cannot commit a query
+      // differently — including when Tab has aimed the engine badge.
+      (searchFieldFocused || (view.hasWindowFocus() && view.hasFocus())) &&
         (KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_ENTER) ||
           KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_NUMPAD_ENTER)) -> {
         submitSearch()
@@ -749,13 +750,13 @@ fun SearchScreen(
       }
       // Tab walks the engine badge along the same list its long-press menu offers, so a query can
       // be aimed at YouTube or Wikipedia without going back to the alias prefix.
-      searchFieldFocused &&
+      (searchFieldFocused || (view.hasWindowFocus() && view.hasFocus())) &&
         query.isNotEmpty() &&
         KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_TAB, shift = true) -> {
         cycleSelectedEngine(-1)
         true
       }
-      searchFieldFocused &&
+      (searchFieldFocused || (view.hasWindowFocus() && view.hasFocus())) &&
         query.isNotEmpty() &&
         KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_TAB) -> {
         cycleSelectedEngine(1)
@@ -2111,15 +2112,9 @@ fun SearchScreen(
                           Ime.show(view)
                         }
                       }
-                      .onKeyEvent { event ->
+                      .onPreviewKeyEvent { event ->
                         val native = event.nativeKeyEvent
                         when {
-                          native.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
-                            displayQuery.isEmpty() &&
-                            activeShortcut != null -> {
-                            onQueryChange("")
-                            true
-                          }
                           KeyShortcuts.matches(native, android.view.KeyEvent.KEYCODE_ENTER) ||
                             KeyShortcuts.matches(
                               native,
@@ -2143,6 +2138,18 @@ fun SearchScreen(
                             true
                           }
                           else -> false
+                        }
+                      }
+                      .onKeyEvent { event ->
+                        if (
+                          event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DEL &&
+                            displayQuery.isEmpty() &&
+                            activeShortcut != null
+                        ) {
+                          onQueryChange("")
+                          true
+                        } else {
+                          false
                         }
                       },
                   textStyle =
