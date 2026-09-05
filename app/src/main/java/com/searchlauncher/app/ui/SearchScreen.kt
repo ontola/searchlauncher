@@ -239,6 +239,12 @@ fun SearchScreen(
   val useBuiltInKeyboard = builtInKeyboardEnabled && !riseWithKeyboard && browserTabId == null
   var keyboardDismissed by remember { mutableStateOf(false) }
 
+  val defaultSearchEngineId by
+    remember {
+        context.dataStore.data.map { it[PreferencesKeys.DEFAULT_SEARCH_ENGINE] ?: "google" }
+      }
+      .collectAsState(initial = "google")
+
   // The web engines the search bar can hand a query to, resolved once and shared by the badge, its
   // menu and the Tab cycle below, so what the badge shows and what Enter does cannot drift apart.
   val searchEngines =
