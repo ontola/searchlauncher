@@ -366,7 +366,15 @@ fun FavoritesRow(
                 bitmap = imageBitmap,
                 contentDescription = result.title,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.size(finalIconSize * 0.8f),
+                modifier =
+                  Modifier.size(finalIconSize * 0.8f)
+                    .then(
+                      if (result is SearchResult.Contact) {
+                        Modifier.clip(RoundedCornerShape(8.dp))
+                      } else {
+                        Modifier
+                      }
+                    ),
               )
             } else {
               Box(
@@ -439,7 +447,15 @@ fun FavoritesRow(
             bitmap = imageBitmap,
             contentDescription = result.title,
             contentScale = ContentScale.Fit,
-            modifier = Modifier.size(finalIconSize * 0.8f),
+            modifier =
+              Modifier.size(finalIconSize * 0.8f)
+                .then(
+                  if (result is SearchResult.Contact) {
+                    Modifier.clip(RoundedCornerShape(8.dp))
+                  } else {
+                    Modifier
+                  }
+                ),
           )
         }
       }
