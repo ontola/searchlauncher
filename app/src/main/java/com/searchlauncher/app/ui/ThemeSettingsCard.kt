@@ -107,6 +107,37 @@ fun ThemeSettingsCard() {
 
       HorizontalDivider()
 
+      val lockWidgets by
+        remember { context.dataStore.data.map { it[PreferencesKeys.LOCK_WIDGETS] ?: false } }
+          .collectAsState(initial = false)
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+          Text(text = "Lock widgets", style = MaterialTheme.typography.titleMedium)
+          Text(
+            text =
+              "Keep widgets from being resized, moved, or deleted by a long press. Turn this off to edit them again.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Switch(
+          checked = lockWidgets,
+          onCheckedChange = { checked ->
+            scope.launch {
+              context.dataStore.edit { preferences ->
+                preferences[PreferencesKeys.LOCK_WIDGETS] = checked
+              }
+            }
+          },
+        )
+      }
+
+      HorizontalDivider()
+
       // OLED Toggle (only if dark mode is enabled or system is dark)
       Row(
         modifier = Modifier.fillMaxWidth(),

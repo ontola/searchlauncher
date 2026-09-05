@@ -18,6 +18,12 @@ object PreferencesKeys {
   val OLED_MODE = booleanPreferencesKey("oled_mode")
   val BACKGROUND_LAST_IMAGE_URI = stringPreferencesKey("background_last_image_uri")
   val SHOW_WIDGETS = booleanPreferencesKey("show_widgets")
+
+  /**
+   * When true, long-pressing a home-screen widget does not open resize, move, or delete. Off by
+   * default so a new install can still arrange widgets; turn it on once the layout is settled.
+   */
+  val LOCK_WIDGETS = booleanPreferencesKey("lock_widgets")
   val IS_FIRST_RUN = booleanPreferencesKey("is_first_run")
   val STORE_WEB_HISTORY = booleanPreferencesKey("store_web_history")
   val BROWSER_SHOW_FAVORITES = booleanPreferencesKey("browser_show_favorites")

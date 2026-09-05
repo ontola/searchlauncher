@@ -42,6 +42,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
@@ -314,6 +316,9 @@ fun SearchScreen(
   val showWidgetsSetting by
     remember { context.dataStore.data.map { it[PreferencesKeys.SHOW_WIDGETS] ?: true } }
       .collectAsState(initial = true)
+  val widgetsLocked by
+    remember { context.dataStore.data.map { it[PreferencesKeys.LOCK_WIDGETS] ?: false } }
+      .collectAsState(initial = false)
 
   // Check if this app is the default launcher (needed by onboarding logic below)
   val isDefaultLauncher = remember {
@@ -1761,6 +1766,24 @@ fun SearchScreen(
               // Not the plain Add the wallpaper entry uses — two identical plus icons in one menu
               // would say nothing about which is which.
               leadingIcon = { Icon(Icons.Default.Widgets, contentDescription = null) },
+            )
+            DropdownMenuItem(
+              text = { Text(if (widgetsLocked) "Unlock Widgets" else "Lock Widgets") },
+              onClick = {
+                showBackgroundMenu = false
+                val newState = !widgetsLocked
+                scope.launch {
+                  context.dataStore.edit { preferences ->
+                    preferences[PreferencesKeys.LOCK_WIDGETS] = newState
+                  }
+                }
+              },
+              leadingIcon = {
+                Icon(
+                  if (widgetsLocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                  contentDescription = null,
+                )
+              },
             )
           }
           val widgets by app.widgetRepository.widgets.collectAsState(initial = emptyList())
