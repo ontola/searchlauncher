@@ -29,12 +29,19 @@ object Prefs {
   /**
    * Miscellaneous launcher state.
    *
-   * Note: [MIN_ICON_SIZE] mirrors the DataStore setting of the same name; it is kept here only as a
-   * synchronous boot cache so the first frame can size icons without waiting on DataStore.
+   * Note: [MIN_ICON_SIZE] and [LOCK_PORTRAIT] mirror DataStore settings of the same name; they are
+   * kept here only as synchronous boot caches so the first frame can size icons and lock
+   * orientation without waiting on DataStore.
    */
   object Launcher {
     const val FILE = "search_launcher_prefs"
     const val MIN_ICON_SIZE = "min_icon_size"
+    /**
+     * Mirrors the DataStore [com.searchlauncher.app.ui.PreferencesKeys.LOCK_PORTRAIT] setting so
+     * [com.searchlauncher.app.ui.MainActivity] can lock orientation on the first frame of a cold
+     * start, before the async DataStore read completes.
+     */
+    const val LOCK_PORTRAIT = "lock_portrait"
     const val OBSERVED_HISTORY_LIMIT = "observed_history_limit"
     const val LAST_REINDEX_TIMESTAMP = "last_reindex_timestamp"
     const val APPS_FINGERPRINT = "apps_fingerprint"

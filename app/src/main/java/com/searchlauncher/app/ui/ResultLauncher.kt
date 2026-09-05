@@ -8,6 +8,7 @@ import android.net.Uri
 import android.widget.Toast
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.data.ShortcutLaunch
 import com.searchlauncher.app.ui.browser.BrowserActivity
 import com.searchlauncher.app.ui.browser.BrowserTabStore
 import com.searchlauncher.app.ui.browser.BrowserTabTasks
@@ -175,6 +176,16 @@ class ResultLauncher(
         val mime = result.packageName.takeIf { it.contains('/') }
         if (mime != null && intent.type == null) {
           intent.setDataAndType(uri, mime)
+        }
+      }
+      val appIntent =
+        ShortcutLaunch.preferredAppIntentForContent(context.packageManager, result, query)
+      if (appIntent != null) {
+        try {
+          context.startActivity(appIntent)
+          return
+        } catch (_: Exception) {
+          // App was removed or disabled between resolve and start; use the browser below.
         }
       }
       launchIntent(intent, query)

@@ -90,6 +90,7 @@ import com.searchlauncher.app.ui.components.PrivacyPolicyDialog
 import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
 import com.searchlauncher.app.ui.components.shouldShowFavoritesIconSizeSetting
 import com.searchlauncher.app.util.CustomActionHandler
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -612,7 +613,9 @@ private fun SnippetsCard() {
                 )
               }
               IconButton(
-                onClick = { scope.launch { app.snippetsRepository.deleteItem(item.alias) } }
+                onClick = {
+                  scope.launch(Dispatchers.IO) { app.searchRepository.deleteSnippet(item.alias) }
+                }
               ) {
                 Icon(
                   imageVector = Icons.Default.Close,
@@ -641,14 +644,11 @@ private fun SnippetsCard() {
       isEditMode = editingItem != null,
       onDismiss = { showDialog = false },
       onConfirm = { alias, content ->
-        scope.launch {
-          if (editingItem != null) {
-            app.snippetsRepository.updateItem(editingItem!!.alias, alias, content)
-          } else {
-            app.snippetsRepository.addItem(alias, content)
-          }
-          showDialog = false
+        val previousAlias = editingItem?.alias
+        scope.launch(Dispatchers.IO) {
+          app.searchRepository.saveSnippet(alias, content, previousAlias)
         }
+        showDialog = false
       },
     )
   }
