@@ -1,14 +1,18 @@
 package com.searchlauncher.app.ui.components
 
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.moveBy
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -24,6 +28,39 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class HomeSearchKeyboardTest {
   @get:Rule val compose = createComposeRule()
+
+  @Test
+  fun wideKeyboardSplitsAndReturnsToCompactLayoutWhenResized() {
+    val width = mutableStateOf(800.dp)
+    var text = ""
+    compose.setContent {
+      MaterialTheme {
+        HomeSearchKeyboard(
+          { text += it },
+          {},
+          {},
+          Modifier.requiredWidth(width.value).height(243.dp),
+          spaceShortcutLabel = "YouTube",
+        )
+      }
+    }
+    val spaces = compose.onAllNodesWithContentDescription("Space: activate YouTube search")
+    spaces.assertCountEquals(2)
+    val t = compose.onNodeWithText("t").fetchSemanticsNode().boundsInRoot
+    val y = compose.onNodeWithText("y").fetchSemanticsNode().boundsInRoot
+    assertTrue(y.left - t.right > t.width)
+    spaces[0].performClick()
+    spaces[1].performClick()
+    compose.onNodeWithText("q").performClick()
+    compose.onNodeWithText("p").performClick()
+    compose.runOnIdle { assertEquals("  qp", text) }
+    compose.onNodeWithContentDescription("Numbers and symbols").performClick()
+    compose.onNodeWithText("1").performClick()
+    compose.onNodeWithText("0").performClick()
+    compose.runOnIdle { assertEquals("  qp10", text) }
+    compose.runOnIdle { width.value = 400.dp }
+    spaces.assertCountEquals(1)
+  }
 
   private fun holdKey(key: String) {
     compose.onNodeWithText(key).performTouchInput {

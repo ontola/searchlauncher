@@ -96,113 +96,142 @@ fun HomeSearchKeyboard(
       color = MaterialTheme.colorScheme.surface,
       contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
-      Column(
-        Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp),
-      ) {
-        val rows =
-          if (!symbols) listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
-          else if (!extraSymbols) listOf("1234567890", "@#€%&-+()", "*\"':;!?/")
-          else listOf("~`|•√π÷×§∆", "£¢$^°={}\\", "_[]<>:,.")
-        rows.forEachIndexed { index, letters ->
+      BoxWithConstraints {
+        val split = maxWidth >= 600.dp
+        val splitGap = maxOf(48.dp, maxWidth - 640.dp)
+        Column(
+          Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+          verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+          val rows =
+            if (!symbols) listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
+            else if (!extraSymbols) listOf("1234567890", "@#€%&-+()", "*\"':;!?/")
+            else listOf("~`|•√π÷×§∆", "£¢$^°={}\\", "_[]<>:,.")
+          rows.forEachIndexed { index, letters ->
+            Row(
+              Modifier.fillMaxWidth().weight(1f),
+              horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+              val splitAt = if (index == 2) 4 else 5
+              val groups =
+                if (split) listOf(letters.take(splitAt), letters.drop(splitAt)) else listOf(letters)
+              groups.forEachIndexed { half, keys ->
+                if (half == 1) Spacer(Modifier.width(splitGap))
+                Row(
+                  Modifier.weight(1f).fillMaxHeight(),
+                  horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                  if (index == 1 && !split) Spacer(Modifier.weight(0.5f))
+                  if (index == 2 && half == 0) {
+                    KeyboardKey(
+                      label = if (symbols) "=\\<" else if (capsLock) "⇪" else "⇧",
+                      description =
+                        if (symbols) "More symbols" else if (capsLock) "Caps lock on" else "Shift",
+                      modifier = Modifier.weight(1.4f).fillMaxHeight(),
+                      selected = shift || capsLock,
+                      onClick = {
+                        if (symbols) extraSymbols = !extraSymbols
+                        else {
+                          shift = !shift
+                          capsLock = false
+                        }
+                      },
+                      onLongClick =
+                        if (symbols) null
+                        else
+                          ({
+                            capsLock = !capsLock
+                            shift = capsLock
+                          }),
+                    )
+                  }
+                  keys.forEach { letter ->
+                    val symbolHint = if (symbols) null else keySymbols[letter]
+                    val alternatives =
+                      if (symbols) emptyList()
+                      else
+                        buildList {
+                          symbolHint?.let { add(it) }
+                          // Related bracket styles stay together without needing another keyboard
+                          // page.
+                          if (letter == 'k') addAll("[{".toList())
+                          if (letter == 'l') addAll("]}".toList())
+                          addAll(accents[letter].orEmpty().toList())
+                        }
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                      KeyboardKey(
+                        label = if (shift || capsLock) letter.uppercase() else letter.toString(),
+                        modifier = Modifier.fillMaxSize(),
+                        symbolHint = symbolHint?.toString(),
+                        description =
+                          shortcutHints[letter]
+                            ?.takeIf { !symbols }
+                            ?.let { "$letter, ${it.label} shortcut" }
+                            ?: if (shift || capsLock) letter.uppercase() else letter.toString(),
+                        onClick = { type(letter.toString()) },
+                        alternatives =
+                          alternatives.map {
+                            if (shift || capsLock) it.uppercase() else it.toString()
+                          },
+                        onAlternative = { type(it) },
+                      )
+                    }
+                  }
+                  if (index == 1 && !split) Spacer(Modifier.weight(0.5f))
+                  if (index == 2 && (!split || half == 1))
+                    KeyboardKey(
+                      "⌫",
+                      onBackspace,
+                      Modifier.weight(1.4f).fillMaxHeight(),
+                      description = "Backspace",
+                      repeat = true,
+                    )
+                }
+              }
+            }
+          }
           Row(
             Modifier.fillMaxWidth().weight(1f),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
           ) {
-            if (index == 1) Spacer(Modifier.weight(0.5f))
-            if (index == 2) {
-              KeyboardKey(
-                label = if (symbols) "=\\<" else if (capsLock) "⇪" else "⇧",
-                description =
-                  if (symbols) "More symbols" else if (capsLock) "Caps lock on" else "Shift",
-                modifier = Modifier.weight(1.4f).fillMaxHeight(),
-                selected = shift || capsLock,
-                onClick = {
-                  if (symbols) extraSymbols = !extraSymbols
-                  else {
-                    shift = !shift
-                    capsLock = false
-                  }
-                },
-                onLongClick =
-                  if (symbols) null
-                  else
-                    ({
-                      capsLock = !capsLock
-                      shift = capsLock
-                    }),
-              )
-            }
-            letters.forEach { letter ->
-              val symbolHint = if (symbols) null else keySymbols[letter]
-              val alternatives =
-                if (symbols) emptyList()
-                else
-                  buildList {
-                    symbolHint?.let { add(it) }
-                    // Related bracket styles stay together without needing another keyboard page.
-                    if (letter == 'k') addAll("[{".toList())
-                    if (letter == 'l') addAll("]}".toList())
-                    addAll(accents[letter].orEmpty().toList())
-                  }
-              Box(Modifier.weight(1f).fillMaxHeight()) {
+            repeat(if (split) 2 else 1) { half ->
+              if (half == 1) Spacer(Modifier.width(splitGap))
+              Row(
+                Modifier.weight(1f).fillMaxHeight(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+              ) {
+                if (half == 0) {
+                  KeyboardKey(
+                    if (symbols) "ABC" else "?123",
+                    { symbols = !symbols },
+                    Modifier.weight(1.5f).fillMaxHeight(),
+                    description = if (symbols) "Letters" else "Numbers and symbols",
+                  )
+                  KeyboardKey(",", { type(",") }, Modifier.weight(1f).fillMaxHeight())
+                }
                 KeyboardKey(
-                  label = if (shift || capsLock) letter.uppercase() else letter.toString(),
-                  modifier = Modifier.fillMaxSize(),
-                  hint = if (symbols) null else shortcutHints[letter],
-                  symbolHint = symbolHint?.toString(),
-                  description =
-                    shortcutHints[letter]
-                      ?.takeIf { !symbols }
-                      ?.let { "$letter, ${it.label} shortcut" }
-                      ?: if (shift || capsLock) letter.uppercase() else letter.toString(),
-                  onClick = { type(letter.toString()) },
-                  alternatives =
-                    alternatives.map { if (shift || capsLock) it.uppercase() else it.toString() },
-                  onAlternative = { type(it) },
+                  spaceShortcutLabel?.let { "Search $it" } ?: "space",
+                  { type(" ") },
+                  Modifier.weight(if (split) 3f else 4f).fillMaxHeight(),
+                  description = spaceShortcutLabel?.let { "Space: activate $it search" } ?: "Space",
+                  selected = spaceShortcutLabel != null,
+                  icon = spaceShortcutIcon,
+                  showLabelWithIcon = true,
                 )
+                if (!split || half == 1) {
+                  KeyboardKey(".", { type(".") }, Modifier.weight(1f).fillMaxHeight())
+                  KeyboardKey(
+                    "Go",
+                    onGo,
+                    Modifier.weight(1.5f).fillMaxHeight(),
+                    selected = true,
+                    description = goDescription,
+                    icon = goIcon,
+                  )
+                }
               }
             }
-            if (index == 1) Spacer(Modifier.weight(0.5f))
-            if (index == 2)
-              KeyboardKey(
-                "⌫",
-                onBackspace,
-                Modifier.weight(1.4f).fillMaxHeight(),
-                description = "Backspace",
-                repeat = true,
-              )
           }
-        }
-        Row(
-          Modifier.fillMaxWidth().weight(1f),
-          horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-          KeyboardKey(
-            if (symbols) "ABC" else "?123",
-            { symbols = !symbols },
-            Modifier.weight(1.5f).fillMaxHeight(),
-            description = if (symbols) "Letters" else "Numbers and symbols",
-          )
-          KeyboardKey(",", { type(",") }, Modifier.weight(1f).fillMaxHeight())
-          KeyboardKey(
-            spaceShortcutLabel?.let { "Search $it" } ?: "space",
-            { type(" ") },
-            Modifier.weight(4f).fillMaxHeight(),
-            description = spaceShortcutLabel?.let { "Space: activate $it search" } ?: "Space",
-            selected = spaceShortcutLabel != null,
-            icon = spaceShortcutIcon,
-            showLabelWithIcon = true,
-          )
-          KeyboardKey(".", { type(".") }, Modifier.weight(1f).fillMaxHeight())
-          KeyboardKey(
-            "Go",
-            onGo,
-            Modifier.weight(1.5f).fillMaxHeight(),
-            selected = true,
-            description = goDescription,
-            icon = goIcon,
-          )
         }
       }
     }
@@ -219,7 +248,6 @@ private fun KeyboardKey(
   selected: Boolean = false,
   repeat: Boolean = false,
   onLongClick: (() -> Unit)? = null,
-  hint: KeyboardShortcutHint? = null,
   symbolHint: String? = null,
   icon: ImageBitmap? = null,
   showLabelWithIcon: Boolean = false,
@@ -396,14 +424,6 @@ private fun KeyboardKey(
           fontSize = 9.sp,
           lineHeight = 10.sp,
           color = LocalContentColor.current.copy(alpha = 0.65f),
-        )
-      }
-      hint?.icon?.let { bitmap ->
-        Image(
-          bitmap = bitmap,
-          contentDescription = null,
-          modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 3.dp).size(12.dp),
-          alpha = 0.5f,
         )
       }
     }
