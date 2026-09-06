@@ -130,7 +130,7 @@ SearchLauncher · Features · Privacy · Download
 **Support:** When you’re not searching, the UI steps aside. Swipe a wallpaper album, host widgets, keep favorites and recents above the bar.
 **Proof points:**
 - Swipe wallpapers; theme colors pulled from your background
-- Widgets you can resize, reorder, and hide with a tap on the background
+- Widgets you can resize, reorder, hide with a tap, or lock in place
 - Favorites you pin; history that follows how you work
 - Gestures for notifications, quick settings, and the app drawer
 - OLED true-black when you want it

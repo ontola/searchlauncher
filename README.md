@@ -17,7 +17,7 @@ Android app that lets you search everything on your phone and on the web, and op
 - **Smart input** - Recognizes phone numbers, emails, calculator queries, and web addresses.
 - **App icons history & favorites** - Recently used & favorited apps are shown above the search bar. Optional themed (monochrome) icons match the theme; SearchLauncher's own icon can be themed by Android too.
 - **Follows the wallpaper** - Theme color can track the wallpaper behind the search bar (on by default).
-- **Widgets** - Add widgets through the search bar, resize them, and toggle visibility by tapping the background
+- **Widgets** - Add widgets through the search bar, resize them, and toggle visibility by tapping the background. Lock them in Settings (or from a long-press on the wallpaper) so scrolling no longer opens resize or delete.
 - **Voice search** - Tap the mic to speak your query
 - **Snippets** - Fast access to frequently used text snippets
 - **Quick Access to notification bar & quick settings** - Swipe down on the home screen background to open notifications or quick settings.

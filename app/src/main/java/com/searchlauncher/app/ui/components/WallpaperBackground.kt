@@ -86,6 +86,13 @@ import kotlinx.coroutines.launch
 internal fun homeWidgetsEnabled(context: android.content.Context): Boolean = context is MainActivity
 
 /**
+ * Long-press on a home widget opens resize / move / delete. That is the wrong outcome when the user
+ * is only scrolling a widget whose top edge sits near their thumb, so Settings can lock the layout
+ * and this returns false.
+ */
+internal fun widgetLayoutEditingEnabled(widgetsLocked: Boolean): Boolean = !widgetsLocked
+
+/**
  * Page of the endlessly looping pager that shows [uriString], defaulting to the first image.
  *
  * The loop is centred on the middle of the index space so swiping backwards works from the start.
@@ -196,9 +203,23 @@ fun WallpaperBackground(
     }
   val showWidgets by showWidgetsFlow.collectAsState(initial = true)
 
+  val widgetsLockedFlow =
+    remember(context) {
+      context.dataStore.data
+        .map { preferences -> preferences[PreferencesKeys.LOCK_WIDGETS] ?: false }
+        .distinctUntilChanged()
+    }
+  val widgetsLocked by widgetsLockedFlow.collectAsState(initial = false)
+
   // Hoisted above the background's gestures because a tap means different things depending on
   // whether a widget is being edited.
   var activeWidgetId by remember { mutableIntStateOf(-1) }
+
+  LaunchedEffect(widgetsLocked) {
+    if (widgetsLocked && activeWidgetId != -1) {
+      activeWidgetId = -1
+    }
+  }
 
   Box(
     modifier =
@@ -372,7 +393,8 @@ fun WallpaperBackground(
                             context,
                             object : android.view.GestureDetector.SimpleOnGestureListener() {
                               override fun onLongPress(e: android.view.MotionEvent) {
-                                onLongPressListener?.invoke()
+                                val listener = onLongPressListener ?: return
+                                listener()
                                 // Cancel child touches by sending ACTION_CANCEL
                                 val cancelEvent =
                                   android.view.MotionEvent.obtain(
@@ -391,7 +413,7 @@ fun WallpaperBackground(
                             },
                           )
 
-                        fun setOnLongPressAction(action: () -> Unit) {
+                        fun setOnLongPressAction(action: (() -> Unit)?) {
                           onLongPressListener = action
                         }
 
@@ -461,13 +483,19 @@ fun WallpaperBackground(
                             modifier = Modifier.fillMaxWidth(),
                           )
                         } else {
-                          AndroidView(
-                            factory = { ctx ->
-                              val container = WidgetContainerView(ctx)
-                              container.setOnLongPressAction {
+                          val startWidgetEdit: (() -> Unit)? =
+                            if (widgetLayoutEditingEnabled(widgetsLocked)) {
+                              {
                                 activeWidgetId = widget.id
                                 resizeHeight = widget.height?.toFloat() ?: 400f
                               }
+                            } else {
+                              null
+                            }
+                          AndroidView(
+                            factory = { ctx ->
+                              val container = WidgetContainerView(ctx)
+                              container.setOnLongPressAction(startWidgetEdit)
 
                               val activity = ctx as? MainActivity
                               if (activity != null) {
@@ -483,17 +511,16 @@ fun WallpaperBackground(
                               container
                             },
                             update = { container ->
-                              container.setOnLongPressAction {
-                                activeWidgetId = widget.id
-                                resizeHeight = widget.height?.toFloat() ?: 400f
-                              }
+                              container.setOnLongPressAction(startWidgetEdit)
                             },
                             modifier = androidViewModifier,
                           )
                         }
 
                         // Edit Overlay (Border + Handles + Toolbar)
-                        if (activeWidgetId == widget.id) {
+                        if (
+                          activeWidgetId == widget.id && widgetLayoutEditingEnabled(widgetsLocked)
+                        ) {
                           // Border
                           Box(
                             modifier =
