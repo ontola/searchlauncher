@@ -559,6 +559,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
         Surface(modifier = Modifier.fillMaxSize(), color = backgroundColor) { MainScreen() }
       }
     }
+    installKeyShortcutPreIme()
   }
 
   override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {

@@ -1129,6 +1129,19 @@ internal fun BrowserScreen(
     restoringSnapshot = newTab.snapshot
   }
 
+  /**
+   * Straight to [index], the way Chrome's Ctrl+1..9 go. No slide: a numbered jump is not a walk
+   * along the strip, and animating one across five tabs would only say the wrong thing about how
+   * far it went.
+   */
+  fun goToTab(index: Int) {
+    val target = tabs.items.getOrNull(index) ?: return
+    if (target.id == activeTab.id) return
+    exitFullscreenVideo()
+    tabsOverviewOpen = false
+    if (privateMode) activateTab(index) else handOverTo(target)
+  }
+
   fun animateToAdjacentTab(direction: Int) {
     val neighbour = adjacent(direction) ?: return
     if (!privateMode) {
@@ -1303,16 +1316,29 @@ internal fun BrowserScreen(
 
   val shortcutHost = context as? KeyShortcutHost
   val browserShortcutHandler = rememberUpdatedState { event: android.view.KeyEvent ->
+    // Chrome's Ctrl+1..8 pick a tab by position and Ctrl+9 the last one, however many there are.
+    // The keycodes for the digit row are contiguous, so the whole row is one lookup.
+    val tabNumberKey =
+      (android.view.KeyEvent.KEYCODE_1..android.view.KeyEvent.KEYCODE_9).firstOrNull {
+        KeyShortcuts.matches(event, it, ctrl = true)
+      }
     when {
       KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_T, ctrl = true) -> {
         createTab()
+        true
+      }
+      // Chrome closes the whole window on Ctrl+Shift+W; here the window is the browser.
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_W, ctrl = true, shift = true) -> {
+        closeAllTabs()
         true
       }
       KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_W, ctrl = true) -> {
         closeActiveTab()
         true
       }
-      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_R, ctrl = true) -> {
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_R, ctrl = true) ||
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_R, ctrl = true, shift = true) ||
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_F5) -> {
         webView?.reload()
         true
       }
@@ -1320,17 +1346,51 @@ internal fun BrowserScreen(
         showFindInPage = true
         true
       }
+      // Chrome walks the matches with Ctrl+G and F3; both only mean anything with the bar up, so
+      // otherwise they fall through rather than being swallowed.
+      showFindInPage &&
+        (KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_G, ctrl = true, shift = true) ||
+          KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_F3, shift = true)) -> {
+        webView?.findNext(false)
+        true
+      }
+      showFindInPage &&
+        (KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_G, ctrl = true) ||
+          KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_F3)) -> {
+        webView?.findNext(true)
+        true
+      }
       KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_L, ctrl = true) ||
-        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_K, ctrl = true) -> {
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_K, ctrl = true) ||
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_E, ctrl = true) -> {
         onOpenSearch(false, animatedPageBackground.toArgb(), webView?.url ?: activeTab.url)
         true
       }
-      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_TAB, ctrl = true, shift = true) -> {
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_TAB, ctrl = true, shift = true) ||
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_PAGE_UP, ctrl = true) -> {
         animateToAdjacentTab(-1)
         true
       }
-      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_TAB, ctrl = true) -> {
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_TAB, ctrl = true) ||
+        KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_PAGE_DOWN, ctrl = true) -> {
         animateToAdjacentTab(1)
+        true
+      }
+      tabNumberKey != null -> {
+        tabIndexForNumberKey(tabNumberKey - android.view.KeyEvent.KEYCODE_1, tabs.items.size)
+          ?.let(::goToTab)
+        true
+      }
+      // Alt+Left/Right are Chrome's history keys. Back has nowhere else to go once the page's own
+      // history runs out, so it ends where the Back gesture ends rather than doing nothing.
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_DPAD_LEFT, alt = true) -> {
+        val page = webView
+        if (page?.canGoBack() == true) page.goBack()
+        else if (tabs.items.size > 1) closeActiveTab() else onClose()
+        true
+      }
+      KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_DPAD_RIGHT, alt = true) -> {
+        webView?.takeIf { it.canGoForward() }?.goForward()
         true
       }
       KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_ESCAPE) -> {

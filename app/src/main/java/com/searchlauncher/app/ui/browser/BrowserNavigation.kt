@@ -33,6 +33,17 @@ internal fun shouldCommitTabSwipe(
   return abs(velocityPxPerSecond) >= flingVelocityPx && sign(velocityPxPerSecond) == sign(offsetPx)
 }
 
+/**
+ * The tab Chrome's Ctrl+1..9 mean, given the [ordinal] of the digit (0 for "1") and how many tabs
+ * there are. Ctrl+9 is the last tab whatever the count; the rest are positions, and a position past
+ * the end names no tab at all.
+ */
+internal fun tabIndexForNumberKey(ordinal: Int, tabCount: Int): Int? {
+  if (tabCount <= 0) return null
+  if (ordinal == 8) return tabCount - 1
+  return ordinal.takeIf { it in 0 until tabCount }
+}
+
 internal fun browserDestination(input: String): String {
   val trimmed = input.trim()
   if (
