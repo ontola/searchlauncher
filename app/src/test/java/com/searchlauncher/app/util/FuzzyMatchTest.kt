@@ -84,6 +84,14 @@ class FuzzyMatchTest {
   }
 
   @Test
+  fun `Typo matching retains compact names and ignores impossible long targets`() {
+    assertEquals(68, FuzzyMatch.calculateScore("playstroe", "Play Store"))
+    assertEquals(68, FuzzyMatch.calculateScore("playstroe", "Play  Store"))
+    assertEquals(68, FuzzyMatch.calculateScore("spotfy", "Spotify " + "x".repeat(40)))
+    assertEquals(0, FuzzyMatch.calculateScore("qzx7", "x".repeat(40)))
+  }
+
+  @Test
   fun `Empty query returns 0`() {
     assertEquals(0, FuzzyMatch.calculateScore("", "    Spotify  "))
     assertEquals(0, FuzzyMatch.calculateScore("", "Spotify"))

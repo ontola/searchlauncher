@@ -1,0 +1,3 @@
+PIPELINE suggestion_delay_ms=300 first_results_ms=322.183667 final_results_ms=322.183667
+PIPELINE shortcuts=20 limit=3 p50_ms=0.443917 p95_ms=0.679708
+PIPELINE shortcuts=200 limit=3 p50_ms=1.140542 p95_ms=1.502792
