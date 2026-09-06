@@ -11,7 +11,6 @@ class HomeSearchKeyboardVisibilityTest {
     assertTrue(
       builtInHomeKeyboardVisible(
         useBuiltInKeyboard = true,
-        keyboardDismissed = false,
         openingTab = false,
         browserShowing = false,
         inPip = false,
@@ -20,20 +19,10 @@ class HomeSearchKeyboardVisibilityTest {
   }
 
   @Test
-  fun hidesWhenTheUserDismissesItOrLeavesHome() {
+  fun hidesWhenLeavingHome() {
     assertFalse(
       builtInHomeKeyboardVisible(
         useBuiltInKeyboard = true,
-        keyboardDismissed = true,
-        openingTab = false,
-        browserShowing = false,
-        inPip = false,
-      )
-    )
-    assertFalse(
-      builtInHomeKeyboardVisible(
-        useBuiltInKeyboard = true,
-        keyboardDismissed = false,
         openingTab = true,
         browserShowing = false,
         inPip = false,
@@ -42,7 +31,6 @@ class HomeSearchKeyboardVisibilityTest {
     assertFalse(
       builtInHomeKeyboardVisible(
         useBuiltInKeyboard = true,
-        keyboardDismissed = false,
         openingTab = false,
         browserShowing = true,
         inPip = false,
@@ -51,7 +39,6 @@ class HomeSearchKeyboardVisibilityTest {
     assertFalse(
       builtInHomeKeyboardVisible(
         useBuiltInKeyboard = true,
-        keyboardDismissed = false,
         openingTab = false,
         browserShowing = false,
         inPip = true,
@@ -60,7 +47,6 @@ class HomeSearchKeyboardVisibilityTest {
     assertFalse(
       builtInHomeKeyboardVisible(
         useBuiltInKeyboard = false,
-        keyboardDismissed = false,
         openingTab = false,
         browserShowing = false,
         inPip = false,

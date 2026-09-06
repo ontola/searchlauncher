@@ -69,23 +69,32 @@ object FuzzyMatch {
     if (query.length < 3) return 0
 
     val maxDistance = if (query.length <= 4) 1 else 2
-    val candidates = buildList {
-      addAll(targetWords)
-      if (target.length <= MAX_TYPO_TARGET_LENGTH) add(target)
-      val compactTarget = target.replace(" ", "")
-      if (compactTarget.length <= MAX_TYPO_TARGET_LENGTH) add(compactTarget)
-    }
-
     var bestDistance = Int.MAX_VALUE
-    for (candidate in candidates) {
-      if (candidate.length < 3 || candidate.length > MAX_TYPO_TARGET_LENGTH) continue
-      if (abs(candidate.length - query.length) > maxDistance) continue
+    fun consider(candidate: String) {
+      if (candidate.length < 3 || candidate.length > MAX_TYPO_TARGET_LENGTH) return
+      if (abs(candidate.length - query.length) > maxDistance) return
 
       val distance = boundedDamerauLevenshtein(query, candidate, maxDistance)
-      // boundedDamerauLevenshtein returns maxDistance + 1 as its "too far" sentinel; treating
-      // that as a real distance made every short word a typo match for any short query.
+      // maxDistance + 1 is the "too far" sentinel, not a valid typo match.
       if (distance <= maxDistance && distance < bestDistance) bestDistance = distance
+    }
+
+    for (word in targetWords) {
+      consider(word)
       if (bestDistance == 0) break
+    }
+    if (bestDistance != 0 && (targetWords.size != 1 || targetWords[0] != target)) {
+      consider(target)
+    }
+    if (bestDistance != 0 && ' ' in target) {
+      // Reject impossible lengths before allocating a compact copy for every indexed document.
+      val compactLength = target.count { it != ' ' }
+      if (
+        compactLength in 3..MAX_TYPO_TARGET_LENGTH &&
+          abs(compactLength - query.length) <= maxDistance
+      ) {
+        consider(target.replace(" ", ""))
+      }
     }
 
     return when (bestDistance) {

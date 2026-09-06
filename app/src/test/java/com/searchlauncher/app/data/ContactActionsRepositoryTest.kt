@@ -1,9 +1,18 @@
 package com.searchlauncher.app.data
 
+import android.Manifest
+import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
+import android.database.MatrixCursor
+import android.provider.ContactsContract
 import androidx.test.core.app.ApplicationProvider
 import com.searchlauncher.app.SearchLauncherApp
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -35,6 +44,74 @@ class ContactActionsRepositoryTest {
       contactId = 42L,
       photoUri = null,
     )
+
+  private fun repositoryWithContactData(hasWhatsApp: Boolean): ContactActionsRepository {
+    val context = mockk<Context>(relaxed = true)
+    val resolver = mockk<ContentResolver>()
+    every { context.checkSelfPermission(Manifest.permission.READ_CONTACTS) } returns
+      PackageManager.PERMISSION_GRANTED
+    every { context.contentResolver } returns resolver
+    every { context.packageManager.getPackageInfo("com.whatsapp", 0) } returns PackageInfo()
+    every { context.getSharedPreferences(any(), any()).getString(any(), any()) } returns
+      "com.whatsapp"
+    every { resolver.query(ContactsContract.Data.CONTENT_URI, any(), any(), any(), any()) } answers
+      {
+        MatrixCursor(
+            arrayOf(
+              ContactsContract.Data._ID,
+              ContactsContract.Data.MIMETYPE,
+              ContactsContract.Data.DATA1,
+            )
+          )
+          .apply {
+            addRow(
+              arrayOf<Any>(
+                1L,
+                ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
+                "+15551234567",
+              )
+            )
+            if (hasWhatsApp)
+              addRow(
+                arrayOf<Any>(
+                  99L,
+                  "vnd.android.cursor.item/vnd.com.whatsapp.profile",
+                  "+15551234567",
+                )
+              )
+          }
+      }
+    every {
+      resolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, any(), any(), any(), any())
+    } answers
+      {
+        MatrixCursor(arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER)).apply {
+          addRow(arrayOf("+15551234567"))
+        }
+      }
+    every {
+      resolver.query(ContactsContract.CommonDataKinds.Email.CONTENT_URI, any(), any(), any(), any())
+    } answers { MatrixCursor(arrayOf(ContactsContract.CommonDataKinds.Email.ADDRESS)) }
+    return ContactActionsRepository(context)
+  }
+
+  @Test
+  fun `installed WhatsApp and previous use do not add an action without contact account data`() =
+    runBlocking {
+      val actions = repositoryWithContactData(false).getContactActions(contact())
+      assertEquals(
+        listOf(ContactActionsRepository.SMS_ACTION_KEY, ContactActionsRepository.CALL_ACTION_KEY),
+        actions.map { it.packageName },
+      )
+    }
+
+  @Test
+  fun `WhatsApp contact account keeps its action and specific data row`() = runBlocking {
+    val actions = repositoryWithContactData(true).getContactActions(contact())
+    assertEquals("com.whatsapp", actions.first().packageName)
+    assertEquals(99L, actions.first().dataId)
+    assertEquals(3, actions.size)
+  }
 
   // --- chatPackageFromMimeType ---
 

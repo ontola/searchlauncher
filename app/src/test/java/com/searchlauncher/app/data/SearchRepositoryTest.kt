@@ -3,6 +3,9 @@ package com.searchlauncher.app.data
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.searchlauncher.app.SearchLauncherApp
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.mockk
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -381,6 +384,50 @@ class SearchRepositoryTest {
       )
 
     assertEquals("org.telegram.messenger", packageName)
+  }
+
+  @Test
+  fun `limited shortcuts convert only the requested highest ranked results`() = runBlocking {
+    val factory = mockk<SearchResultFactory>()
+    SearchRepository::class.java.getDeclaredField("searchResultFactory").apply {
+      isAccessible = true
+      set(repository, factory)
+    }
+    run {
+      coEvery { factory.create(any(), any(), any(), any(), any(), any()) } coAnswers
+        {
+          val doc = firstArg<SearchableDocument>().doc
+          SearchResult.SearchIntent(
+            id = doc.id,
+            namespace = doc.namespace,
+            title = doc.name,
+            subtitle = null,
+            icon = null,
+            trigger = doc.description.orEmpty(),
+          )
+        }
+      val defaults = DefaultShortcuts.searchShortcuts
+      repository.documentSnapshot =
+        defaults.map { shortcut ->
+          repository.wrap(
+            AppSearchDocument(
+              namespace = "search_shortcuts",
+              id = "search_${shortcut.id}",
+              score = 3,
+              name = shortcut.description,
+              description = shortcut.alias,
+              intentUri = shortcut.urlTemplate,
+            )
+          )
+        }
+      assertTrue(repository.getSearchShortcuts(0).isEmpty())
+      coVerify(exactly = 0) { factory.create(any(), any(), any(), any(), any(), any()) }
+      val results = repository.getSearchShortcuts(3)
+      assertEquals(3, results.size)
+      assertEquals("search_google", results[0].id)
+      assertEquals("search_playstore", results[1].id)
+      coVerify(exactly = 3) { factory.create(any(), any(), any(), any(), any(), any()) }
+    }
   }
 
   @Test

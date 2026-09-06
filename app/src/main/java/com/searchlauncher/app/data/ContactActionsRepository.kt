@@ -50,17 +50,6 @@ class ContactActionsRepository(private val context: Context) {
       }
 
       val phoneNumber = getPrimaryPhoneNumber(contact.contactId)
-      if (phoneNumber != null && isPackageInstalled(WHATSAPP_PACKAGE)) {
-        actionsByPackage.putIfAbsent(
-          WHATSAPP_PACKAGE,
-          ContactChatAction(
-            label = getApplicationLabel(WHATSAPP_PACKAGE) ?: "WhatsApp",
-            packageName = WHATSAPP_PACKAGE,
-            phoneNumber = phoneNumber,
-            icon = getApplicationIcon(WHATSAPP_PACKAGE),
-          ),
-        )
-      }
       if (phoneNumber != null) {
         actionsByPackage.putIfAbsent(
           SMS_ACTION_KEY,

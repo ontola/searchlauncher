@@ -71,11 +71,10 @@ data class KeyboardShortcutHint(val label: String, val icon: ImageBitmap?)
  */
 internal fun builtInHomeKeyboardVisible(
   useBuiltInKeyboard: Boolean,
-  keyboardDismissed: Boolean,
   openingTab: Boolean,
   browserShowing: Boolean,
   inPip: Boolean,
-): Boolean = useBuiltInKeyboard && !keyboardDismissed && !openingTab && !browserShowing && !inPip
+): Boolean = useBuiltInKeyboard && !openingTab && !browserShowing && !inPip
 
 /** Home-only keyboard. Its parent owns the height so the search bar and keys land together. */
 @Composable

@@ -123,10 +123,12 @@ import com.searchlauncher.app.ui.onboarding.TutorialOverlay
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import com.searchlauncher.app.util.MathEvaluator
 import com.searchlauncher.app.util.SystemUtils
+import com.searchlauncher.app.util.traceAsyncSection
 import com.searchlauncher.app.util.traceSection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -242,7 +244,6 @@ fun SearchScreen(
     remember { HomeKeyboardPreference.flow(context) }
       .collectAsState(initial = HomeKeyboardPreference.cached(context))
   val useBuiltInKeyboard = builtInKeyboardEnabled && !riseWithKeyboard && browserTabId == null
-  var keyboardDismissed by remember { mutableStateOf(false) }
 
   val defaultSearchEngineId by
     remember {
@@ -977,7 +978,6 @@ fun SearchScreen(
   val shouldShowKeyboard =
     rememberUpdatedState(isActive && !openingTab && !browserShowing && !inPip)
   LaunchedEffect(isActive, focusTrigger, browserShowing, openingTab, inPip, useBuiltInKeyboard) {
-    keyboardDismissed = false
     if (!riseWithKeyboard && browserTabId == null) {
       (context as? android.app.Activity)?.window?.let {
         Ime.applyHomeWindowMode(it, useBuiltInKeyboard)
@@ -1019,100 +1019,103 @@ fun SearchScreen(
     searchFieldInteractionSource.interactions.collect { interaction ->
       if (interaction is androidx.compose.foundation.interaction.PressInteraction.Release) {
         focusRequester.requestFocus()
-        keyboardDismissed = false
         if (!useBuiltInKeyboard) Ime.show(view)
       }
     }
   }
 
   LaunchedEffect(query, suggestionsEnabled, isIndexing, resultsRefreshTick, privateSpaceSnapshot) {
-    traceSection("SL:SearchScreen.queryEffect") {
+    traceAsyncSection("SL:SearchScreen.queryEffect") {
       searchRepository.noteInteractiveSearch(query)
       if (query.isEmpty()) {
         searchResults = emptyList()
         isFallbackMode = false
       } else {
-        val results =
-          traceSection("SL:SearchScreen.searchApps") {
-            searchRepository
-              .searchApps(
-                query,
-                limit = LIVE_SEARCH_RESULT_LIMIT,
-                includeSuggestions = suggestionsEnabled,
-                includeSearchShortcuts = true,
-              )
-              .getOrElse { emptyList() }
-          }
-        currentCoroutineContext().ensureActive()
+        searchRepository
+          .searchAppUpdates(
+            query,
+            limit = LIVE_SEARCH_RESULT_LIMIT,
+            includeSuggestions = suggestionsEnabled,
+            includeSearchShortcuts = true,
+          )
+          .catch { emit(emptyList()) }
+          .collect { results ->
+            currentCoroutineContext().ensureActive()
 
-        // Always append search shortcuts to the end of the results
-        // Keep this small in the live typing path; richer actions can load after selection.
-        val shortcuts =
-          traceSection("SL:SearchScreen.getSearchShortcuts") {
-            searchRepository.getSearchShortcuts(
-              limit =
-                if (results.isEmpty()) {
-                  FALLBACK_SEARCH_SHORTCUT_LIMIT
-                } else {
-                  LIVE_SEARCH_SHORTCUT_LIMIT
-                }
-            )
-          }
-        currentCoroutineContext().ensureActive()
-
-        val baseResults =
-          traceSection("SL:SearchScreen.mergeResults") {
-            val defaultActions = listOf(createSnippetFallbackResult(context, query))
-            val resultKeys = results.map { it.stableListKey }.toSet()
-            val fallbackResults =
-              (shortcuts + defaultActions).filter { !resultKeys.contains(it.stableListKey) }
-            (results + fallbackResults).distinctBy { it.stableListKey }
-          }
-        isFallbackMode = results.isEmpty()
-
-        // Only surface the indexing row when there are no live results to show. Background
-        // rebuilds keep the previous snapshot searchable and swap when ready.
-        val resultsWithIndexing =
-          if (isIndexing && baseResults.isEmpty()) {
-            listOf(SearchResult.IndexingIndicator()) + baseResults
-          } else {
-            baseResults
-          }
-
-        // Calculator injection, except for the numbers that only parse as sums by accident: a
-        // phone number typed with dashes is a subtraction to the evaluator, and answering it puts
-        // a meaningless total above the contact that was being looked for.
-        if (MathEvaluator.isExpression(query) && !MathEvaluator.looksLikePhoneNumber(query)) {
-          val eval = MathEvaluator.evaluate(query)
-          if (eval != null) {
-            // Round to avoid long decimals if possible, or show as is
-            val formattedResult =
-              if (eval % 1.0 == 0.0) eval.toLong().toString() else eval.toString()
-            val calcResult =
-              SearchResult.Content(
-                id = "calculator_result",
-                namespace = "calculator",
-                title = formattedResult,
-                subtitle = "Calculation result (Tap to copy)",
-                icon =
-                  searchRepository.getColoredSearchIcon(themeColor.toLong() and 0xFFFFFFFFL, "="),
-                packageName = "android",
-                deepLink = "calculator://copy?text=$formattedResult",
-              )
-            searchResults =
-              if (MathEvaluator.isUnambiguouslyArithmetic(query)) {
-                // Contacts are indexed on their phone numbers, so a query like "1234*56" drags in
-                // whoever happens to share those digits. Nothing but the sum can be meant here.
-                listOf(calcResult)
-              } else {
-                (listOf(calcResult) + resultsWithIndexing).distinctBy { it.stableListKey }
+            // Always append search shortcuts to the end of the results
+            // Keep this small in the live typing path; richer actions can load after selection.
+            val shortcuts =
+              traceAsyncSection("SL:SearchScreen.getSearchShortcuts") {
+                searchRepository.getSearchShortcuts(
+                  limit =
+                    if (results.isEmpty()) {
+                      FALLBACK_SEARCH_SHORTCUT_LIMIT
+                    } else {
+                      LIVE_SEARCH_SHORTCUT_LIMIT
+                    }
+                )
               }
-          } else {
-            searchResults = resultsWithIndexing
+            currentCoroutineContext().ensureActive()
+
+            val baseResults =
+              traceSection("SL:SearchScreen.mergeResults") {
+                val defaultActions = listOf(createSnippetFallbackResult(context, query))
+                val resultKeys = results.map { it.stableListKey }.toSet()
+                val fallbackResults =
+                  (shortcuts + defaultActions).filter { !resultKeys.contains(it.stableListKey) }
+                (results + fallbackResults).distinctBy { it.stableListKey }
+              }
+            isFallbackMode = results.isEmpty()
+
+            // Only surface the indexing row when there are no live results to show. Background
+            // rebuilds keep the previous snapshot searchable and swap when ready.
+            val resultsWithIndexing =
+              if (isIndexing && baseResults.isEmpty()) {
+                listOf(SearchResult.IndexingIndicator()) + baseResults
+              } else {
+                baseResults
+              }
+
+            // Calculator injection, except for the numbers that only parse as sums by accident: a
+            // phone number typed with dashes is a subtraction to the evaluator, and answering it
+            // puts
+            // a meaningless total above the contact that was being looked for.
+            if (MathEvaluator.isExpression(query) && !MathEvaluator.looksLikePhoneNumber(query)) {
+              val eval = MathEvaluator.evaluate(query)
+              if (eval != null) {
+                // Round to avoid long decimals if possible, or show as is
+                val formattedResult =
+                  if (eval % 1.0 == 0.0) eval.toLong().toString() else eval.toString()
+                val calcResult =
+                  SearchResult.Content(
+                    id = "calculator_result",
+                    namespace = "calculator",
+                    title = formattedResult,
+                    subtitle = "Calculation result (Tap to copy)",
+                    icon =
+                      searchRepository.getColoredSearchIcon(
+                        themeColor.toLong() and 0xFFFFFFFFL,
+                        "=",
+                      ),
+                    packageName = "android",
+                    deepLink = "calculator://copy?text=$formattedResult",
+                  )
+                searchResults =
+                  if (MathEvaluator.isUnambiguouslyArithmetic(query)) {
+                    // Contacts are indexed on their phone numbers, so a query like "1234*56" drags
+                    // in
+                    // whoever happens to share those digits. Nothing but the sum can be meant here.
+                    listOf(calcResult)
+                  } else {
+                    (listOf(calcResult) + resultsWithIndexing).distinctBy { it.stableListKey }
+                  }
+              } else {
+                searchResults = resultsWithIndexing
+              }
+            } else {
+              searchResults = resultsWithIndexing
+            }
           }
-        } else {
-          searchResults = resultsWithIndexing
-        }
       }
     }
   }
@@ -1218,7 +1221,6 @@ fun SearchScreen(
   val builtInKeyboardVisible =
     builtInHomeKeyboardVisible(
       useBuiltInKeyboard = useBuiltInKeyboard,
-      keyboardDismissed = keyboardDismissed,
       openingTab = openingTab,
       browserShowing = browserShowing,
       inPip = inPip,
@@ -1337,13 +1339,15 @@ fun SearchScreen(
     closing?.let { BrowserTabTasks.close(context, it.id) }
   }
 
+  // Back on home clears the search while keeping the built-in keyboard ready for another query.
+  // Gated on isActive so Settings (an overlay on this still-composed screen) can handle Back.
+  BackHandler(enabled = isActive && builtInKeyboardVisible && !tabsOverviewOpen) {
+    onQueryChange("")
+  }
+
   // The overlay is its own activity: back has to finish it, not merely hide the keyboard. The
   // activity also intercepts BACK before the IME (see SearchActivity); this covers the case where
   // the keys are already gone.
-  BackHandler(enabled = isActive && builtInKeyboardVisible && !tabsOverviewOpen) {
-    keyboardDismissed = true
-  }
-
   BackHandler(enabled = tabsOverviewOpen || riseWithKeyboard) {
     if (tabsOverviewOpen) tabsOverviewOpen = false else onDismiss()
   }

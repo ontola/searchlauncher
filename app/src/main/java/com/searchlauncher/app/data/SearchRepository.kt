@@ -22,6 +22,7 @@ import com.searchlauncher.app.ui.browser.toSearchResult
 import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.util.FuzzyMatch
 import com.searchlauncher.app.util.SystemUtils
+import com.searchlauncher.app.util.traceAsyncSection
 import com.searchlauncher.app.util.traceSection
 import io.sentry.Sentry
 import java.io.File
@@ -36,7 +37,9 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -1262,6 +1265,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   suspend fun getSearchShortcuts(limit: Int = 100): List<SearchResult> =
     withContext(Dispatchers.IO) {
       try {
+        if (limit <= 0) return@withContext emptyList()
         val shortcuts =
           documentSnapshot.filter { it.doc.namespace == "search_shortcuts" }.map { it.doc }
 
@@ -1273,7 +1277,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               SearchOptions.rankByUsage(repoShortcuts, { it.id }, { it.description }) { id ->
                 getGlobalUsageCount(SearchOptions.NAMESPACE, id)
               }
-            sortedRepoShortcuts.map { shortcut ->
+            sortedRepoShortcuts.take(limit).map { shortcut ->
               val cacheKey = "search_shortcut_${shortcut.id}"
               var icon = iconRepository.getMemory(cacheKey)
               if (icon == null) {
@@ -1299,6 +1303,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               }
             coroutineScope {
               sortedShortcuts
+                .take(limit)
                 .map { doc -> async { convertDocumentToResult(wrap(doc), 100, saveToDisk = true) } }
                 .awaitAll()
                 .filterIsInstance<SearchResult.SearchIntent>()
@@ -1854,11 +1859,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
    *
    * @param query The search query.
    * @param limit Max number of results to return. -1 for no limit.
-   * @param allowIpc Whether to allow Inter-Process Communication (IPC) to fetch icons/info. Set to
-   *   FALSE during rapid typing to prevent UI lag/jank. When false, only cached icons or disk icons
-   *   are used.
-   * @param allowDisk Whether to allow reading from disk. Set to FALSE for ultra-fast, memory-only
-   *   searches (e.g. for suggestions).
+   * @param includeSuggestions Wait for network suggestions when enabled. UI callers should use
+   *   [searchAppUpdates] to receive local matches before the network response.
    */
   suspend fun searchApps(
     query: String,
@@ -1866,9 +1868,35 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     includeSuggestions: Boolean = true,
     includeSearchShortcuts: Boolean = true,
   ): Result<List<SearchResult>> =
+    searchAppsInternal(query, limit, includeSuggestions, includeSearchShortcuts)
+
+  /** Publishes local matches first, then an updated list if network suggestions arrive. */
+  fun searchAppUpdates(
+    query: String,
+    limit: Int = -1,
+    includeSuggestions: Boolean = true,
+    includeSearchShortcuts: Boolean = true,
+  ): Flow<List<SearchResult>> = channelFlow {
+    var localResults: List<SearchResult>? = null
+    val finalResults =
+      searchAppsInternal(query, limit, includeSuggestions, includeSearchShortcuts) {
+          localResults = it
+          send(it)
+        }
+        .getOrThrow()
+    if (finalResults != localResults) send(finalResults)
+  }
+
+  private suspend fun searchAppsInternal(
+    query: String,
+    limit: Int,
+    includeSuggestions: Boolean,
+    includeSearchShortcuts: Boolean,
+    onLocalResults: (suspend (List<SearchResult>) -> Unit)? = null,
+  ): Result<List<SearchResult>> =
     safeCall("SearchRepository", "Error searching apps") {
       withContext(Dispatchers.IO) {
-        traceSection("SL:SearchRepository.searchApps") {
+        traceAsyncSection("SL:SearchRepository.searchApps") {
           val startTime = System.currentTimeMillis()
           if (query.isEmpty()) return@withContext emptyList()
 
@@ -1879,7 +1907,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           // 1. Custom Shortcuts (Triggers) - Priority 1
           val customShortcutMatches =
             if (includeSearchShortcuts) {
-              traceSection("SL:SearchRepository.customShortcuts") {
+              traceAsyncSection("SL:SearchRepository.customShortcuts") {
                 findMatchingCustomShortcut(query)
               }
             } else {
@@ -1907,7 +1935,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               .toSet()
 
           val indexResults =
-            traceSection("SL:SearchRepository.performInMemorySearch") {
+            traceAsyncSection("SL:SearchRepository.performInMemorySearch") {
               performInMemorySearch(query, excludedAliases, limit, includeSearchShortcuts)
             }
           results.addAll(indexResults)
@@ -1915,6 +1943,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           results.addAll(
             traceSection("SL:SearchRepository.privateSpace") { privateSpace.searchHits(query) }
           )
+
+          // Send a sorted snapshot before HTTP work; later additions must not mutate that list.
+          onLocalResults?.invoke(results.sortedByDescending { it.rankingScore })
 
           // 5. Suggestions (only when search shortcuts / suggestions are enabled)
           if (
@@ -1927,7 +1958,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             if (searchTerm.isNotEmpty()) {
               try {
                 val suggestions =
-                  traceSection("SL:SearchRepository.fetchSuggestions") {
+                  traceAsyncSection("SL:SearchRepository.fetchSuggestions") {
                     fetchSuggestions(matchedShortcut.suggestionUrl, searchTerm)
                   }
                 suggestions.forEach { suggestion ->
@@ -1949,6 +1980,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                   )
                 }
               } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 SystemUtils.logError("SearchRepository", "Error processing suggestions", e)
               }
             }
@@ -2148,7 +2180,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     val conversionLimit = if (limit > 0) limit else 50
 
     val conversionStart = System.currentTimeMillis()
-    traceSection("SL:SearchRepository.convertResults") {
+    traceAsyncSection("SL:SearchRepository.convertResults") {
       for ((sdoc, score) in candidates.take(conversionLimit * 2)) {
         kotlinx.coroutines.currentCoroutineContext().ensureActive()
         val searchResult =

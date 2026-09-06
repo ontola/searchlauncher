@@ -1,0 +1,1 @@
+WhatsApp actions now appear only for contacts with a WhatsApp entry. Back on home clears your search while keeping the built-in keyboard visible. Improved physical-keyboard shortcuts for search and browsing, including Tab to cycle search engines and Enter to search.
