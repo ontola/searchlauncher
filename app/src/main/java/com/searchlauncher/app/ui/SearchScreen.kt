@@ -231,7 +231,6 @@ fun SearchScreen(
     remember { HomeKeyboardPreference.flow(context) }
       .collectAsState(initial = HomeKeyboardPreference.cached(context))
   val useBuiltInKeyboard = builtInKeyboardEnabled && !riseWithKeyboard && browserTabId == null
-  var keyboardDismissed by remember { mutableStateOf(false) }
 
   // Sync back to the boot cache so the next cold start renders at this size immediately.
   LaunchedEffect(minIconSizeSetting) { MinIconSize.updateCache(context, minIconSizeSetting) }
@@ -889,7 +888,6 @@ fun SearchScreen(
   val shouldShowKeyboard =
     rememberUpdatedState(isActive && !openingTab && !browserShowing && !inPip)
   LaunchedEffect(isActive, focusTrigger, browserShowing, openingTab, inPip, useBuiltInKeyboard) {
-    keyboardDismissed = false
     if (!riseWithKeyboard && browserTabId == null) {
       (context as? android.app.Activity)?.window?.let {
         Ime.applyHomeWindowMode(it, useBuiltInKeyboard)
@@ -932,7 +930,6 @@ fun SearchScreen(
     searchFieldInteractionSource.interactions.collect { interaction ->
       if (interaction is androidx.compose.foundation.interaction.PressInteraction.Release) {
         focusRequester.requestFocus()
-        keyboardDismissed = false
         if (!useBuiltInKeyboard) Ime.show(view)
       }
     }
@@ -1129,7 +1126,7 @@ fun SearchScreen(
   // mid-air above an empty well; a full-screen IME reading shoved it off the top. [imeForLayoutPx]
   // is the live inset with those two cases stripped.
   val navigationBarBottomPx = WindowInsets.navigationBars.getBottom(density)
-  val builtInKeyboardVisible = useBuiltInKeyboard && shouldShowKeyboard.value && !keyboardDismissed
+  val builtInKeyboardVisible = useBuiltInKeyboard && shouldShowKeyboard.value
   val builtInKeyboardHeight = minOf(243.dp, (LocalConfiguration.current.screenHeightDp * 0.45f).dp)
   val bottomPadding =
     with(density) {
@@ -1246,11 +1243,12 @@ fun SearchScreen(
     closing?.let { BrowserTabTasks.close(context, it.id) }
   }
 
+  // Back on home clears the search while keeping the built-in keyboard ready for another query.
+  BackHandler(enabled = builtInKeyboardVisible && !tabsOverviewOpen) { onQueryChange("") }
+
   // The overlay is its own activity: back has to finish it, not merely hide the keyboard. The
   // activity also intercepts BACK before the IME (see SearchActivity); this covers the case where
   // the keys are already gone.
-  BackHandler(enabled = builtInKeyboardVisible && !tabsOverviewOpen) { keyboardDismissed = true }
-
   BackHandler(enabled = tabsOverviewOpen || riseWithKeyboard) {
     if (tabsOverviewOpen) tabsOverviewOpen = false else onDismiss()
   }
