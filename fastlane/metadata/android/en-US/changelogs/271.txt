@@ -1,0 +1,1 @@
+Local search results now appear before online suggestions finish loading. Faster typo matching creates fewer temporary objects. Search shortcut loading now only prepares the requested results, reducing work while typing.
