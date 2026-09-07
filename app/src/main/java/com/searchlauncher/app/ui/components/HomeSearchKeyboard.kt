@@ -1,5 +1,10 @@
 package com.searchlauncher.app.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.AnimationState
+import androidx.compose.animation.core.animateDecay
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.rememberSplineBasedDecay
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
@@ -15,9 +20,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
@@ -38,8 +46,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.sign
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val accents =
   mapOf(
@@ -62,6 +74,16 @@ private val keySymbols =
 
 data class KeyboardShortcutHint(val label: String, val icon: ImageBitmap?)
 
+enum class KeyboardHomeSwipe {
+  Up,
+  DownLeft,
+  DownRight,
+  Left,
+  Right
+}
+
+data class KeyboardGoTarget(val icon: ImageBitmap?, val description: String)
+
 /**
  * Whether the embedded home keyboard (and the search-bar padding it occupies) should stay drawn.
  *
@@ -71,10 +93,9 @@ data class KeyboardShortcutHint(val label: String, val icon: ImageBitmap?)
  */
 internal fun builtInHomeKeyboardVisible(
   useBuiltInKeyboard: Boolean,
-  openingTab: Boolean,
-  browserShowing: Boolean,
+  openingOverviewTab: Boolean,
   inPip: Boolean,
-): Boolean = useBuiltInKeyboard && !openingTab && !browserShowing && !inPip
+): Boolean = useBuiltInKeyboard && !openingOverviewTab && !inPip
 
 /** Home-only keyboard. Its parent owns the height so the search bar and keys land together. */
 @Composable
@@ -86,8 +107,17 @@ fun HomeSearchKeyboard(
   shortcutHints: Map<Char, KeyboardShortcutHint> = emptyMap(),
   goIcon: ImageBitmap? = null,
   goDescription: String = "Go: open search result",
+  goTarget: (@Composable () -> KeyboardGoTarget)? = null,
   spaceShortcutLabel: String? = null,
   spaceShortcutIcon: ImageBitmap? = null,
+  gesturesEnabled: Boolean = true,
+  cancelMomentumKey: Int = 0,
+  onMoveCursor: (Int) -> Unit = {},
+  onScrollResults: (Float) -> Unit = {},
+  onResultSwipeStart: () -> Unit = {},
+  onKeyboardTouch: () -> Unit = {},
+  onResultFling: (suspend (Float) -> Unit)? = null,
+  onHomeSwipe: ((KeyboardHomeSwipe) -> Unit)? = null,
 ) {
   var shift by remember { mutableStateOf(false) }
   var capsLock by remember { mutableStateOf(false) }
@@ -104,11 +134,128 @@ fun HomeSearchKeyboard(
         override val longPressTimeoutMillis: Long = 250L
       }
     }
+  val moveCursor by rememberUpdatedState(onMoveCursor)
+  val scrollResults by rememberUpdatedState(onScrollResults)
+  val startResultSwipe by rememberUpdatedState(onResultSwipeStart)
+  val keyboardTouch by rememberUpdatedState(onKeyboardTouch)
+  val resultFling by rememberUpdatedState(onResultFling)
+  val gestureScope = rememberCoroutineScope()
+  val flingDecay = rememberSplineBasedDecay<Float>()
+  var flingJob by remember { mutableStateOf<Job?>(null) }
+  LaunchedEffect(cancelMomentumKey) { flingJob?.cancel() }
+  DisposableEffect(gesturesEnabled) { onDispose { flingJob?.cancel() } }
+  val density = LocalDensity.current
+  val cursorStep = with(density) { 16.dp.toPx() }
+  val homeSwipe by rememberUpdatedState(onHomeSwipe)
+  val homeSwipeInput =
+    Modifier.pointerInput(density) {
+      awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        var claimed = false
+        var fired = false
+        var vertical = false
+        while (true) {
+          val event = awaitPointerEvent(PointerEventPass.Initial)
+          val change = event.changes.firstOrNull { it.id == down.id } ?: break
+          if (change.isConsumed || event.changes.count { it.pressed } > 1) break
+          val distance = change.position - down.position
+          if (!claimed) {
+            // Preserve immediate taps and the existing accent/symbol long press.
+            if (!change.pressed || change.uptimeMillis - down.uptimeMillis >= 250L) break
+            if (distance.getDistance() <= viewConfiguration.touchSlop) continue
+            claimed = true
+            vertical = abs(distance.y) > abs(distance.x)
+          }
+          change.consume()
+          val amount = if (vertical) distance.y else distance.x
+          if (!fired && abs(amount) >= with(density) { 32.dp.toPx() }) {
+            fired = true
+            homeSwipe?.invoke(
+              if (!vertical) {
+                if (amount < 0) KeyboardHomeSwipe.Left else KeyboardHomeSwipe.Right
+              } else if (amount < 0) KeyboardHomeSwipe.Up
+              else if (down.position.x < size.width / 2) KeyboardHomeSwipe.DownLeft
+              else KeyboardHomeSwipe.DownRight
+            )
+          }
+          if (!change.pressed) break
+        }
+      }
+    }
+  val swipeInput =
+    Modifier.pointerInput(cursorStep) {
+      awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        flingJob?.cancel()
+        keyboardTouch()
+        val velocityTracker = VelocityTracker()
+        velocityTracker.addPosition(down.uptimeMillis, down.position)
+        var vertical: Boolean? = null
+        var remainder = 0f
+        while (true) {
+          val event = awaitPointerEvent(PointerEventPass.Initial)
+          val change = event.changes.firstOrNull { it.id == down.id } ?: break
+          if (event.changes.count { it.pressed } > 1 || change.isConsumed) break
+          velocityTracker.addPosition(change.uptimeMillis, change.position)
+          if (vertical == null) {
+            // Once a hold starts, leave the gesture to the key's symbol/accent picker.
+            if (change.uptimeMillis - down.uptimeMillis >= 250L || !change.pressed) break
+            val distance = change.position - down.position
+            if (distance.getDistance() <= viewConfiguration.touchSlop) continue
+            vertical = abs(distance.y) > abs(distance.x)
+            val amount = if (vertical) distance.y else distance.x
+            remainder = 0f
+            if (vertical) {
+              startResultSwipe()
+              scrollResults(
+                amount.sign * (abs(amount) - viewConfiguration.touchSlop).coerceAtLeast(0f)
+              )
+            } else moveCursor(amount.sign.toInt())
+          } else {
+            val delta = change.position - change.previousPosition
+            if (vertical) {
+              scrollResults(delta.y)
+            } else {
+              remainder += delta.x
+              val steps = (remainder / cursorStep).toInt()
+              if (steps != 0) {
+                moveCursor(steps)
+                remainder -= steps * cursorStep
+              }
+            }
+          }
+          change.consume()
+          if (!change.pressed) {
+            if (vertical == true) {
+              val velocity = velocityTracker.calculateVelocity().y.coerceIn(-20000f, 20000f)
+              flingJob =
+                gestureScope.launch {
+                  val nativeFling = resultFling
+                  if (nativeFling != null) {
+                    nativeFling(velocity)
+                    return@launch
+                  }
+                  var previousPosition = 0f
+                  AnimationState(initialValue = 0f, initialVelocity = velocity).animateDecay(
+                    flingDecay
+                  ) {
+                    scrollResults(value - previousPosition)
+                    previousPosition = value
+                  }
+                }
+            }
+            break
+          }
+        }
+      }
+    }
   CompositionLocalProvider(LocalViewConfiguration provides keyboardConfiguration) {
     Surface(
-      modifier,
-      color = MaterialTheme.colorScheme.surface,
-      contentColor = MaterialTheme.colorScheme.onSurface,
+      modifier.then(
+        if (onHomeSwipe != null) homeSwipeInput else if (gesturesEnabled) swipeInput else Modifier
+      ),
+      color = animatedKeyboardColor(MaterialTheme.colorScheme.surface),
+      contentColor = animatedKeyboardColor(MaterialTheme.colorScheme.onSurface),
     ) {
       BoxWithConstraints {
         val split = maxWidth >= 600.dp
@@ -234,13 +381,12 @@ fun HomeSearchKeyboard(
                 )
                 if (!split || half == 1) {
                   KeyboardKey(".", { type(".") }, Modifier.weight(1f).fillMaxHeight())
-                  KeyboardKey(
-                    "Go",
+                  KeyboardGoKey(
                     onGo,
                     Modifier.weight(1.5f).fillMaxHeight(),
-                    selected = true,
-                    description = goDescription,
-                    icon = goIcon,
+                    goIcon,
+                    goDescription,
+                    goTarget,
                   )
                 }
               }
@@ -250,6 +396,26 @@ fun HomeSearchKeyboard(
       }
     }
   }
+}
+
+/** Read selection only here: scrolling must not recompose the whole search screen or keyboard. */
+@Composable
+private fun KeyboardGoKey(
+  onGo: () -> Unit,
+  modifier: Modifier,
+  icon: ImageBitmap?,
+  description: String,
+  target: (@Composable () -> KeyboardGoTarget)?,
+) {
+  val resolved = target?.invoke()
+  KeyboardKey(
+    "Go",
+    onGo,
+    modifier,
+    selected = true,
+    description = resolved?.description ?: description,
+    icon = if (resolved != null) resolved.icon else icon,
+  )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -271,8 +437,16 @@ private fun KeyboardKey(
   val colors = MaterialTheme.colorScheme
   val dark = colors.surface.luminance() < colors.onSurface.luminance()
   // Match SearchChromeBar's 3.dp tonal surface; the keyboard's base surface is a shade darker.
-  val restingColor = if (dark) colors.surfaceColorAtElevation(3.dp) else colors.surfaceVariant
-  val restingContentColor = if (dark) colors.onSurface else colors.onSurfaceVariant
+  val restingColor =
+    animatedKeyboardColor(if (dark) colors.surfaceColorAtElevation(3.dp) else colors.surfaceVariant)
+  val restingContentColor =
+    animatedKeyboardColor(if (dark) colors.onSurface else colors.onSurfaceVariant)
+  val selectedColor =
+    animatedKeyboardColor(
+      if (dark) colors.surfaceColorAtElevation(6.dp) else colors.secondaryContainer
+    )
+  val selectedContentColor =
+    animatedKeyboardColor(if (dark) colors.onSurface else colors.onSecondaryContainer)
   var heldSelection by remember { mutableStateOf<Int?>(null) }
   var gesturePressed by remember { mutableStateOf(false) }
   var keyCenterX by remember { mutableFloatStateOf(0f) }
@@ -367,18 +541,43 @@ private fun KeyboardKey(
         .focusProperties { canFocus = false }
         .onGloballyPositioned { keyCenterX = it.positionInWindow().x + it.size.width / 2f }
         .semantics { contentDescription = description }
+        // Clickable keys (especially Go) must never turn a drag into a click, even when
+        // the keyboard-level recognizer yields to a hold or gestures are switched off.
+        .then(
+          if (alternatives.isEmpty())
+            Modifier.pointerInput(Unit) {
+              awaitEachGesture {
+                val down =
+                  awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                var dragged = false
+                while (true) {
+                  val event = awaitPointerEvent(PointerEventPass.Initial)
+                  val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                  if (change.isConsumed) break
+                  if (
+                    (change.position - down.position).getDistance() > viewConfiguration.touchSlop
+                  ) {
+                    dragged = true
+                  }
+                  if (dragged) change.consume()
+                  if (!change.pressed) break
+                }
+              }
+            }
+          else Modifier
+        )
         .then(keyInput),
     shape = RoundedCornerShape(6.dp),
     color =
       when {
         (pressed || gesturePressed) -> MaterialTheme.colorScheme.primaryContainer
-        selected -> if (dark) colors.surfaceColorAtElevation(6.dp) else colors.secondaryContainer
+        selected -> selectedColor
         else -> restingColor
       },
     contentColor =
       when {
         (pressed || gesturePressed) -> MaterialTheme.colorScheme.onPrimaryContainer
-        selected -> if (dark) colors.onSurface else colors.onSecondaryContainer
+        selected -> selectedContentColor
         else -> restingContentColor
       },
   ) {
@@ -442,4 +641,16 @@ private fun KeyboardKey(
       }
     }
   }
+}
+
+// Blend wallpaper palette changes while keeping key press feedback immediate.
+@Composable
+private fun animatedKeyboardColor(target: Color): Color {
+  val color by
+    animateColorAsState(
+      targetValue = target,
+      animationSpec = tween(300),
+      label = "Keyboard palette",
+    )
+  return color
 }

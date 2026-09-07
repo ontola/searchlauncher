@@ -193,14 +193,16 @@ fun FavoritesRow(
           if (!themedIcons) null
           else
             allItems.associate { result ->
-              val source =
-                ThemedIcons.resolveThemeable(
-                  context,
-                  result.icon,
-                  (result as? SearchResult.App)?.packageName,
-                )
               result.favoriteKey to
                 withContext(Dispatchers.IO) {
+                  // Resolving monochrome icons may call PackageManager; keep the entire
+                  // operation off the UI thread, not only the final bitmap conversion.
+                  val source =
+                    ThemedIcons.resolveThemeable(
+                      context,
+                      result.icon,
+                      (result as? SearchResult.App)?.packageName,
+                    )
                   ThemedIcons.apply(source, themeBg, themeFg)?.toImageBitmap()
                 }
             }

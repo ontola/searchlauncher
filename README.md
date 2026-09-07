@@ -6,13 +6,15 @@ Android app that lets you search everything on your phone and on the web, and op
 
 ## Features
 
-- **Built-in home keyboard** - Home search opens with its own QWERTY keyboard, without waiting for the system keyboard animation. Includes numbers/symbols, hold-and-release symbols (hinted in the upper corner of each key; slide while holding to choose accents or alternatives), caps lock (hold Shift), and repeating backspace. Turn off **Settings → Search → Use built-in keyboard** for your preferred keyboard, swipe typing, or other languages. Browser fields and dialogs use your system keyboard.
+- **Built-in home keyboard** - Home search opens with its own QWERTY keyboard, without waiting for the system keyboard animation. Includes numbers/symbols, hold-and-release symbols (hinted in the upper corner of each key; slide while holding to choose accents or alternatives), caps lock (hold Shift), and repeating backspace. Turn off **Settings → Keyboard → Use built-in keyboard** for your preferred keyboard, swipe typing, or other languages. Browser fields and dialogs use your system keyboard.
 - **Search everything on your phone** - Apps, their shortcuts, device settings, downloads, upcoming calendar events, sorted smartly by usage.
 - **Search everything on the web** - Youtube, google, bing, maps, spotify... Or add your own custom shortcuts!
 - **Built-in ad-free browser** - Opens web results in-app, blocking ads and trackers by default. Browse privately in an isolated window. File uploads, picture-in-picture video, and hardware-keyboard shortcuts are included.
 - **Tabs at your thumb** - Swipe the search bar sideways to switch tabs, or up to see them all as live previews. Both work from the home screen too: swipe sideways to drop straight back into your last tab.
 - **Bookmarks & history** - Save any page under a title you choose, then find it back from the search bar. Pages you visit are searchable too, and both show the site's icon.
-- **Speed** - Lightweight, fast!
+- **Keyboard gestures** - With a query, swipe sideways to move the cursor or vertically to scroll results with momentum. With no query, swipe up for the app drawer, down on the left for notifications, down on the right for quick settings, or sideways for wallpapers. Configure these in Settings → Keyboard.
+- **Downloads** - View progress and history, install downloaded APKs, open files in another app, and delete files. Search for Downloads to open the page. Optional file access includes files saved by other apps in the shared Downloads folder.
+- **Speed** - Cached search is available earlier at startup, while background indexing yields to typing.
 - **Swipe Wallpapers** - Your background is an interactive picture album.
 - **Smart input** - Recognizes phone numbers, emails, calculator queries, and web addresses.
 - **App icons history & favorites** - Recently used & favorited apps are shown above the search bar. Optional themed (monochrome) icons match the theme; SearchLauncher's own icon can be themed by Android too.

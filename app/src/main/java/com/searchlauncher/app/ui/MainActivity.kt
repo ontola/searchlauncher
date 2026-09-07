@@ -119,6 +119,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
 
   private var pendingAppWidgetId = -1
   private var pendingReplacementWidgetId = -1
+  private var choosingWidgetReplacement = false
 
   private val bindWidgetLauncher =
     registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -203,6 +204,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     }
 
   fun requestWidgetPick() {
+    currentScreenState = Screen.Search
     updateQueryState("widgets ")
     focusTrigger = System.currentTimeMillis()
   }
@@ -216,7 +218,8 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     if (provider != null) {
       onWidgetProviderSelected(provider)
     } else {
-      showWidgetPicker.value = true
+      requestWidgetPick()
+      choosingWidgetReplacement = true
     }
   }
 
@@ -276,11 +279,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
       pendingReplacementWidgetId = -1
       Toast.makeText(this, "Error adding widget: ${e.message}", Toast.LENGTH_SHORT).show()
     }
-    showWidgetPicker.value = false
   }
-
-  // State to control custom picker visibility
-  private val showWidgetPicker = androidx.compose.runtime.mutableStateOf(false)
 
   // Track widget ID being configured for onActivityResult handling
   private var pendingConfigAppWidgetId = -1
@@ -342,6 +341,10 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
   private fun queryPrefs() = getSharedPreferences(Prefs.ActiveSearch.FILE, Context.MODE_PRIVATE)
 
   private fun updateQueryState(value: String) {
+    if (choosingWidgetReplacement && !value.startsWith("widgets ", ignoreCase = true)) {
+      choosingWidgetReplacement = false
+      pendingReplacementWidgetId = -1
+    }
     queryState = value
     queryPrefs()
       .edit()
@@ -351,6 +354,10 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
   }
 
   private fun clearQueryState() {
+    if (choosingWidgetReplacement) {
+      choosingWidgetReplacement = false
+      pendingReplacementWidgetId = -1
+    }
     queryState = ""
     queryPrefs().edit().remove(KEY_ACTIVE_QUERY).remove(KEY_ACTIVE_QUERY_TIME).apply()
   }
@@ -1045,17 +1052,6 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
         )
       }
     }
-
-    if (showWidgetPicker.value) {
-      WidgetPicker(
-        appWidgetManager = appWidgetManager,
-        onWidgetSelected = { info -> onWidgetProviderSelected(info) },
-        onDismiss = {
-          pendingReplacementWidgetId = -1
-          showWidgetPicker.value = false
-        },
-      )
-    }
   }
 
   fun handleWidgetIntent(intent: Intent) {
@@ -1065,6 +1061,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
       val appWidgetManager = android.appwidget.AppWidgetManager.getInstance(this)
       val providerInfo = appWidgetManager.installedProviders.find { it.provider == component }
       if (providerInfo != null) {
+        choosingWidgetReplacement = false
         onWidgetProviderSelected(providerInfo)
       }
     }

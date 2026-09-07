@@ -40,6 +40,7 @@ object PreferencesKeys {
   val SEARCH_SHORTCUTS_ENABLED = booleanPreferencesKey("search_shortcuts_enabled")
 
   /** Built-in home search keyboard; other editors continue using the system keyboard. */
+  val KEYBOARD_GESTURES = booleanPreferencesKey("keyboard_gestures")
   val BUILT_IN_KEYBOARD = booleanPreferencesKey("built_in_keyboard")
 
   /**

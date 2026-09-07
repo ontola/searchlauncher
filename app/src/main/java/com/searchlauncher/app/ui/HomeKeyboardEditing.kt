@@ -32,3 +32,15 @@ internal fun pendingKeyboardShortcut(
     return null
   return shortcuts.firstOrNull { it.alias.equals(value.text, ignoreCase = true) }
 }
+
+/** Move by character boundaries so swipes cannot split emoji or combining characters. */
+internal fun TextFieldValue.moveKeyboardCursor(steps: Int): TextFieldValue {
+  if (steps == 0) return this
+  val boundaries = BreakIterator.getCharacterInstance().also { it.setText(text) }
+  var cursor = if (steps < 0) selection.min else selection.max
+  repeat(kotlin.math.abs(steps)) {
+    val next = if (steps < 0) boundaries.preceding(cursor) else boundaries.following(cursor)
+    if (next != BreakIterator.DONE) cursor = next
+  }
+  return copy(selection = TextRange(cursor), composition = null)
+}

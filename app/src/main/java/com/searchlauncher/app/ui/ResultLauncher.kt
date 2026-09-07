@@ -240,6 +240,11 @@ class ResultLauncher(
             .show()
         }
       }
+      "com.searchlauncher.action.OPEN_DOWNLOADS" ->
+        context.startActivity(
+          Intent(context, com.searchlauncher.app.ui.browser.DownloadsActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
       ACTION_APPEND_SPACE -> onQueryChange?.invoke(query + " ")
       ACTION_ADD_WIDGET -> onAddWidgetSearch?.invoke()
       ACTION_RESET_INDEX -> resetIndex()

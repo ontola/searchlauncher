@@ -67,6 +67,17 @@ class HomeKeyboardEditingTest {
   }
 
   @Test
+  fun cursorSwipesPreserveCharactersAndClampAtTextEdges() {
+    val value = TextFieldValue("a😀e\u0301b", TextRange(6))
+    assertEquals(TextRange(5), value.moveKeyboardCursor(-1).selection)
+    assertEquals(TextRange(3), value.moveKeyboardCursor(-2).selection)
+    assertEquals(TextRange(1), value.moveKeyboardCursor(-3).selection)
+    assertEquals(TextRange(0), value.moveKeyboardCursor(-20).selection)
+    assertEquals(TextRange(6), value.moveKeyboardCursor(20).selection)
+    assertEquals(value.text, value.moveKeyboardCursor(-2).text)
+  }
+
+  @Test
   fun backspaceAtStartDoesNothing() {
     val before = TextFieldValue("hello", TextRange(0))
     assertEquals(before, before.deleteKeyboardText())

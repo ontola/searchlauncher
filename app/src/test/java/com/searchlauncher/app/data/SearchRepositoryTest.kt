@@ -427,6 +427,22 @@ class SearchRepositoryTest {
       assertEquals("search_google", results[0].id)
       assertEquals("search_playstore", results[1].id)
       coVerify(exactly = 3) { factory.create(any(), any(), any(), any(), any(), any()) }
+      // Publishing a new index must invalidate the shortcut subset immediately.
+      repository.replaceCollections(
+        mapOf(
+          "search_shortcuts" to
+            listOf(
+              AppSearchDocument(
+                namespace = "search_shortcuts",
+                id = "replacement",
+                name = "Replacement",
+                description = "r",
+                score = 3,
+              )
+            )
+        )
+      )
+      assertEquals(listOf("replacement"), repository.getSearchShortcuts(3).map { it.id })
     }
   }
 

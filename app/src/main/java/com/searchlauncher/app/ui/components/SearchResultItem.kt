@@ -18,7 +18,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,8 +46,10 @@ fun SearchResultItem(
   isFavorite: Boolean = false,
   actions: ResultMenuActions = ResultMenuActions(),
   onClick: () -> Unit,
+  modifier: Modifier = Modifier,
 ) {
   var showMenu by remember { mutableStateOf(false) }
+  val highlightColor = MaterialTheme.colorScheme.secondaryContainer
   val context = LocalContext.current
   val searchRepository = remember {
     (context.applicationContext as SearchLauncherApp).searchRepository
@@ -64,12 +72,22 @@ fun SearchResultItem(
   val hasMenuItems = actions.hasItemsFor(result, contactChatActions)
 
   traceSection("SL:SearchResultItem.compose:${result.namespace}") {
-    Box {
+    Box(modifier = modifier) {
       Row(
         modifier =
           Modifier.fillMaxWidth()
+            .semantics { selected = highlighted }
             .then(
-              if (highlighted) Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
+              if (highlighted)
+                Modifier.drawBehind {
+                  val inset = 4.dp.toPx()
+                  drawRoundRect(
+                    color = highlightColor,
+                    topLeft = Offset(inset, 0f),
+                    size = Size((size.width - 2 * inset).coerceAtLeast(0f), size.height),
+                    cornerRadius = CornerRadius(12.dp.toPx()),
+                  )
+                }
               else Modifier
             )
             .then(

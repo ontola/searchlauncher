@@ -22,11 +22,14 @@ import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.ScrollableDefaults
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
@@ -39,7 +42,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
@@ -55,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -64,9 +67,13 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -117,6 +124,7 @@ import com.searchlauncher.app.ui.components.builtInHomeKeyboardVisible
 import com.searchlauncher.app.ui.components.favoritesMaxRowsForBar
 import com.searchlauncher.app.ui.components.homeWidgetsEnabled
 import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
+import com.searchlauncher.app.ui.components.revealResult
 import com.searchlauncher.app.ui.onboarding.OnboardingManager
 import com.searchlauncher.app.ui.onboarding.OnboardingStep
 import com.searchlauncher.app.ui.onboarding.TutorialOverlay
@@ -125,6 +133,7 @@ import com.searchlauncher.app.util.MathEvaluator
 import com.searchlauncher.app.util.SystemUtils
 import com.searchlauncher.app.util.traceAsyncSection
 import com.searchlauncher.app.util.traceSection
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -216,6 +225,27 @@ fun SearchScreen(
     mutableStateOf<com.searchlauncher.app.data.SearchShortcut?>(null)
   }
   val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+  val resultFlingBehavior = ScrollableDefaults.flingBehavior()
+  var resultViewportHeightPx by remember { mutableIntStateOf(0) }
+  var resultLastRowHeightPx by remember(query) { mutableIntStateOf(0) }
+  var resultTouchSequence by remember { mutableIntStateOf(0) }
+  LaunchedEffect(listState, query) {
+    snapshotFlow {
+        Triple(
+          listState.firstVisibleItemIndex,
+          listState.firstVisibleItemScrollOffset,
+          listState.layoutInfo.visibleItemsInfo
+            .firstOrNull { it.index == listState.layoutInfo.totalItemsCount - 1 }
+            ?.size,
+        )
+      }
+      .collect { (_, _, lastHeight) ->
+        if (lastHeight != null) resultLastRowHeightPx = lastHeight
+        val nearest =
+          listState.layoutInfo.visibleItemsInfo.minByOrNull { kotlin.math.abs(it.offset) }
+        if (nearest != null) keyboardSelectedIndex = nearest.index
+      }
+  }
   val rawHistoryItems by searchRepository.recentItems.collectAsState()
   val historyLimit by
     remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
@@ -243,6 +273,9 @@ fun SearchScreen(
   val builtInKeyboardEnabled by
     remember { HomeKeyboardPreference.flow(context) }
       .collectAsState(initial = HomeKeyboardPreference.cached(context))
+  val keyboardGesturesEnabled by
+    remember { context.dataStore.data.map { it[PreferencesKeys.KEYBOARD_GESTURES] ?: true } }
+      .collectAsState(initial = true)
   val useBuiltInKeyboard = builtInKeyboardEnabled && !riseWithKeyboard && browserTabId == null
 
   val defaultSearchEngineId by
@@ -334,6 +367,7 @@ fun SearchScreen(
   val onboardingManager = remember { OnboardingManager(context) }
 
   val browserTabSwipe = rememberBrowserTabSwipeState()
+  var keyboardWallpaperSwipe by remember { mutableIntStateOf(0) }
   var openingTab by remember { mutableStateOf(false) }
   /** The tab an overview card is growing into, opened once the growth lands. */
   var pendingOverviewTab by remember { mutableStateOf<BrowserTab?>(null) }
@@ -367,6 +401,7 @@ fun SearchScreen(
    * wakes anything watching this when the answer actually changes.
    */
   val browserShowing by remember { derivedStateOf { browserTabSwipe.offsetPx > 0.5f } }
+  val homePreviewLayer = rememberGraphicsLayer()
 
   /**
    * Brings the browser across from the left, which is where the launcher keeps it and the direction
@@ -376,6 +411,15 @@ fun SearchScreen(
    */
   var tabsOverviewOpen by remember { mutableStateOf(false) }
   var tabsOverviewRendered by remember { mutableStateOf(false) }
+  LaunchedEffect(browserShowing, openingTab, tabsOverviewOpen) {
+    if (
+      browserTabSwipeEnabled &&
+        (browserShowing || openingTab || tabsOverviewOpen) &&
+        homePreviewLayer.size.width > 0
+    ) {
+      com.searchlauncher.app.ui.browser.HomeSwipePreview.image = homePreviewLayer.toImageBitmap()
+    }
+  }
 
   /**
    * Brings [tab] in from the left — the side the launcher keeps its tabs on, and the side the swipe
@@ -773,13 +817,13 @@ fun SearchScreen(
         KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_DPAD_UP) -> {
         // reverseLayout: index 0 sits next to the search bar, higher indices are above it.
         keyboardSelectedIndex = (keyboardSelectedIndex + 1).coerceAtMost(searchResults.lastIndex)
-        scope.launch { listState.scrollToItem(keyboardSelectedIndex) }
+        scope.launch { listState.revealResult(keyboardSelectedIndex) }
         true
       }
       searchResults.isNotEmpty() &&
         KeyShortcuts.matches(event, android.view.KeyEvent.KEYCODE_DPAD_DOWN) -> {
         keyboardSelectedIndex = (keyboardSelectedIndex - 1).coerceAtLeast(0)
-        scope.launch { listState.scrollToItem(keyboardSelectedIndex) }
+        scope.launch { listState.revealResult(keyboardSelectedIndex) }
         true
       }
       else -> false
@@ -868,7 +912,7 @@ fun SearchScreen(
     }
   }
 
-  LaunchedEffect(searchResults) {
+  LaunchedEffect(query) {
     keyboardSelectedIndex = 0
     if (searchResults.isNotEmpty()) {
       listState.scrollToItem(0)
@@ -924,21 +968,6 @@ fun SearchScreen(
     )
   }
 
-  val selectedSearchResult =
-    searchResults.getOrNull(keyboardSelectedIndex) ?: searchResults.firstOrNull()
-  var selectedResultIcon by
-    remember(
-      selectedSearchResult?.id,
-      selectedSearchResult?.namespace,
-      selectedSearchResult?.icon,
-    ) {
-      mutableStateOf(selectedSearchResult?.icon)
-    }
-  LaunchedEffect(selectedSearchResult, useBuiltInKeyboard) {
-    if (useBuiltInKeyboard && selectedResultIcon == null) {
-      selectedSearchResult?.let { selectedResultIcon = searchRepository.loadIcon(it) }
-    }
-  }
   val keyboardShortcutHints =
     remember(searchShortcuts) {
       searchShortcuts
@@ -1024,7 +1053,20 @@ fun SearchScreen(
     }
   }
 
-  LaunchedEffect(query, suggestionsEnabled, isIndexing, resultsRefreshTick, privateSpaceSnapshot) {
+  // Query-independent fallback actions should never hold up the first matching result.
+  var fallbackSearchShortcuts by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
+  LaunchedEffect(searchEngines, isIndexing, resultsRefreshTick) {
+    fallbackSearchShortcuts = searchRepository.getSearchShortcuts(FALLBACK_SEARCH_SHORTCUT_LIMIT)
+  }
+
+  LaunchedEffect(
+    query,
+    suggestionsEnabled,
+    isIndexing,
+    resultsRefreshTick,
+    privateSpaceSnapshot,
+    fallbackSearchShortcuts,
+  ) {
     traceAsyncSection("SL:SearchScreen.queryEffect") {
       searchRepository.noteInteractiveSearch(query)
       if (query.isEmpty()) {
@@ -1045,25 +1087,22 @@ fun SearchScreen(
             // Always append search shortcuts to the end of the results
             // Keep this small in the live typing path; richer actions can load after selection.
             val shortcuts =
-              traceAsyncSection("SL:SearchScreen.getSearchShortcuts") {
-                searchRepository.getSearchShortcuts(
-                  limit =
-                    if (results.isEmpty()) {
-                      FALLBACK_SEARCH_SHORTCUT_LIMIT
-                    } else {
-                      LIVE_SEARCH_SHORTCUT_LIMIT
-                    }
-                )
-              }
+              fallbackSearchShortcuts.take(
+                if (results.isEmpty()) FALLBACK_SEARCH_SHORTCUT_LIMIT
+                else LIVE_SEARCH_SHORTCUT_LIMIT
+              )
             currentCoroutineContext().ensureActive()
 
             val baseResults =
               traceSection("SL:SearchScreen.mergeResults") {
+                val downloadAction = createDownloadsResult(context, query)
                 val defaultActions = listOf(createSnippetFallbackResult(context, query))
                 val resultKeys = results.map { it.stableListKey }.toSet()
                 val fallbackResults =
                   (shortcuts + defaultActions).filter { !resultKeys.contains(it.stableListKey) }
-                (results + fallbackResults).distinctBy { it.stableListKey }
+                (listOfNotNull(downloadAction) + results + fallbackResults).distinctBy {
+                  it.stableListKey
+                }
               }
             isFallbackMode = results.isEmpty()
 
@@ -1221,8 +1260,7 @@ fun SearchScreen(
   val builtInKeyboardVisible =
     builtInHomeKeyboardVisible(
       useBuiltInKeyboard = useBuiltInKeyboard,
-      openingTab = openingTab,
-      browserShowing = browserShowing,
+      openingOverviewTab = openingTab && tabsOverviewRendered,
       inPip = inPip,
     )
   val builtInKeyboardHeight = minOf(243.dp, (LocalConfiguration.current.screenHeightDp * 0.45f).dp)
@@ -1264,7 +1302,37 @@ fun SearchScreen(
   var favoritesRowHeightPx by remember { mutableIntStateOf(0) }
   var bottomDockHeightPx by remember { mutableIntStateOf(0) }
   val showingSearchOptions = query.isNotBlank()
-  val barMaxRows = favoritesMaxRowsForBar(showingSearchOptions, favoritesMaxRows)
+  val favoritesTransition = updateTransition(showingSearchOptions, label = "favoritesMode")
+  // Measurement callbacks run during each size-animation frame. Keep intermediate values
+  // outside snapshot state so the entire screen and wallpaper don't recompose for every pixel.
+  val pendingDockMeasurements = remember { intArrayOf(-1, -1, -1) }
+  fun publishDockMeasurement(index: Int, height: Int) {
+    pendingDockMeasurements[index] = height
+    if (
+      !favoritesTransition.isRunning &&
+        favoritesTransition.currentState == favoritesTransition.targetState
+    ) {
+      when (index) {
+        0 -> bottomDockHeightPx = height
+        1 -> favoritesRowHeightPx = height
+        2 -> resultViewportHeightPx = height
+      }
+    }
+  }
+  LaunchedEffect(
+    favoritesTransition.currentState,
+    favoritesTransition.targetState,
+    favoritesTransition.isRunning,
+  ) {
+    if (
+      !favoritesTransition.isRunning &&
+        favoritesTransition.currentState == favoritesTransition.targetState
+    ) {
+      pendingDockMeasurements[0].takeIf { it >= 0 }?.let { bottomDockHeightPx = it }
+      pendingDockMeasurements[1].takeIf { it >= 0 }?.let { favoritesRowHeightPx = it }
+      pendingDockMeasurements[2].takeIf { it >= 0 }?.let { resultViewportHeightPx = it }
+    }
+  }
   val favoritesRowVisible =
     if (showingSearchOptions) {
       searchOptionFavorites.isNotEmpty() || searchOptionExtras.isNotEmpty()
@@ -1410,6 +1478,20 @@ fun SearchScreen(
     Box(
       modifier =
         Modifier.fillMaxSize()
+          .drawWithContent {
+            // Freeze the last complete home frame before any swipe or overview transforms it.
+            if (
+              browserTabSwipeEnabled &&
+                query.isEmpty() &&
+                !browserShowing &&
+                !openingTab &&
+                !tabsOverviewRendered &&
+                isActive
+            ) {
+              homePreviewLayer.record { this@drawWithContent.drawContent() }
+              drawLayer(homePreviewLayer)
+            } else drawContent()
+          }
           .then(
             // As a browser overlay, dim the page behind so the search UI reads as a layer above
             // it even when the page shares its exact color. Drawn rather than composed so the
@@ -1588,6 +1670,7 @@ fun SearchScreen(
               currentWallpaperUri = uri
               scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeBackground) }
             },
+            keyboardSwipeRequest = keyboardWallpaperSwipe,
             onSwipeDownLeft = {
               scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeNotifications) }
               com.searchlauncher.app.util.SystemUtils.expandNotifications(context)
@@ -1822,16 +1905,24 @@ fun SearchScreen(
         }
       }
 
-      if (!inPip) {
+      if (!inPip && !(openingTab && tabsOverviewRendered)) {
         Column(
           modifier =
             Modifier.fillMaxSize()
               .then(homeSwipeOffset)
-              .padding(bottom = bottomPadding) // Push content up by reserved space
+              .then(
+                if (useBuiltInKeyboard) {
+                  Modifier.navigationBarsPadding()
+                    .padding(bottom = if (builtInKeyboardVisible) builtInKeyboardHeight else 0.dp)
+                } else Modifier.padding(bottom = bottomPadding)
+              )
+              .statusBarsPadding()
               .padding(top = 16.dp, bottom = 12.dp),
           verticalArrangement = Arrangement.Bottom,
         ) {
-          if (searchResults.isNotEmpty()) {
+          // Keep the empty list measured so the first query is an insertion too.
+          // An unplaced empty panel neither paints nor intercepts wallpaper gestures.
+          run {
             // When opened from the browser, the results panel takes the page color like the rest
             // of the chrome. SearchResultItem reads onSurface/onSurfaceVariant from the theme, so
             // override those locally for contrast on arbitrary page colors.
@@ -1856,7 +1947,13 @@ fun SearchScreen(
                 modifier =
                   Modifier.fillMaxWidth()
                     .contentMaxWidth()
-                    .weight(1f, fill = false)
+                    .weight(1f)
+                    .layout { measurable, constraints ->
+                      val placeable = measurable.measure(constraints)
+                      layout(placeable.width, placeable.height) {
+                        if (searchResults.isNotEmpty()) placeable.place(0, 0)
+                      }
+                    }
                     .padding(horizontal = 16.dp)
                     .clickable(
                       indication = null,
@@ -1877,15 +1974,49 @@ fun SearchScreen(
                   }
                 } else {
                   LazyColumn(
+                    modifier =
+                      Modifier.fillMaxSize()
+                        .onSizeChanged { publishDockMeasurement(2, it.height) }
+                        .pointerInput(Unit) {
+                          awaitEachGesture {
+                            awaitFirstDown(
+                              requireUnconsumed = false,
+                              pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial,
+                            )
+                            resultTouchSequence++
+                          }
+                        },
                     state = listState,
                     reverseLayout = true,
-                    contentPadding = PaddingValues(vertical = 8.dp),
+                    contentPadding =
+                      PaddingValues(
+                        bottom = 8.dp,
+                        top =
+                          with(density) {
+                            val lastHeight =
+                              resultLastRowHeightPx.takeIf { it > 0 } ?: 64.dp.roundToPx()
+                            (resultViewportHeightPx - lastHeight - 8.dp.roundToPx())
+                              .coerceAtLeast(8.dp.roundToPx())
+                              .toDp()
+                          },
+                      ),
                   ) {
-                    itemsIndexed(
-                      searchResults,
-                      key = { index, item -> "$index/${item.stableListKey}" },
-                    ) { index, result ->
+                    itemsIndexed(searchResults, key = { _, item -> item.stableListKey }) {
+                      index,
+                      result ->
                       SearchResultItem(
+                        // Stable identity lets Compose move surviving rows rather than replay
+                        // their entrance on each query. Placement animation excludes scroll deltas.
+                        modifier =
+                          Modifier.animateItem(
+                            fadeInSpec =
+                              tween(
+                                durationMillis = 180,
+                                delayMillis = (index * 16).coerceAtMost(64),
+                              ),
+                            placementSpec = tween(durationMillis = 140),
+                            fadeOutSpec = tween(durationMillis = 90),
+                          ),
                         result = result,
                         highlighted = index == keyboardSelectedIndex,
                         isFavorite = app.favoritesRepository.isFavorite(result),
@@ -1982,92 +2113,118 @@ fun SearchScreen(
 
           // Measure favorites and chrome together so widgets clear multi-row favorites.
           Column(
-            modifier = Modifier.contentMaxWidth().onSizeChanged { bottomDockHeightPx = it.height }
+            modifier =
+              Modifier.contentMaxWidth().onSizeChanged { publishDockMeasurement(0, it.height) }
           ) {
-            if (favoritesRowVisible) {
+            if (
+              favorites.isNotEmpty() ||
+                historyItems.isNotEmpty() ||
+                searchOptionFavorites.isNotEmpty() ||
+                searchOptionExtras.isNotEmpty()
+            ) {
               Column(
                 modifier =
-                  Modifier.contentMaxWidth().onSizeChanged { favoritesRowHeightPx = it.height }
+                  Modifier.contentMaxWidth().onSizeChanged { publishDockMeasurement(1, it.height) }
               ) {
-                if (showingSearchOptions) {
-                  FavoritesRow(
-                    favorites = searchOptionFavorites,
-                    history = searchOptionExtras,
-                    minIconSizeSetting = minIconSizeSetting,
-                    maxRows = barMaxRows,
-                    expandToFill = true,
-                    reverseHistory = false,
-                    drawDivider = false,
-                    onLaunch = { result ->
-                      val intent = result as? SearchResult.SearchIntent
-                      val shortcut =
-                        searchShortcuts.find { it.id == result.id || it.alias == intent?.trigger }
-                      val term = SearchOptions.searchTerm(query, searchShortcuts)
-                      if (shortcut != null && intent != null && term.isNotBlank()) {
-                        launchShortcutSearch(
-                          context = context,
-                          searchRepository = searchRepository,
-                          shortcut = shortcut,
-                          result = intent,
-                          query = term,
-                          privateWebResults = privateWebResults,
-                          wasFirstResult = false,
-                          openInBrowser = { openInBrowser(it) },
-                          onDismiss = onDismiss,
-                        )
-                      } else if (intent != null) {
-                        searchRepository.reportUsageAsync(intent.namespace, intent.id)
-                        onQueryChange(intent.trigger + " ")
-                      }
-                    },
-                    onToggleFavorite = { result ->
-                      app.favoritesRepository.toggleSearchOption(result)
-                    },
-                    onReorder = { newOrder ->
-                      app.favoritesRepository.updateSearchOptionOrder(newOrder)
-                    },
-                    onCapacityChanged = {},
-                    // The same menu the results list offers, so long-pressing an option here and
-                    // long-pressing it in the results are the same gesture with the same answer.
-                    // Only pinning differs: in this row "favourite" means the search-options bar,
-                    // not the app favourites, and it must not clear the query it is searching.
-                    menuActions = { result ->
-                      menuActionsFor(result, -1)
-                        .copy(
-                          onToggleFavorite = { app.favoritesRepository.toggleSearchOption(result) }
-                        )
-                    },
-                  )
-                } else {
-                  FavoritesRow(
-                    favorites = favorites,
-                    history = historyItems,
-                    historyLimit = historyLimit,
-                    minIconSizeSetting = minIconSizeSetting,
-                    maxRows = barMaxRows,
-                    onLaunch = { result ->
-                      if (result is SearchResult.SearchIntent) {
-                        searchRepository.reportUsageAsync(result.namespace, result.id)
-                        onQueryChange(result.trigger + " ")
-                      } else {
-                        resultLauncher.launch(result, reportUsage = true)
-                        onDismiss()
-                      }
-                    },
-                    onToggleFavorite = { result -> app.favoritesRepository.toggleFavorite(result) },
-                    onReorder = { newOrder ->
-                      app.favoritesRepository.updateOrder(newOrder)
-                      scope.launch {
-                        onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites)
-                      }
-                    },
-                    onCapacityChanged = { limit ->
-                      searchRepository.updateObservedHistoryLimit(limit)
-                    },
-                    // The same menu the results list offers, so long-pressing an app here and
-                    // long-pressing it in the results are the same gesture with the same answer.
-                    menuActions = { result -> menuActionsFor(result, -1) },
-                  )
+                favoritesTransition.AnimatedContent(
+                  contentAlignment = Alignment.BottomCenter,
+                  transitionSpec = {
+                    val direction = if (targetState) 1 else -1
+                    ((fadeIn(tween(140)) +
+                        slideInVertically(tween(140)) {
+                          direction * with(density) { 6.dp.roundToPx() }
+                        }) togetherWith
+                        (fadeOut(tween(90)) +
+                          slideOutVertically(tween(90)) {
+                            -direction * with(density) { 6.dp.roundToPx() }
+                          }))
+                      .using(SizeTransform { _, _ -> tween(160) })
+                  },
+                ) { showOptions ->
+                  if (showOptions) {
+                    FavoritesRow(
+                      favorites = searchOptionFavorites,
+                      history = searchOptionExtras,
+                      minIconSizeSetting = minIconSizeSetting,
+                      maxRows = favoritesMaxRowsForBar(true, favoritesMaxRows),
+                      expandToFill = true,
+                      reverseHistory = false,
+                      drawDivider = false,
+                      onLaunch = { result ->
+                        val intent = result as? SearchResult.SearchIntent
+                        val shortcut =
+                          searchShortcuts.find { it.id == result.id || it.alias == intent?.trigger }
+                        val term = SearchOptions.searchTerm(query, searchShortcuts)
+                        if (shortcut != null && intent != null && term.isNotBlank()) {
+                          launchShortcutSearch(
+                            context = context,
+                            searchRepository = searchRepository,
+                            shortcut = shortcut,
+                            result = intent,
+                            query = term,
+                            privateWebResults = privateWebResults,
+                            wasFirstResult = false,
+                            openInBrowser = { openInBrowser(it) },
+                            onDismiss = onDismiss,
+                          )
+                        } else if (intent != null) {
+                          searchRepository.reportUsageAsync(intent.namespace, intent.id)
+                          onQueryChange(intent.trigger + " ")
+                        }
+                      },
+                      onToggleFavorite = { result ->
+                        app.favoritesRepository.toggleSearchOption(result)
+                      },
+                      onReorder = { newOrder ->
+                        app.favoritesRepository.updateSearchOptionOrder(newOrder)
+                      },
+                      onCapacityChanged = {},
+                      // The same menu the results list offers, so long-pressing an option here and
+                      // long-pressing it in the results are the same gesture with the same answer.
+                      // Only pinning differs: in this row "favourite" means the search-options bar,
+                      // not the app favourites, and it must not clear the query it is searching.
+                      menuActions = { result ->
+                        menuActionsFor(result, -1)
+                          .copy(
+                            onToggleFavorite = {
+                              app.favoritesRepository.toggleSearchOption(result)
+                            }
+                          )
+                      },
+                    )
+                  } else {
+                    FavoritesRow(
+                      favorites = favorites,
+                      history = historyItems,
+                      historyLimit = historyLimit,
+                      minIconSizeSetting = minIconSizeSetting,
+                      maxRows = favoritesMaxRowsForBar(false, favoritesMaxRows),
+                      onLaunch = { result ->
+                        if (result is SearchResult.SearchIntent) {
+                          searchRepository.reportUsageAsync(result.namespace, result.id)
+                          onQueryChange(result.trigger + " ")
+                        } else {
+                          resultLauncher.launch(result, reportUsage = true)
+                          onDismiss()
+                        }
+                      },
+                      onToggleFavorite = { result ->
+                        app.favoritesRepository.toggleFavorite(result)
+                      },
+                      onReorder = { newOrder ->
+                        app.favoritesRepository.updateOrder(newOrder)
+                        scope.launch {
+                          onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites)
+                        }
+                      },
+                      onCapacityChanged = { limit ->
+                        searchRepository.updateObservedHistoryLimit(limit)
+                      },
+                      // The same menu the results list offers, so long-pressing an app here and
+                      // long-pressing it in the results are the same gesture with the same answer.
+                      menuActions = { result -> menuActionsFor(result, -1) },
+                    )
+                  }
                 }
                 Spacer(modifier = Modifier.height(2.dp))
               }
@@ -2236,98 +2393,6 @@ fun SearchScreen(
               }
 
               if (query.isNotEmpty()) {
-                // Hoisted to the top of this screen, where Tab walks it too, so what the button
-                // shows, what it does and what the menu ticks cannot drift apart.
-                val engines = searchEngines
-                val engine = searchEngine
-                var engineMenuOpen by remember { mutableStateOf(false) }
-
-                Box {
-                  // Drawn here rather than scaled down from the generator's 40dp bitmap, which at
-                  // this
-                  // size rounded off into a circle. Same recipe as the badges in the result list —
-                  // the
-                  // engine's colour, its alias on it — at a fifth of the side, which is the corner
-                  // they
-                  // are drawn with, so the two read as the same shape.
-                  Surface(
-                    color = Color(engine.color ?: 0xFF808080),
-                    shape = RoundedCornerShape(percent = 20),
-                    // Tab aiming the badge is what makes Enter go here rather than to the result
-                    // list, so the badge has to say when it is the one holding Enter.
-                    border =
-                      if (selectedEngineId != null)
-                        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                      else null,
-                    modifier =
-                      Modifier.size(24.dp)
-                        .combinedClickable(
-                          onClick = { searchWithSelectedEngine() },
-                          onLongClick = { engineMenuOpen = true },
-                        ),
-                  ) {
-                    Box(contentAlignment = Alignment.Center) {
-                      Text(
-                        text = engine.alias.uppercase(),
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                        maxLines = 1,
-                      )
-                    }
-                  }
-
-                  // The same list the settings page offers, written to the same preference, so
-                  // changing
-                  // it here is changing it there.
-                  DropdownMenu(
-                    expanded = engineMenuOpen,
-                    onDismissRequest = { engineMenuOpen = false },
-                  ) {
-                    Text(
-                      text = "Set default search engine",
-                      style = MaterialTheme.typography.labelMedium,
-                      color = MaterialTheme.colorScheme.onSurfaceVariant,
-                      modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                    engines.forEach { candidate ->
-                      DropdownMenuItem(
-                        text = { Text(candidate.shortLabel ?: candidate.description) },
-                        onClick = {
-                          engineMenuOpen = false
-                          selectedEngineId = null
-                          scope.launch {
-                            context.dataStore.edit { preferences ->
-                              preferences[PreferencesKeys.DEFAULT_SEARCH_ENGINE] = candidate.id
-                            }
-                          }
-                        },
-                        leadingIcon = {
-                          Surface(
-                            color = Color(candidate.color ?: 0xFF808080),
-                            shape = RoundedCornerShape(percent = 20),
-                            modifier = Modifier.size(24.dp),
-                          ) {
-                            Box(contentAlignment = Alignment.Center) {
-                              Text(
-                                text = candidate.alias.uppercase(),
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                maxLines = 1,
-                              )
-                            }
-                          }
-                        },
-                        trailingIcon = {
-                          if (candidate.id == engine.id) {
-                            Icon(Icons.Default.Check, contentDescription = "Current default")
-                          }
-                        },
-                      )
-                    }
-                  }
-                }
                 IconButton(
                   onClick = { onQueryChange("") },
                   modifier = Modifier.size(32.dp).padding(4.dp),
@@ -2403,11 +2468,19 @@ fun SearchScreen(
           }
         }
       }
+      // Edge-to-edge windows otherwise reveal the wallpaper beneath the OS navigation controls.
+      Box(
+        Modifier.align(Alignment.BottomCenter)
+          .fillMaxWidth()
+          .windowInsetsBottomHeight(WindowInsets.navigationBars)
+          .background(MaterialTheme.colorScheme.surface)
+      )
       if (builtInKeyboardVisible) {
         com.searchlauncher.app.ui.components.HomeSearchKeyboard(
           modifier =
             Modifier.align(Alignment.BottomCenter)
-              .padding(bottom = with(density) { navigationBarBottomPx.toDp() })
+              .then(homeSwipeOffset)
+              .navigationBarsPadding()
               .fillMaxWidth()
               .height(builtInKeyboardHeight),
           onText = { updateSearchField(textFieldValue.insertKeyboardText(it)) },
@@ -2416,16 +2489,78 @@ fun SearchScreen(
             else updateSearchField(textFieldValue.deleteKeyboardText())
           },
           onGo = ::submitSearch,
+          onHomeSwipe =
+            if (keyboardGesturesEnabled && query.isEmpty()) {
+              { swipe ->
+                when (swipe) {
+                  com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Up -> {
+                    scope.launch {
+                      onboardingManager.markStepComplete(OnboardingStep.SwipeAppDrawer)
+                    }
+                    onOpenAppDrawer()
+                  }
+                  com.searchlauncher.app.ui.components.KeyboardHomeSwipe.DownLeft -> {
+                    scope.launch {
+                      onboardingManager.markStepComplete(OnboardingStep.SwipeNotifications)
+                    }
+                    com.searchlauncher.app.util.SystemUtils.expandNotifications(context)
+                  }
+                  com.searchlauncher.app.ui.components.KeyboardHomeSwipe.DownRight -> {
+                    scope.launch {
+                      onboardingManager.markStepComplete(OnboardingStep.SwipeQuickSettings)
+                    }
+                    com.searchlauncher.app.util.SystemUtils.expandQuickSettings(context)
+                  }
+                  com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Left ->
+                    keyboardWallpaperSwipe++
+                  com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Right ->
+                    keyboardWallpaperSwipe--
+                }
+              }
+            } else null,
+          gesturesEnabled = keyboardGesturesEnabled && query.isNotEmpty(),
+          onMoveCursor = { textFieldValue = textFieldValue.moveKeyboardCursor(it) },
+          cancelMomentumKey = resultTouchSequence,
+          onKeyboardTouch = {
+            // Stop a direct-touch fling before keyboard deltas can move the same list.
+            scope.launch(start = CoroutineStart.UNDISPATCHED) { listState.stopScroll() }
+          },
+          onResultSwipeStart = { selectedEngineId = null },
+          onResultFling = { velocity ->
+            // Participate in the list scroll mutex, so a new touch cancels this fling natively.
+            listState.scroll { with(resultFlingBehavior) { performFling(velocity) } }
+          },
+          onScrollResults = { pixels -> listState.dispatchRawDelta(pixels) },
           shortcutHints = if (query.isEmpty()) keyboardShortcutHints else emptyMap(),
           spaceShortcutLabel = pendingSpaceShortcut?.let { it.shortLabel ?: it.description },
           spaceShortcutIcon = pendingSpaceIcon,
-          goIcon =
-            rememberThemedIconBitmap(
-              selectedResultIcon,
-              (selectedSearchResult as? SearchResult.App)?.packageName,
-            ),
-          goDescription =
-            selectedSearchResult?.let { "Go: ${it.title}" } ?: "Go: open search result",
+          goTarget = {
+            val selectedSearchResult =
+              searchResults.getOrNull(keyboardSelectedIndex) ?: searchResults.firstOrNull()
+            var selectedResultIcon by
+              remember(
+                selectedSearchResult?.id,
+                selectedSearchResult?.namespace,
+                selectedSearchResult?.icon,
+              ) {
+                mutableStateOf(selectedSearchResult?.icon)
+              }
+            LaunchedEffect(selectedSearchResult, useBuiltInKeyboard) {
+              if (useBuiltInKeyboard && selectedResultIcon == null) {
+                selectedSearchResult?.let { selectedResultIcon = searchRepository.loadIcon(it) }
+              }
+            }
+
+            com.searchlauncher.app.ui.components.KeyboardGoTarget(
+              icon =
+                rememberThemedIconBitmap(
+                  selectedResultIcon,
+                  (selectedSearchResult as? SearchResult.App)?.packageName,
+                ),
+              description =
+                selectedSearchResult?.let { "Go: ${it.title}" } ?: "Go: open search result",
+            )
+          },
         )
       }
     }
@@ -2720,6 +2855,20 @@ private fun webUrlForResult(
   return shortcut.urlForQuery(query).takeIf {
     it.startsWith("https://") || it.startsWith("http://")
   }
+}
+
+internal fun createDownloadsResult(context: Context, query: String): SearchResult.Content? {
+  val term = query.trim().lowercase()
+  if (term.isEmpty() || !("downloads".startsWith(term) || term == "files")) return null
+  return SearchResult.Content(
+    id = "open_downloads",
+    namespace = "default_actions",
+    title = "Downloads",
+    subtitle = "View progress, open files and manage downloads",
+    icon = context.getDrawable(android.R.drawable.stat_sys_download_done),
+    packageName = context.packageName,
+    deepLink = "intent:#Intent;action=com.searchlauncher.action.OPEN_DOWNLOADS;end",
+  )
 }
 
 private fun createSnippetFallbackResult(context: Context, query: String): SearchResult.Content {

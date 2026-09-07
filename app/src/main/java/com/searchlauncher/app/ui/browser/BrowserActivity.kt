@@ -625,6 +625,9 @@ internal fun BrowserScreen(
   fun adjacent(direction: Int): BrowserTab? = tabs.items.getOrNull(activeIndex + direction)
   var webView by remember { mutableStateOf<WebView?>(null) }
   var progress by remember { mutableIntStateOf(0) }
+  var showDownloads by rememberSaveable { mutableStateOf(false) }
+  var closeDownloadTab by remember { mutableStateOf(false) }
+  var hasRenderedDocument by remember(activeTab.id) { mutableStateOf(false) }
   var chromeHeightPx by remember { mutableIntStateOf(0) }
   var chromeHiddenByUser by rememberSaveable { mutableStateOf(false) }
   var phoneUserAgent by remember { mutableStateOf<String?>(null) }
@@ -1451,7 +1454,7 @@ internal fun BrowserScreen(
           view.reload()
         }
       },
-      onOpenDownloads = { openDownloads(context) },
+      onOpenDownloads = { showDownloads = true },
       onFindInPage = { showFindInPage = true },
       onPageSettings = { showPageSettings = true },
       onToggleFavorites = {
@@ -1607,19 +1610,29 @@ internal fun BrowserScreen(
             translationX = tabDragOffsetPx + viewportWidthPx
           }
       ) {
-        launcherWallpaperUri?.let { uri ->
-          AsyncImage(
-            model = uri,
+        val homeFrame = HomeSwipePreview.image
+        if (homeFrame != null) {
+          Image(
+            bitmap = homeFrame,
             contentDescription = null,
-            // The launcher holds this much back for the keyboard, so its wallpaper stops short of
-            // the bottom. Drawing it full-bleed here meant the image visibly shrank the instant the
-            // real home screen took over.
-            modifier =
-              Modifier.fillMaxSize()
-                .padding(bottom = with(density) { launcherKeyboardReservePx.toDp() }),
-            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.FillBounds,
           )
-        }
+        } else
+          launcherWallpaperUri?.let { uri ->
+            AsyncImage(
+              model = uri,
+              contentDescription = null,
+              // The launcher holds this much back for the keyboard, so its wallpaper stops short of
+              // the bottom. Drawing it full-bleed here meant the image visibly shrank the instant
+              // the
+              // real home screen took over.
+              modifier =
+                Modifier.fillMaxSize()
+                  .padding(bottom = with(density) { launcherKeyboardReservePx.toDp() }),
+              contentScale = ContentScale.Crop,
+            )
+          }
       }
     }
 
@@ -1682,6 +1695,10 @@ internal fun BrowserScreen(
               // anything sent as an attachment — silently does nothing.
               setDownloadListener { downloadUrl, userAgent, contentDisposition, mimeType, _ ->
                 startDownload(context, downloadUrl, userAgent, contentDisposition, mimeType)
+                stopLoading()
+                progress = 100
+                closeDownloadTab = !hasRenderedDocument
+                showDownloads = true
               }
               setOnLongClickListener {
                 val hit = hitTestResult
@@ -1876,6 +1893,7 @@ internal fun BrowserScreen(
                   }
 
                   override fun onPageCommitVisible(view: WebView, url: String) {
+                    if (url != "about:blank") hasRenderedDocument = true
                     val restoring = suppressCommitVisibleColor
                     if (restoring) {
                       suppressCommitVisibleColor = false
@@ -2074,7 +2092,7 @@ internal fun BrowserScreen(
     // A pure cross-fade with the minimal pill, no slide: the two share their trailing icons (see
     // StationaryChromeActions), which are anchored in place, so the bar has to collapse around
     // them rather than travel out from under them.
-    if (showLauncherChrome && !showFindInPage)
+    if (showLauncherChrome && !showFindInPage && !tabExpanding)
       AnimatedVisibility(
         visible = !chromeHiddenByUser,
         modifier = Modifier.align(Alignment.BottomCenter),
@@ -2146,7 +2164,7 @@ internal fun BrowserScreen(
       }
     }
 
-    if (showLauncherChrome && !showFindInPage)
+    if (showLauncherChrome && !showFindInPage && !tabExpanding)
       AnimatedVisibility(
         visible = chromeHiddenByUser,
         // Right-aligned like the mic and menu icons in the full bar, so minimal mode keeps the
@@ -2169,7 +2187,7 @@ internal fun BrowserScreen(
 
     // Drawn once, over both the full bar and the minimal pill, which reserve its space instead of
     // holding their own copies.
-    if (showLauncherChrome && !showFindInPage)
+    if (showLauncherChrome && !showFindInPage && !tabExpanding)
       StationaryChromeActions(
         barContentColor = chromeBarContentColor,
         tabCount = tabs.items.size,
@@ -2224,6 +2242,22 @@ internal fun BrowserScreen(
     }
   }
 
+  androidx.compose.animation.AnimatedVisibility(
+    visible = showDownloads,
+    enter = androidx.compose.animation.fadeIn(),
+    exit = androidx.compose.animation.fadeOut(),
+  ) {
+    BrowserDownloadsScreen(
+      onDismiss = {
+        showDownloads = false
+        if (closeDownloadTab) {
+          closeDownloadTab = false
+          closeActiveTab()
+        }
+      }
+    )
+  }
+
   linkMenuTarget?.let { target ->
     if (target.linkUrl != null && canPeekLink(target.linkUrl)) {
       LinkPeekSheet(
@@ -2238,7 +2272,11 @@ internal fun BrowserScreen(
         },
         onCopyUrl = { url -> copyUrl(context, url) },
         onShareUrl = { url -> shareUrl(context, url, null) },
-        onDownloadImage = { url -> startDownload(context, url) },
+        onDownloadImage = { url ->
+          startDownload(context, url)
+          linkMenuTarget = null
+          showDownloads = true
+        },
         onDismiss = { linkMenuTarget = null },
       )
     } else
@@ -2251,7 +2289,11 @@ internal fun BrowserScreen(
         },
         onCopyUrl = { url -> copyUrl(context, url) },
         onShareUrl = { url -> shareUrl(context, url, null) },
-        onDownloadImage = { url -> startDownload(context, url) },
+        onDownloadImage = { url ->
+          startDownload(context, url)
+          linkMenuTarget = null
+          showDownloads = true
+        },
         onDismiss = { linkMenuTarget = null },
       )
   }
@@ -2709,14 +2751,6 @@ private fun startDownload(
     Toast.makeText(context, "Downloading $fileName", Toast.LENGTH_SHORT).show()
   } catch (_: Exception) {
     Toast.makeText(context, "Download failed", Toast.LENGTH_SHORT).show()
-  }
-}
-
-private fun openDownloads(context: Context) {
-  try {
-    context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
-  } catch (_: ActivityNotFoundException) {
-    Toast.makeText(context, "Downloads app is unavailable", Toast.LENGTH_SHORT).show()
   }
 }
 

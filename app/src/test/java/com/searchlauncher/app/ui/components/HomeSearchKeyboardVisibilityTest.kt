@@ -5,52 +5,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeSearchKeyboardVisibilityTest {
-
   @Test
-  fun staysUpWhenTheSearchScreenIsCoveredBySettings() {
-    assertTrue(
-      builtInHomeKeyboardVisible(
-        useBuiltInKeyboard = true,
-        openingTab = false,
-        browserShowing = false,
-        inPip = false,
-      )
-    )
+  fun staysDrawnForHomeAndSidewaysTabHandoffs() {
+    assertTrue(builtInHomeKeyboardVisible(true, openingOverviewTab = false, inPip = false))
   }
 
   @Test
-  fun hidesWhenLeavingHome() {
-    assertFalse(
-      builtInHomeKeyboardVisible(
-        useBuiltInKeyboard = true,
-        openingTab = true,
-        browserShowing = false,
-        inPip = false,
-      )
-    )
-    assertFalse(
-      builtInHomeKeyboardVisible(
-        useBuiltInKeyboard = true,
-        openingTab = false,
-        browserShowing = true,
-        inPip = false,
-      )
-    )
-    assertFalse(
-      builtInHomeKeyboardVisible(
-        useBuiltInKeyboard = true,
-        openingTab = false,
-        browserShowing = false,
-        inPip = true,
-      )
-    )
-    assertFalse(
-      builtInHomeKeyboardVisible(
-        useBuiltInKeyboard = false,
-        openingTab = false,
-        browserShowing = false,
-        inPip = false,
-      )
-    )
+  fun hidesForOverviewExpansionSystemKeyboardAndPip() {
+    assertFalse(builtInHomeKeyboardVisible(true, openingOverviewTab = true, inPip = false))
+    assertFalse(builtInHomeKeyboardVisible(false, openingOverviewTab = false, inPip = false))
+    assertFalse(builtInHomeKeyboardVisible(true, openingOverviewTab = false, inPip = true))
   }
 }

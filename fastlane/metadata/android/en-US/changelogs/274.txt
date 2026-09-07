@@ -1,0 +1,4 @@
+Swipe the keyboard to move the cursor or scroll results with momentum. With an empty query, open the app drawer, notifications, quick settings, or change wallpapers.
+Enjoy subtle result and favorites animations, earlier cached search, and steadier startup layout.
+New Downloads page: progress, APK installation, Open with, delete, and optional access to other apps’ Downloads files.
+Improved tablet wallpapers, tab transitions, and widget replacement.

@@ -87,6 +87,7 @@ class SearchLauncherApp : Application() {
         level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL
     if (underMemoryPressure) {
       com.searchlauncher.app.ui.browser.BrowserTabStore.trimSnapshots()
+      com.searchlauncher.app.ui.browser.HomeSwipePreview.image = null
     }
   }
 

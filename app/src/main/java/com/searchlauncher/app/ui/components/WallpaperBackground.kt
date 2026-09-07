@@ -109,6 +109,7 @@ private fun WallpaperPager(
   lastImageUriString: String?,
   contentModifier: Modifier,
   onPageChanged: (Uri) -> Unit,
+  keyboardSwipeRequest: Int,
 ) {
   val context = LocalContext.current
   // Only read when the state is first created, which is why this composable waits for the saved
@@ -118,6 +119,16 @@ private fun WallpaperPager(
       initialPage = remember { pageShowing(folderImages, lastImageUriString) },
       pageCount = { Int.MAX_VALUE },
     )
+
+  var previousKeyboardSwipe by remember { mutableIntStateOf(keyboardSwipeRequest) }
+  LaunchedEffect(keyboardSwipeRequest) {
+    val delta = keyboardSwipeRequest - previousKeyboardSwipe
+    previousKeyboardSwipe = keyboardSwipeRequest
+    if (delta != 0)
+      pagerState.animateScrollToPage(
+        (pagerState.currentPage + delta).coerceIn(0, Int.MAX_VALUE - 1)
+      )
+  }
 
   // Follow the saved URI when something else changes it, such as adding a wallpaper in settings.
   LaunchedEffect(folderImages, lastImageUriString) {
@@ -148,13 +159,15 @@ private fun WallpaperPager(
 
   HorizontalPager(
     state = pagerState,
-    modifier = Modifier.fillMaxSize(),
+    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
     userScrollEnabled = folderImages.size > 1,
   ) { page ->
     Box(modifier = Modifier.fillMaxSize()) {
       AsyncImage(
         model = folderImages[page % folderImages.size],
         contentDescription = null,
+        // Cover only the reserved upper area, rather than letterboxing or cropping to the whole
+        // screen.
         contentScale = ContentScale.Crop,
         modifier = contentModifier,
       )
@@ -173,6 +186,7 @@ fun WallpaperBackground(
   onLongPress: (Offset) -> Unit = {},
   onTap: () -> Unit = {},
   onPageChanged: (Uri) -> Unit = {},
+  keyboardSwipeRequest: Int = 0,
   onSwipeDownLeft: () -> Unit = {},
   onSwipeDownRight: () -> Unit = {},
   savedUriResolved: Boolean = true,
@@ -273,6 +287,7 @@ fun WallpaperBackground(
         lastImageUriString = lastImageUriString,
         contentModifier = contentModifier,
         onPageChanged = onPageChanged,
+        keyboardSwipeRequest = keyboardSwipeRequest,
       )
     } else {
       // No custom images: the theme window is transparent with FLAG_SHOW_WALLPAPER, so the

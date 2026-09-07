@@ -31,9 +31,6 @@ import java.net.URL
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -81,9 +78,13 @@ data class SearchableDocument(
 class SearchRepository(private val context: Context) : BaseRepository() {
   @Volatile private var documentByNamespaceAndId: Map<String, SearchableDocument> = emptyMap()
 
+  @Volatile private var searchShortcutDocuments: List<AppSearchDocument> = emptyList()
+
   @Volatile
   internal var documentSnapshot: List<SearchableDocument> = emptyList()
     set(value) {
+      searchShortcutDocuments =
+        value.filter { it.doc.namespace == "search_shortcuts" }.map { it.doc }
       field = value
       documentByNamespaceAndId =
         value.associateBy { documentLookupKey(it.doc.namespace, it.doc.id) }
@@ -368,6 +369,18 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         // Strictly honor the observed limit for the initial frame to prevent jumpiness
         _recentItems.value = cachedHistory.take(observedHistoryLimit)
 
+        // The persisted snapshot can serve typing before AppSearch opens or checks its schema.
+        val loadStart = System.currentTimeMillis()
+        val fastCacheLoaded = loadFastIndexCache()
+        if (fastCacheLoaded) {
+          _isInitialized.value = true
+          markIndexingFinished()
+          android.util.Log.d(
+            "SearchRepository",
+            "Cached search ready in ${System.currentTimeMillis() - startTime}ms",
+          )
+        }
+
         val sessionFuture =
           LocalStorage.createSearchSessionAsync(
             LocalStorage.SearchContext.Builder(context, "searchlauncher_db").build()
@@ -407,23 +420,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         // Trigger history metadata refresh IMMEDIATELY.
         _indexUpdated.emit(Unit)
 
-        val loadStart = System.currentTimeMillis()
-        val fastCacheLoaded = loadFastIndexCache()
-
         if (fastCacheLoaded) {
-          android.util.Log.d(
-            "SearchRepository",
-            "loadFastIndexCache took ${System.currentTimeMillis() - loadStart}ms",
-          )
-          // Unblock UI immediately — keep serving the cache while AppSearch syncs
-          _isInitialized.value = true
-          markIndexingFinished()
-
-          android.util.Log.d(
-            "SearchRepository",
-            "Early Initialization (ready for UI) took ${System.currentTimeMillis() - startTime}ms",
-          )
-
           // Still load genuine AppSearch index async to ensure correctness
           scope.launch { loadFromIndex() }
         } else {
@@ -567,7 +564,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     }
 
   private suspend fun loadFromIndex() =
-    withContext(Dispatchers.IO) {
+    withContext(IndexingDispatchers.limited) {
       val session = appSearchSession ?: return@withContext
       try {
         indexWriteMutex.withLock {
@@ -582,6 +579,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
           var page = searchResults.nextPageAsync.await()
           while (page.isNotEmpty()) {
+            if (documentSnapshot.isNotEmpty()) pauseIndexingIfSearchIsActive()
             allDocs.addAll(
               page.mapNotNull { it.genericDocument.toDocumentClass(AppSearchDocument::class.java) }
             )
@@ -1266,8 +1264,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     withContext(Dispatchers.IO) {
       try {
         if (limit <= 0) return@withContext emptyList()
-        val shortcuts =
-          documentSnapshot.filter { it.doc.namespace == "search_shortcuts" }.map { it.doc }
+        val shortcuts = searchShortcutDocuments
 
         val results =
           if (shortcuts.isEmpty()) {
@@ -1301,13 +1298,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               SearchOptions.rankByUsage(shortcuts, { it.id }, { it.name }) { id ->
                 getGlobalUsageCount(SearchOptions.NAMESPACE, id)
               }
-            coroutineScope {
-              sortedShortcuts
-                .take(limit)
-                .map { doc -> async { convertDocumentToResult(wrap(doc), 100, saveToDisk = true) } }
-                .awaitAll()
-                .filterIsInstance<SearchResult.SearchIntent>()
-            }
+            sortedShortcuts
+              .take(limit)
+              .map { doc ->
+                convertDocumentToResult(wrap(doc), 100, allowIpc = false, allowDisk = false)
+              }
+              .filterIsInstance<SearchResult.SearchIntent>()
           }
 
         return@withContext results.take(limit)
@@ -1832,25 +1828,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   val allApps = _allApps.asStateFlow()
 
   private suspend fun updateAppsCache() {
+    // Conversion is memory-only; launching one IO coroutine per app costs more than the work.
     val apps =
-      withContext(Dispatchers.IO) {
-        coroutineScope {
-          val sdocs =
-            documentSnapshot
-              .filter { it.namespaceInt == 1 } // apps
-              // Guard the app list's LazyColumn key against duplicate package ids that an older
-              // index/cache may still hold (a package can have several launcher activities).
-              .distinctBy { it.doc.id }
-              .sortedBy { it.nameLower }
-          val results =
-            sdocs
-              .map { sdoc ->
-                async { convertDocumentToResult(sdoc, 0, allowIpc = false, allowDisk = false) }
-              }
-              .awaitAll()
-          results
-        }
-      }
+      documentSnapshot
+        .filter { it.namespaceInt == 1 }
+        .distinctBy { it.doc.id }
+        .sortedBy { it.nameLower }
+        .map { convertDocumentToResult(it, 0, allowIpc = false, allowDisk = false) }
     _allApps.emit(apps)
   }
 
