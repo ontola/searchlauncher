@@ -1,0 +1,1 @@
+Hold a web link to peek at it without leaving the page. The preview includes a spaced menu for opening a tab, incognito, copying, sharing, and downloading linked images. Added an option to lock home-screen widgets in place. Improved home search bar and keyboard behavior when opening Settings or the system keyboard.
