@@ -42,6 +42,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
@@ -111,6 +113,7 @@ import com.searchlauncher.app.ui.components.SearchResultItem
 import com.searchlauncher.app.ui.components.ShortcutDialog
 import com.searchlauncher.app.ui.components.SnippetDialog
 import com.searchlauncher.app.ui.components.WallpaperBackground
+import com.searchlauncher.app.ui.components.builtInHomeKeyboardVisible
 import com.searchlauncher.app.ui.components.favoritesMaxRowsForBar
 import com.searchlauncher.app.ui.components.homeWidgetsEnabled
 import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
@@ -157,9 +160,9 @@ fun SearchScreen(
   /** Moves only on a real home intent; [focusTrigger] also moves on any return of focus. */
   homeTrigger: Long = 0L,
   /**
-   * Overlay-only inset tweak: the bar tracks the IME and sits a little over the nav bar. Home uses
-   * the same live inset without that overlap so the bar and keys travel together rather than the
-   * bar parking above an empty well.
+   * Overlay-only inset tweak: the bar tracks the IME and sits a little over the nav bar. Home parks
+   * at the reserved keyboard height instead, so favorites stay tappable while the OS keyboard
+   * appears.
    */
   riseWithKeyboard: Boolean = false,
 ) {
@@ -315,6 +318,9 @@ fun SearchScreen(
   val showWidgetsSetting by
     remember { context.dataStore.data.map { it[PreferencesKeys.SHOW_WIDGETS] ?: true } }
       .collectAsState(initial = true)
+  val widgetsLocked by
+    remember { context.dataStore.data.map { it[PreferencesKeys.LOCK_WIDGETS] ?: false } }
+      .collectAsState(initial = false)
 
   // Check if this app is the default launcher (needed by onboarding logic below)
   val isDefaultLauncher = remember {
@@ -1208,41 +1214,44 @@ fun SearchScreen(
   val reservedKeyboardHeightPx = Ime.reservedHeightPx(storedKeyboardHeight, screenHeightPx)
   val imeForLayoutPx = Ime.insetForLayoutPx(imeHeightPx, storedKeyboardHeight, screenHeightPx)
 
-  // With the system keyboard, chrome follows the live IME inset. A stored-height park put the bar
-  // in
-  // mid-air above an empty well; a full-screen IME reading shoved it off the top. [imeForLayoutPx]
-  // is the live inset with those two cases stripped.
+  // Home parks chrome at the reserved IME height so favorites stay tappable while the OS keyboard
+  // animates in. Overlay search still rides the live inset; [imeForLayoutPx] strips full-screen
+  // IME windows that would otherwise shove the bar off the top.
   val navigationBarBottomPx = WindowInsets.navigationBars.getBottom(density)
-  val builtInKeyboardVisible = useBuiltInKeyboard && shouldShowKeyboard.value
+  val builtInKeyboardVisible =
+    builtInHomeKeyboardVisible(
+      useBuiltInKeyboard = useBuiltInKeyboard,
+      openingTab = openingTab,
+      browserShowing = browserShowing,
+      inPip = inPip,
+    )
   val builtInKeyboardHeight = minOf(243.dp, (LocalConfiguration.current.screenHeightDp * 0.45f).dp)
   val bottomPadding =
     with(density) {
       when {
         useBuiltInKeyboard ->
           navigationBarBottomPx.toDp() + if (builtInKeyboardVisible) builtInKeyboardHeight else 0.dp
-        // Tracks the IME inset frame by frame as the keyboard animates in, so the bar travels up
-        // with the keys. At rest it lands exactly on the bar it replaces, so the overlay opens
-        // without the bar hopping.
-        riseWithKeyboard ->
-          kotlin.math
-            .max(imeForLayoutPx, navigationBarBottomPx - BROWSER_CHROME_BAR_OFFSET.roundToPx())
-            .coerceAtLeast(0)
+        else ->
+          Ime.systemKeyboardChromeInsetPx(
+              riseWithKeyboard = riseWithKeyboard,
+              isMultiWindow = isMultiWindow,
+              openingTab = openingTab,
+              imeForLayoutPx = imeForLayoutPx,
+              reservedPx = reservedKeyboardHeightPx,
+              navigationBarBottomPx = navigationBarBottomPx,
+              overlayNavOverlapPx = BROWSER_CHROME_BAR_OFFSET.roundToPx(),
+            )
             .toDp()
-        isMultiWindow -> imeForLayoutPx.toDp()
-        // Follows the IME down frame by frame while a tab opens, so the bar rides the keyboard
-        // out instead of dropping once it has gone.
-        openingTab -> imeForLayoutPx.toDp()
-        else -> kotlin.math.max(imeForLayoutPx, navigationBarBottomPx).toDp()
       }
     }
 
   /**
-   * What the wallpaper reserves at the bottom, which is not what the chrome bar reserves.
+   * What the wallpaper reserves at the bottom, which is not what overlay chrome reserves.
    *
-   * The bar follows the live IME so it can rise with the keys. The picture cannot: the same padding
-   * changing under it resizes the image, which is the wallpaper sliding as the keyboard pops up.
-   * Home (and a tab opening) therefore keep the stored keyboard height whether the IME is up or
-   * not. The overlay has no wallpaper, so it can share the chrome inset.
+   * The picture cannot follow the live IME: the same padding changing under it resizes the image,
+   * which is the wallpaper sliding as the keyboard pops up. Home therefore keeps the stored
+   * keyboard height whether the IME is up or not. Overlay search has no wallpaper, so it shares the
+   * chrome inset.
    */
   val wallpaperBottomPadding =
     when {
@@ -1331,7 +1340,10 @@ fun SearchScreen(
   }
 
   // Back on home clears the search while keeping the built-in keyboard ready for another query.
-  BackHandler(enabled = builtInKeyboardVisible && !tabsOverviewOpen) { onQueryChange("") }
+  // Gated on isActive so Settings (an overlay on this still-composed screen) can handle Back.
+  BackHandler(enabled = isActive && builtInKeyboardVisible && !tabsOverviewOpen) {
+    onQueryChange("")
+  }
 
   // The overlay is its own activity: back has to finish it, not merely hide the keyboard. The
   // activity also intercepts BACK before the IME (see SearchActivity); this covers the case where
@@ -1765,6 +1777,24 @@ fun SearchScreen(
               // Not the plain Add the wallpaper entry uses — two identical plus icons in one menu
               // would say nothing about which is which.
               leadingIcon = { Icon(Icons.Default.Widgets, contentDescription = null) },
+            )
+            DropdownMenuItem(
+              text = { Text(if (widgetsLocked) "Unlock Widgets" else "Lock Widgets") },
+              onClick = {
+                showBackgroundMenu = false
+                val newState = !widgetsLocked
+                scope.launch {
+                  context.dataStore.edit { preferences ->
+                    preferences[PreferencesKeys.LOCK_WIDGETS] = newState
+                  }
+                }
+              },
+              leadingIcon = {
+                Icon(
+                  if (widgetsLocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                  contentDescription = null,
+                )
+              },
             )
           }
           val widgets by app.widgetRepository.widgets.collectAsState(initial = emptyList())
