@@ -2225,18 +2225,35 @@ internal fun BrowserScreen(
   }
 
   linkMenuTarget?.let { target ->
-    LinkContextMenuDialog(
-      linkUrl = target.linkUrl,
-      imageUrl = target.imageUrl,
-      onOpenInNewTab = ::openLinkInNewTab,
-      onOpenPrivate = { url ->
-        context.startActivity(BrowserActivity.createPrivateIntent(context, url))
-      },
-      onCopyUrl = { url -> copyUrl(context, url) },
-      onShareUrl = { url -> shareUrl(context, url, null) },
-      onDownloadImage = { url -> startDownload(context, url) },
-      onDismiss = { linkMenuTarget = null },
-    )
+    if (target.linkUrl != null && canPeekLink(target.linkUrl)) {
+      LinkPeekSheet(
+        linkUrl = target.linkUrl,
+        imageUrl = target.imageUrl,
+        privateMode = privateMode,
+        adBlockEnabled = adBlockEnabled,
+        siteSettingsStore = siteSettingsStore,
+        onOpenInNewTab = ::openLinkInNewTab,
+        onOpenPrivate = { url ->
+          context.startActivity(BrowserActivity.createPrivateIntent(context, url))
+        },
+        onCopyUrl = { url -> copyUrl(context, url) },
+        onShareUrl = { url -> shareUrl(context, url, null) },
+        onDownloadImage = { url -> startDownload(context, url) },
+        onDismiss = { linkMenuTarget = null },
+      )
+    } else
+      LinkContextMenuDialog(
+        linkUrl = target.linkUrl,
+        imageUrl = target.imageUrl,
+        onOpenInNewTab = ::openLinkInNewTab,
+        onOpenPrivate = { url ->
+          context.startActivity(BrowserActivity.createPrivateIntent(context, url))
+        },
+        onCopyUrl = { url -> copyUrl(context, url) },
+        onShareUrl = { url -> shareUrl(context, url, null) },
+        onDownloadImage = { url -> startDownload(context, url) },
+        onDismiss = { linkMenuTarget = null },
+      )
   }
 
   bookmarkDraft?.let { draft ->
