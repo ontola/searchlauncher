@@ -11,6 +11,9 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,9 +29,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.launch
 
 internal fun canPeekLink(url: String): Boolean {
   val uri = Uri.parse(url)
@@ -72,9 +79,42 @@ internal fun LinkPeekSheet(
     onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
   }
 
+  val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+  val scope = rememberCoroutineScope()
+  val dismissDistance = with(LocalDensity.current) { 64.dp.toPx() }
+  var handleDrag by remember { mutableFloatStateOf(0f) }
   ModalBottomSheet(
     onDismissRequest = onDismiss,
-    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    sheetState = sheetState,
+    // The WebView owns page drags, including overscroll at either edge. Allowing the sheet's
+    // nested-scroll/drag handlers to compete with it makes the preview move while reading.
+    sheetGesturesEnabled = false,
+    dragHandle = {
+      Box(
+        Modifier.fillMaxWidth()
+          .height(48.dp)
+          .semantics { contentDescription = "Swipe down to close preview" }
+          .draggable(
+            orientation = Orientation.Vertical,
+            state =
+              rememberDraggableState { delta ->
+                handleDrag = (handleDrag + delta).coerceAtLeast(0f)
+              },
+            onDragStarted = { handleDrag = 0f },
+            onDragStopped = { velocity ->
+              if (handleDrag >= dismissDistance || velocity > 1000f) {
+                scope.launch {
+                  sheetState.hide()
+                  if (!sheetState.isVisible) onDismiss()
+                }
+              }
+            },
+          ),
+        contentAlignment = Alignment.Center,
+      ) {
+        BottomSheetDefaults.DragHandle()
+      }
+    },
   ) {
     Column(Modifier.fillMaxWidth().fillMaxHeight(0.88f).padding(horizontal = 16.dp)) {
       Row(verticalAlignment = Alignment.CenterVertically) {

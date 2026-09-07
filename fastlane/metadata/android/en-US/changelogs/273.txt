@@ -1,0 +1,1 @@
+Fixed competing scroll gestures in link previews. Scrolling the page now keeps the preview sheet stationary. Swipe down on the top handle to dismiss, or use Close, Back, or tap outside.
