@@ -63,6 +63,49 @@ class WidgetHostViewFactoryTest {
   }
 
   @Test
+  @Config(qualifiers = "xxhdpi")
+  fun `allocated widget size is reported in dp and follows resizing`() {
+    bind(12, minHeight = 60)
+    val sizes = mutableListOf<Pair<Int, Int>>()
+    val widgetView =
+      object : android.appwidget.AppWidgetHostView(context) {
+        override fun updateAppWidgetSize(
+          options: android.os.Bundle?,
+          minWidth: Int,
+          minHeight: Int,
+          maxWidth: Int,
+          maxHeight: Int,
+        ) {
+          sizes.add(minWidth to minHeight)
+        }
+      }
+    val host = io.mockk.mockk<AppWidgetHost>()
+    io.mockk.every { host.createView(any(), 12, any()) } returns widgetView
+    val view =
+      WidgetHostViewFactory.createWidgetView(context, 12, host, appWidgetManager) as ViewGroup
+    val activity =
+      org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+    activity.setContentView(view, ViewGroup.LayoutParams(900, 600))
+    fun layout(height: Int) {
+      view.layoutParams = view.layoutParams.apply { this.height = height }
+      view.measure(
+        android.view.View.MeasureSpec.makeMeasureSpec(900, android.view.View.MeasureSpec.EXACTLY),
+        android.view.View.MeasureSpec.makeMeasureSpec(height, android.view.View.MeasureSpec.EXACTLY),
+      )
+      view.layout(0, 0, 900, height)
+      shadowOf(android.os.Looper.getMainLooper()).idle()
+    }
+    layout(600)
+    val first = sizes.last().second
+    assertTrue(first > 0)
+    assertTrue(first <= 200)
+    layout(900)
+    val second = sizes.last().second
+    assertEquals(100, second - first)
+    activity.finish()
+  }
+
+  @Test
   fun `an id that was never bound cannot be rendered`() {
     // The state an import leaves behind: the id came from a previous install's host, so nothing
     // here answers for it. Rendering it produced an empty view that still took up its space.
