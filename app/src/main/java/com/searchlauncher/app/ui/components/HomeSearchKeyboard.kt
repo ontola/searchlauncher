@@ -110,6 +110,8 @@ fun HomeSearchKeyboard(
   goTarget: (@Composable () -> KeyboardGoTarget)? = null,
   spaceShortcutLabel: String? = null,
   spaceShortcutIcon: ImageBitmap? = null,
+  spaceShortcutContent: (@Composable (Int) -> Unit)? = null,
+  onSpaceShortcutPressed: (Int) -> Unit = {},
   gesturesEnabled: Boolean = true,
   cancelMomentumKey: Int = 0,
   onMoveCursor: (Int) -> Unit = {},
@@ -372,12 +374,16 @@ fun HomeSearchKeyboard(
                 }
                 KeyboardKey(
                   spaceShortcutLabel?.let { "Search $it" } ?: "space",
-                  { type(" ") },
+                  {
+                    onSpaceShortcutPressed(half)
+                    type(" ")
+                  },
                   Modifier.weight(if (split) 3f else 4f).fillMaxHeight(),
                   description = spaceShortcutLabel?.let { "Space: activate $it search" } ?: "Space",
                   selected = spaceShortcutLabel != null,
                   icon = spaceShortcutIcon,
                   showLabelWithIcon = true,
+                  content = spaceShortcutContent?.let { content -> { content(half) } },
                 )
                 if (!split || half == 1) {
                   KeyboardKey(".", { type(".") }, Modifier.weight(1f).fillMaxHeight())
@@ -431,6 +437,7 @@ private fun KeyboardKey(
   symbolHint: String? = null,
   icon: ImageBitmap? = null,
   showLabelWithIcon: Boolean = false,
+  content: (@Composable () -> Unit)? = null,
   alternatives: List<String> = emptyList(),
   onAlternative: (String) -> Unit = {},
 ) {
@@ -616,7 +623,9 @@ private fun KeyboardKey(
         }
       }
 
-      if (icon != null && showLabelWithIcon) {
+      if (content != null) {
+        content()
+      } else if (icon != null && showLabelWithIcon) {
         Row(
           Modifier.padding(horizontal = 8.dp),
           horizontalArrangement = Arrangement.spacedBy(6.dp),

@@ -21,6 +21,22 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = SearchLauncherApp::class)
 class SearchProgressiveResultsTest {
+  @Test
+  fun `activated youtube with empty term is first in every update`() = runBlocking {
+    val app = ApplicationProvider.getApplicationContext<SearchLauncherApp>()
+    val repository = SearchRepository(app)
+    val updates = repository.searchAppUpdates("y ", includeSuggestions = false).toList()
+    assertTrue(updates.isNotEmpty())
+    updates.forEach { results ->
+      assertEquals("Search in YouTube", results.first().title)
+      assertEquals("shortcut_y", results.first().id)
+      assertEquals(
+        "https://www.youtube.com/results?search_query=",
+        (results.first() as SearchResult.Content).deepLink,
+      )
+    }
+  }
+
   private suspend fun withGatedSuggestions(
     responseStatus: Int = 200,
     block: suspend (SearchRepository, CountDownLatch) -> Unit,

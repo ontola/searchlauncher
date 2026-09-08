@@ -56,6 +56,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
@@ -73,7 +74,9 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -82,6 +85,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.datastore.preferences.core.edit
 import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.data.SearchIconGenerator
@@ -175,7 +179,7 @@ fun SearchScreen(
    */
   riseWithKeyboard: Boolean = false,
 ) {
-  var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
+  var fetchedSearchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
   var keyboardSelectedIndex by remember { mutableIntStateOf(0) }
   var isLoading by remember { mutableStateOf(false) }
   var isFallbackMode by remember { mutableStateOf(false) }
@@ -201,6 +205,45 @@ fun SearchScreen(
   // Offered, not merely defined: a shortcut whose app is gone is not a search option.
   val searchShortcuts by app.searchShortcutRepository.launchable.collectAsState()
   val iconGenerator = remember { SearchIconGenerator(context) }
+  val configuredShortcuts by app.searchShortcutRepository.items.collectAsState()
+  val activeShortcut =
+    remember(query, configuredShortcuts) {
+      var shortcut =
+        configuredShortcuts.find { query.startsWith("${it.alias} ", ignoreCase = true) }
+      if (shortcut == null) {
+        shortcut =
+          com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.find {
+            query.startsWith("${it.alias} ", ignoreCase = true)
+          }
+      }
+      shortcut
+    }
+
+  val emptyShortcutResult =
+    remember(query, activeShortcut) {
+      activeShortcut
+        ?.takeIf {
+          query.substringAfter(" ").isBlank() &&
+            (it.urlTemplate.startsWith("https://") || it.urlTemplate.startsWith("http://"))
+        }
+        ?.let { shortcut ->
+          SearchResult.Content(
+            id = "shortcut_${shortcut.alias}",
+            namespace = "search_shortcuts",
+            title = "Search in ${shortcut.shortLabel ?: shortcut.description}",
+            subtitle = "Type your query...",
+            icon = iconGenerator.getColoredSearchIcon(shortcut.color, shortcut.alias),
+            packageName = shortcut.packageName ?: "android",
+            deepLink = shortcut.urlForQuery(""),
+            rankingScore =
+              com.searchlauncher.app.data.RankingScores.CUSTOM_SHORTCUT_WITH_SEARCH_TERM,
+          )
+        }
+    }
+  val searchResults =
+    remember(fetchedSearchResults, emptyShortcutResult) {
+      prioritizeActiveShortcut(fetchedSearchResults, emptyShortcutResult)
+    }
   // Re-read after every launch so the fill slots below reflect the count that tap just bumped.
   val usageRevision by searchRepository.usageRevision.collectAsState()
   val (searchOptionFavorites, searchOptionExtras) =
@@ -919,21 +962,6 @@ fun SearchScreen(
     }
   }
 
-  val activeShortcut =
-    remember(query) {
-      var shortcut =
-        app.searchShortcutRepository.items.value.find {
-          query.startsWith("${it.alias} ", ignoreCase = true)
-        }
-      if (shortcut == null) {
-        shortcut =
-          com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.find {
-            query.startsWith("${it.alias} ", ignoreCase = true)
-          }
-      }
-      shortcut
-    }
-
   val displayQuery =
     if (activeShortcut != null) {
       query.substring("${activeShortcut.alias} ".length)
@@ -988,12 +1016,27 @@ fun SearchScreen(
     if (activeShortcut == null) {
       pendingKeyboardShortcut(textFieldValue, searchShortcuts)
     } else null
-  val pendingSpaceIcon =
-    remember(pendingSpaceShortcut) {
-      pendingSpaceShortcut?.let {
-        iconGenerator.getColoredSearchIcon(it.color, it.alias)?.toImageBitmap()
-      }
+  val spacePillBounds = remember { mutableMapOf<Int, Rect>() }
+  var pressedSpaceHalf by remember { mutableIntStateOf(0) }
+  var searchPillBounds by remember { mutableStateOf<Rect?>(null) }
+  var rootPillBounds by remember { mutableStateOf<Rect?>(null) }
+  var flyingShortcut by remember {
+    mutableStateOf<com.searchlauncher.app.data.SearchShortcut?>(null)
+  }
+  var flightSource by remember { mutableStateOf<Rect?>(null) }
+  val pillFlight = remember(flyingShortcut) { Animatable(0f) }
+  LaunchedEffect(flyingShortcut, searchPillBounds, activeShortcut) {
+    if (flyingShortcut == null) return@LaunchedEffect
+    if (activeShortcut?.alias != flyingShortcut?.alias) {
+      flyingShortcut = null
+      return@LaunchedEffect
     }
+    if (searchPillBounds != null) {
+      pillFlight.snapTo(0f)
+      pillFlight.animateTo(1f, tween(180))
+      flyingShortcut = null
+    }
+  }
 
   // Focus the field as soon as it exists, even before this window has focus. The IME can only
   // actually appear once the window is focused, but an editor that is already focused when that
@@ -1070,7 +1113,7 @@ fun SearchScreen(
     traceAsyncSection("SL:SearchScreen.queryEffect") {
       searchRepository.noteInteractiveSearch(query)
       if (query.isEmpty()) {
-        searchResults = emptyList()
+        fetchedSearchResults = emptyList()
         isFallbackMode = false
       } else {
         searchRepository
@@ -1139,7 +1182,7 @@ fun SearchScreen(
                     packageName = "android",
                     deepLink = "calculator://copy?text=$formattedResult",
                   )
-                searchResults =
+                fetchedSearchResults =
                   if (MathEvaluator.isUnambiguouslyArithmetic(query)) {
                     // Contacts are indexed on their phone numbers, so a query like "1234*56" drags
                     // in
@@ -1149,10 +1192,10 @@ fun SearchScreen(
                     (listOf(calcResult) + resultsWithIndexing).distinctBy { it.stableListKey }
                   }
               } else {
-                searchResults = resultsWithIndexing
+                fetchedSearchResults = resultsWithIndexing
               }
             } else {
-              searchResults = resultsWithIndexing
+              fetchedSearchResults = resultsWithIndexing
             }
           }
       }
@@ -1478,6 +1521,7 @@ fun SearchScreen(
     Box(
       modifier =
         Modifier.fillMaxSize()
+          .onGloballyPositioned { rootPillBounds = it.boundsInRoot() }
           .drawWithContent {
             // Freeze the last complete home frame before any swipe or overview transforms it.
             if (
@@ -1976,6 +2020,10 @@ fun SearchScreen(
                   LazyColumn(
                     modifier =
                       Modifier.fillMaxSize()
+                        // Match the highlight's 4.dp side inset and keep animated rows out
+                        // of the bottom gutter. Content padding alone does not clip placement.
+                        .padding(bottom = 4.dp)
+                        .clipToBounds()
                         .onSizeChanged { publishDockMeasurement(2, it.height) }
                         .pointerInput(Unit) {
                           awaitEachGesture {
@@ -1990,12 +2038,12 @@ fun SearchScreen(
                     reverseLayout = true,
                     contentPadding =
                       PaddingValues(
-                        bottom = 8.dp,
+                        bottom = 0.dp,
                         top =
                           with(density) {
                             val lastHeight =
                               resultLastRowHeightPx.takeIf { it > 0 } ?: 64.dp.roundToPx()
-                            (resultViewportHeightPx - lastHeight - 8.dp.roundToPx())
+                            (resultViewportHeightPx - lastHeight)
                               .coerceAtLeast(8.dp.roundToPx())
                               .toDp()
                           },
@@ -2008,15 +2056,24 @@ fun SearchScreen(
                         // Stable identity lets Compose move surviving rows rather than replay
                         // their entrance on each query. Placement animation excludes scroll deltas.
                         modifier =
-                          Modifier.animateItem(
-                            fadeInSpec =
-                              tween(
-                                durationMillis = 180,
-                                delayMillis = (index * 16).coerceAtMost(64),
-                              ),
-                            placementSpec = tween(durationMillis = 140),
-                            fadeOutSpec = tween(durationMillis = 90),
-                          ),
+                          Modifier.zIndex(if (index == keyboardSelectedIndex) 1f else 0f)
+                            .then(
+                              if (index == keyboardSelectedIndex)
+                                Modifier.background(
+                                  if (chromeBarColor != null) resultsColor
+                                  else MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
+                                )
+                              else Modifier
+                            )
+                            .animateItem(
+                              fadeInSpec =
+                                tween(
+                                  durationMillis = 180,
+                                  delayMillis = (index * 16).coerceAtMost(64),
+                                ),
+                              placementSpec = tween(durationMillis = 140),
+                              fadeOutSpec = tween(durationMillis = 90),
+                            ),
                         result = result,
                         highlighted = index == keyboardSelectedIndex,
                         isFavorite = app.favoritesRepository.isFavorite(result),
@@ -2255,34 +2312,12 @@ fun SearchScreen(
               shadowElevation = if (chromeBarColor != null) 8.dp else 0.dp,
             ) {
               if (activeShortcut != null) {
-                Surface(
-                  color = androidx.compose.ui.graphics.Color(activeShortcut.color ?: 0xFF808080),
-                  shape = RoundedCornerShape(16.dp),
-                  modifier = Modifier.padding(end = 8.dp),
-                ) {
-                  Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                  ) {
-                    val defaultShortcut =
-                      com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.find {
-                        it.alias == activeShortcut.alias
-                      }
-                    val label =
-                      (activeShortcut.shortLabel
-                          ?: defaultShortcut?.shortLabel
-                          ?: activeShortcut.description)
-                        .replace("Search ", "", ignoreCase = true)
-                        .replace("Ask ", "", ignoreCase = true)
-                        .trim()
-                    Text(
-                      text = label,
-                      color = androidx.compose.ui.graphics.Color.White,
-                      fontSize = 14.sp,
-                      fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                    )
-                  }
-                }
+                ShortcutSearchPill(
+                  activeShortcut,
+                  Modifier.padding(end = 8.dp)
+                    .onGloballyPositioned { searchPillBounds = it.boundsInRoot() }
+                    .graphicsLayer { alpha = if (flyingShortcut != null) 0f else 1f },
+                )
               }
 
               androidx.compose.ui.platform.InterceptPlatformTextInput(
@@ -2483,7 +2518,16 @@ fun SearchScreen(
               .navigationBarsPadding()
               .fillMaxWidth()
               .height(builtInKeyboardHeight),
-          onText = { updateSearchField(textFieldValue.insertKeyboardText(it)) },
+          onText = {
+            if (
+              it == " " && pendingSpaceShortcut != null && spacePillBounds[pressedSpaceHalf] != null
+            ) {
+              flightSource = spacePillBounds[pressedSpaceHalf]
+              searchPillBounds = null
+              flyingShortcut = pendingSpaceShortcut
+            }
+            updateSearchField(textFieldValue.insertKeyboardText(it))
+          },
           onBackspace = {
             if (displayQuery.isEmpty() && activeShortcut != null) onQueryChange("")
             else updateSearchField(textFieldValue.deleteKeyboardText())
@@ -2533,7 +2577,16 @@ fun SearchScreen(
           onScrollResults = { pixels -> listState.dispatchRawDelta(pixels) },
           shortcutHints = if (query.isEmpty()) keyboardShortcutHints else emptyMap(),
           spaceShortcutLabel = pendingSpaceShortcut?.let { it.shortLabel ?: it.description },
-          spaceShortcutIcon = pendingSpaceIcon,
+          onSpaceShortcutPressed = { pressedSpaceHalf = it },
+          spaceShortcutContent =
+            pendingSpaceShortcut?.let { shortcut ->
+              { half ->
+                ShortcutSearchPill(
+                  shortcut,
+                  Modifier.onGloballyPositioned { spacePillBounds[half] = it.boundsInRoot() },
+                )
+              }
+            },
           goTarget = {
             val selectedSearchResult =
               searchResults.getOrNull(keyboardSelectedIndex) ?: searchResults.firstOrNull()
@@ -2562,6 +2615,21 @@ fun SearchScreen(
             )
           },
         )
+      }
+      flyingShortcut?.let { shortcut ->
+        val source = flightSource
+        val target = searchPillBounds ?: source
+        val origin = rootPillBounds
+        if (source != null && target != null && origin != null) {
+          ShortcutSearchPill(
+            shortcut,
+            Modifier.graphicsLayer {
+              val progress = pillFlight.value
+              translationX = source.left + (target.left - source.left) * progress - origin.left
+              translationY = source.top + (target.top - source.top) * progress - origin.top
+            },
+          )
+        }
       }
     }
   }
@@ -2892,3 +2960,39 @@ private const val FALLBACK_SEARCH_SHORTCUT_LIMIT = 100
 // FavoritesRow extracted to components/FavoritesRow.kt
 
 // SnippetDialog extracted to components/SnippetDialog.kt
+
+@Composable
+private fun ShortcutSearchPill(
+  shortcut: com.searchlauncher.app.data.SearchShortcut,
+  modifier: Modifier = Modifier,
+) {
+  val fallback =
+    com.searchlauncher.app.data.DefaultShortcuts.searchShortcuts.find { it.alias == shortcut.alias }
+  val label =
+    (shortcut.shortLabel ?: fallback?.shortLabel ?: shortcut.description)
+      .replace("Search ", "", ignoreCase = true)
+      .replace("Ask ", "", ignoreCase = true)
+      .trim()
+  Surface(
+    modifier = modifier,
+    color = Color(shortcut.color ?: 0xFF808080),
+    shape = RoundedCornerShape(16.dp),
+  ) {
+    Text(
+      label,
+      modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+      color = Color.White,
+      fontSize = 14.sp,
+      fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+      maxLines = 1,
+    )
+  }
+}
+
+/** The active empty search action is UI state, independent of index/network completion. */
+internal fun prioritizeActiveShortcut(
+  results: List<SearchResult>,
+  active: SearchResult.Content?,
+): List<SearchResult> =
+  if (active == null) results
+  else listOf(active) + results.filterNot { it.id == active.id && it.namespace == active.namespace }

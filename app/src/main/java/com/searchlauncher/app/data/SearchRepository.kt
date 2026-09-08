@@ -2108,10 +2108,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
 
     val deepLink =
-      if (searchTerm.isBlank()) {
+      if (isExactMatch) {
         "intent:#Intent;action=com.searchlauncher.action.APPEND_SPACE;end"
       } else {
-        url // Normal behavior: open URL
+        url // An activated shortcut can open even before a search term is entered.
       }
 
     results.add(
@@ -2119,14 +2119,16 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         id = "shortcut_${shortcut.alias}",
         namespace = "search_shortcuts",
         title =
-          if (searchTerm.isBlank()) shortcut.description
-          else "${shortcut.description}: $searchTerm",
+          if (!isExactMatch && searchTerm.isBlank()) {
+            val label = shortcut.shortLabel ?: shortcut.description
+            "Search in $label"
+          } else if (isExactMatch) shortcut.description else "${shortcut.description}: $searchTerm",
         subtitle = subtitle,
         icon = icon,
         packageName = shortcut.packageName ?: "android",
         deepLink = deepLink, // Use custom deepLink
         rankingScore =
-          if (searchTerm.isBlank()) RankingScores.CUSTOM_SHORTCUT_TRIGGER_ONLY
+          if (isExactMatch) RankingScores.CUSTOM_SHORTCUT_TRIGGER_ONLY
           else RankingScores.CUSTOM_SHORTCUT_WITH_SEARCH_TERM,
       )
     )

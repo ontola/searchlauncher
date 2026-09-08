@@ -1,0 +1,5 @@
+Search shortcuts now show their full pill in the spacebar. Press Space to animate the pill into the search bar, including on split tablet keyboards.
+
+Activating a shortcut such as y + Space keeps “Search in YouTube” first even with an empty query and while background results refresh.
+
+Results have tighter bottom spacing, and animated rows no longer show through underneath the selected row.
