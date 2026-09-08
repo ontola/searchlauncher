@@ -1,0 +1,3 @@
+Wallpaper theme colors now keep updating when you cycle back to the initially selected image.
+
+Responsive and multi-line widgets now receive their actual displayed dimensions, including after resizing, and fill their allocated height.
