@@ -149,11 +149,9 @@ private fun WallpaperPager(
         val currentUri = folderImages[page % folderImages.size]
         currentOnPageChanged(currentUri)
 
-        if (currentUri.toString() != lastImageUriString) {
-          context.dataStore.edit { prefs ->
-            prefs[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] = currentUri.toString()
-          }
-        }
+        // Compare against current storage, not the URI captured when this collector started.
+        // Returning to that initial wallpaper must also update the theme's source URI (#138).
+        persistWallpaperSelection(context.dataStore, currentUri.toString())
       }
   }
 
@@ -749,4 +747,15 @@ internal fun packWidgetsIntoColumns(
     used += if (columns.last().size == 1) height else height + spacing
   }
   return columns
+}
+
+internal suspend fun persistWallpaperSelection(
+  store: androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences>,
+  uri: String,
+) {
+  store.edit { prefs ->
+    if (prefs[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] != uri) {
+      prefs[PreferencesKeys.BACKGROUND_LAST_IMAGE_URI] = uri
+    }
+  }
 }

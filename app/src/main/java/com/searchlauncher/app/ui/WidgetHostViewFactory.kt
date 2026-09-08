@@ -35,6 +35,26 @@ object WidgetHostViewFactory {
       val hostView = appWidgetHost.createView(context, appWidgetId, appWidgetInfo)
       hostView.setAppWidget(appWidgetId, appWidgetInfo)
 
+      // Responsive/list providers need the actual allocated size, including after a resize.
+      // Post outside layout and coalesce changes so provider updates cannot re-enter measurement.
+      var reportedSize: Pair<Int, Int>? = null
+      val reportSize = Runnable {
+        val density = hostView.resources.displayMetrics.density
+        val size = (hostView.width / density).toInt() to (hostView.height / density).toInt()
+        if (size.first > 0 && size.second > 0 && size != reportedSize) {
+          try {
+            hostView.updateAppWidgetSize(null, size.first, size.second, size.first, size.second)
+            reportedSize = size
+          } catch (e: Exception) {
+            android.util.Log.w("WidgetHostViewFactory", "Cannot report widget $appWidgetId size", e)
+          }
+        }
+      }
+      hostView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+        hostView.removeCallbacks(reportSize)
+        hostView.post(reportSize)
+      }
+
       // Enforce minimum height (often crucial for list widgets like Calendar).
       //
       // [AppWidgetProviderInfo.minHeight] is already in pixels — the framework resolves the
@@ -49,7 +69,7 @@ object WidgetHostViewFactory {
         hostView,
         FrameLayout.LayoutParams(
           ViewGroup.LayoutParams.MATCH_PARENT,
-          ViewGroup.LayoutParams.WRAP_CONTENT,
+          ViewGroup.LayoutParams.MATCH_PARENT,
         ),
       )
       frameLayout
