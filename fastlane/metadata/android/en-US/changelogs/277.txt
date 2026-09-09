@@ -1,0 +1,3 @@
+Downloads now uses narrower file access. Open a file lets you choose individual files through Android's picker; Browse all downloads opens the system Downloads view.
+
+Removed broad storage permissions and automatic scanning of other apps' downloads. SearchLauncher's own download history, progress, opening, installation and deletion remain available.

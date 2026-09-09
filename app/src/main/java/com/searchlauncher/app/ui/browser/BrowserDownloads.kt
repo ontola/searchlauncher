@@ -1,17 +1,12 @@
 package com.searchlauncher.app.ui.browser
 
-import android.Manifest
 import android.app.DownloadManager
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
-import android.os.Environment
 import android.provider.Settings
 import android.text.format.Formatter
-import android.webkit.MimeTypeMap
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,8 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
-import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.Dispatchers
@@ -47,8 +40,6 @@ internal data class BrowserDownload(
   val bytes: Long,
   val total: Long,
   val updated: Long,
-  val filePath: String? = null,
-  val localPath: String? = null,
 ) {
   val active: Boolean
     get() =
@@ -72,56 +63,12 @@ internal fun readBrowserDownloads(manager: DownloadManager): List<BrowserDownloa
               long(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR),
               long(DownloadManager.COLUMN_TOTAL_SIZE_BYTES),
               long(DownloadManager.COLUMN_LAST_MODIFIED_TIMESTAMP),
-              localPath =
-                cursor
-                  .getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
-                  .takeIf { it >= 0 }
-                  ?.let {
-                    cursor.getString(it)?.let(Uri::parse)?.takeIf { it.scheme == "file" }?.path
-                  },
             )
           )
         }
       }
     }
     .sortedByDescending { it.id }
-
-/** Only enumerate the public Downloads folder, even with the broader Android grant. */
-internal fun hasSharedDownloadsAccess(context: Context): Boolean =
-  if (Build.VERSION.SDK_INT >= 30) Environment.isExternalStorageManager()
-  else
-    context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) ==
-      PackageManager.PERMISSION_GRANTED
-
-internal fun readSharedDownloads(context: Context): List<BrowserDownload> {
-  if (!hasSharedDownloadsAccess(context)) return emptyList()
-  val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-  val prefix = root.canonicalPath + File.separator
-  return root
-    .walkTopDown()
-    .onEnter { it.canonicalPath == root.canonicalPath || it.canonicalPath.startsWith(prefix) }
-    .filter { it.isFile && !it.name.startsWith(".") && it.canonicalPath.startsWith(prefix) }
-    .map { file ->
-      BrowserDownload(
-        0,
-        file.name,
-        DownloadManager.STATUS_SUCCESSFUL,
-        file.length(),
-        file.length(),
-        file.lastModified(),
-        filePath = file.absolutePath,
-      )
-    }
-    .toList()
-}
-
-internal fun mergeDownloads(
-  owned: List<BrowserDownload>,
-  shared: List<BrowserDownload>,
-): List<BrowserDownload> {
-  val ownedPaths = owned.mapNotNull { it.localPath }.toSet()
-  return (owned + shared.filter { it.filePath !in ownedPaths }).sortedByDescending { it.updated }
-}
 
 internal const val APK_MIME_TYPE = "application/vnd.android.package-archive"
 
@@ -140,17 +87,7 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
   val context = LocalContext.current
   val manager = remember { context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager }
   var downloads by remember { mutableStateOf<List<BrowserDownload>>(emptyList()) }
-  var allFilesAccess by remember { mutableStateOf(hasSharedDownloadsAccess(context)) }
-  val storageAccess =
-    rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-      allFilesAccess = hasSharedDownloadsAccess(context)
-    }
-  val legacyStorageAccess =
-    rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-      allFilesAccess = hasSharedDownloadsAccess(context)
-    }
-  var scanRevision by remember { mutableIntStateOf(0) }
-  var pendingApkPath by rememberSaveable { mutableStateOf<String?>(null) }
+  var pendingDocumentUri by rememberSaveable { mutableStateOf<String?>(null) }
   var loaded by remember { mutableStateOf(false) }
   var error by remember { mutableStateOf(false) }
   var openError by remember { mutableStateOf<String?>(null) }
@@ -159,21 +96,16 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
   var pendingChooser by rememberSaveable { mutableStateOf(false) }
   var deleteTarget by remember { mutableStateOf<BrowserDownload?>(null) }
   val scope = rememberCoroutineScope()
-  fun openDownload(id: Long, name: String, chooser: Boolean = false, filePath: String? = null) {
+  fun openDownload(id: Long, name: String, chooser: Boolean = false, documentUri: String? = null) {
     openError = null
     try {
       val uri =
-        if (filePath != null)
-          FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.downloads.files",
-            File(filePath),
-          )
-        else manager.getUriForDownloadedFile(id) ?: error("File unavailable")
+        documentUri?.let(Uri::parse)
+          ?: manager.getUriForDownloadedFile(id)
+          ?: error("File unavailable")
       context.contentResolver.openAssetFileDescriptor(uri, "r")?.use {} ?: error("File unavailable")
       val mime =
-        if (filePath != null)
-          MimeTypeMap.getSingleton().getMimeTypeFromExtension(File(filePath).extension.lowercase())
+        if (documentUri != null) context.contentResolver.getType(uri)
         else manager.getMimeTypeForDownloadedFile(id)
       val intent = downloadOpenIntent(uri, name, mime)
       context.startActivity(if (chooser) Intent.createChooser(intent, "Open with") else intent)
@@ -192,21 +124,22 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
       pendingApkId = null
       if (id != null) {
         if (context.packageManager.canRequestPackageInstalls())
-          openDownload(id, pendingApkName, pendingChooser, pendingApkPath)
+          openDownload(id, pendingApkName, pendingChooser, pendingDocumentUri)
         else
           openError =
             "Installation is not allowed yet. Tap Install APK and enable Allow from this source."
       }
     }
-  fun requestOpen(item: BrowserDownload, chooser: Boolean = false) {
+  fun requestOpen(item: BrowserDownload, chooser: Boolean = false, documentUri: String? = null) {
     val isApk =
       item.name.endsWith(".apk", ignoreCase = true) ||
-        (item.filePath == null && manager.getMimeTypeForDownloadedFile(item.id) == APK_MIME_TYPE)
+        ((if (documentUri != null) context.contentResolver.getType(Uri.parse(documentUri))
+        else manager.getMimeTypeForDownloadedFile(item.id)) == APK_MIME_TYPE)
     if (isApk && !chooser && !context.packageManager.canRequestPackageInstalls()) {
       pendingChooser = chooser
       pendingApkId = item.id
       pendingApkName = item.name
-      pendingApkPath = item.filePath
+      pendingDocumentUri = documentUri
       openError = null
       try {
         allowInstalls.launch(
@@ -220,7 +153,7 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
         openError =
           "Open Android Settings → Install unknown apps and allow this browser to install APKs."
       }
-    } else openDownload(item.id, item.name, chooser, item.filePath)
+    } else openDownload(item.id, item.name, chooser, documentUri)
   }
   fun showInFiles() {
     try {
@@ -229,20 +162,26 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
       openError = "No Files app is available to show Downloads."
     }
   }
-  LaunchedEffect(manager, allFilesAccess, scanRevision) {
-    var shared = emptyList<BrowserDownload>()
-    var nextScan = 0L
-    while (true) {
-      val result =
-        withContext(Dispatchers.IO) {
-          runCatching {
-            if (android.os.SystemClock.elapsedRealtime() >= nextScan) {
-              shared = readSharedDownloads(context)
-              nextScan = android.os.SystemClock.elapsedRealtime() + 5000
-            }
-            mergeDownloads(readBrowserDownloads(manager), shared)
-          }
+  val openDocument =
+    rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+      if (uri != null) {
+        try {
+          val name =
+            context.contentResolver
+              .query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+              ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: "File"
+          requestOpen(
+            BrowserDownload(0, name, DownloadManager.STATUS_SUCCESSFUL, 0, 0, 0),
+            documentUri = uri.toString(),
+          )
+        } catch (_: Exception) {
+          openError = "This file could not be opened. Please select it again."
         }
+      }
+    }
+  LaunchedEffect(manager) {
+    while (true) {
+      val result = withContext(Dispatchers.IO) { runCatching { readBrowserDownloads(manager) } }
       result.onSuccess { downloads = it }.onFailure { error = true }
       if (result.isSuccess) error = false
       loaded = true
@@ -256,39 +195,13 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
         Text("Downloads", style = MaterialTheme.typography.headlineSmall)
         TextButton(onClick = onDismiss) { Text("Done") }
       }
-      if (!allFilesAccess) {
-        Text(
-          "To include files downloaded by other apps, allow file access. Only the Downloads folder is listed here.",
-          style = MaterialTheme.typography.bodyMedium,
-        )
-        Row {
-          TextButton(
-            onClick = {
-              try {
-                if (Build.VERSION.SDK_INT < 30) {
-                  legacyStorageAccess.launch(
-                    arrayOf(
-                      Manifest.permission.READ_EXTERNAL_STORAGE,
-                      Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                    )
-                  )
-                } else {
-                  storageAccess.launch(
-                    Intent(
-                      Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                      Uri.parse("package:${context.packageName}"),
-                    )
-                  )
-                }
-              } catch (_: Exception) {
-                openError = "Open Android Settings and allow All files access for SearchLauncher."
-              }
-            }
-          ) {
-            Text("Show all downloads")
-          }
-          TextButton(onClick = ::showInFiles) { Text("Open Files") }
-        }
+      Text(
+        "History and progress for files downloaded with SearchLauncher.",
+        style = MaterialTheme.typography.bodyMedium,
+      )
+      Row {
+        TextButton(onClick = { openDocument.launch(arrayOf("*/*")) }) { Text("Open a file") }
+        TextButton(onClick = ::showInFiles) { Text("Browse all downloads") }
       }
       openError?.let {
         Text(
@@ -303,7 +216,7 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
         downloads.isEmpty() -> Text("No downloads yet")
         else ->
           LazyColumn(Modifier.weight(1f)) {
-            items(downloads, key = { it.filePath ?: "download:${it.id}" }) { item ->
+            items(downloads, key = { it.id }) { item ->
               DownloadCard(
                 item = item,
                 onOpen = { requestOpen(item) },
@@ -328,16 +241,10 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
             scope.launch {
               val removed =
                 withContext(Dispatchers.IO) {
-                  runCatching {
-                      if (item.filePath != null) {
-                        if (File(item.filePath).delete()) 1 else 0
-                      } else manager.remove(item.id)
-                    }
-                    .getOrDefault(0)
+                  runCatching { manager.remove(item.id) }.getOrDefault(0)
                 }
               if (removed > 0) {
-                scanRevision++
-                downloads = downloads.filterNot { it.id == item.id && it.filePath == item.filePath }
+                downloads = downloads.filterNot { it.id == item.id }
               } else openError = "Couldn’t delete this download. Try removing it in Files."
             }
           }

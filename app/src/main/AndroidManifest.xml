@@ -37,11 +37,8 @@
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
 
-    <application android:requestLegacyExternalStorage="true"
+    <application
         android:name=".SearchLauncherApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -53,12 +50,7 @@
         android:theme="@style/Theme.SearchLauncher"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
-        <provider android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.downloads.files"
-            android:exported="false" android:grantUriPermissions="true">
-            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/download_file_paths" />
-        </provider>
+
 
 
         <meta-data android:name="io.sentry.dsn" android:value="https://dbf3428d2c6942e4816c063d289fa95d@app.glitchtip.com/20343" />

@@ -12,39 +12,22 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class BrowserDownloadsTest {
   @Test
-  fun mergesOtherAppsFilesWithoutDuplicatingOwnedDownloadsOrDroppingProgress() {
-    val owned =
-      BrowserDownload(
-        42,
-        "own.apk",
-        DownloadManager.STATUS_RUNNING,
-        50,
-        100,
-        200,
-        localPath = "/storage/emulated/0/Download/own.apk",
-      )
-    val duplicate =
-      BrowserDownload(
-        0,
-        "own.apk",
-        DownloadManager.STATUS_SUCCESSFUL,
-        100,
-        100,
-        200,
-        filePath = owned.localPath,
-      )
-    val other =
-      BrowserDownload(
-        0,
-        "other.pdf",
-        DownloadManager.STATUS_SUCCESSFUL,
-        100,
-        100,
-        300,
-        filePath = "/storage/emulated/0/Download/other.pdf",
-      )
-    assertEquals(listOf(other, owned), mergeDownloads(listOf(owned), listOf(duplicate, other)))
-    assertTrue(mergeDownloads(listOf(owned), listOf(duplicate)).single().active)
+  fun appDoesNotRequestBroadStoragePermissions() {
+    val context =
+      androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+    val permissions =
+      context.packageManager
+        .getPackageInfo(context.packageName, android.content.pm.PackageManager.GET_PERMISSIONS)
+        .requestedPermissions
+        .orEmpty()
+    for (permission in
+      listOf(
+        "android.permission.MANAGE_EXTERNAL_STORAGE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+      )) {
+      assertFalse(permission, permission in permissions)
+    }
   }
 
   @Test

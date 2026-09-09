@@ -13,7 +13,7 @@ Android app that lets you search everything on your phone and on the web, and op
 - **Tabs at your thumb** - Swipe the search bar sideways to switch tabs, or up to see them all as live previews. Both work from the home screen too: swipe sideways to drop straight back into your last tab.
 - **Bookmarks & history** - Save any page under a title you choose, then find it back from the search bar. Pages you visit are searchable too, and both show the site's icon.
 - **Keyboard gestures** - With a query, swipe sideways to move the cursor or vertically to scroll results with momentum. With no query, swipe up for the app drawer, down on the left for notifications, down on the right for quick settings, or sideways for wallpapers. Configure these in Settings → Keyboard.
-- **Downloads** - View progress and history, install downloaded APKs, open files in another app, and delete files. Search for Downloads to open the page. Optional file access includes files saved by other apps in the shared Downloads folder.
+- **Downloads** - View progress and history, install downloaded APKs, open files in another app, and delete files. Search for Downloads to open the page. Use Open a file to choose a file through Android, or Browse all downloads to open the system Downloads view. No broad storage permission is required.
 - **Speed** - Cached search is available earlier at startup, while background indexing yields to typing.
 - **Swipe Wallpapers** - Your background is an interactive picture album.
 - **Smart input** - Recognizes phone numbers, emails, calculator queries, and web addresses.
@@ -58,7 +58,7 @@ Android app that lets you search everything on your phone and on the web, and op
   - Usage stats (optional, for smart app sorting)
   - Contacts (optional, for contact search)
   - Calendar (optional, for events in the next week)
-  - Downloads folder (optional, via the system folder picker — not All files access)
+  - Individual files (optional, selected through Android’s file picker)
 
 ## Building
 
