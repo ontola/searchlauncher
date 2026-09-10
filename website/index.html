@@ -6,8 +6,11 @@
   <title>SearchLauncher · Your homescreen has a keyboard</title>
   <meta name="description" content="Keyboard-first Android launcher. Search apps, contacts, settings, snippets, and the web. Built-in ad-blocking browser with tabs. Free and open source.">
   <meta property="og:title" content="SearchLauncher · Your homescreen has a keyboard">
-  <meta property="og:description" content="Type to launch apps, call contacts, run shortcuts, or open the web from one always-ready bar.">
+  <meta property="og:description" content="Search apps, contacts and browser tabs from your home screen. Search inside apps, or browse the web without leaving SearchLauncher.">
   <meta property="og:type" content="website">
+  <meta property="og:image" content="https://searchlauncher.eu/assets/social-preview.jpg">
+  <meta property="og:url" content="https://searchlauncher.eu/">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -296,7 +299,7 @@
       border: 3px solid var(--phone-frame);
       background: #000;
       box-shadow: 0 22px 44px rgba(16, 32, 24, 0.18);
-      aspect-ratio: 9 / 19.5;
+      aspect-ratio: 9 / 20;
     }
 
     .hero-phone img {
@@ -383,7 +386,7 @@
       border: 3px solid var(--phone-frame);
       box-shadow: 0 24px 48px rgba(16, 32, 24, 0.16);
       background: #000;
-      aspect-ratio: 9 / 19.5;
+      aspect-ratio: 9 / 20;
     }
 
     .phone img {
@@ -395,10 +398,15 @@
 
     .phone-sm { width: min(100%, 280px); margin-inline: auto; }
 
+    section, [id] { scroll-margin-top: 6rem; }
+    .demo-section { padding: 3rem 0; border-block: 1px solid var(--line); }
+    .demo-section h2 { max-width: 24ch; }
+    .demo-section video { display: block; width: 100%; height: auto; border-radius: 1rem; background: #101610; }
+    a:focus-visible, video:focus-visible { outline: 3px solid var(--accent); outline-offset: 5px; }
     /* Reveal */
     .reveal {
-      opacity: 0;
-      transform: translateY(28px);
+      opacity: 1;
+      transform: none;
       transition: opacity 0.8s var(--ease), transform 0.8s var(--ease);
     }
 
@@ -620,6 +628,8 @@
       </a>
       <nav class="nav-links" aria-label="Primary">
         <a href="#features">Features</a>
+        <a href="#browser">Browser</a>
+        <a href="#demo">Watch demo</a>
         <a href="#privacy">Privacy</a>
         <a class="nav-cta" href="#download">Download</a>
       </nav>
@@ -635,32 +645,37 @@
             SearchLauncher
           </p>
           <h1 class="reveal reveal-delay-1">Your homescreen has a keyboard.</h1>
-          <p class="lead reveal reveal-delay-2">Type to launch apps, call contacts, run shortcuts, or open the web from one always-ready bar.</p>
+          <p class="lead reveal reveal-delay-2">Search apps, contacts and browser tabs from your home screen. Search inside apps, or browse the web without leaving SearchLauncher.</p>
           <div class="btn-row reveal reveal-delay-3">
             <a class="btn btn-primary" href="https://github.com/ontola/searchlauncher/releases/latest">Download SearchLauncher</a>
             <a class="btn btn-ghost" href="https://github.com/ontola/searchlauncher">View source</a>
           </div>
-          <p class="meta reveal reveal-delay-3">Free · Open source · Android 10+ · Also works as a home-screen widget</p>
+          <p class="meta reveal reveal-delay-3">Free · No ads · Open source · Android 10+ · Also works as a home-screen widget</p>
         </div>
         <div class="hero-shots reveal reveal-delay-1" aria-label="SearchLauncher screenshots">
           <figure class="hero-phone hero-phone-left">
-            <img src="assets/browser.jpg" alt="Wikipedia open in SearchLauncher’s built-in browser" width="1200" height="2670">
+            <img src="assets/05_tab_search.webp" alt="Search results include an open Wikipedia browser tab" width="720" height="1600">
           </figure>
           <figure class="hero-phone hero-phone-right">
-            <img src="assets/tabs.jpg" alt="Browser tabs as live previews above the home search bar" width="1200" height="2670">
+            <img src="assets/06_tabs.webp" alt="Browser tabs as live previews above the home search bar" width="720" height="1600">
           </figure>
           <figure class="hero-phone hero-phone-main">
-            <img src="assets/home.jpg" alt="SearchLauncher home screen with keyboard ready" width="1200" height="2670">
+            <img src="assets/01_home.webp" alt="SearchLauncher home screen with keyboard ready" width="720" height="1600">
           </figure>
         </div>
       </div>
     </section>
 
-    <section class="quote-band" aria-label="Positioning">
+    <section class="demo-section" id="demo">
       <div class="wrap">
-        <blockquote class="quote reveal">
-          Finally, a launcher for people who type faster than they swipe. A command palette for your pocket.
-        </blockquote>
+        <p class="eyebrow">See it in action</p>
+        <h2>Your phone and the web, one search away.</h2>
+        <p class="support">Watch SearchLauncher find contacts, search inside apps, open browser tabs and use widgets.</p>
+        <video controls playsinline preload="none" poster="assets/promo-poster.jpg" width="1920" height="1080" aria-label="SearchLauncher demo: search, browser tabs and widgets">
+          <source src="assets/searchlauncher-promo.mp4" type="video/mp4">
+          <a href="assets/searchlauncher-promo.mp4">Download the demo video</a>.
+        </video>
+        <p class="meta">40 seconds of the app in use. <a href="https://www.youtube.com/watch?v=UmRTG427oas">Watch on YouTube →</a></p>
       </div>
     </section>
 
@@ -680,7 +695,7 @@
           </div>
           <div class="feature-media reveal reveal-delay-1">
             <figure class="phone phone-sm">
-              <img src="assets/home.jpg" alt="Home screen with the keyboard already up, ready to search" width="1200" height="2670">
+              <img src="assets/02_apps.webp" alt="Search results showing demo contacts and system settings" width="720" height="1600" loading="lazy">
             </figure>
           </div>
         </div>
@@ -689,9 +704,9 @@
       <section class="feature">
         <div class="wrap feature-grid reverse">
           <div class="feature-copy reveal">
-            <p class="eyebrow">Commands</p>
-            <h2>Aliases for how you actually work.</h2>
-            <p class="support">Built-in shortcuts like <strong>y</strong> for YouTube, <strong>g</strong> for Google, <strong>c</strong> for ChatGPT, <strong>m</strong> for Maps, or invent your own. Save snippets and copy them from the same bar.</p>
+            <p class="eyebrow">Shortcuts</p>
+            <h2>Search inside apps.</h2>
+            <p class="support">Type <strong>y</strong>, press space, and enter your YouTube search. Use shortcuts for Google, ChatGPT, Maps and more, or add your own. Go straight to your search without opening the app first.</p>
             <div class="commands" aria-label="Example commands">
               <div class="command"><kbd>y cats</kbd><span>→ YouTube</span></div>
               <div class="command"><kbd>g weather</kbd><span>→ Google</span></div>
@@ -701,7 +716,7 @@
           </div>
           <div class="feature-media reveal reveal-delay-1">
             <figure class="phone phone-sm">
-              <img src="assets/search_youtube.jpg" alt="YouTube shortcut: type y then a query from the home bar" width="1200" height="2670">
+              <img src="assets/03_youtube.webp" alt="YouTube shortcut: type y then a query from the home bar" width="720" height="1600" loading="lazy">
             </figure>
           </div>
         </div>
@@ -724,7 +739,7 @@
           </div>
           <div class="feature-media reveal reveal-delay-1">
             <figure class="phone phone-sm">
-              <img src="assets/calculator.jpg" alt="Calculator result for 1250 times 365 in the search bar" width="1200" height="2670">
+              <img src="assets/04_calculator.webp" alt="An equation with its calculated answer in search results" width="720" height="1600" loading="lazy">
             </figure>
           </div>
         </div>
@@ -733,19 +748,41 @@
       <section class="feature">
         <div class="wrap feature-grid reverse">
           <div class="feature-copy reveal">
-            <p class="eyebrow">Browser</p>
-            <h2>Browse from the same bar.</h2>
-            <p class="support">Web results open in SearchLauncher’s built-in browser. Ads and trackers blocked by default. Tabs live under your thumb: swipe the search bar sideways to switch, or up for live previews. From the home screen too.</p>
+            <p class="eyebrow" id="browser">Built-in browser</p>
+            <h2>Use websites like apps.</h2>
+            <p class="support">Your browser tabs belong alongside your apps. Open a website from the search bar, swipe sideways to switch tabs, or swipe up to see tab previews. Jump between browsing and your home screen with the same gestures.</p>
             <ul class="point-list">
               <li>Ad &amp; tracker blocking on by default</li>
               <li>Private browsing in an isolated process with no history written</li>
-              <li>Bookmarks and searchable history, with site icons</li>
+              <li>Find open tabs by title or address from home search</li>
+              <li>Bookmarks and searchable browsing history</li>
+              <li>Downloads with progress, history, and file actions</li>
               <li>Optional: set as your default browser</li>
             </ul>
           </div>
           <div class="feature-media reveal reveal-delay-1">
             <figure class="phone phone-sm">
-              <img src="assets/tabs.jpg" alt="Swipe up on the search bar to see every browser tab as a live preview" width="1200" height="2670">
+              <img src="assets/06_tabs.webp" alt="Swipe up on the search bar to see every browser tab as a live preview" width="720" height="1600" loading="lazy">
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature">
+        <div class="wrap feature-grid">
+          <div class="feature-copy reveal">
+            <p class="eyebrow">Search your tabs</p>
+            <h2>Pick up where you left off.</h2>
+            <p class="support">Remember the page, but not where you opened it? Type its title or address. Open tabs appear in your search results, ready to return to with a tap.</p>
+            <ul class="point-list">
+              <li>Search websites and installed apps from the same place</li>
+              <li>Return to an existing tab without opening another copy</li>
+              <li>Keep favorite websites within reach alongside your apps</li>
+            </ul>
+          </div>
+          <div class="feature-media reveal reveal-delay-1">
+            <figure class="phone phone-sm">
+              <img src="assets/05_tab_search.webp" alt="Searching Amsterdam finds an existing Wikipedia tab with an Open tab action" width="720" height="1600" loading="lazy">
             </figure>
           </div>
         </div>
@@ -767,7 +804,7 @@
           </div>
           <div class="feature-media reveal reveal-delay-1">
             <figure class="phone phone-sm">
-              <img src="assets/settings.jpg" alt="SearchLauncher settings for wallpapers, shortcuts, snippets, and OLED theme" width="1200" height="2670">
+              <img src="assets/widgets.jpg" alt="Home screen with Android widgets above the search bar" width="1200" height="2670" loading="lazy">
             </figure>
           </div>
         </div>
@@ -799,8 +836,8 @@
 
     <section class="cta" id="download">
       <div class="wrap reveal">
-        <h2>Stop scrolling. Start executing.</h2>
-        <p class="support">Free on GitHub. Android 10 or newer.</p>
+        <h2>Make your home screen more useful.</h2>
+        <p class="support">Free. No ads. Open source. Download for Android 10 or newer.</p>
         <div class="btn-row">
           <a class="btn btn-primary" href="https://github.com/ontola/searchlauncher/releases/latest">Download latest release</a>
           <a class="btn btn-ghost" href="https://github.com/ontola/searchlauncher">View on GitHub</a>

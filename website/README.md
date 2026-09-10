@@ -38,3 +38,10 @@ Propagation is often minutes, sometimes up to 24–48h. Then click **DNS check**
 ## Draft files (not deployed)
 
 `COPY.md`, `specimen.html`, `README.md`
+
+## Current media
+
+The homepage uses web-sized WebP exports of `marketing/captures/v0.0.39/phone`
+and the actual-interaction promo `marketing/out/video/searchlauncher-promo-v3.mp4`.
+The MP4 is self-hosted with `preload="none"`; the YouTube link is an optional alternative.
+`assets/social-preview.jpg` comes from the current store feature graphic.
