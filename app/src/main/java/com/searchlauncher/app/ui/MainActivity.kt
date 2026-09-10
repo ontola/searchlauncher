@@ -227,7 +227,9 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     var appWidgetId = -1
     try {
       appWidgetId = appWidgetHost.allocateAppWidgetId()
-      val allowed = appWidgetManager.bindAppWidgetIdIfAllowed(appWidgetId, providerInfo.provider)
+      val sizeOptions = WidgetHostViewFactory.defaultSizeOptions(this)
+      val allowed =
+        appWidgetManager.bindAppWidgetIdIfAllowed(appWidgetId, providerInfo.provider, sizeOptions)
       if (allowed) {
         configureWidget(appWidgetId)
       } else {
@@ -237,6 +239,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
           android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_PROVIDER,
           providerInfo.provider,
         )
+        intent.putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_OPTIONS, sizeOptions)
         pendingAppWidgetId = appWidgetId
         bindWidgetLauncher.launch(intent)
       }
@@ -257,6 +260,10 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
           intent.putExtra(
             android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_PROVIDER,
             providerInfo.provider,
+          )
+          intent.putExtra(
+            android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_OPTIONS,
+            WidgetHostViewFactory.defaultSizeOptions(this),
           )
           pendingAppWidgetId = appWidgetId // Track ID in case result strips it
           bindWidgetLauncher.launch(intent)
@@ -507,8 +514,15 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     appWidgetManager = android.appwidget.AppWidgetManager.getInstance(applicationContext)
-    appWidgetHost =
-      android.appwidget.AppWidgetHost(applicationContext, WidgetRepository.APPWIDGET_HOST_ID)
+    appWidgetHost = LauncherAppWidgetHost(applicationContext, WidgetRepository.APPWIDGET_HOST_ID)
+    // Collection widgets bind their list adapters while createView applies RemoteViews. Listening
+    // must already be on before setContent hosts those views, or the first notify is dropped and
+    // multi-line widgets stay empty until a later size change happens to refresh them.
+    try {
+      appWidgetHost.startListening()
+    } catch (e: Exception) {
+      android.util.Log.e("MainActivity", "Failed to start widget host listening: ${e.message}")
+    }
     queryState = savedInstanceState?.getString(KEY_ACTIVE_QUERY) ?: restoreRecentQuery()
     enableEdgeToEdge()
     Ime.applyHomeWindowMode(window, HomeKeyboardPreference.cached(this))

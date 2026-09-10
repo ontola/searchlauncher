@@ -15,6 +15,7 @@ data class WidgetData(val id: Int, val height: Int? = null, val provider: String
 class WidgetRepository(private val context: Context) {
   companion object {
     const val APPWIDGET_HOST_ID = 1002
+    const val DEFAULT_WIDGET_HEIGHT_DP = 200
   }
 
   private val WIDGETS_KEY = stringPreferencesKey("widgets_data")
@@ -78,7 +79,7 @@ class WidgetRepository(private val context: Context) {
 
   suspend fun addWidgetId(appWidgetId: Int) {
     val current = widgets.first()
-    val newList = current + WidgetData(appWidgetId, height = 200)
+    val newList = current + WidgetData(appWidgetId, height = DEFAULT_WIDGET_HEIGHT_DP)
     saveWidgets(newList)
   }
 
