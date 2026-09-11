@@ -261,6 +261,8 @@ internal fun createLinkPeekWebView(
   onError: (String) -> Unit,
 ): WebView =
   WebView(context).apply {
+    setBackgroundColor(android.graphics.Color.WHITE)
+    enableBrowserWebAuthn()
     settings.domStorageEnabled = true
     settings.allowFileAccess = false
     settings.allowContentAccess = false

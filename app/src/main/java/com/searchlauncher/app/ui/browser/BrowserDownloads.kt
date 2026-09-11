@@ -210,10 +210,18 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
           modifier = Modifier.padding(vertical = 8.dp),
         )
       }
+      pendingPageDownloads.values.forEach { export ->
+        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+          Text(export.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+          val fraction = export.fraction
+          if (fraction == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+          else LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+        }
+      }
       when {
         !loaded -> CircularProgressIndicator()
         error -> Text("Couldn’t load downloads. Retrying…")
-        downloads.isEmpty() -> Text("No downloads yet")
+        downloads.isEmpty() -> if (pendingPageDownloads.isEmpty()) Text("No downloads yet")
         else ->
           LazyColumn(Modifier.weight(1f)) {
             items(downloads, key = { it.id }) { item ->

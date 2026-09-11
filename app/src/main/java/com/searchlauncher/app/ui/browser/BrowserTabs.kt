@@ -33,7 +33,7 @@ internal class BrowserTab(initialUrl: String, restoredId: Long? = null) {
   var title by mutableStateOf<String?>(null)
   var desktopMode by mutableStateOf(false)
   /** The colour the page itself is painted on, which is what shows through any gap in it. */
-  var pageBackgroundArgb by mutableIntStateOf(0xff000000.toInt())
+  var pageBackgroundArgb by mutableIntStateOf(android.graphics.Color.WHITE)
   /**
    * The colour the site asks the browser's own furniture to wear, from `<meta name="theme-color">`,
    * or null when it asks for nothing. Kept apart from [pageBackgroundArgb] because the two are

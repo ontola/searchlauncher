@@ -605,7 +605,7 @@ internal fun BrowserScreen(
       ?: BrowserTabs(initialNavigationRequest?.url ?: "about:blank").also {
         // Seed the first tab with the theme background so opening the app doesn't tween the
         // bottom section from the BrowserTab default (black) to the real color.
-        it.active.pageBackgroundArgb = defaultPageBackground.toArgb()
+        it.active.pageBackgroundArgb = android.graphics.Color.WHITE
         if (!privateMode) BrowserTabStore.adopt(it)
       }
   }
@@ -993,7 +993,7 @@ internal fun BrowserScreen(
       BrowserTabStore.addBackgroundTab(url) { evicted ->
         BrowserTabTasks.close(context, evicted.id)
       } ?: return null
-    tab.pageBackgroundArgb = defaultPageBackground.toArgb()
+    tab.pageBackgroundArgb = android.graphics.Color.WHITE
     handOverTo(tab)
     return tab
   }
@@ -1010,7 +1010,7 @@ internal fun BrowserScreen(
     settleJob?.cancel()
     tabsInMotion = true
     webView?.let { saveWebViewIntoTab(it, activeTab) }
-    tabs.add("about:blank").pageBackgroundArgb = defaultPageBackground.toArgb()
+    tabs.add("about:blank").pageBackgroundArgb = android.graphics.Color.WHITE
     webView = null
     progress = 0
     pageBackground = defaultPageBackground
@@ -1124,7 +1124,7 @@ internal fun BrowserScreen(
       return
     }
     val newTab = tabs.add(url)
-    newTab.pageBackgroundArgb = defaultPageBackground.toArgb()
+    newTab.pageBackgroundArgb = android.graphics.Color.WHITE
     webView = null
     progress = 0
     pageBackground = Color(newTab.frameColorArgb)
@@ -1676,6 +1676,7 @@ internal fun BrowserScreen(
                   ViewGroup.LayoutParams.MATCH_PARENT,
                   ViewGroup.LayoutParams.MATCH_PARENT,
                 )
+              enableBrowserWebAuthn()
               settings.javaScriptEnabled = true
               settings.domStorageEnabled = true
               settings.setGeolocationEnabled(true)
@@ -1694,10 +1695,17 @@ internal fun BrowserScreen(
               // Without this, tapping a link the WebView cannot render itself — an APK, a PDF,
               // anything sent as an attachment — silently does nothing.
               setDownloadListener { downloadUrl, userAgent, contentDisposition, mimeType, _ ->
-                startDownload(context, downloadUrl, userAgent, contentDisposition, mimeType)
-                stopLoading()
+                if (isPageDownload(downloadUrl)) {
+                  val sourceView = this
+                  coroutineScope.launch {
+                    downloadFromPage(sourceView, downloadUrl, contentDisposition, mimeType)
+                  }
+                } else {
+                  startDownload(context, downloadUrl, userAgent, contentDisposition, mimeType)
+                }
+                if (!isPageDownload(downloadUrl)) stopLoading()
                 progress = 100
-                closeDownloadTab = !hasRenderedDocument
+                closeDownloadTab = !isPageDownload(downloadUrl) && !hasRenderedDocument
                 showDownloads = true
               }
               setOnLongClickListener {
@@ -1808,12 +1816,10 @@ internal fun BrowserScreen(
                 }
               webViewClient =
                 object : WebViewClient() {
-                  // The previous page's color is kept while loading; updating only once the new
-                  // page's background is known avoids flashing through the default color. The
-                  // WebView's own canvas is kept in sync so pages without a painted background
-                  // (blank tabs, load gaps) show the section color instead of WebView's white.
-                  private fun applyPageBackground(view: WebView, argb: Int) {
-                    view.setBackgroundColor(argb)
+                  // Detected colors style the browser frame only. Never paint them onto the
+                  // WebView: transparent documents must retain the browser's readable canvas,
+                  // rather than inheriting a previous site's dark background.
+                  private fun applyPageBackground(argb: Int) {
                     activeTab.pageBackgroundArgb = argb
                     pageBackground = Color(activeTab.frameColorArgb)
                   }
@@ -1838,7 +1844,7 @@ internal fun BrowserScreen(
                       applyThemeColor(colors.theme)
                       val background = colors.background
                       if (background != null) {
-                        applyPageBackground(view, background)
+                        applyPageBackground(background)
                       } else if (allowDrawnFallback && view.url != "about:blank") {
                         // The page sets no background of its own, so it is sitting on whichever
                         // canvas Chromium chose for it — and script cannot tell us which, since a
@@ -1846,7 +1852,7 @@ internal fun BrowserScreen(
                         // Reading it off the painted page is the only way to get this right; the
                         // old guess of white washed the bars around every such dark page white.
                         // Null means no colour dominates the page, and the current one stands.
-                        sampleDrawnBackgroundColor(view)?.let { applyPageBackground(view, it) }
+                        sampleDrawnBackgroundColor(view)?.let { applyPageBackground(it) }
                       }
                     }
                   }
@@ -1996,9 +2002,9 @@ internal fun BrowserScreen(
                     return false
                   }
                 }
-              // Paint the WebView canvas in the tab's color right away — WebView defaults to
-              // white, which flashed on blank tabs and dark pages (worst in dark mode).
-              setBackgroundColor(activeTab.pageBackgroundArgb)
+              // Page CSS (including color-scheme) paints above the standard white fallback.
+              // Tab/frame colors must never become the canvas behind transparent content.
+              setBackgroundColor(android.graphics.Color.WHITE)
               // A rebuilt WebView starts blank whatever the tab last managed to paint.
               activeTab.pageDrawn = false
               webView = this
@@ -2273,7 +2279,12 @@ internal fun BrowserScreen(
         onCopyUrl = { url -> copyUrl(context, url) },
         onShareUrl = { url -> shareUrl(context, url, null) },
         onDownloadImage = { url ->
-          startDownload(context, url)
+          val sourceView = webView
+          if (isPageDownload(url) && sourceView != null) {
+            coroutineScope.launch { downloadFromPage(sourceView, url, null, null) }
+          } else {
+            startDownload(context, url)
+          }
           linkMenuTarget = null
           showDownloads = true
         },
@@ -2290,7 +2301,12 @@ internal fun BrowserScreen(
         onCopyUrl = { url -> copyUrl(context, url) },
         onShareUrl = { url -> shareUrl(context, url, null) },
         onDownloadImage = { url ->
-          startDownload(context, url)
+          val sourceView = webView
+          if (isPageDownload(url) && sourceView != null) {
+            coroutineScope.launch { downloadFromPage(sourceView, url, null, null) }
+          } else {
+            startDownload(context, url)
+          }
           linkMenuTarget = null
           showDownloads = true
         },

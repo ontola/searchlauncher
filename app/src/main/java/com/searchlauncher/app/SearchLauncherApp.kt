@@ -133,6 +133,17 @@ class SearchLauncherApp : Application() {
       .apply()
   }
 
+  fun hasAskedDefaultBrowser(): Boolean =
+    getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+      .getBoolean("asked_default_browser", false)
+
+  fun setAskedDefaultBrowser() {
+    getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+      .edit()
+      .putBoolean("asked_default_browser", true)
+      .apply()
+  }
+
   private fun initSentry() {
     if (!io.sentry.Sentry.isEnabled()) {
       io.sentry.android.core.SentryAndroid.init(this) { options ->

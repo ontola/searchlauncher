@@ -201,6 +201,15 @@ fun SearchScreen(
   var showResetConfirmation by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
   var showConsentDialog by remember { mutableStateOf(!app.hasAskedForConsent()) }
   var showDefaultLauncherDialog by remember { mutableStateOf(false) }
+  var showDefaultBrowserDialog by remember {
+    val roles = context.getSystemService(android.app.role.RoleManager::class.java)
+    mutableStateOf(
+      !app.hasAskedForConsent() &&
+        !app.hasAskedDefaultBrowser() &&
+        roles?.isRoleAvailable(android.app.role.RoleManager.ROLE_BROWSER) == true &&
+        !roles.isRoleHeld(android.app.role.RoleManager.ROLE_BROWSER)
+    )
+  }
   var showPrivacyPolicy by remember { mutableStateOf(false) }
   // Offered, not merely defined: a shortcut whose app is gone is not a search option.
   val searchShortcuts by app.searchShortcutRepository.launchable.collectAsState()
@@ -1756,6 +1765,44 @@ fun SearchScreen(
                   onClick = {
                     app.setAskedDefaultLauncher()
                     showDefaultLauncherDialog = false
+                  }
+                ) {
+                  Text("Not now")
+                }
+              },
+            )
+          } else if (showDefaultBrowserDialog) {
+            AlertDialog(
+              onDismissRequest = {
+                app.setAskedDefaultBrowser()
+                showDefaultBrowserDialog = false
+              },
+              title = { Text("Open links in SearchLauncher") },
+              text = {
+                Text(
+                  "Set SearchLauncher as your default browser to open links from other apps " +
+                    "in your tabs. Find those tabs again from your home screen search."
+                )
+              },
+              confirmButton = {
+                Button(
+                  onClick = {
+                    app.setAskedDefaultBrowser()
+                    showDefaultBrowserDialog = false
+                    com.searchlauncher.app.util.CustomActionHandler.handleAction(
+                      context,
+                      Intent("com.searchlauncher.action.SET_DEFAULT_BROWSER"),
+                    )
+                  }
+                ) {
+                  Text("Set as default browser")
+                }
+              },
+              dismissButton = {
+                TextButton(
+                  onClick = {
+                    app.setAskedDefaultBrowser()
+                    showDefaultBrowserDialog = false
                   }
                 ) {
                   Text("Not now")
