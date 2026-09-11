@@ -1,0 +1,5 @@
+Download JavaScript-generated exports with progress and history (up to 100 MB).
+Fix unreadable pages that do not specify a background.
+Onboarding now offers to make SearchLauncher your default browser.
+Fix blank collection widgets, including multi-line lists.
+Add native WebAuthn integration on supported Android 14+ devices. Credential-provider approval is still required; passkey sign-in is not yet verified.
