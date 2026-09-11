@@ -68,6 +68,7 @@ import androidx.compose.ui.zIndex
 import androidx.datastore.preferences.core.edit
 import coil.compose.AsyncImage
 import com.searchlauncher.app.data.WidgetData
+import com.searchlauncher.app.data.WidgetRepository
 import com.searchlauncher.app.ui.MainActivity
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.WidgetHostViewFactory
@@ -396,8 +397,19 @@ fun WallpaperBackground(
                       class WidgetContainerView(context: android.content.Context) :
                         android.widget.FrameLayout(context) {
                         init {
-                          clipChildren = true
-                          clipToPadding = true
+                          clipChildren = false
+                          clipToPadding = false
+                        }
+
+                        override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+                          super.onSizeChanged(w, h, oldw, oldh)
+                          val activity = context as? MainActivity ?: return
+                          WidgetHostViewFactory.reportContainerSize(
+                            this,
+                            activity.appWidgetManager,
+                            w,
+                            h,
+                          )
                         }
 
                         private var onLongPressListener: (() -> Unit)? = null
@@ -690,7 +702,7 @@ private fun MissingWidget(
 private val WIDGET_COLUMN_MAX_WIDTH = 420.dp
 
 /** Height assumed for a widget that has never been resized, matching the default it is given. */
-private val WIDGET_DEFAULT_HEIGHT = 200.dp
+private val WIDGET_DEFAULT_HEIGHT = WidgetRepository.DEFAULT_WIDGET_HEIGHT_DP.dp
 
 /**
  * Gap between the widget list and the favorites / chrome block, matching the chrome column's own
