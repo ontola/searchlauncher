@@ -1996,6 +1996,8 @@ internal fun BrowserScreen(
                     view: WebView,
                     request: WebResourceRequest,
                   ): Boolean {
+                    if (request.isForMainFrame && openVerifiedAppLink(context, request.url))
+                      return true
                     if (openOutsideWebView(context, request.url)) return true
                     siteSettings = siteSettingsStore.load(request.url.toString())
                     view.applySiteSettings(siteSettings)

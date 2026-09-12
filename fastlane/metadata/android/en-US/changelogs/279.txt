@@ -1,0 +1,4 @@
+Browser tabs now hand HTTPS app links to the default installed app on Android 11+, addressing a missing handoff that can affect apps such as DigiD.
+Ordinary webpages stay in SearchLauncher when no default app handles the link. Embedded frames cannot trigger this handoff.
+DigiD login still needs physical-device verification.
+This APK updates regular SearchLauncher, not a separately installed debug preview.
