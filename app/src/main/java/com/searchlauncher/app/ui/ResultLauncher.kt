@@ -96,8 +96,8 @@ class ResultLauncher(
   }
 
   private fun launchApp(result: SearchResult.App) {
-    if (result.isPrivate) {
-      launchPrivateApp(result)
+    if (result.isPrivate || com.searchlauncher.app.data.ProfileItemIds.hasProfile(result.id)) {
+      launchProfileApp(result)
       return
     }
     val launchIntent = context.packageManager.getLaunchIntentForPackage(result.packageName)
@@ -107,10 +107,12 @@ class ResultLauncher(
     }
   }
 
-  private fun launchPrivateApp(result: SearchResult.App) {
-    val user = result.userHandle
+  private fun launchProfileApp(result: SearchResult.App) {
+    val user =
+      if (result.isPrivate) result.userHandle
+      else com.searchlauncher.app.data.ProfileItemIds.user(context, result.id)
     if (user == null) {
-      Toast.makeText(context, "Private Space is locked", Toast.LENGTH_SHORT).show()
+      Toast.makeText(context, "Profile is locked or unavailable", Toast.LENGTH_SHORT).show()
       return
     }
     try {
@@ -221,7 +223,10 @@ class ResultLauncher(
             .show()
           return
         }
-        launcherApps.startShortcut(pkg, id, null, null, android.os.Process.myUserHandle())
+        val user =
+          com.searchlauncher.app.data.ProfileItemIds.user(context, result.id)
+            ?: throw IllegalStateException("Profile is no longer available")
+        launcherApps.startShortcut(pkg, id, null, null, user)
       } else {
         launchIntent(Intent.parseUri(uri, Intent.URI_INTENT_SCHEME), query)
       }

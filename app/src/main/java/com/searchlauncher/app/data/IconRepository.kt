@@ -87,6 +87,17 @@ class IconRepository(private val context: Context) {
   suspend fun cacheAppIcon(packageName: String, customKey: String? = null) =
     withContext(Dispatchers.IO) {
       try {
+        // Work copies may have different artwork; reload their own badged icons after updates.
+        val profilePrefix = "profile_app_$packageName@"
+        getIconDir()
+          .listFiles()
+          ?.filter { it.name.startsWith(profilePrefix) }
+          ?.forEach { it.delete() }
+        memoryCache
+          .snapshot()
+          .keys
+          .filter { it.startsWith(profilePrefix) }
+          .forEach { memoryCache.remove(it) }
         val key = customKey ?: "appicon_$packageName"
         val icon = context.packageManager.getApplicationIcon(packageName)
         putMemory(key, icon)
@@ -138,14 +149,24 @@ class IconRepository(private val context: Context) {
     val diskPrefixStatic = "static_shortcut_${sanitizeId("$packageName/")}"
     getIconDir().listFiles()?.forEach { file ->
       val name = file.nameWithoutExtension
-      if (name.startsWith(diskPrefixShortcut) || name.startsWith(diskPrefixStatic)) {
+      if (
+        name.startsWith(diskPrefixShortcut) ||
+          name.startsWith(diskPrefixStatic) ||
+          name.startsWith("shortcut_$packageName@") ||
+          name.startsWith("static_shortcut_$packageName@")
+      ) {
         file.delete()
       }
     }
     val memoryPrefixShortcut = "shortcut_$packageName/"
     val memoryPrefixStatic = "static_shortcut_$packageName/"
     memoryCache.snapshot().keys.forEach { key ->
-      if (key.startsWith(memoryPrefixShortcut) || key.startsWith(memoryPrefixStatic)) {
+      if (
+        key.startsWith(memoryPrefixShortcut) ||
+          key.startsWith(memoryPrefixStatic) ||
+          key.startsWith("shortcut_$packageName@") ||
+          key.startsWith("static_shortcut_$packageName@")
+      ) {
         memoryCache.remove(key)
       }
     }
