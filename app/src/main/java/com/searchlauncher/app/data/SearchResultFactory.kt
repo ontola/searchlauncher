@@ -5,7 +5,6 @@ import android.content.pm.LauncherApps
 import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.net.Uri
-import android.os.Process
 import android.util.Log
 import com.searchlauncher.app.R
 import com.searchlauncher.app.SearchLauncherApp
@@ -58,7 +57,10 @@ class SearchResultFactory(
     val doc = sdoc.doc
     val pkg = sdoc.packageName ?: ""
     val icon = loadShortcutIcon(sdoc, saveToDisk, allowIpc, allowDisk)
-    val appIcon = loadAppIcon(pkg, saveToDisk, allowIpc, allowDisk)
+    val appIcon =
+      if (ProfileItemIds.hasProfile(doc.id)) {
+        loadProfileAppIcon(doc.id.substringBefore('/'), saveToDisk, allowIpc, allowDisk)
+      } else loadAppIcon(pkg, saveToDisk, allowIpc, allowDisk)
 
     return SearchResult.Shortcut(
       id = doc.id,
@@ -286,8 +288,11 @@ class SearchResultFactory(
     allowDisk: Boolean,
   ): SearchResult.App {
     val doc = sdoc.doc
-    val packageName = doc.id
-    val icon = loadAppIcon(packageName, saveToDisk, allowIpc, allowDisk)
+    val packageName = ProfileItemIds.packageName(doc.id)
+    val icon =
+      if (ProfileItemIds.hasProfile(doc.id)) {
+        loadProfileAppIcon(doc.id, saveToDisk, allowIpc, allowDisk)
+      } else loadAppIcon(packageName, saveToDisk, allowIpc, allowDisk)
 
     return SearchResult.App(
       id = doc.id,
@@ -295,7 +300,7 @@ class SearchResultFactory(
       title = doc.name,
       subtitle = doc.description ?: doc.id,
       icon = icon,
-      packageName = doc.id,
+      packageName = packageName,
       rankingScore = rankingScore,
     )
   }
@@ -316,8 +321,8 @@ class SearchResultFactory(
     sdoc: SearchableDocument,
     cacheKey: String,
     saveToDisk: Boolean,
-  ): Drawable? =
-    try {
+  ): Drawable? {
+    return try {
       val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
       val query = LauncherApps.ShortcutQuery()
       query.setPackage(sdoc.packageName ?: "")
@@ -334,7 +339,8 @@ class SearchResultFactory(
           LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED or
           cached
       )
-      val shortcuts = launcherApps.getShortcuts(query, Process.myUserHandle())
+      val shortcuts =
+        launcherApps.getShortcuts(query, ProfileItemIds.user(context, sdoc.doc.id) ?: return null)
       val icon =
         shortcuts
           ?.takeIf { it.isNotEmpty() }
@@ -345,6 +351,31 @@ class SearchResultFactory(
     } catch (e: Exception) {
       null
     }
+  }
+
+  private fun loadProfileAppIcon(
+    id: String,
+    saveToDisk: Boolean,
+    allowIpc: Boolean,
+    allowDisk: Boolean,
+  ): Drawable? {
+    val key = "profile_app_$id"
+    loadCachedIcon(key, allowDisk)?.let {
+      return it
+    }
+    if (!allowIpc) return null
+    return try {
+      val user = ProfileItemIds.user(context, id) ?: return null
+      val apps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
+      apps
+        .getActivityList(ProfileItemIds.packageName(id), user)
+        .firstOrNull()
+        ?.getBadgedIcon(context.resources.displayMetrics.densityDpi)
+        ?.also { cacheIcon(key, it, saveToDisk) }
+    } catch (_: Exception) {
+      null
+    }
+  }
 
   private fun loadAppShortcutIcon(
     doc: AppSearchDocument,

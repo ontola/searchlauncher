@@ -71,7 +71,8 @@ class ShortcutIndexer(private val context: Context) {
           for (shortcut in shortcutList) {
             pauseCheck()
             try {
-              val shortcutId = "${shortcut.`package`}/${shortcut.id}"
+              val shortcutId =
+                "${ProfileItemIds.packageKey(context, shortcut.`package`, profile)}/${shortcut.id}"
               val name = shortcut.shortLabel?.toString() ?: shortcut.longLabel?.toString() ?: ""
               val appName =
                 appNameCache.getOrPut(shortcut.`package`) {
@@ -94,7 +95,9 @@ class ShortcutIndexer(private val context: Context) {
                   name = name,
                   score = 1,
                   intentUri = "shortcut://${shortcut.`package`}/${shortcut.id}",
-                  description = "Shortcut - $appName",
+                  description =
+                    if (ProfileItemIds.hasProfile(shortcutId)) "Work profile · Shortcut - $appName"
+                    else "Shortcut - $appName",
                 )
               )
             } catch (e: Exception) {
@@ -142,7 +145,9 @@ class ShortcutIndexer(private val context: Context) {
           namespace = "static_shortcuts",
           id = shortcutId,
           name = "$appName: ${s.shortLabel}",
-          description = "Shortcut - $appName",
+          description =
+            if (ProfileItemIds.hasProfile(shortcutId)) "Work profile · Shortcut - $appName"
+            else "Shortcut - $appName",
           score = 1,
           intentUri = s.intent.toUri(0),
           iconResId = s.iconResId.toLong(),

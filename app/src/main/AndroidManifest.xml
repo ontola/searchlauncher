@@ -60,6 +60,14 @@
 
         <activity android:name=".ui.browser.DownloadsActivity" android:exported="false" android:theme="@style/Theme.SearchLauncher.Downloads" />
 
+        <activity android:name=".ui.PinShortcutActivity" android:exported="true"
+            android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.Alert">
+            <intent-filter>
+                <action android:name="android.content.pm.action.CONFIRM_PIN_SHORTCUT" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <!-- Main Activity -->
         <activity
             android:name=".ui.MainActivity"

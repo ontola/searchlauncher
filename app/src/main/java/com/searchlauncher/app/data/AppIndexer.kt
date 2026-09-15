@@ -40,7 +40,9 @@ class AppIndexer(private val context: Context) {
       for (profile in launcherApps.profiles) {
         if (PrivateSpaceProfiles.isPrivate(launcherApps, profile)) continue
         for (info in launcherApps.getActivityList(null, profile)) {
-          seen.add("${info.componentName.packageName}:${info.label}")
+          seen.add(
+            "${ProfileItemIds.packageKey(context, info.componentName.packageName, profile)}:${info.label}"
+          )
         }
       }
       // Sorted before hashing so the same catalog in a different order is the same catalog.
@@ -60,9 +62,7 @@ class AppIndexer(private val context: Context) {
     val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
 
     val apps = mutableListOf<AppSearchDocument>()
-    // Apps are addressed by package id everywhere (search, favorites, history, the app list), so we
-    // keep one document per package. A package can expose several launcher activities (e.g. Tasker)
-    // or appear in multiple profiles, which would otherwise yield colliding ids.
+    // Keep one entry per package and profile; personal-profile IDs remain backward compatible.
     // Private Space is skipped: those apps are live-queried and must vanish from search on lock.
     val seenPackages = mutableSetOf<String>()
 
@@ -90,7 +90,8 @@ class AppIndexer(private val context: Context) {
           try {
             val appName = info.label.toString()
             val packageName = info.componentName.packageName
-            if (!seenPackages.add(packageName)) continue
+            val id = ProfileItemIds.packageKey(context, packageName, profile)
+            if (!seenPackages.add(id)) continue
 
             val appInfo = info.applicationInfo
             val category =
@@ -109,10 +110,11 @@ class AppIndexer(private val context: Context) {
             apps.add(
               AppSearchDocument(
                 namespace = "apps",
-                id = packageName,
+                id = id,
                 name = appName,
                 score = 2,
-                description = category,
+                description =
+                  if (ProfileItemIds.hasProfile(id)) "Work profile · $category" else category,
               )
             )
           } catch (e: Exception) {

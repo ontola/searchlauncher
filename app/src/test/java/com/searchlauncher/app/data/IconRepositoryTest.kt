@@ -84,7 +84,11 @@ class IconRepositoryTest {
     repository.putMemory("shortcut_com.chat.app/conv1", ColorDrawable(Color.RED))
     repository.putMemory("shortcut_com.other.app/conv1", ColorDrawable(Color.BLUE))
 
+    repository.saveToDisk("shortcut_com.chat.app@42/conv1", ColorDrawable(Color.RED), force = true)
+    repository.putMemory("shortcut_com.chat.app@42/conv1", ColorDrawable(Color.RED))
     repository.invalidateShortcutIcons("com.chat.app")
+    assertTrue(!iconFile("shortcut_com.chat.app@42_conv1").exists())
+    assertTrue(repository.getMemory("shortcut_com.chat.app@42/conv1") == null)
 
     assertTrue(!iconFile("shortcut_com.chat.app_conv1").exists())
     assertTrue(!iconFile("static_shortcut_com.chat.app_settings").exists())

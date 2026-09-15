@@ -151,7 +151,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       1,
       4,
       6 -> { // apps, shortcuts, static_shortcuts
-        packageName = doc.id.split("/").firstOrNull() ?: ""
+        packageName = ProfileItemIds.packageName(doc.id)
       }
     }
 
@@ -299,6 +299,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private val calendarIndexer = CalendarIndexer(context)
   val privateSpace = PrivateSpaceManager(context)
 
+  private val storageReady = kotlinx.coroutines.CompletableDeferred<Unit>()
+
   private val _isInitialized = kotlinx.coroutines.flow.MutableStateFlow(false)
   val isInitialized: kotlinx.coroutines.flow.StateFlow<Boolean> = _isInitialized
 
@@ -422,9 +424,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         if (fastCacheLoaded) {
           // Still load genuine AppSearch index async to ensure correctness
-          scope.launch { loadFromIndex() }
+          scope.launch {
+            loadFromIndex()
+            storageReady.complete(Unit)
+          }
         } else {
           loadFromIndex()
+          storageReady.complete(Unit)
           android.util.Log.d(
             "SearchRepository",
             "loadFromIndex took ${System.currentTimeMillis() - loadStart}ms",
@@ -707,10 +713,15 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         }
       } else {
         val foundIds = apps.map { it.id }.toSet()
-        val missingIds = packageNames.filter { it !in foundIds }
+        val missingIds =
+          documentSnapshot
+            .filter {
+              it.doc.namespace == "apps" && it.packageName in packageNames && it.doc.id !in foundIds
+            }
+            .map { it.doc.id }
         // AppIndexer maps per-package query failures to an empty list, so "not in foundIds" is not
         // the same as "uninstalled". Only drop packages we can confirm are gone.
-        val removedIds = missingIds.filterNot { isPackagePresent(it) }
+        val removedIds = missingIds.filterNot { isAppIdentityPresent(it) }
         putDocuments(session, apps)
         if (removedIds.isNotEmpty()) {
           try {
@@ -745,7 +756,14 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       val isFullReindex = packageNames == null
       val packages =
         packageNames
-          ?: documentSnapshot.filter { it.namespaceInt == 1 }.map { it.doc.id }.distinct()
+          ?: (documentSnapshot.filter { it.namespaceInt == 1 }.mapNotNull { it.packageName } +
+              (context.applicationContext as SearchLauncherApp)
+                .favoritesRepository
+                .favoriteIds
+                .value
+                .filter { it.startsWith("shortcuts/") }
+                .map { ProfileItemIds.packageName(it.removePrefix("shortcuts/")) })
+            .distinct()
 
       // Build first while the live snapshot still serves the previous shortcuts.
       val newShortcuts =
@@ -761,9 +779,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         val previousIds =
           documentSnapshot
             .asSequence()
-            .filter { sdoc ->
-              sdoc.doc.namespace == "shortcuts" && packages.any { sdoc.doc.id.startsWith("$it/") }
-            }
+            .filter { sdoc -> sdoc.doc.namespace == "shortcuts" && sdoc.packageName in packages }
             .map { it.doc.id }
             .toSet()
         val keepIds = newShortcuts.map { it.id }.toSet()
@@ -784,7 +800,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         synchronized(this@SearchRepository) {
           val filtered =
             documentSnapshot.filter { sdoc ->
-              sdoc.doc.namespace != "shortcuts" || packages.none { sdoc.doc.id.startsWith("$it/") }
+              sdoc.doc.namespace != "shortcuts" || sdoc.packageName !in packages
             }
           documentSnapshot = (filtered + newShortcuts.map { wrap(it) }).sortedBy { it.namespaceInt }
         }
@@ -1637,6 +1653,32 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           appsRefreshRunning = false
         }
       }
+    }
+  }
+
+  private fun isAppIdentityPresent(id: String): Boolean {
+    if (!ProfileItemIds.hasProfile(id))
+      return try {
+        val apps =
+          context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+        apps.isPackageEnabled(id, android.os.Process.myUserHandle())
+      } catch (_: Exception) {
+        true
+      }
+    val user = ProfileItemIds.user(context, id) ?: return false
+    return try {
+      val apps =
+        context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+      apps.isPackageEnabled(ProfileItemIds.packageName(id), user)
+    } catch (_: Exception) {
+      true
+    }
+  }
+
+  fun refreshPinnedShortcut(packageName: String) {
+    scope.launch {
+      storageReady.await()
+      indexWriteMutex.withLock { indexShortcuts(listOf(packageName)) }
     }
   }
 
@@ -2560,12 +2602,15 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             val activityList = launcherApps.getActivityList(null, profile)
             for (info in activityList) {
               val pkg = info.componentName.packageName
+              val id = ProfileItemIds.packageKey(context, pkg, profile)
+              val key = if (ProfileItemIds.hasProfile(id)) "profile_app_$id" else "appicon_$pkg"
               try {
-                val appIcon = info.getIcon(context.resources.displayMetrics.densityDpi)
-                iconRepository.saveToDisk("appicon_$pkg", appIcon, force = true)
+                val appIcon = info.getBadgedIcon(context.resources.displayMetrics.densityDpi)
+                iconRepository.saveToDisk(key, appIcon, force = true)
                 iconCount++
               } catch (e: Exception) {
-                // Try PackageManager as fallback
+                // PackageManager can only supply a personal-profile fallback.
+                if (ProfileItemIds.hasProfile(id)) continue
                 try {
                   val appIcon = context.packageManager.getApplicationIcon(pkg)
                   iconRepository.saveToDisk("appicon_$pkg", appIcon, force = true)
