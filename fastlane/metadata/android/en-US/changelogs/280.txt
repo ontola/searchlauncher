@@ -1,0 +1,1 @@
+Add shortcuts from apps such as Shelter to your favorites using Android’s confirmation dialog. Personal and work-profile copies now appear separately in search and open in the correct profile, including from favorites. Work apps show a profile label and badged icon. Existing personal favorites are preserved.
