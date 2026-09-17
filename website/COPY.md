@@ -67,11 +67,12 @@ Refinements from v3: tighter hero support (one sentence), sharper section leads,
 - **Description:** Keyboard-first Android launcher. Search apps, contacts, settings, snippets, and the web. Built-in ad-blocking browser with tabs. Free and open source.
 
 ### Links
+- Play Store: `https://play.google.com/store/apps/details?id=com.searchlauncher.app`
 - Releases: `https://github.com/ontola/searchlauncher/releases/latest`
 - GitHub: `https://github.com/ontola/searchlauncher`
 - Privacy: `privacy.html`
 - Contact: `mailto:info@ontola.io`
-- Note: Play Store and F-Droid listings are not live yet; site CTAs use GitHub Releases.
+- Note: Play Store listing is live; site CTAs go there. F-Droid is not live yet; APKs remain on GitHub Releases.
 
 ### Nav
 SearchLauncher · Features · Privacy · Download
@@ -80,7 +81,7 @@ SearchLauncher · Features · Privacy · Download
 - **Brand:** SearchLauncher
 - **Headline:** Your homescreen has a keyboard.
 - **Support:** Type to launch apps, call contacts, run shortcuts, or open the web — from one always-ready bar.
-- **Primary CTA:** Download SearchLauncher (GitHub Releases)
+- **Primary CTA:** Get it on Google Play
 - **Secondary CTA:** View source
 - **Secondary line:** Free · Open source · Android 10+
 - **Alt micro-line (optional under CTA):** Use it as your launcher, or as a widget on any home screen.
@@ -153,11 +154,11 @@ SearchLauncher · Features · Privacy · Download
 
 ### Closing CTA
 **Headline:** Stop scrolling. Start executing.
-**Support:** Free on GitHub. Android 10 or newer.
-**CTA:** Download latest release
+**Support:** Free on Google Play. Android 10 or newer. APK also on GitHub.
+**CTA:** Get it on Google Play
 
 ### Footer
-Made with love by Ontola · GitHub · Privacy · Releases · Source · info@ontola.io
+Made with love by Ontola · Play Store · GitHub · Privacy · Releases · Source · info@ontola.io
 
 ### Alternate lines bank (unused but strong)
 - Stop hunting icons.
@@ -210,7 +211,7 @@ Wordmark + mark appear in nav and hero; section eyebrows use the small feature i
 | Notification / QS / drawer gestures | Home screen |
 | Theme / OLED | Home screen |
 | Backup export/import | Fits your setup |
-| Free, MIT, Play + F-Droid | Hero + Trust + CTA |
+| Free, MIT, Play (F-Droid pending) | Hero + Trust + CTA |
 | On-device / optional network | Trust |
 | Raycast metaphor | Proof quote |
 

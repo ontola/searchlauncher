@@ -2,6 +2,8 @@
 
 Android app that lets you search everything on your phone and on the web, and opens what you find in its own ad-blocking browser.
 
+**Get it on [Google Play](https://play.google.com/store/apps/details?id=com.searchlauncher.app).** APKs are also on [GitHub Releases](https://github.com/ontola/searchlauncher/releases/latest).
+
 **Website:** [searchlauncher.eu](https://searchlauncher.eu/) (source in [`website/`](website/))
 
 ## Features

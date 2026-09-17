@@ -2,6 +2,9 @@
 
 ## Google Play Store
 
+The public listing is
+[https://play.google.com/store/apps/details?id=com.searchlauncher.app](https://play.google.com/store/apps/details?id=com.searchlauncher.app).
+
 Play wants a bundle rather than an APK, and its own set of listing assets. Everything
 here except the console forms is already in the repo.
 
@@ -186,11 +189,12 @@ the launcher alone would.
 
 **Target API** — Play requires 35 or later; this app targets 36.
 
-### Before the first production release
+### Production
 
-A personal developer account created after November 2023 has to run a closed test with
-at least 12 testers who stay opted in for 14 days before production opens up. Organisation
-accounts are exempt. Start that clock early: it gates the release, not the review.
+The listing is live. A personal developer account created after November 2023 has to
+run a closed test with at least 12 testers who stay opted in for 14 days before
+production opens up; organisation accounts are exempt. That clock is already done for
+this app.
 
 ## F-Droid
 
