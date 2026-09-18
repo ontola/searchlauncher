@@ -1496,28 +1496,27 @@ private fun AboutCard() {
       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(
           onClick = {
-            val intent =
-              Intent(
-                Intent.ACTION_VIEW,
-                Uri.parse("https://play.google.com/store/apps/details?id=com.searchlauncher.app"),
-              )
-            context.startActivity(intent)
+            openUrl(context, "https://play.google.com/store/apps/details?id=com.searchlauncher.app")
           },
           modifier = Modifier.weight(1f),
         ) {
           Text("Play Store")
         }
         OutlinedButton(
-          onClick = {
-            val intent =
-              Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/ontola/searchlauncher"))
-            context.startActivity(intent)
-          },
+          onClick = { openUrl(context, "https://github.com/ontola/searchlauncher") },
           modifier = Modifier.weight(1f),
         ) {
           Text("Source code")
         }
       }
+
+      TextButton(onClick = { openUrl(context, "https://searchlauncher.eu/") }) {
+        Text("searchlauncher.eu")
+      }
     }
   }
+}
+
+private fun openUrl(context: Context, url: String) {
+  context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
 }

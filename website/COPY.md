@@ -68,11 +68,12 @@ Refinements from v3: tighter hero support (one sentence), sharper section leads,
 
 ### Links
 - Play Store: `https://play.google.com/store/apps/details?id=com.searchlauncher.app`
+- F-Droid: `https://f-droid.org/packages/com.searchlauncher.app/`
 - Releases: `https://github.com/ontola/searchlauncher/releases/latest`
 - GitHub: `https://github.com/ontola/searchlauncher`
 - Privacy: `privacy.html`
 - Contact: `mailto:info@ontola.io`
-- Note: Play Store listing is live; site CTAs go there. F-Droid is not live yet; APKs remain on GitHub Releases.
+- Note: Play Store listing is the primary CTA. F-Droid is mentioned quietly on the download section and in the footer. APKs remain on GitHub Releases.
 
 ### Nav
 SearchLauncher · Features · Privacy · Download
@@ -156,9 +157,10 @@ SearchLauncher · Features · Privacy · Download
 **Headline:** Stop scrolling. Start executing.
 **Support:** Free on Google Play. Android 10 or newer. APK also on GitHub.
 **CTA:** Get it on Google Play
+**Quiet mention:** Also on F-Droid.
 
 ### Footer
-Made with love by Ontola · Play Store · GitHub · Privacy · Releases · Source · info@ontola.io
+Made with love by Ontola · Play Store · F-Droid · GitHub · Privacy · Releases · Source · info@ontola.io
 
 ### Alternate lines bank (unused but strong)
 - Stop hunting icons.
@@ -211,7 +213,7 @@ Wordmark + mark appear in nav and hero; section eyebrows use the small feature i
 | Notification / QS / drawer gestures | Home screen |
 | Theme / OLED | Home screen |
 | Backup export/import | Fits your setup |
-| Free, MIT, Play (F-Droid pending) | Hero + Trust + CTA |
+| Free, MIT, Play (F-Droid in footer) | Hero + Trust + CTA |
 | On-device / optional network | Trust |
 | Raycast metaphor | Proof quote |
 
