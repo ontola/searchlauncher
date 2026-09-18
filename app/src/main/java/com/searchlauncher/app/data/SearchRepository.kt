@@ -2049,7 +2049,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           FuzzyMatch.calculateScore(query, address),
         )
       if (score < RankingScores.BROWSER_TAB_MIN_SCORE) return@mapNotNull null
-      result.copy(rankingScore = RankingScores.BROWSER_TAB_BASE + score)
+      result.copy(rankingScore = RankingScores.matchScore(score) + RankingScores.BROWSER_TAB_BOOST)
     }
   }
 

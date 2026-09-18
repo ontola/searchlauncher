@@ -52,7 +52,7 @@ object SearchRanker {
         val namespaceBoost = namespaceBoost(sdoc, queryLower, finalScore, queryUsagePoints)
         val usageBoost = usageBoost(globalUsage, queryUsagePoints)
 
-        candidates.add(sdoc to (finalScore + namespaceBoost + usageBoost))
+        candidates.add(sdoc to (RankingScores.matchScore(finalScore) + namespaceBoost + usageBoost))
       }
 
       if (candidates.size > MAX_CANDIDATES) break
@@ -99,10 +99,6 @@ object SearchRanker {
         11 -> RankingScores.NAMESPACE_BOOST_CALENDAR
         else -> RankingScores.NAMESPACE_BOOST_DEFAULT
       }
-
-    if (queryLower.length <= RankingScores.SHORT_QUERY_MAX_LENGTH && sdoc.namespaceInt <= 2) {
-      boost += RankingScores.SHORT_QUERY_APP_BOOST
-    }
 
     if (
       sdoc.namespaceInt == 5 &&
@@ -170,7 +166,7 @@ object SearchRanker {
 
       candidates.add(
         sdoc to
-          (finalScore +
+          (RankingScores.matchScore(finalScore) +
             RankingScores.NAMESPACE_BOOST_CONTACTS +
             RankingScores.LEARNED_CONTACT_SHORT_QUERY_BOOST +
             usageBoost)

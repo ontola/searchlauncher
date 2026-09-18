@@ -153,9 +153,10 @@ class PrivateSpaceManager(private val context: Context) {
     return results
   }
 
+  /** [matchScore] is the FuzzyMatch grade; the default is the exact-match grade for list views. */
   fun controlResult(
     snap: PrivateSpaceSnapshot = _snapshot.value,
-    matchScore: Int = RankingScores.NAMESPACE_BOOST_APPS,
+    matchScore: Int = EXACT_MATCH_GRADE,
   ): SearchResult.PrivateSpace? {
     if (!PrivateSpaceQuery.showControl(snap)) return null
     return SearchResult.PrivateSpace(
@@ -164,14 +165,14 @@ class PrivateSpaceManager(private val context: Context) {
       title = "Private Space",
       subtitle = if (snap.unlocked) "Unlocked · tap to lock" else "Locked · tap to unlock",
       icon = controlIcon(),
-      rankingScore = RankingScores.NAMESPACE_BOOST_APPS + matchScore,
+      rankingScore = RankingScores.matchScore(matchScore) + RankingScores.NAMESPACE_BOOST_APPS,
       unlocked = snap.unlocked,
     )
   }
 
   fun appResults(): List<SearchResult.App> {
     if (!PrivateSpaceQuery.showApps(_snapshot.value)) return emptyList()
-    return _apps.value.map { appResult(it, RankingScores.NAMESPACE_BOOST_APPS) }
+    return _apps.value.map { appResult(it, EXACT_MATCH_GRADE) }
   }
 
   private fun appResult(app: PrivateAppInfo, matchScore: Int): SearchResult.App {
@@ -181,7 +182,7 @@ class PrivateSpaceManager(private val context: Context) {
       title = app.label,
       subtitle = "Private",
       icon = loadPrivateAppIcon(app),
-      rankingScore = RankingScores.NAMESPACE_BOOST_APPS + matchScore,
+      rankingScore = RankingScores.matchScore(matchScore) + RankingScores.NAMESPACE_BOOST_APPS,
       packageName = app.packageName,
       isPrivate = true,
       userHandle = app.userHandle,
@@ -207,5 +208,9 @@ class PrivateSpaceManager(private val context: Context) {
 
   companion object {
     private const val TAG = "PrivateSpace"
+    /**
+     * FuzzyMatch's grade for an exact match, used where results are listed rather than searched.
+     */
+    private const val EXACT_MATCH_GRADE = 100
   }
 }

@@ -3,6 +3,8 @@ package com.searchlauncher.app.data
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.ui.browser.BrowserTabStore
+import com.searchlauncher.app.ui.browser.BrowserTabs
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -901,4 +903,103 @@ class SearchRepositoryTest {
       results.filterIsInstance<SearchResult.Snippet>().isEmpty(),
     )
   }
+
+  @Test
+  fun `name starting with a short query outranks a stronger type whose later word starts with it`() =
+    runBlocking {
+      val contact =
+        AppSearchDocument(
+          namespace = "contacts",
+          id = "stan_lookup/1",
+          score = 1,
+          name = "Stan Jansen",
+          description = "|+15550123",
+        )
+      val app =
+        AppSearchDocument(
+          namespace = "apps",
+          id = "com.android.vending",
+          score = 1,
+          name = "Play Store",
+          description = "Apps",
+        )
+
+      repository.documentSnapshot =
+        listOf(repository.wrap(app), repository.wrap(contact)).sortedBy { it.namespaceInt }
+
+      val results = repository.searchApps("st", limit = 5, includeSuggestions = false).getOrThrow()
+      assertEquals(
+        "Two letters at the start of a name should beat a word inside an app name, apps or not",
+        contact.id,
+        results.first().id,
+      )
+    }
+
+  @Test
+  fun `history entry starting with the query outranks an app that merely contains it`() =
+    runBlocking {
+      val history =
+        AppSearchDocument(
+          namespace = "web_bookmarks",
+          id = "web_booking",
+          score = 1,
+          name = "Booking.com",
+          intentUri = "https://booking.com",
+          description = "https://booking.com",
+        )
+      val app =
+        AppSearchDocument(
+          namespace = "apps",
+          id = "com.facebook.katana",
+          score = 1,
+          name = "Facebook",
+          description = "Social",
+        )
+
+      repository.documentSnapshot =
+        listOf(repository.wrap(app), repository.wrap(history)).sortedBy { it.namespaceInt }
+
+      val results =
+        repository.searchApps("book", limit = 5, includeSuggestions = false).getOrThrow()
+      assertEquals(
+        "How well the name matches should count for more than what kind of result it is",
+        history.id,
+        results.first().id,
+      )
+    }
+
+  @Test
+  fun `one letter query lists the app starting with it above open tabs that only contain it`() =
+    runBlocking {
+      val app =
+        AppSearchDocument(
+          namespace = "apps",
+          id = "com.instagram.android",
+          score = 1,
+          name = "Instagram",
+          description = "Social",
+        )
+      repository.documentSnapshot = listOf(repository.wrap(app))
+
+      val tabs = BrowserTabs("https://github.com/ontola/searchlauncher/issues")
+      tabs.items[0].title = "GitHub issues"
+      tabs.add("https://en.wikipedia.org").title = "Wikipedia"
+      BrowserTabStore.tabs = tabs
+      try {
+        val results = repository.searchApps("i", limit = 5, includeSuggestions = false).getOrThrow()
+        assertEquals(
+          "A name starting with the letter should beat an open tab with the letter inside a word",
+          app.id,
+          results.first().id,
+        )
+        val tabTitles = results.filterIsInstance<SearchResult.BrowserTab>().map { it.title }
+        assertEquals(
+          "Both open tabs still match, with the word start above the mere occurrence",
+          listOf("GitHub issues", "Wikipedia"),
+          tabTitles,
+        )
+      } finally {
+        BrowserTabStore.tabs = null
+      }
+    }
 }
