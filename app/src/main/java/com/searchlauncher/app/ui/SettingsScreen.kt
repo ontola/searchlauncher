@@ -1496,10 +1496,7 @@ private fun AboutCard() {
       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(
           onClick = {
-            openUrl(
-              context,
-              "https://play.google.com/store/apps/details?id=com.searchlauncher.app",
-            )
+            openUrl(context, "https://play.google.com/store/apps/details?id=com.searchlauncher.app")
           },
           modifier = Modifier.weight(1f),
         ) {
