@@ -126,6 +126,23 @@ If the upload ever fails with *"signed with the wrong key"*, compare the two fin
 in the error against the table above before changing anything. Making the release key
 match Play would be the wrong repair.
 
+### Developer verification
+
+Google's developer verification asks for an APK signed with the private key behind a
+fingerprint it shows in the console. That fingerprint is `553f6280…`, so it is the
+**release key** it wants, not the Play app signing key Google holds itself. The release
+key is the one in `SIGNING_KEY_STORE_BASE64`, so CI can sign the verification APK and
+nothing has to be built by hand.
+
+`app/src/main/assets/adi-registration.properties` carries the account identifier the
+console hands out. It has to sit in `assets` under that exact name, and the APK is only
+proof of key ownership: any release APK built from this tree will do, and it does not
+need to be the one that ships.
+
+To produce one, run the Android CI workflow on a branch that contains the file and
+download the `searchlauncher-apks` artifact. The `app-release.apk` inside it is signed
+with the release key. Upload that in the console.
+
 ### Connecting CI to Play, once
 
 The upload needs a service account, which is four things in two consoles:
