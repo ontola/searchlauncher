@@ -86,6 +86,13 @@ fun FavoritesRow(
    */
   menuActions: ((SearchResult) -> ResultMenuActions)? = null,
   /**
+   * Whether the star on an item should read as already pinned. Defaults to an exact favorite-key
+   * match. Site-app mode passes a host-wide check so every page on a pinned site offers Remove.
+   */
+  isItemFavorite: (SearchResult) -> Boolean = { result ->
+    favorites.any { it.favoriteKey == result.favoriteKey }
+  },
+  /**
    * How many rows the bar uses. [FAVORITES_MAX_ROWS_AUTO] grows as needed (up to
    * [FAVORITES_MAX_ROWS_CAP]); `1`–`4` always use that many rows, filled with recents.
    */
@@ -402,7 +409,7 @@ fun FavoritesRow(
               modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
               properties = PopupProperties(focusable = false),
             ) {
-              val isFavorite = favorites.any { it.favoriteKey == result.favoriteKey }
+              val isFavorite = isItemFavorite(result)
               val actions =
                 menuActions?.invoke(result)
                   ?: ResultMenuActions(onToggleFavorite = { onToggleFavorite(result) })

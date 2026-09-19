@@ -111,6 +111,56 @@ class FavoritesRepositoryTest {
   }
 
   @Test
+  fun `togglePinnedWebFavorite removes every pin on that site`() {
+    val repo = FavoritesRepository(context)
+    val home =
+      SearchResult.Content(
+        id = "saved_1",
+        namespace = "web_saved",
+        title = "GitHub",
+        subtitle = "Bookmark",
+        icon = null,
+        packageName = "",
+        deepLink = "https://github.com",
+      )
+    val pr =
+      SearchResult.Content(
+        id = "saved_2",
+        namespace = "web_saved",
+        title = "PR",
+        subtitle = "Bookmark",
+        icon = null,
+        packageName = "",
+        deepLink = "https://github.com/org/repo/pull/1",
+      )
+    repo.toggleFavorite(home)
+    repo.toggleFavorite(pr)
+    togglePinnedWebFavorite(
+      pr,
+      favorites = listOf(home, pr),
+      repository = repo,
+      treatFavoritedSitesAsApps = true,
+    )
+    assertTrue(repo.getFavoriteIds().isEmpty())
+  }
+
+  @Test
+  fun `addFavorite is idempotent and removeKeys drops several`() {
+    val repo = FavoritesRepository(context)
+    repo.addFavorite("web_saved", "saved_1")
+    repo.addFavorite("web_saved", "saved_1")
+    repo.addFavorite("web_saved", "saved_2")
+    repo.addFavorite("apps", "com.example")
+    assertEquals(
+      listOf("web_saved/saved_1", "web_saved/saved_2", "apps/com.example"),
+      repo.getFavoriteIds(),
+    )
+
+    repo.removeKeys(listOf("web_saved/saved_1", "web_saved/saved_2"))
+    assertEquals(listOf("apps/com.example"), repo.getFavoriteIds())
+  }
+
+  @Test
   fun `clear restores search option defaults`() {
     val repo = FavoritesRepository(context)
     repo.replaceSearchOptions(listOf("wikipedia"))

@@ -820,6 +820,14 @@ private fun BrowserSettingsCard() {
   val storeWebHistory =
     remember { context.dataStore.data.map { it[PreferencesKeys.STORE_WEB_HISTORY] ?: true } }
       .collectAsState(initial = true)
+  val treatFavoritedSitesAsApps =
+    remember {
+        context.dataStore.data.map {
+          it[PreferencesKeys.TREAT_FAVORITED_SITES_AS_APPS]
+            ?: com.searchlauncher.app.data.TREAT_FAVORITED_SITES_AS_APPS_DEFAULT
+        }
+      }
+      .collectAsState(initial = com.searchlauncher.app.data.TREAT_FAVORITED_SITES_AS_APPS_DEFAULT)
   val adBlockEnabled =
     remember { context.dataStore.data.map { it[PreferencesKeys.AD_BLOCK_ENABLED] ?: true } }
       .collectAsState(initial = true)
@@ -948,6 +956,32 @@ private fun BrowserSettingsCard() {
             scope.launch {
               context.dataStore.edit { preferences ->
                 preferences[PreferencesKeys.STORE_WEB_HISTORY] = enabled
+              }
+            }
+          },
+        )
+      }
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(text = "Treat favorited sites as apps", style = MaterialTheme.typography.bodyMedium)
+          Text(
+            text =
+              "One icon per site. Tapping a pinned bookmark reopens that site's tab instead of creating another.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Switch(
+          checked = treatFavoritedSitesAsApps.value,
+          onCheckedChange = { enabled ->
+            scope.launch {
+              context.dataStore.edit { preferences ->
+                preferences[PreferencesKeys.TREAT_FAVORITED_SITES_AS_APPS] = enabled
               }
             }
           },
