@@ -160,4 +160,19 @@ class SiteAppsTest {
     )
     assertEquals(-1, indexOfTabOnSite(tabs, "https://news.example"))
   }
+
+  @Test
+  fun `dragging a tab plans a bookmark pin not a tab id`() {
+    val open = tab(9, "https://github.com/settings")
+    val plan = pinFavoritePlan(open, favorites = emptyList(), treatFavoritedSitesAsApps = true)
+    assertEquals(PinFavoritePlan.BookmarkAndPin("https://github.com/settings", open.title), plan)
+  }
+
+  @Test
+  fun `dragging a tab for an already pinned site unpins that site`() {
+    val pin = bookmark("saved_1", "https://github.com")
+    val open = tab(9, "https://www.github.com/settings")
+    val plan = pinFavoritePlan(open, favorites = listOf(pin), treatFavoritedSitesAsApps = true)
+    assertEquals(PinFavoritePlan.Unpin(listOf(pin.favoriteKey)), plan)
+  }
 }

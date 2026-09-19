@@ -124,7 +124,6 @@ import com.searchlauncher.app.data.isDisplayedAsFavorite
 import com.searchlauncher.app.data.keysAfterCollapsingSites
 import com.searchlauncher.app.data.mergeRecentsByTime
 import com.searchlauncher.app.data.pinnedFavoritesForSite
-import com.searchlauncher.app.data.togglePinnedWebFavorite
 import com.searchlauncher.app.ui.KeyShortcutHost
 import com.searchlauncher.app.ui.KeyShortcuts
 import com.searchlauncher.app.ui.MainActivity
@@ -2199,8 +2198,8 @@ internal fun BrowserScreen(
           },
           onToggleFavorite = { result ->
             if (!privateMode) {
-              favoritesRepository?.let { repo ->
-                togglePinnedWebFavorite(result, favorites, repo, treatFavoritedSitesAsApps)
+              coroutineScope.launch {
+                searchRepository?.pinOrUnpinFavorite(result, treatFavoritedSitesAsApps)
               }
             }
           },

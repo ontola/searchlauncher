@@ -44,8 +44,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.data.canPinToFavorites
 import com.searchlauncher.app.data.favoriteKey
-import com.searchlauncher.app.data.isFavoritable
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.ThemedIcons
 import com.searchlauncher.app.ui.dataStore
@@ -344,10 +344,10 @@ fun FavoritesRow(
                       if (finalIdx != -1 && totalDrag < dragThreshold) {
                         showMenuForIndex = finalIdx
                       } else {
-                        val wasFavorite = favorites.any { it.favoriteKey == draggedId }
+                        val wasFavorite = isItemFavorite(result)
                         val isNowInFavoriteZone = finalIdx < boundaryIndex
 
-                        if (!wasFavorite && isNowInFavoriteZone && result.isFavoritable()) {
+                        if (!wasFavorite && isNowInFavoriteZone && result.canPinToFavorites()) {
                           onToggleFavorite(result)
                         } else if (wasFavorite && isNowInFavoriteZone) {
                           onReorder(currentOrder.take(boundaryIndex))

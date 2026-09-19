@@ -1569,6 +1569,28 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   }
 
   /**
+   * Pins or unpins [result], including a tab dragged onto favorites: that writes a bookmark and
+   * pins the bookmark rather than the tab id.
+   */
+  suspend fun pinOrUnpinFavorite(
+    result: SearchResult,
+    treatFavoritedSitesAsApps: Boolean,
+  ): Boolean {
+    val app = context.applicationContext as? SearchLauncherApp ?: return false
+    return when (val plan = pinFavoritePlan(result, _favorites.value, treatFavoritedSitesAsApps)) {
+      is PinFavoritePlan.Unpin -> {
+        app.favoritesRepository.removeKeys(plan.keys)
+        true
+      }
+      is PinFavoritePlan.Toggle -> {
+        app.favoritesRepository.toggleFavorite(plan.result)
+        true
+      }
+      is PinFavoritePlan.BookmarkAndPin -> saveAndFavoriteBookmark(plan.url, plan.title)
+    }
+  }
+
+  /**
    * Stores a page's favicon so history and bookmark results can show it instead of a generic globe.
    *
    * Honours the web-history preference: writing an icon file for every visited host would leave a

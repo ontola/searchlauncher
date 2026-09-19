@@ -98,14 +98,12 @@ import com.searchlauncher.app.data.TREAT_FAVORITED_SITES_AS_APPS_DEFAULT
 import com.searchlauncher.app.data.applyHistoryLimit
 import com.searchlauncher.app.data.applySiteAppHistoryFilter
 import com.searchlauncher.app.data.applySiteAppTabFilter
+import com.searchlauncher.app.data.canPinToFavorites
 import com.searchlauncher.app.data.collapsePinnedSites
 import com.searchlauncher.app.data.favoriteKey
 import com.searchlauncher.app.data.isDisplayedAsFavorite
-import com.searchlauncher.app.data.isFavoritable
 import com.searchlauncher.app.data.keysAfterCollapsingSites
 import com.searchlauncher.app.data.mergeRecentsByTime
-import com.searchlauncher.app.data.pinnedFavoritesForSite
-import com.searchlauncher.app.data.togglePinnedWebFavorite
 import com.searchlauncher.app.ui.browser.BrowserActivity
 import com.searchlauncher.app.ui.browser.BrowserTab
 import com.searchlauncher.app.ui.browser.BrowserTabStore
@@ -619,26 +617,10 @@ fun SearchScreen(
     val openTab = result as? SearchResult.BrowserTab
     ResultMenuActions(
       onToggleFavorite =
-        if (result.isFavoritable()) {
-          {
-            togglePinnedWebFavorite(
-              result,
-              favorites,
-              app.favoritesRepository,
-              treatFavoritedSitesAsApps,
-            )
-            onQueryChange("")
-            scope.launch { onboardingManager.markStepComplete(OnboardingStep.AddFavorite) }
-          }
-        } else if (result is SearchResult.BrowserTab && !result.url.startsWith("about:")) {
+        if (result.canPinToFavorites()) {
           {
             scope.launch {
-              val pinned = pinnedFavoritesForSite(result.url, favorites, treatFavoritedSitesAsApps)
-              if (pinned.isNotEmpty()) {
-                app.favoritesRepository.removeKeys(pinned.map { it.favoriteKey })
-              } else {
-                searchRepository.saveAndFavoriteBookmark(result.url, result.title)
-              }
+              searchRepository.pinOrUnpinFavorite(result, treatFavoritedSitesAsApps)
               onQueryChange("")
               onboardingManager.markStepComplete(OnboardingStep.AddFavorite)
             }
@@ -2376,12 +2358,10 @@ fun SearchScreen(
                         }
                       },
                       onToggleFavorite = { result ->
-                        togglePinnedWebFavorite(
-                          result,
-                          favorites,
-                          app.favoritesRepository,
-                          treatFavoritedSitesAsApps,
-                        )
+                        scope.launch {
+                          searchRepository.pinOrUnpinFavorite(result, treatFavoritedSitesAsApps)
+                          onboardingManager.markStepComplete(OnboardingStep.AddFavorite)
+                        }
                       },
                       isItemFavorite = { result ->
                         isDisplayedAsFavorite(

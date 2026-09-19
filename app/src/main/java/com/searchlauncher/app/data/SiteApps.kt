@@ -105,21 +105,53 @@ fun pinnedFavoritesForSite(
   }
 }
 
+sealed class PinFavoritePlan {
+  data class Toggle(val result: SearchResult) : PinFavoritePlan()
+
+  data class Unpin(val keys: List<String>) : PinFavoritePlan()
+
+  data class BookmarkAndPin(val url: String, val title: String?) : PinFavoritePlan()
+}
+
+/**
+ * What pinning [result] should do. A tab is never stored as itself: if that site is not pinned yet,
+ * save the current page as a bookmark and pin that.
+ */
+fun pinFavoritePlan(
+  result: SearchResult,
+  favorites: List<SearchResult>,
+  treatFavoritedSitesAsApps: Boolean,
+): PinFavoritePlan {
+  if (result is SearchResult.BrowserTab) {
+    val url = result.pageUrl() ?: return PinFavoritePlan.Toggle(result)
+    val existing = pinnedFavoritesForSite(url, favorites, treatFavoritedSitesAsApps)
+    return if (existing.isNotEmpty()) {
+      PinFavoritePlan.Unpin(existing.map { it.favoriteKey })
+    } else {
+      PinFavoritePlan.BookmarkAndPin(url, result.title)
+    }
+  }
+  val url = result.pageUrl()
+  if (treatFavoritedSitesAsApps && result.isWebFavoritePage && url != null) {
+    val existing = pinnedFavoritesForSite(url, favorites, treatFavoritedSitesAsApps = true)
+    if (existing.isNotEmpty()) return PinFavoritePlan.Unpin(existing.map { it.favoriteKey })
+  }
+  return PinFavoritePlan.Toggle(result)
+}
+
 fun togglePinnedWebFavorite(
   result: SearchResult,
   favorites: List<SearchResult>,
   repository: FavoritesRepository,
   treatFavoritedSitesAsApps: Boolean,
 ) {
-  val url = result.pageUrl()
-  if (treatFavoritedSitesAsApps && result.isWebFavoritePage && url != null) {
-    val existing = pinnedFavoritesForSite(url, favorites, treatFavoritedSitesAsApps = true)
-    if (existing.isNotEmpty()) {
-      repository.removeKeys(existing.map { it.favoriteKey })
-      return
+  when (val plan = pinFavoritePlan(result, favorites, treatFavoritedSitesAsApps)) {
+    is PinFavoritePlan.Unpin -> repository.removeKeys(plan.keys)
+    is PinFavoritePlan.Toggle -> repository.toggleFavorite(plan.result)
+    is PinFavoritePlan.BookmarkAndPin -> {
+      // Needs AppSearch; callers that can hit a tab use [SearchRepository.pinOrUnpinFavorite].
     }
   }
-  repository.toggleFavorite(result)
 }
 
 fun applySiteAppHistoryFilter(
