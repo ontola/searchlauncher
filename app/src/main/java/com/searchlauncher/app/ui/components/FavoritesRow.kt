@@ -44,8 +44,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.data.canPinToFavorites
 import com.searchlauncher.app.data.favoriteKey
-import com.searchlauncher.app.data.isFavoritable
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.ThemedIcons
 import com.searchlauncher.app.ui.dataStore
@@ -85,6 +85,13 @@ fun FavoritesRow(
    * menus identical. Left out, an item offers only what this row can do by itself.
    */
   menuActions: ((SearchResult) -> ResultMenuActions)? = null,
+  /**
+   * Whether the star on an item should read as already pinned. Defaults to an exact favorite-key
+   * match. Site-app mode passes a host-wide check so every page on a pinned site offers Remove.
+   */
+  isItemFavorite: (SearchResult) -> Boolean = { result ->
+    favorites.any { it.favoriteKey == result.favoriteKey }
+  },
   /**
    * How many rows the bar uses. [FAVORITES_MAX_ROWS_AUTO] grows as needed (up to
    * [FAVORITES_MAX_ROWS_CAP]); `1`–`4` always use that many rows, filled with recents.
@@ -337,10 +344,10 @@ fun FavoritesRow(
                       if (finalIdx != -1 && totalDrag < dragThreshold) {
                         showMenuForIndex = finalIdx
                       } else {
-                        val wasFavorite = favorites.any { it.favoriteKey == draggedId }
+                        val wasFavorite = isItemFavorite(result)
                         val isNowInFavoriteZone = finalIdx < boundaryIndex
 
-                        if (!wasFavorite && isNowInFavoriteZone && result.isFavoritable()) {
+                        if (!wasFavorite && isNowInFavoriteZone && result.canPinToFavorites()) {
                           onToggleFavorite(result)
                         } else if (wasFavorite && isNowInFavoriteZone) {
                           onReorder(currentOrder.take(boundaryIndex))
@@ -402,7 +409,7 @@ fun FavoritesRow(
               modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
               properties = PopupProperties(focusable = false),
             ) {
-              val isFavorite = favorites.any { it.favoriteKey == result.favoriteKey }
+              val isFavorite = isItemFavorite(result)
               val actions =
                 menuActions?.invoke(result)
                   ?: ResultMenuActions(onToggleFavorite = { onToggleFavorite(result) })

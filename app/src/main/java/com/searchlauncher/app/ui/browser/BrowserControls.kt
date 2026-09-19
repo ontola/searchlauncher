@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.SwipeLeft
 import androidx.compose.material.icons.filled.SwipeRight
 import androidx.compose.material.icons.filled.Visibility
@@ -92,6 +94,12 @@ internal fun BrowserOverflowButton(
   onCopyUrl: () -> Unit,
   /** Null in private mode, where nothing is written to the search index. */
   onSaveBookmark: (() -> Unit)?,
+  /**
+   * Pins or unpins the current site as a favorite. [siteIsFavorite] chooses the label. Null in
+   * private mode.
+   */
+  onToggleSiteFavorite: (() -> Unit)? = null,
+  siteIsFavorite: Boolean = false,
   onToggleDesktopMode: () -> Unit,
   onOpenDownloads: () -> Unit,
   onFindInPage: () -> Unit,
@@ -179,6 +187,23 @@ internal fun BrowserOverflowButton(
             onSaveBookmark()
           },
           leadingIcon = { Icon(Icons.Default.BookmarkAdd, contentDescription = null) },
+        )
+      }
+      if (onToggleSiteFavorite != null) {
+        DropdownMenuItem(
+          text = {
+            Text(if (siteIsFavorite) "Remove site from Favorites" else "Add site to Favorites")
+          },
+          onClick = {
+            expanded = false
+            onToggleSiteFavorite()
+          },
+          leadingIcon = {
+            Icon(
+              imageVector = if (siteIsFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+              contentDescription = null,
+            )
+          },
         )
       }
       DropdownMenuItem(

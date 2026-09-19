@@ -94,9 +94,15 @@ import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.SearchShortcut
 import com.searchlauncher.app.data.ShortcutLaunch
+import com.searchlauncher.app.data.TREAT_FAVORITED_SITES_AS_APPS_DEFAULT
 import com.searchlauncher.app.data.applyHistoryLimit
+import com.searchlauncher.app.data.applySiteAppHistoryFilter
+import com.searchlauncher.app.data.applySiteAppTabFilter
+import com.searchlauncher.app.data.canPinToFavorites
+import com.searchlauncher.app.data.collapsePinnedSites
 import com.searchlauncher.app.data.favoriteKey
-import com.searchlauncher.app.data.isFavoritable
+import com.searchlauncher.app.data.isDisplayedAsFavorite
+import com.searchlauncher.app.data.keysAfterCollapsingSites
 import com.searchlauncher.app.data.mergeRecentsByTime
 import com.searchlauncher.app.ui.browser.BrowserActivity
 import com.searchlauncher.app.ui.browser.BrowserTab
@@ -302,6 +308,13 @@ fun SearchScreen(
   val historyLimit by
     remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
       .collectAsState(initial = -1)
+  val treatFavoritedSitesAsApps by
+    remember {
+        context.dataStore.data.map {
+          it[PreferencesKeys.TREAT_FAVORITED_SITES_AS_APPS] ?: TREAT_FAVORITED_SITES_AS_APPS_DEFAULT
+        }
+      }
+      .collectAsState(initial = TREAT_FAVORITED_SITES_AS_APPS_DEFAULT)
   // "Autocomplete suggestions" setting. Gates the network fetch of query suggestions while typing
   // a shortcut search (e.g. "g cats"). Stored under SEARCH_SHORTCUTS_ENABLED for historical
   // reasons.
@@ -370,17 +383,39 @@ fun SearchScreen(
 
   val openTabRecents = openTabsAsRecents(context)
   val historyEntries by app.historyRepository.historyEntries.collectAsState()
+  val displayedFavorites =
+    remember(favorites, treatFavoritedSitesAsApps) {
+      collapsePinnedSites(favorites, treatFavoritedSitesAsApps)
+    }
+  LaunchedEffect(favoriteIds, favorites, treatFavoritedSitesAsApps) {
+    if (!treatFavoritedSitesAsApps) return@LaunchedEffect
+    val collapsed = keysAfterCollapsingSites(favoriteIds, favorites)
+    if (collapsed != favoriteIds) app.favoritesRepository.updateOrder(collapsed)
+  }
   val historyItems =
-    remember(rawHistoryItems, favoriteIds, historyLimit, openTabRecents, historyEntries) {
+    remember(
+      rawHistoryItems,
+      favoriteIds,
+      favorites,
+      historyLimit,
+      openTabRecents,
+      historyEntries,
+      treatFavoritedSitesAsApps,
+    ) {
       if (historyLimit == 0) emptyList()
       else {
         val favoriteKeys = favoriteIds.toSet()
-        val filteredApps = rawHistoryItems.filter { it.favoriteKey !in favoriteKeys }
+        val filteredApps =
+          applySiteAppHistoryFilter(
+            rawHistoryItems.filter { it.favoriteKey !in favoriteKeys },
+            favorites,
+            treatFavoritedSitesAsApps,
+          )
         val merged =
           mergeRecentsByTime(
             filteredApps,
             historyEntries.associate { it.id to it.lastUsedMs },
-            openTabRecents,
+            applySiteAppTabFilter(openTabRecents, favorites, treatFavoritedSitesAsApps),
           )
         applyHistoryLimit(merged.map { it.result }, historyLimit)
       }
@@ -582,11 +617,13 @@ fun SearchScreen(
     val openTab = result as? SearchResult.BrowserTab
     ResultMenuActions(
       onToggleFavorite =
-        if (result.isFavoritable()) {
+        if (result.canPinToFavorites()) {
           {
-            app.favoritesRepository.toggleFavorite(result)
-            onQueryChange("")
-            scope.launch { onboardingManager.markStepComplete(OnboardingStep.AddFavorite) }
+            scope.launch {
+              searchRepository.pinOrUnpinFavorite(result, treatFavoritedSitesAsApps)
+              onQueryChange("")
+              onboardingManager.markStepComplete(OnboardingStep.AddFavorite)
+            }
           }
         } else null,
       onRemoveBookmark = {
@@ -760,6 +797,8 @@ fun SearchScreen(
         // is why it kept arriving from the right while the swipe came from the left.
         onOpenInBrowser = { url -> openInBrowser(url) },
         onOpenBrowserTab = { index -> openBrowserTab(index) },
+        treatFavoritedSitesAsApps = { treatFavoritedSitesAsApps },
+        favoriteResults = { searchRepository.favorites.value },
       )
     }
 
@@ -2123,7 +2162,13 @@ fun SearchScreen(
                             ),
                         result = result,
                         highlighted = index == keyboardSelectedIndex,
-                        isFavorite = app.favoritesRepository.isFavorite(result),
+                        isFavorite =
+                          isDisplayedAsFavorite(
+                            result,
+                            favorites,
+                            favoriteIds,
+                            treatFavoritedSitesAsApps,
+                          ),
                         actions = menuActionsFor(result, index),
                         onClick = {
                           if (result is SearchResult.SearchIntent) {
@@ -2298,7 +2343,7 @@ fun SearchScreen(
                     )
                   } else {
                     FavoritesRow(
-                      favorites = favorites,
+                      favorites = displayedFavorites,
                       history = historyItems,
                       historyLimit = historyLimit,
                       minIconSizeSetting = minIconSizeSetting,
@@ -2313,7 +2358,18 @@ fun SearchScreen(
                         }
                       },
                       onToggleFavorite = { result ->
-                        app.favoritesRepository.toggleFavorite(result)
+                        scope.launch {
+                          searchRepository.pinOrUnpinFavorite(result, treatFavoritedSitesAsApps)
+                          onboardingManager.markStepComplete(OnboardingStep.AddFavorite)
+                        }
+                      },
+                      isItemFavorite = { result ->
+                        isDisplayedAsFavorite(
+                          result,
+                          favorites,
+                          favoriteIds,
+                          treatFavoritedSitesAsApps,
+                        )
                       },
                       onReorder = { newOrder ->
                         app.favoritesRepository.updateOrder(newOrder)

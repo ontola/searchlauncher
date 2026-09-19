@@ -9,9 +9,15 @@ import android.widget.Toast
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.ShortcutLaunch
+import com.searchlauncher.app.data.SiteTab
+import com.searchlauncher.app.data.TREAT_FAVORITED_SITES_AS_APPS_DEFAULT
+import com.searchlauncher.app.data.favoriteKey
+import com.searchlauncher.app.data.indexOfTabOnSite
+import com.searchlauncher.app.data.shouldResumeFavoritedSite
 import com.searchlauncher.app.ui.browser.BrowserActivity
 import com.searchlauncher.app.ui.browser.BrowserTabStore
 import com.searchlauncher.app.ui.browser.BrowserTabTasks
+import com.searchlauncher.app.ui.browser.indexOfTabShowing
 import com.searchlauncher.app.ui.onboarding.OnboardingManager
 import com.searchlauncher.app.util.CustomActionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +41,8 @@ class ResultLauncher(
   private val onOpenInBrowser: ((String) -> Unit)? = null,
   /** As [onOpenInBrowser], for a tab that already exists. */
   private val onOpenBrowserTab: ((Int) -> Unit)? = null,
+  private val treatFavoritedSitesAsApps: () -> Boolean = { TREAT_FAVORITED_SITES_AS_APPS_DEFAULT },
+  private val favoriteResults: () -> List<SearchResult> = { emptyList() },
 ) {
   fun launch(
     result: SearchResult,
@@ -69,6 +77,41 @@ class ResultLauncher(
     ) {
       searchRepository.reportUsageAsync(result.namespace, result.id, query, wasFirstResult)
     }
+  }
+
+  /**
+   * Opens [url] in a tab already showing that page — or, for a pinned site, in a tab already on
+   * that host, wherever it has since navigated. A miss opens a new tab.
+   */
+  private fun launchWebUrl(url: String, resumeBySite: Boolean) {
+    val tabs = BrowserTabStore.tabs
+    if (tabs != null) {
+      val index =
+        if (resumeBySite) {
+          val activeId = tabs.active.id
+          indexOfTabOnSite(
+            tabs.items.mapIndexed { i, tab ->
+              SiteTab(
+                index = i,
+                url = tab.url,
+                openedAtMs = tab.openedAtMs,
+                active = tab.id == activeId,
+              )
+            },
+            url,
+          )
+        } else {
+          indexOfTabShowing(tabs.items.map { it.url }, url)
+        }
+      if (index >= 0) {
+        val tab = tabs.items[index]
+        onOpenBrowserTab?.invoke(index)
+          ?: context.startActivity(BrowserTabTasks.intentFor(context, tab.id))
+        return
+      }
+    }
+    onOpenInBrowser?.invoke(url)
+      ?: context.startActivity(BrowserActivity.createIntent(context, url))
   }
 
   /**
@@ -189,6 +232,17 @@ class ResultLauncher(
         } catch (_: Exception) {
           // App was removed or disabled between resolve and start; use the browser below.
         }
+      }
+      if (uri != null && (uri.scheme == "http" || uri.scheme == "https")) {
+        launchWebUrl(
+          uri.toString(),
+          shouldResumeFavoritedSite(
+            result,
+            favoriteResults().map { it.favoriteKey },
+            treatFavoritedSitesAsApps(),
+          ),
+        )
+        return
       }
       launchIntent(intent, query)
     } catch (e: Exception) {

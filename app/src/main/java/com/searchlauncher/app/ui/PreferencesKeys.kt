@@ -26,6 +26,11 @@ object PreferencesKeys {
   val LOCK_WIDGETS = booleanPreferencesKey("lock_widgets")
   val IS_FIRST_RUN = booleanPreferencesKey("is_first_run")
   val STORE_WEB_HISTORY = booleanPreferencesKey("store_web_history")
+  /**
+   * When true (the default), a pinned bookmark is a site app: one icon, and tapping it resumes a
+   * tab already open on that host instead of opening the start URL again.
+   */
+  val TREAT_FAVORITED_SITES_AS_APPS = booleanPreferencesKey("treat_favorited_sites_as_apps")
   val BROWSER_SHOW_FAVORITES = booleanPreferencesKey("browser_show_favorites")
   val HISTORY_LIMIT = intPreferencesKey("history_limit")
   val MIN_ICON_SIZE = intPreferencesKey("min_icon_size")

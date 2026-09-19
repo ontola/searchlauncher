@@ -21,13 +21,14 @@ import androidx.compose.ui.platform.LocalContext
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.ContactChatAction
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.data.isWebFavoritePage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /** Web pages in the index: passively recorded history, and explicitly saved bookmarks. */
 internal val SearchResult.isWebPage: Boolean
-  get() = namespace == "web_bookmarks" || namespace == "web_saved"
+  get() = isWebFavoritePage
 
 /**
  * Everything a result can be asked to do, gathered in one place so that every list showing results
