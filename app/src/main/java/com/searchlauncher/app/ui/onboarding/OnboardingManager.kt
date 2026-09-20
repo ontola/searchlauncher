@@ -18,6 +18,7 @@ class OnboardingManager(private val context: Context) {
   companion object {
     val KEY_SWIPE_BACKGROUND = booleanPreferencesKey("onboarding_swipe_background")
     val KEY_SWIPE_NOTIFICATIONS = booleanPreferencesKey("onboarding_swipe_notifications")
+    val KEY_ASK_SEPARATE_SHADE = booleanPreferencesKey("onboarding_ask_separate_shade")
     val KEY_SWIPE_QUICK_SETTINGS = booleanPreferencesKey("onboarding_swipe_quick_settings")
     val KEY_SWIPE_APP_DRAWER = booleanPreferencesKey("onboarding_swipe_app_drawer")
     val KEY_LONG_PRESS_BACKGROUND = booleanPreferencesKey("onboarding_long_press_background")
@@ -37,6 +38,7 @@ class OnboardingManager(private val context: Context) {
       when (step) {
         OnboardingStep.SwipeBackground -> KEY_SWIPE_BACKGROUND
         OnboardingStep.SwipeNotifications -> KEY_SWIPE_NOTIFICATIONS
+        OnboardingStep.AskSeparateShade -> KEY_ASK_SEPARATE_SHADE
         OnboardingStep.SwipeQuickSettings -> KEY_SWIPE_QUICK_SETTINGS
         OnboardingStep.SwipeAppDrawer -> KEY_SWIPE_APP_DRAWER
         OnboardingStep.LongPressBackground -> KEY_LONG_PRESS_BACKGROUND
@@ -74,6 +76,7 @@ class OnboardingManager(private val context: Context) {
 enum class OnboardingStep {
   SwipeBackground,
   SwipeNotifications,
+  AskSeparateShade,
   SwipeQuickSettings,
   SwipeAppDrawer,
   LongPressBackground,

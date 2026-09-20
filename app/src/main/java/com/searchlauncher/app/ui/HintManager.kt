@@ -11,6 +11,7 @@ class HintManager(
   private val isSnippetsSet: () -> Boolean,
   private val isDefaultLauncher: () -> Boolean,
   private val isContactsAccessGranted: () -> Boolean,
+  private val hasSeparateShade: () -> Boolean = { true },
   private val shortcutHints: List<String> = emptyList(),
 ) {
   private val hints =
@@ -24,11 +25,14 @@ class HintManager(
       Hint("Type a website URL to open"),
       Hint("Try some maths: 1+1, 2^2, 2*2, 2/2, 2%2"),
       Hint("Swipe up to open the app drawer"),
-      Hint("Swipe down left to open notifications"),
-      Hint("Swipe down right to open quick settings"),
+      Hint("Swipe down to open notifications") { !hasSeparateShade() },
+      Hint("Swipe down left to open notifications") { hasSeparateShade() },
+      Hint("Swipe down right to open quick settings") { hasSeparateShade() },
       Hint("Hold search results for more options"),
       Hint("Set custom snippets in settings") { !isSnippetsSet() },
     ) + shortcutHints.map { Hint(it) }
+
+  internal fun visibleHintTexts(): List<String> = hints.filter { it.condition() }.map { it.text }
 
   fun getHintsFlow(): Flow<String> = flow {
     var index = 0

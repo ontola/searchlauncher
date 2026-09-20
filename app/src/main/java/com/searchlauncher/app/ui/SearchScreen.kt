@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.SpeechRecognizer
@@ -138,6 +139,10 @@ import com.searchlauncher.app.ui.components.revealResult
 import com.searchlauncher.app.ui.onboarding.OnboardingManager
 import com.searchlauncher.app.ui.onboarding.OnboardingStep
 import com.searchlauncher.app.ui.onboarding.TutorialOverlay
+import com.searchlauncher.app.ui.onboarding.manufacturerLikelyHasSeparateShade
+import com.searchlauncher.app.ui.onboarding.nextOnboardingStep
+import com.searchlauncher.app.ui.onboarding.resolveSeparateShade
+import com.searchlauncher.app.ui.onboarding.shouldOpenQuickSettings
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import com.searchlauncher.app.util.MathEvaluator
 import com.searchlauncher.app.util.SystemUtils
@@ -341,6 +346,12 @@ fun SearchScreen(
   val keyboardGesturesEnabled by
     remember { context.dataStore.data.map { it[PreferencesKeys.KEYBOARD_GESTURES] ?: true } }
       .collectAsState(initial = true)
+  val separateQuickSettingsPref by
+    remember { context.dataStore.data.map { it[PreferencesKeys.SEPARATE_QUICK_SETTINGS] } }
+      .collectAsState(initial = null)
+  val separateShade =
+    resolveSeparateShade(separateQuickSettingsPref, Build.MANUFACTURER, Build.BRAND)
+  val promptForSeparateShade = !manufacturerLikelyHasSeparateShade(Build.MANUFACTURER, Build.BRAND)
   val useBuiltInKeyboard = builtInKeyboardEnabled && !riseWithKeyboard && browserTabId == null
 
   val defaultSearchEngineId by
@@ -929,37 +940,19 @@ fun SearchScreen(
   // (e.g. completedSteps updating async from DataStore) only trigger recomposition
   // when the actual computed step changes — avoids brief flashes of wrong steps.
   val currentOnboardingStep by
-    remember(query, folderImages, isActive) {
+    remember(query, folderImages, isActive, separateShade, promptForSeparateShade) {
       derivedStateOf {
         if (!isActive) return@derivedStateOf null
         val steps = completedSteps ?: return@derivedStateOf null
-        if (query.isNotEmpty()) {
-          if (
-            !steps.contains(OnboardingStep.AddFavorite) &&
-              searchResults.isNotEmpty() &&
-              favorites.isEmpty()
-          )
-            OnboardingStep.AddFavorite
-          else null
-        } else {
-          if (!steps.contains(OnboardingStep.SwipeBackground) && folderImages.size > 1)
-            OnboardingStep.SwipeBackground
-          else if (!steps.contains(OnboardingStep.SwipeNotifications))
-            OnboardingStep.SwipeNotifications
-          else if (!steps.contains(OnboardingStep.SwipeQuickSettings))
-            OnboardingStep.SwipeQuickSettings
-          else if (!steps.contains(OnboardingStep.SwipeAppDrawer)) OnboardingStep.SwipeAppDrawer
-          else if (!steps.contains(OnboardingStep.LongPressBackground))
-            OnboardingStep.LongPressBackground
-          else if (!steps.contains(OnboardingStep.SearchYoutube)) OnboardingStep.SearchYoutube
-          else if (!steps.contains(OnboardingStep.SearchGoogle)) OnboardingStep.SearchGoogle
-          else if (!steps.contains(OnboardingStep.SetTimer)) OnboardingStep.SetTimer
-          else if (!steps.contains(OnboardingStep.ReorderFavorites) && favorites.size >= 2)
-            OnboardingStep.ReorderFavorites
-          else if (!steps.contains(OnboardingStep.OpenSettings)) OnboardingStep.OpenSettings
-          // AddFavorite is situational, shown when search results exist
-          else null
-        }
+        nextOnboardingStep(
+          completed = steps,
+          queryIsEmpty = query.isEmpty(),
+          hasMultipleWallpapers = folderImages.size > 1,
+          hasSearchResults = searchResults.isNotEmpty(),
+          favoritesCount = favorites.size,
+          separateShade = separateShade,
+          promptForSeparateShade = promptForSeparateShade,
+        )
       }
     }
 
@@ -1000,6 +993,26 @@ fun SearchScreen(
     }
     if (favorites.size >= 2 && !steps.contains(OnboardingStep.ReorderFavorites)) {
       onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites)
+    }
+  }
+
+  fun onShadeSwipeDown(isLeft: Boolean) {
+    val openQuickSettings =
+      shouldOpenQuickSettings(
+        isLeft = isLeft,
+        currentStep = currentOnboardingStep,
+        separateShade = separateShade,
+      )
+    scope.launch {
+      onboardingManager.markStepComplete(
+        if (openQuickSettings) OnboardingStep.SwipeQuickSettings
+        else OnboardingStep.SwipeNotifications
+      )
+    }
+    if (openQuickSettings) {
+      SystemUtils.expandQuickSettings(context)
+    } else {
+      SystemUtils.expandNotifications(context)
     }
   }
 
@@ -1273,6 +1286,7 @@ fun SearchScreen(
       isDefaultLauncher,
       hasContactsPermission,
       searchShortcuts,
+      separateShade,
     ) {
       val shortcutHints =
         searchShortcuts.map { "Type '${it.alias} ' to ${it.description.lowercase()}" }
@@ -1281,6 +1295,7 @@ fun SearchScreen(
         isSnippetsSet = { snippetItems.isNotEmpty() },
         isDefaultLauncher = { isDefaultLauncher },
         isContactsAccessGranted = { hasContactsPermission },
+        hasSeparateShade = { separateShade },
         shortcutHints = shortcutHints,
       )
     }
@@ -1763,20 +1778,21 @@ fun SearchScreen(
               scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeBackground) }
             },
             keyboardSwipeRequest = keyboardWallpaperSwipe,
-            onSwipeDownLeft = {
-              scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeNotifications) }
-              com.searchlauncher.app.util.SystemUtils.expandNotifications(context)
-            },
-            onSwipeDownRight = {
-              scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeQuickSettings) }
-              com.searchlauncher.app.util.SystemUtils.expandQuickSettings(context)
-            },
+            onSwipeDownLeft = { onShadeSwipeDown(isLeft = true) },
+            onSwipeDownRight = { onShadeSwipeDown(isLeft = false) },
           )
 
           TutorialOverlay(
             currentStep = currentOnboardingStep,
             bottomPadding = bottomPadding,
+            separateShade = separateShade,
             onSkip = { scope.launch { onboardingManager.skipAll() } },
+            onSeparateShadeAnswer = { twoTrays ->
+              scope.launch {
+                context.dataStore.edit { it[PreferencesKeys.SEPARATE_QUICK_SETTINGS] = twoTrays }
+                onboardingManager.markStepComplete(OnboardingStep.AskSeparateShade)
+              }
+            },
           )
 
           if (showDefaultLauncherDialog) {
@@ -2647,16 +2663,10 @@ fun SearchScreen(
                     onOpenAppDrawer()
                   }
                   com.searchlauncher.app.ui.components.KeyboardHomeSwipe.DownLeft -> {
-                    scope.launch {
-                      onboardingManager.markStepComplete(OnboardingStep.SwipeNotifications)
-                    }
-                    com.searchlauncher.app.util.SystemUtils.expandNotifications(context)
+                    onShadeSwipeDown(isLeft = true)
                   }
                   com.searchlauncher.app.ui.components.KeyboardHomeSwipe.DownRight -> {
-                    scope.launch {
-                      onboardingManager.markStepComplete(OnboardingStep.SwipeQuickSettings)
-                    }
-                    com.searchlauncher.app.util.SystemUtils.expandQuickSettings(context)
+                    onShadeSwipeDown(isLeft = false)
                   }
                   com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Left ->
                     keyboardWallpaperSwipe++
