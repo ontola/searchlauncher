@@ -173,7 +173,7 @@ private fun paddingFor(step: OnboardingStep, separateShade: Boolean): Modifier =
   when (step) {
     OnboardingStep.SwipeNotifications ->
       if (separateShade) Modifier.padding(start = 24.dp, bottom = 120.dp)
-      else Modifier.padding(horizontal = 24.dp, bottom = 120.dp)
+      else Modifier.padding(start = 24.dp, end = 24.dp, bottom = 120.dp)
     OnboardingStep.SwipeQuickSettings -> Modifier.padding(end = 24.dp, bottom = 120.dp)
     OnboardingStep.AskSeparateShade -> Modifier.padding(horizontal = 24.dp)
     OnboardingStep.AddFavorite -> Modifier.padding(bottom = 100.dp)

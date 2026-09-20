@@ -41,7 +41,6 @@ fun nextOnboardingStep(
   hasSearchResults: Boolean,
   favoritesCount: Int,
   separateShade: Boolean,
-  promptForSeparateShade: Boolean,
 ): OnboardingStep? {
   if (!queryIsEmpty) {
     return if (
@@ -61,7 +60,7 @@ fun nextOnboardingStep(
     !completed.contains(OnboardingStep.SwipeBackground) && hasMultipleWallpapers ->
       OnboardingStep.SwipeBackground
     !completed.contains(OnboardingStep.SwipeNotifications) -> OnboardingStep.SwipeNotifications
-    !askedSeparateShade && promptForSeparateShade -> OnboardingStep.AskSeparateShade
+    !askedSeparateShade -> OnboardingStep.AskSeparateShade
     !completed.contains(OnboardingStep.SwipeQuickSettings) && separateShade ->
       OnboardingStep.SwipeQuickSettings
     !completed.contains(OnboardingStep.SwipeAppDrawer) -> OnboardingStep.SwipeAppDrawer

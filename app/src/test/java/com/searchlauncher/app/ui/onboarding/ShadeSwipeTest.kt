@@ -53,48 +53,28 @@ class ShadeSwipeTest {
   }
 
   @Test
-  fun pixelGoesFromNotificationsToQuickSettings() {
+  fun afterNotificationsTheUserIsAskedAboutTrays() {
     val completed = setOf(OnboardingStep.SwipeNotifications)
-    assertEquals(
-      OnboardingStep.SwipeQuickSettings,
-      nextHomeStep(completed, separateShade = true, promptForSeparateShade = false),
-    )
-  }
-
-  @Test
-  fun samsungAsksAboutTraysAfterNotifications() {
-    val completed = setOf(OnboardingStep.SwipeNotifications)
-    assertEquals(
-      OnboardingStep.AskSeparateShade,
-      nextHomeStep(completed, separateShade = false, promptForSeparateShade = true),
-    )
+    assertEquals(OnboardingStep.AskSeparateShade, nextHomeStep(completed, separateShade = true))
+    assertEquals(OnboardingStep.AskSeparateShade, nextHomeStep(completed, separateShade = false))
   }
 
   @Test
   fun oneTraySkipsQuickSettings() {
     val completed = setOf(OnboardingStep.SwipeNotifications, OnboardingStep.AskSeparateShade)
-    assertEquals(
-      OnboardingStep.SwipeAppDrawer,
-      nextHomeStep(completed, separateShade = false, promptForSeparateShade = true),
-    )
+    assertEquals(OnboardingStep.SwipeAppDrawer, nextHomeStep(completed, separateShade = false))
   }
 
   @Test
   fun twoTraysTeachesQuickSettingsAfterTheQuestion() {
     val completed = setOf(OnboardingStep.SwipeNotifications, OnboardingStep.AskSeparateShade)
-    assertEquals(
-      OnboardingStep.SwipeQuickSettings,
-      nextHomeStep(completed, separateShade = true, promptForSeparateShade = true),
-    )
+    assertEquals(OnboardingStep.SwipeQuickSettings, nextHomeStep(completed, separateShade = true))
   }
 
   @Test
   fun finishingOldQuickSettingsOnboardingDoesNotAskAgain() {
     val completed = setOf(OnboardingStep.SwipeNotifications, OnboardingStep.SwipeQuickSettings)
-    assertEquals(
-      OnboardingStep.SwipeAppDrawer,
-      nextHomeStep(completed, separateShade = false, promptForSeparateShade = true),
-    )
+    assertEquals(OnboardingStep.SwipeAppDrawer, nextHomeStep(completed, separateShade = false))
   }
 
   @Test
@@ -108,7 +88,6 @@ class ShadeSwipeTest {
         hasSearchResults = true,
         favoritesCount = 0,
         separateShade = true,
-        promptForSeparateShade = false,
       ),
     )
     assertNull(
@@ -119,7 +98,6 @@ class ShadeSwipeTest {
         hasSearchResults = true,
         favoritesCount = 1,
         separateShade = true,
-        promptForSeparateShade = false,
       )
     )
   }
@@ -127,7 +105,6 @@ class ShadeSwipeTest {
   private fun nextHomeStep(
     completed: Set<OnboardingStep>,
     separateShade: Boolean,
-    promptForSeparateShade: Boolean,
   ): OnboardingStep? =
     nextOnboardingStep(
       completed = completed,
@@ -136,6 +113,5 @@ class ShadeSwipeTest {
       hasSearchResults = false,
       favoritesCount = 0,
       separateShade = separateShade,
-      promptForSeparateShade = promptForSeparateShade,
     )
 }

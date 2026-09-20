@@ -139,7 +139,6 @@ import com.searchlauncher.app.ui.components.revealResult
 import com.searchlauncher.app.ui.onboarding.OnboardingManager
 import com.searchlauncher.app.ui.onboarding.OnboardingStep
 import com.searchlauncher.app.ui.onboarding.TutorialOverlay
-import com.searchlauncher.app.ui.onboarding.manufacturerLikelyHasSeparateShade
 import com.searchlauncher.app.ui.onboarding.nextOnboardingStep
 import com.searchlauncher.app.ui.onboarding.resolveSeparateShade
 import com.searchlauncher.app.ui.onboarding.shouldOpenQuickSettings
@@ -351,7 +350,6 @@ fun SearchScreen(
       .collectAsState(initial = null)
   val separateShade =
     resolveSeparateShade(separateQuickSettingsPref, Build.MANUFACTURER, Build.BRAND)
-  val promptForSeparateShade = !manufacturerLikelyHasSeparateShade(Build.MANUFACTURER, Build.BRAND)
   val useBuiltInKeyboard = builtInKeyboardEnabled && !riseWithKeyboard && browserTabId == null
 
   val defaultSearchEngineId by
@@ -940,7 +938,7 @@ fun SearchScreen(
   // (e.g. completedSteps updating async from DataStore) only trigger recomposition
   // when the actual computed step changes — avoids brief flashes of wrong steps.
   val currentOnboardingStep by
-    remember(query, folderImages, isActive, separateShade, promptForSeparateShade) {
+    remember(query, folderImages, isActive, separateShade) {
       derivedStateOf {
         if (!isActive) return@derivedStateOf null
         val steps = completedSteps ?: return@derivedStateOf null
@@ -951,7 +949,6 @@ fun SearchScreen(
           hasSearchResults = searchResults.isNotEmpty(),
           favoritesCount = favorites.size,
           separateShade = separateShade,
-          promptForSeparateShade = promptForSeparateShade,
         )
       }
     }
