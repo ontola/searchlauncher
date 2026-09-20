@@ -36,7 +36,9 @@ import kotlinx.coroutines.delay
 fun TutorialOverlay(
   currentStep: OnboardingStep?,
   bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+  separateShade: Boolean = true,
   onSkip: (() -> Unit)? = null,
+  onSeparateShadeAnswer: ((Boolean) -> Unit)? = null,
 ) {
   // Manage visibility and delayed step update
   val visibleState = remember { MutableTransitionState(false) }
@@ -74,8 +76,9 @@ fun TutorialOverlay(
         // wherever that hint lives, instead of being pinned somewhere it can land on the
         // favourites row.
         Column(
-          modifier = Modifier.align(alignmentFor(step)).then(paddingFor(step)),
-          horizontalAlignment = horizontalAlignmentFor(step),
+          modifier =
+            Modifier.align(alignmentFor(step, separateShade)).then(paddingFor(step, separateShade)),
+          horizontalAlignment = horizontalAlignmentFor(step, separateShade),
         ) {
           when (step) {
             OnboardingStep.SwipeBackground ->
@@ -85,9 +88,16 @@ fun TutorialOverlay(
               )
             OnboardingStep.SwipeNotifications ->
               SwipeGestureIndicator(
-                text = "Swipe down (left) for notifications",
+                text =
+                  if (separateShade) "Swipe down (left) for notifications"
+                  else "Swipe down for notifications",
                 direction = SwipeDirection.Down,
-                align = Alignment.Start,
+                align = if (separateShade) Alignment.Start else Alignment.CenterHorizontally,
+              )
+            OnboardingStep.AskSeparateShade ->
+              SeparateShadeChoice(
+                onOneTray = { onSeparateShadeAnswer?.invoke(false) },
+                onTwoTrays = { onSeparateShadeAnswer?.invoke(true) },
               )
             OnboardingStep.SwipeQuickSettings ->
               SwipeGestureIndicator(
@@ -139,25 +149,33 @@ fun TutorialOverlay(
 }
 
 /** Where a step's hint sits on screen. */
-private fun alignmentFor(step: OnboardingStep): Alignment =
+private fun alignmentFor(step: OnboardingStep, separateShade: Boolean): Alignment =
   when (step) {
-    OnboardingStep.SwipeNotifications -> Alignment.BottomStart
+    OnboardingStep.SwipeNotifications ->
+      if (separateShade) Alignment.BottomStart else Alignment.Center
     OnboardingStep.SwipeQuickSettings -> Alignment.BottomEnd
     else -> Alignment.Center
   }
 
-private fun horizontalAlignmentFor(step: OnboardingStep): Alignment.Horizontal =
+private fun horizontalAlignmentFor(
+  step: OnboardingStep,
+  separateShade: Boolean,
+): Alignment.Horizontal =
   when (step) {
-    OnboardingStep.SwipeNotifications -> Alignment.Start
+    OnboardingStep.SwipeNotifications ->
+      if (separateShade) Alignment.Start else Alignment.CenterHorizontally
     OnboardingStep.SwipeQuickSettings -> Alignment.End
     else -> Alignment.CenterHorizontally
   }
 
 /** How far a step's hint is held off the edge it is aligned to. */
-private fun paddingFor(step: OnboardingStep): Modifier =
+private fun paddingFor(step: OnboardingStep, separateShade: Boolean): Modifier =
   when (step) {
-    OnboardingStep.SwipeNotifications -> Modifier.padding(start = 24.dp, bottom = 120.dp)
+    OnboardingStep.SwipeNotifications ->
+      if (separateShade) Modifier.padding(start = 24.dp, bottom = 120.dp)
+      else Modifier.padding(start = 24.dp, end = 24.dp, bottom = 120.dp)
     OnboardingStep.SwipeQuickSettings -> Modifier.padding(end = 24.dp, bottom = 120.dp)
+    OnboardingStep.AskSeparateShade -> Modifier.padding(horizontal = 24.dp)
     OnboardingStep.AddFavorite -> Modifier.padding(bottom = 100.dp)
     OnboardingStep.ReorderFavorites,
     OnboardingStep.OpenSettings -> Modifier.padding(bottom = 150.dp)
@@ -335,6 +353,37 @@ fun HoldGestureIndicator(text: String, modifier: Modifier = Modifier) {
       textAlign = TextAlign.Center,
     )
   }
+}
+
+@Composable
+private fun SeparateShadeChoice(onOneTray: () -> Unit, onTwoTrays: () -> Unit) {
+  Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    TextHintIndicator(
+      text =
+        "Some phones open notifications on the left and Quick Settings on the right. " +
+          "Many Samsung phones use one tray for both.\n\nDoes this phone have two trays?"
+    )
+    Spacer(modifier = Modifier.height(16.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+      ShadeChoiceChip(text = "One tray", onClick = onOneTray)
+      ShadeChoiceChip(text = "Two trays", onClick = onTwoTrays)
+    }
+  }
+}
+
+@Composable
+private fun ShadeChoiceChip(text: String, onClick: () -> Unit) {
+  Text(
+    text = text,
+    color = Color.White,
+    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+    textAlign = TextAlign.Center,
+    modifier =
+      Modifier.clip(RoundedCornerShape(16.dp))
+        .clickable(onClick = onClick)
+        .background(Color.Black.copy(alpha = 0.45f))
+        .padding(horizontal = 20.dp, vertical = 10.dp),
+  )
 }
 
 @Composable

@@ -72,6 +72,13 @@ object PreferencesKeys {
    */
   val ONBOARDING_PERMISSIONS_ASKED = booleanPreferencesKey("onboarding_permissions_asked")
 
+  /**
+   * When true, swipe-down on the right of the home screen or keyboard opens Quick Settings, and
+   * swipe-down on the left opens notifications. When false, both sides open notifications. Unset
+   * follows the manufacturer: Pixel-style skins default to two trays, Samsung to one.
+   */
+  val SEPARATE_QUICK_SETTINGS = booleanPreferencesKey("separate_quick_settings")
+
   fun getDefaultIconSize(context: android.content.Context): Int {
     val config = context.resources.configuration
     return if (config.smallestScreenWidthDp >= 600) 48 else 32
