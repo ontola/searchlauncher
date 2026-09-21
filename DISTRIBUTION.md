@@ -2,6 +2,9 @@
 
 ## Google Play Store
 
+The public listing is
+[https://play.google.com/store/apps/details?id=com.searchlauncher.app](https://play.google.com/store/apps/details?id=com.searchlauncher.app).
+
 Play wants a bundle rather than an APK, and its own set of listing assets. Everything
 here except the console forms is already in the repo.
 
@@ -123,6 +126,23 @@ If the upload ever fails with *"signed with the wrong key"*, compare the two fin
 in the error against the table above before changing anything. Making the release key
 match Play would be the wrong repair.
 
+### Developer verification
+
+Google's developer verification asks for an APK signed with the private key behind a
+fingerprint it shows in the console. That fingerprint is `553f6280…`, so it is the
+**release key** it wants, not the Play app signing key Google holds itself. The release
+key is the one in `SIGNING_KEY_STORE_BASE64`, so CI can sign the verification APK and
+nothing has to be built by hand.
+
+`app/src/main/assets/adi-registration.properties` carries the account identifier the
+console hands out. It has to sit in `assets` under that exact name, and the APK is only
+proof of key ownership: any release APK built from this tree will do, and it does not
+need to be the one that ships.
+
+To produce one, run the Android CI workflow on a branch that contains the file and
+download the `searchlauncher-apks` artifact. The `app-release.apk` inside it is signed
+with the release key. Upload that in the console.
+
 ### Connecting CI to Play, once
 
 The upload needs a service account, which is four things in two consoles:
@@ -186,11 +206,12 @@ the launcher alone would.
 
 **Target API** — Play requires 35 or later; this app targets 36.
 
-### Before the first production release
+### Production
 
-A personal developer account created after November 2023 has to run a closed test with
-at least 12 testers who stay opted in for 14 days before production opens up. Organisation
-accounts are exempt. Start that clock early: it gates the release, not the review.
+The listing is live. A personal developer account created after November 2023 has to
+run a closed test with at least 12 testers who stay opted in for 14 days before
+production opens up; organisation accounts are exempt. That clock is already done for
+this app.
 
 ## F-Droid
 

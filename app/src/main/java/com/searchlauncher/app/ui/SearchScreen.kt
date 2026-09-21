@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.SpeechRecognizer
@@ -94,9 +95,15 @@ import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.SearchShortcut
 import com.searchlauncher.app.data.ShortcutLaunch
+import com.searchlauncher.app.data.TREAT_FAVORITED_SITES_AS_APPS_DEFAULT
 import com.searchlauncher.app.data.applyHistoryLimit
+import com.searchlauncher.app.data.applySiteAppHistoryFilter
+import com.searchlauncher.app.data.applySiteAppTabFilter
+import com.searchlauncher.app.data.canPinToFavorites
+import com.searchlauncher.app.data.collapsePinnedSites
 import com.searchlauncher.app.data.favoriteKey
-import com.searchlauncher.app.data.isFavoritable
+import com.searchlauncher.app.data.isDisplayedAsFavorite
+import com.searchlauncher.app.data.keysAfterCollapsingSites
 import com.searchlauncher.app.data.mergeRecentsByTime
 import com.searchlauncher.app.ui.browser.BrowserActivity
 import com.searchlauncher.app.ui.browser.BrowserTab
@@ -132,6 +139,9 @@ import com.searchlauncher.app.ui.components.revealResult
 import com.searchlauncher.app.ui.onboarding.OnboardingManager
 import com.searchlauncher.app.ui.onboarding.OnboardingStep
 import com.searchlauncher.app.ui.onboarding.TutorialOverlay
+import com.searchlauncher.app.ui.onboarding.nextOnboardingStep
+import com.searchlauncher.app.ui.onboarding.resolveSeparateShade
+import com.searchlauncher.app.ui.onboarding.shouldOpenQuickSettings
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import com.searchlauncher.app.util.MathEvaluator
 import com.searchlauncher.app.util.SystemUtils
@@ -302,6 +312,13 @@ fun SearchScreen(
   val historyLimit by
     remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
       .collectAsState(initial = -1)
+  val treatFavoritedSitesAsApps by
+    remember {
+        context.dataStore.data.map {
+          it[PreferencesKeys.TREAT_FAVORITED_SITES_AS_APPS] ?: TREAT_FAVORITED_SITES_AS_APPS_DEFAULT
+        }
+      }
+      .collectAsState(initial = TREAT_FAVORITED_SITES_AS_APPS_DEFAULT)
   // "Autocomplete suggestions" setting. Gates the network fetch of query suggestions while typing
   // a shortcut search (e.g. "g cats"). Stored under SEARCH_SHORTCUTS_ENABLED for historical
   // reasons.
@@ -328,6 +345,11 @@ fun SearchScreen(
   val keyboardGesturesEnabled by
     remember { context.dataStore.data.map { it[PreferencesKeys.KEYBOARD_GESTURES] ?: true } }
       .collectAsState(initial = true)
+  val separateQuickSettingsPref by
+    remember { context.dataStore.data.map { it[PreferencesKeys.SEPARATE_QUICK_SETTINGS] } }
+      .collectAsState(initial = null)
+  val separateShade =
+    resolveSeparateShade(separateQuickSettingsPref, Build.MANUFACTURER, Build.BRAND)
   val useBuiltInKeyboard = builtInKeyboardEnabled && !riseWithKeyboard && browserTabId == null
 
   val defaultSearchEngineId by
@@ -370,17 +392,39 @@ fun SearchScreen(
 
   val openTabRecents = openTabsAsRecents(context)
   val historyEntries by app.historyRepository.historyEntries.collectAsState()
+  val displayedFavorites =
+    remember(favorites, treatFavoritedSitesAsApps) {
+      collapsePinnedSites(favorites, treatFavoritedSitesAsApps)
+    }
+  LaunchedEffect(favoriteIds, favorites, treatFavoritedSitesAsApps) {
+    if (!treatFavoritedSitesAsApps) return@LaunchedEffect
+    val collapsed = keysAfterCollapsingSites(favoriteIds, favorites)
+    if (collapsed != favoriteIds) app.favoritesRepository.updateOrder(collapsed)
+  }
   val historyItems =
-    remember(rawHistoryItems, favoriteIds, historyLimit, openTabRecents, historyEntries) {
+    remember(
+      rawHistoryItems,
+      favoriteIds,
+      favorites,
+      historyLimit,
+      openTabRecents,
+      historyEntries,
+      treatFavoritedSitesAsApps,
+    ) {
       if (historyLimit == 0) emptyList()
       else {
         val favoriteKeys = favoriteIds.toSet()
-        val filteredApps = rawHistoryItems.filter { it.favoriteKey !in favoriteKeys }
+        val filteredApps =
+          applySiteAppHistoryFilter(
+            rawHistoryItems.filter { it.favoriteKey !in favoriteKeys },
+            favorites,
+            treatFavoritedSitesAsApps,
+          )
         val merged =
           mergeRecentsByTime(
             filteredApps,
             historyEntries.associate { it.id to it.lastUsedMs },
-            openTabRecents,
+            applySiteAppTabFilter(openTabRecents, favorites, treatFavoritedSitesAsApps),
           )
         applyHistoryLimit(merged.map { it.result }, historyLimit)
       }
@@ -582,11 +626,13 @@ fun SearchScreen(
     val openTab = result as? SearchResult.BrowserTab
     ResultMenuActions(
       onToggleFavorite =
-        if (result.isFavoritable()) {
+        if (result.canPinToFavorites()) {
           {
-            app.favoritesRepository.toggleFavorite(result)
-            onQueryChange("")
-            scope.launch { onboardingManager.markStepComplete(OnboardingStep.AddFavorite) }
+            scope.launch {
+              searchRepository.pinOrUnpinFavorite(result, treatFavoritedSitesAsApps)
+              onQueryChange("")
+              onboardingManager.markStepComplete(OnboardingStep.AddFavorite)
+            }
           }
         } else null,
       onRemoveBookmark = {
@@ -760,6 +806,8 @@ fun SearchScreen(
         // is why it kept arriving from the right while the swipe came from the left.
         onOpenInBrowser = { url -> openInBrowser(url) },
         onOpenBrowserTab = { index -> openBrowserTab(index) },
+        treatFavoritedSitesAsApps = { treatFavoritedSitesAsApps },
+        favoriteResults = { searchRepository.favorites.value },
       )
     }
 
@@ -890,37 +938,18 @@ fun SearchScreen(
   // (e.g. completedSteps updating async from DataStore) only trigger recomposition
   // when the actual computed step changes — avoids brief flashes of wrong steps.
   val currentOnboardingStep by
-    remember(query, folderImages, isActive) {
+    remember(query, folderImages, isActive, separateShade) {
       derivedStateOf {
         if (!isActive) return@derivedStateOf null
         val steps = completedSteps ?: return@derivedStateOf null
-        if (query.isNotEmpty()) {
-          if (
-            !steps.contains(OnboardingStep.AddFavorite) &&
-              searchResults.isNotEmpty() &&
-              favorites.isEmpty()
-          )
-            OnboardingStep.AddFavorite
-          else null
-        } else {
-          if (!steps.contains(OnboardingStep.SwipeBackground) && folderImages.size > 1)
-            OnboardingStep.SwipeBackground
-          else if (!steps.contains(OnboardingStep.SwipeNotifications))
-            OnboardingStep.SwipeNotifications
-          else if (!steps.contains(OnboardingStep.SwipeQuickSettings))
-            OnboardingStep.SwipeQuickSettings
-          else if (!steps.contains(OnboardingStep.SwipeAppDrawer)) OnboardingStep.SwipeAppDrawer
-          else if (!steps.contains(OnboardingStep.LongPressBackground))
-            OnboardingStep.LongPressBackground
-          else if (!steps.contains(OnboardingStep.SearchYoutube)) OnboardingStep.SearchYoutube
-          else if (!steps.contains(OnboardingStep.SearchGoogle)) OnboardingStep.SearchGoogle
-          else if (!steps.contains(OnboardingStep.SetTimer)) OnboardingStep.SetTimer
-          else if (!steps.contains(OnboardingStep.ReorderFavorites) && favorites.size >= 2)
-            OnboardingStep.ReorderFavorites
-          else if (!steps.contains(OnboardingStep.OpenSettings)) OnboardingStep.OpenSettings
-          // AddFavorite is situational, shown when search results exist
-          else null
-        }
+        nextOnboardingStep(
+          completed = steps,
+          queryIsEmpty = query.isEmpty(),
+          hasMultipleWallpapers = folderImages.size > 1,
+          hasSearchResults = searchResults.isNotEmpty(),
+          favoritesCount = favorites.size,
+          separateShade = separateShade,
+        )
       }
     }
 
@@ -961,6 +990,26 @@ fun SearchScreen(
     }
     if (favorites.size >= 2 && !steps.contains(OnboardingStep.ReorderFavorites)) {
       onboardingManager.markStepComplete(OnboardingStep.ReorderFavorites)
+    }
+  }
+
+  fun onShadeSwipeDown(isLeft: Boolean) {
+    val openQuickSettings =
+      shouldOpenQuickSettings(
+        isLeft = isLeft,
+        currentStep = currentOnboardingStep,
+        separateShade = separateShade,
+      )
+    scope.launch {
+      onboardingManager.markStepComplete(
+        if (openQuickSettings) OnboardingStep.SwipeQuickSettings
+        else OnboardingStep.SwipeNotifications
+      )
+    }
+    if (openQuickSettings) {
+      SystemUtils.expandQuickSettings(context)
+    } else {
+      SystemUtils.expandNotifications(context)
     }
   }
 
@@ -1234,6 +1283,7 @@ fun SearchScreen(
       isDefaultLauncher,
       hasContactsPermission,
       searchShortcuts,
+      separateShade,
     ) {
       val shortcutHints =
         searchShortcuts.map { "Type '${it.alias} ' to ${it.description.lowercase()}" }
@@ -1242,6 +1292,7 @@ fun SearchScreen(
         isSnippetsSet = { snippetItems.isNotEmpty() },
         isDefaultLauncher = { isDefaultLauncher },
         isContactsAccessGranted = { hasContactsPermission },
+        hasSeparateShade = { separateShade },
         shortcutHints = shortcutHints,
       )
     }
@@ -1724,20 +1775,21 @@ fun SearchScreen(
               scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeBackground) }
             },
             keyboardSwipeRequest = keyboardWallpaperSwipe,
-            onSwipeDownLeft = {
-              scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeNotifications) }
-              com.searchlauncher.app.util.SystemUtils.expandNotifications(context)
-            },
-            onSwipeDownRight = {
-              scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeQuickSettings) }
-              com.searchlauncher.app.util.SystemUtils.expandQuickSettings(context)
-            },
+            onSwipeDownLeft = { onShadeSwipeDown(isLeft = true) },
+            onSwipeDownRight = { onShadeSwipeDown(isLeft = false) },
           )
 
           TutorialOverlay(
             currentStep = currentOnboardingStep,
             bottomPadding = bottomPadding,
+            separateShade = separateShade,
             onSkip = { scope.launch { onboardingManager.skipAll() } },
+            onSeparateShadeAnswer = { twoTrays ->
+              scope.launch {
+                context.dataStore.edit { it[PreferencesKeys.SEPARATE_QUICK_SETTINGS] = twoTrays }
+                onboardingManager.markStepComplete(OnboardingStep.AskSeparateShade)
+              }
+            },
           )
 
           if (showDefaultLauncherDialog) {
@@ -2123,7 +2175,13 @@ fun SearchScreen(
                             ),
                         result = result,
                         highlighted = index == keyboardSelectedIndex,
-                        isFavorite = app.favoritesRepository.isFavorite(result),
+                        isFavorite =
+                          isDisplayedAsFavorite(
+                            result,
+                            favorites,
+                            favoriteIds,
+                            treatFavoritedSitesAsApps,
+                          ),
                         actions = menuActionsFor(result, index),
                         onClick = {
                           if (result is SearchResult.SearchIntent) {
@@ -2298,7 +2356,7 @@ fun SearchScreen(
                     )
                   } else {
                     FavoritesRow(
-                      favorites = favorites,
+                      favorites = displayedFavorites,
                       history = historyItems,
                       historyLimit = historyLimit,
                       minIconSizeSetting = minIconSizeSetting,
@@ -2313,7 +2371,18 @@ fun SearchScreen(
                         }
                       },
                       onToggleFavorite = { result ->
-                        app.favoritesRepository.toggleFavorite(result)
+                        scope.launch {
+                          searchRepository.pinOrUnpinFavorite(result, treatFavoritedSitesAsApps)
+                          onboardingManager.markStepComplete(OnboardingStep.AddFavorite)
+                        }
+                      },
+                      isItemFavorite = { result ->
+                        isDisplayedAsFavorite(
+                          result,
+                          favorites,
+                          favoriteIds,
+                          treatFavoritedSitesAsApps,
+                        )
                       },
                       onReorder = { newOrder ->
                         app.favoritesRepository.updateOrder(newOrder)
@@ -2591,16 +2660,10 @@ fun SearchScreen(
                     onOpenAppDrawer()
                   }
                   com.searchlauncher.app.ui.components.KeyboardHomeSwipe.DownLeft -> {
-                    scope.launch {
-                      onboardingManager.markStepComplete(OnboardingStep.SwipeNotifications)
-                    }
-                    com.searchlauncher.app.util.SystemUtils.expandNotifications(context)
+                    onShadeSwipeDown(isLeft = true)
                   }
                   com.searchlauncher.app.ui.components.KeyboardHomeSwipe.DownRight -> {
-                    scope.launch {
-                      onboardingManager.markStepComplete(OnboardingStep.SwipeQuickSettings)
-                    }
-                    com.searchlauncher.app.util.SystemUtils.expandQuickSettings(context)
+                    onShadeSwipeDown(isLeft = false)
                   }
                   com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Left ->
                     keyboardWallpaperSwipe++

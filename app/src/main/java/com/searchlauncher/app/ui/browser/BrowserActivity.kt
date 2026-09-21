@@ -114,9 +114,16 @@ import coil.compose.AsyncImage
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.Prefs
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.data.TREAT_FAVORITED_SITES_AS_APPS_DEFAULT
 import com.searchlauncher.app.data.applyHistoryLimit
+import com.searchlauncher.app.data.applySiteAppHistoryFilter
+import com.searchlauncher.app.data.applySiteAppTabFilter
+import com.searchlauncher.app.data.collapsePinnedSites
 import com.searchlauncher.app.data.favoriteKey
+import com.searchlauncher.app.data.isDisplayedAsFavorite
+import com.searchlauncher.app.data.keysAfterCollapsingSites
 import com.searchlauncher.app.data.mergeRecentsByTime
+import com.searchlauncher.app.data.pinnedFavoritesForSite
 import com.searchlauncher.app.ui.KeyShortcutHost
 import com.searchlauncher.app.ui.KeyShortcuts
 import com.searchlauncher.app.ui.MainActivity
@@ -536,6 +543,13 @@ internal fun BrowserScreen(
   val historyLimit by
     remember { context.dataStore.data.map { it[PreferencesKeys.HISTORY_LIMIT] ?: -1 } }
       .collectAsState(initial = -1)
+  val treatFavoritedSitesAsApps by
+    remember {
+        context.dataStore.data.map {
+          it[PreferencesKeys.TREAT_FAVORITED_SITES_AS_APPS] ?: TREAT_FAVORITED_SITES_AS_APPS_DEFAULT
+        }
+      }
+      .collectAsState(initial = TREAT_FAVORITED_SITES_AS_APPS_DEFAULT)
   val minIconSizeSetting by
     remember { MinIconSize.flow(context) }.collectAsState(initial = MinIconSize.cached(context))
   val favoritesMaxRows by
@@ -550,24 +564,40 @@ internal fun BrowserScreen(
   }
   val historyEntries by (app.historyRepositoryOrNull?.historyEntries ?: noEntries).collectAsState()
   val openTabRecents = if (privateMode) emptyList() else openTabsAsRecents(context)
+  val displayedFavorites =
+    remember(favorites, treatFavoritedSitesAsApps, privateMode) {
+      if (privateMode) favorites else collapsePinnedSites(favorites, treatFavoritedSitesAsApps)
+    }
+  LaunchedEffect(favoriteIds, favorites, treatFavoritedSitesAsApps, privateMode) {
+    if (privateMode || !treatFavoritedSitesAsApps) return@LaunchedEffect
+    val collapsed = keysAfterCollapsingSites(favoriteIds, favorites)
+    if (collapsed != favoriteIds) favoritesRepository?.updateOrder(collapsed)
+  }
   val historyItems =
     remember(
       allRecentItems,
       favoriteIds,
+      favorites,
       historyLimit,
       privateMode,
       openTabRecents,
       historyEntries,
+      treatFavoritedSitesAsApps,
     ) {
       if (privateMode || historyLimit == 0) emptyList()
       else {
         val favoriteKeys = favoriteIds.toSet()
-        val filteredApps = allRecentItems.filter { it.favoriteKey !in favoriteKeys }
+        val filteredApps =
+          applySiteAppHistoryFilter(
+            allRecentItems.filter { it.favoriteKey !in favoriteKeys },
+            favorites,
+            treatFavoritedSitesAsApps,
+          )
         val merged =
           mergeRecentsByTime(
             filteredApps,
             historyEntries.associate { it.id to it.lastUsedMs },
-            openTabRecents,
+            applySiteAppTabFilter(openTabRecents, favorites, treatFavoritedSitesAsApps),
           )
         applyHistoryLimit(merged.map { it.result }, historyLimit)
       }
@@ -591,7 +621,13 @@ internal fun BrowserScreen(
   val resultLauncher =
     remember(context, sharedSearchRepository, coroutineScope) {
       sharedSearchRepository?.let {
-        ResultLauncher(context = context, searchRepository = it, scope = coroutineScope)
+        ResultLauncher(
+          context = context,
+          searchRepository = it,
+          scope = coroutineScope,
+          treatFavoritedSitesAsApps = { treatFavoritedSitesAsApps },
+          favoriteResults = { it.favorites.value },
+        )
       }
     }
   val initialNavigationRequest = remember { navigationRequest }
@@ -1447,6 +1483,39 @@ internal fun BrowserScreen(
             }
           }
         },
+      onToggleSiteFavorite =
+        if (privateMode) null
+        else {
+          {
+            val url =
+              (webView?.url ?: activeTab.url).takeUnless { it.isBlank() || it == "about:blank" }
+            if (url == null) {
+              Toast.makeText(context, "Nothing to favorite", Toast.LENGTH_SHORT).show()
+            } else {
+              val pinned = pinnedFavoritesForSite(url, favorites, treatFavoritedSitesAsApps)
+              if (pinned.isNotEmpty()) {
+                favoritesRepository?.removeKeys(pinned.map { it.favoriteKey })
+                Toast.makeText(context, "Removed from Favorites", Toast.LENGTH_SHORT).show()
+              } else {
+                coroutineScope.launch {
+                  val saved =
+                    searchRepository?.saveAndFavoriteBookmark(
+                      url,
+                      webView?.title ?: activeTab.title,
+                    ) == true
+                  Toast.makeText(
+                      context,
+                      if (saved) "Added to Favorites" else "Could not add to Favorites",
+                      Toast.LENGTH_SHORT,
+                    )
+                    .show()
+                }
+              }
+            }
+          }
+        },
+      siteIsFavorite =
+        pinnedFavoritesForSite(activeTab.url, favorites, treatFavoritedSitesAsApps).isNotEmpty(),
       onToggleDesktopMode = {
         webView?.let { view ->
           activeTab.desktopMode = !activeTab.desktopMode
@@ -2108,7 +2177,7 @@ internal fun BrowserScreen(
         exit = fadeOut(),
       ) {
         BrowserLauncherChrome(
-          favorites = favorites,
+          favorites = displayedFavorites,
           historyItems = historyItems,
           historyLimit = historyLimit,
           minIconSizeSetting = minIconSizeSetting,
@@ -2129,8 +2198,13 @@ internal fun BrowserScreen(
           },
           onToggleFavorite = { result ->
             if (!privateMode) {
-              favoritesRepository?.toggleFavorite(result)
+              coroutineScope.launch {
+                searchRepository?.pinOrUnpinFavorite(result, treatFavoritedSitesAsApps)
+              }
             }
+          },
+          isItemFavorite = { result ->
+            isDisplayedAsFavorite(result, favorites, favoriteIds, treatFavoritedSitesAsApps)
           },
           onReorder = { ids ->
             if (!privateMode) {
@@ -2452,6 +2526,9 @@ private fun BrowserLauncherChrome(
   onTabDragEnd: () -> Unit,
   onLaunchFavorite: (SearchResult) -> Unit,
   onToggleFavorite: (SearchResult) -> Unit,
+  isItemFavorite: (SearchResult) -> Boolean = { result ->
+    favorites.any { it.favoriteKey == result.favoriteKey }
+  },
   onReorder: (List<String>) -> Unit,
   onHistoryCapacityChanged: (Int) -> Unit,
   onHide: () -> Unit,
@@ -2538,6 +2615,7 @@ private fun BrowserLauncherChrome(
           maxRows = maxRows,
           onLaunch = onLaunchFavorite,
           onToggleFavorite = onToggleFavorite,
+          isItemFavorite = isItemFavorite,
           onReorder = onReorder,
           onCapacityChanged = onHistoryCapacityChanged,
         )

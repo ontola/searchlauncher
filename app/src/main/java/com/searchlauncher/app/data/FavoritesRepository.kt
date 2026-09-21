@@ -75,6 +75,24 @@ class FavoritesRepository(context: Context) {
     return _favoriteIds.value.contains(FavoriteKeys.of(namespace, id))
   }
 
+  fun addFavorite(namespace: String, id: String) {
+    val key = FavoriteKeys.of(namespace, id)
+    val current = _favoriteIds.value
+    if (current.contains(key)) return
+    val next = current + key
+    _favoriteIds.value = next
+    saveFavorites(next)
+  }
+
+  fun removeKeys(keys: Collection<String>) {
+    if (keys.isEmpty()) return
+    val drop = keys.toSet()
+    val next = _favoriteIds.value.filter { it !in drop }
+    if (next.size == _favoriteIds.value.size) return
+    _favoriteIds.value = next
+    saveFavorites(next)
+  }
+
   private fun saveFavorites(favorites: List<String>) {
     val array = JSONArray()
     favorites.forEach { array.put(it) }

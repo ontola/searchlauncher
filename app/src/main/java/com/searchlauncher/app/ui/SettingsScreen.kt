@@ -774,6 +774,35 @@ private fun KeyboardSettingsCard() {
           },
         )
       }
+      val separateQuickSettingsPref by
+        remember { context.dataStore.data.map { it[PreferencesKeys.SEPARATE_QUICK_SETTINGS] } }
+          .collectAsState(initial = null)
+      val separateShade =
+        com.searchlauncher.app.ui.onboarding.resolveSeparateShade(
+          separateQuickSettingsPref,
+          Build.MANUFACTURER,
+          Build.BRAND,
+        )
+      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+          Text("Separate Quick Settings swipe", style = MaterialTheme.typography.bodyMedium)
+          Text(
+            "Swipe down on the right for Quick Settings, and on the left for notifications. " +
+              "Turn off if this phone uses one tray for both, as many Samsung phones do.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(
+          checked = separateShade,
+          onCheckedChange = { enabled ->
+            scope.launch {
+              context.dataStore.edit { it[PreferencesKeys.SEPARATE_QUICK_SETTINGS] = enabled }
+            }
+          },
+        )
+      }
       Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -823,6 +852,14 @@ private fun BrowserSettingsCard() {
   val storeWebHistory =
     remember { context.dataStore.data.map { it[PreferencesKeys.STORE_WEB_HISTORY] ?: true } }
       .collectAsState(initial = true)
+  val treatFavoritedSitesAsApps =
+    remember {
+        context.dataStore.data.map {
+          it[PreferencesKeys.TREAT_FAVORITED_SITES_AS_APPS]
+            ?: com.searchlauncher.app.data.TREAT_FAVORITED_SITES_AS_APPS_DEFAULT
+        }
+      }
+      .collectAsState(initial = com.searchlauncher.app.data.TREAT_FAVORITED_SITES_AS_APPS_DEFAULT)
   val adBlockEnabled =
     remember { context.dataStore.data.map { it[PreferencesKeys.AD_BLOCK_ENABLED] ?: true } }
       .collectAsState(initial = true)
@@ -958,6 +995,32 @@ private fun BrowserSettingsCard() {
             scope.launch {
               context.dataStore.edit { preferences ->
                 preferences[PreferencesKeys.STORE_WEB_HISTORY] = enabled
+              }
+            }
+          },
+        )
+      }
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(text = "Treat favorited sites as apps", style = MaterialTheme.typography.bodyMedium)
+          Text(
+            text =
+              "One icon per site. Tapping a pinned bookmark reopens that site's tab instead of creating another.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Switch(
+          checked = treatFavoritedSitesAsApps.value,
+          onCheckedChange = { enabled ->
+            scope.launch {
+              context.dataStore.edit { preferences ->
+                preferences[PreferencesKeys.TREAT_FAVORITED_SITES_AS_APPS] = enabled
               }
             }
           },
@@ -1506,28 +1569,27 @@ private fun AboutCard() {
       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(
           onClick = {
-            val intent =
-              Intent(
-                Intent.ACTION_VIEW,
-                Uri.parse("https://play.google.com/store/apps/details?id=com.searchlauncher.app"),
-              )
-            context.startActivity(intent)
+            openUrl(context, "https://play.google.com/store/apps/details?id=com.searchlauncher.app")
           },
           modifier = Modifier.weight(1f),
         ) {
           Text("Play Store")
         }
         OutlinedButton(
-          onClick = {
-            val intent =
-              Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/ontola/searchlauncher"))
-            context.startActivity(intent)
-          },
+          onClick = { openUrl(context, "https://github.com/ontola/searchlauncher") },
           modifier = Modifier.weight(1f),
         ) {
           Text("Source code")
         }
       }
+
+      TextButton(onClick = { openUrl(context, "https://searchlauncher.eu/") }) {
+        Text("searchlauncher.eu")
+      }
     }
   }
+}
+
+private fun openUrl(context: Context, url: String) {
+  context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
 }

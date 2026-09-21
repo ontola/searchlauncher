@@ -63,8 +63,18 @@ fun SearchResult.isFavoritable(): Boolean =
     is SearchResult.Content ->
       namespace in setOf("app_shortcuts", "web_saved", "web_bookmarks", "downloads", "calendar")
     // An open tab is a live view of the browser, not a thing to pin: it disappears when closed,
-    // which would leave the favorite pointing at nothing.
+    // which would leave the favorite pointing at nothing. Drag and the tab menu still offer pin
+    // via [canPinToFavorites], which writes a bookmark and pins that instead.
     is SearchResult.BrowserTab,
     is SearchResult.IndexingIndicator,
     is SearchResult.PrivateSpace -> false
   }
+
+/**
+ * Whether this item can be dragged onto the favorites strip or offered "Add to Favorites".
+ *
+ * Tabs are included even though they are not [isFavoritable]: pinning one saves the current page as
+ * a bookmark and pins the bookmark.
+ */
+fun SearchResult.canPinToFavorites(): Boolean =
+  isFavoritable() || (this is SearchResult.BrowserTab && pageUrl() != null)

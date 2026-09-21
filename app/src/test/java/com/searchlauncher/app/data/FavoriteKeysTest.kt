@@ -158,5 +158,27 @@ class FavoriteKeysTest {
         )
         .isFavoritable()
     )
+    val openTab =
+      SearchResult.BrowserTab(
+        id = "browser_tab_1",
+        title = "GitHub",
+        subtitle = "Open tab",
+        icon = null,
+        tabId = 1L,
+        url = "https://github.com",
+      )
+    assertFalse(openTab.isFavoritable())
+    assertTrue(openTab.canPinToFavorites())
+    assertFalse(
+      SearchResult.BrowserTab(
+          id = "browser_tab_2",
+          title = "Blank",
+          subtitle = "Open tab",
+          icon = null,
+          tabId = 2L,
+          url = "about:blank",
+        )
+        .canPinToFavorites()
+    )
   }
 }

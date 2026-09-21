@@ -4,6 +4,10 @@ Published from this folder by [`.github/workflows/deploy-website.yml`](../.githu
 
 **Live URL:** https://searchlauncher.eu/
 
+**Google Play:** https://play.google.com/store/apps/details?id=com.searchlauncher.app
+
+**F-Droid:** https://f-droid.org/packages/com.searchlauncher.app/
+
 ## One-time GitHub setup
 
 **Required:** Repo **Settings → Pages → Build and deployment → Source: GitHub Actions**.

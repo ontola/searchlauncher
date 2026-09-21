@@ -26,6 +26,11 @@ object PreferencesKeys {
   val LOCK_WIDGETS = booleanPreferencesKey("lock_widgets")
   val IS_FIRST_RUN = booleanPreferencesKey("is_first_run")
   val STORE_WEB_HISTORY = booleanPreferencesKey("store_web_history")
+  /**
+   * When true (the default), a pinned bookmark is a site app: one icon, and tapping it resumes a
+   * tab already open on that host instead of opening the start URL again.
+   */
+  val TREAT_FAVORITED_SITES_AS_APPS = booleanPreferencesKey("treat_favorited_sites_as_apps")
   val BROWSER_SHOW_FAVORITES = booleanPreferencesKey("browser_show_favorites")
   val HISTORY_LIMIT = intPreferencesKey("history_limit")
   val MIN_ICON_SIZE = intPreferencesKey("min_icon_size")
@@ -66,6 +71,13 @@ object PreferencesKeys {
    * Declining is an answer, so the offer is not repeated on every launch that finds them missing.
    */
   val ONBOARDING_PERMISSIONS_ASKED = booleanPreferencesKey("onboarding_permissions_asked")
+
+  /**
+   * When true, swipe-down on the right of the home screen or keyboard opens Quick Settings, and
+   * swipe-down on the left opens notifications. When false, both sides open notifications. Unset
+   * follows the manufacturer: Pixel-style skins default to two trays, Samsung to one.
+   */
+  val SEPARATE_QUICK_SETTINGS = booleanPreferencesKey("separate_quick_settings")
 
   fun getDefaultIconSize(context: android.content.Context): Int {
     val config = context.resources.configuration

@@ -1,0 +1,1 @@
+Favorited websites now work like apps. Pin a site from a tab (long-press, drag onto favorites, or the browser menu) to keep one icon instead of filling recents with every page. Opening the favorite resumes the tab you already have on that site. Turn this off in Settings if you prefer the old bookmark behavior.

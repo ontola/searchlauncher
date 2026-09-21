@@ -2,6 +2,8 @@
 
 Android app that lets you search everything on your phone and on the web, and opens what you find in its own ad-blocking browser.
 
+**Get it on [Google Play](https://play.google.com/store/apps/details?id=com.searchlauncher.app).** APKs are also on [GitHub Releases](https://github.com/ontola/searchlauncher/releases/latest).
+
 **Website:** [searchlauncher.eu](https://searchlauncher.eu/) (source in [`website/`](website/))
 
 ## Features
@@ -12,7 +14,7 @@ Android app that lets you search everything on your phone and on the web, and op
 - **Built-in ad-free browser** - Opens web results in-app, blocking ads and trackers by default. Browse privately in an isolated window. File uploads, picture-in-picture video, and hardware-keyboard shortcuts are included.
 - **Tabs at your thumb** - Swipe the search bar sideways to switch tabs, or up to see them all as live previews. Both work from the home screen too: swipe sideways to drop straight back into your last tab.
 - **Bookmarks & history** - Save any page under a title you choose, then find it back from the search bar. Pages you visit are searchable too, and both show the site's icon.
-- **Keyboard gestures** - With a query, swipe sideways to move the cursor or vertically to scroll results with momentum. With no query, swipe up for the app drawer, down on the left for notifications, down on the right for quick settings, or sideways for wallpapers. Configure these in Settings → Keyboard.
+- **Keyboard gestures** - With a query, swipe sideways to move the cursor or vertically to scroll results with momentum. With no query, swipe up for the app drawer, down for notifications (left side, or either side if your phone uses one tray), down on the right for quick settings when the phone has a separate tray, or sideways for wallpapers. Configure these in Settings → Keyboard.
 - **Downloads** - View progress and history, install downloaded APKs, open files in another app, and delete files. Search for Downloads to open the page. Use Open a file to choose a file through Android, or Browse all downloads to open the system Downloads view. No broad storage permission is required.
 - **Speed** - Cached search is available earlier at startup, while background indexing yields to typing.
 - **Swipe Wallpapers** - Your background is an interactive picture album.
