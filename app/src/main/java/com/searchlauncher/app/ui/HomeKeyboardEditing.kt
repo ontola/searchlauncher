@@ -33,6 +33,18 @@ internal fun pendingKeyboardShortcut(
   return shortcuts.firstOrNull { it.alias.equals(value.text, ignoreCase = true) }
 }
 
+/**
+ * Text that arrived from outside the field: Clear, Home, opening a result, or "widgets ".
+ *
+ * Not [TextFieldValue.copy]. Copy keeps the IME composition, and that range still describes the
+ * previous text. The editor then tries to apply it to the new (often empty) string, which throws or
+ * leaves the old characters on screen after the query itself is already gone.
+ */
+internal fun TextFieldValue.applyExternalText(external: String): TextFieldValue {
+  if (text == external) return this
+  return TextFieldValue(external, TextRange(external.length))
+}
+
 /** Move by character boundaries so swipes cannot split emoji or combining characters. */
 internal fun TextFieldValue.moveKeyboardCursor(steps: Int): TextFieldValue {
   if (steps == 0) return this

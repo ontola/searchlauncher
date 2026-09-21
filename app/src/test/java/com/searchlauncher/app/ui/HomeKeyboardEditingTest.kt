@@ -78,6 +78,34 @@ class HomeKeyboardEditingTest {
   }
 
   @Test
+  fun externalTextDropsImeCompositionThatCopyKeeps() {
+    val composing = TextFieldValue("hello", TextRange(5), TextRange(0, 5))
+    // copy clamps a range that no longer fits, but it is still a composition. On a longer
+    // replacement the original range is kept whole. Either way the IME session stays open.
+    assertEquals(TextRange(0, 0), composing.copy(text = "", selection = TextRange(0)).composition)
+    assertEquals(
+      TextRange(0, 5),
+      composing.copy(text = "widgets ", selection = TextRange(8)).composition,
+    )
+
+    val cleared = composing.applyExternalText("")
+    assertEquals("", cleared.text)
+    assertEquals(TextRange(0), cleared.selection)
+    assertNull(cleared.composition)
+
+    val replaced = composing.applyExternalText("widgets ")
+    assertEquals("widgets ", replaced.text)
+    assertEquals(TextRange("widgets ".length), replaced.selection)
+    assertNull(replaced.composition)
+  }
+
+  @Test
+  fun externalTextKeepsCaretWhenTheQueryDidNotChange() {
+    val caret = TextFieldValue("hello", TextRange(2), TextRange(0, 5))
+    assertEquals(caret, caret.applyExternalText("hello"))
+  }
+
+  @Test
   fun backspaceAtStartDoesNothing() {
     val before = TextFieldValue("hello", TextRange(0))
     assertEquals(before, before.deleteKeyboardText())

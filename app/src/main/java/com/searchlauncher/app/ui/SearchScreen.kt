@@ -1036,15 +1036,10 @@ fun SearchScreen(
     )
   }
 
-  // Update TextFieldValue when displayQuery changes externally (e.g. from "Add Widget")
-  LaunchedEffect(displayQuery) {
-    if (textFieldValue.text != displayQuery) {
-      textFieldValue =
-        textFieldValue.copy(
-          text = displayQuery,
-          selection = androidx.compose.ui.text.TextRange(displayQuery.length),
-        )
-    }
+  // Same frame as the query change. copy() would keep the IME composition, which still describes
+  // the previous text, so the box can keep those characters after the query itself is gone.
+  if (textFieldValue.text != displayQuery) {
+    textFieldValue = textFieldValue.applyExternalText(displayQuery)
   }
 
   fun updateSearchField(newValue: androidx.compose.ui.text.input.TextFieldValue) {
