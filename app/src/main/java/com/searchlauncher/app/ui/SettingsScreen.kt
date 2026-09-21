@@ -85,6 +85,7 @@ import com.searchlauncher.app.R
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.DownloadIndexer
 import com.searchlauncher.app.ui.browser.AdBlocker
+import com.searchlauncher.app.ui.browser.BrowserStoragePanel
 import com.searchlauncher.app.ui.components.FAVORITES_MAX_ROWS_AUTO
 import com.searchlauncher.app.ui.components.PrivacyPolicyDialog
 import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
@@ -814,6 +815,8 @@ private fun isDefaultBrowser(context: Context): Boolean {
 
 @Composable
 private fun BrowserSettingsCard() {
+  var showStorage by remember { mutableStateOf(false) }
+  if (showStorage) BrowserStoragePanel(onDismiss = { showStorage = false })
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   val isDefaultBrowser = rememberPermissionState { isDefaultBrowser(context) }
@@ -830,6 +833,13 @@ private fun BrowserSettingsCard() {
   Card(modifier = Modifier.fillMaxWidth()) {
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
       Text(text = "Browser", style = MaterialTheme.typography.titleMedium)
+      OutlinedButton(onClick = { showStorage = true }, modifier = Modifier.fillMaxWidth()) {
+        Text("Website storage")
+      }
+      Text(
+        "See storage used by each domain and clear website data",
+        style = MaterialTheme.typography.bodySmall,
+      )
 
       if (isDefaultBrowser.value) {
         Row(
