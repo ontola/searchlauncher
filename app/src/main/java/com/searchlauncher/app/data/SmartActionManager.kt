@@ -1,6 +1,7 @@
 package com.searchlauncher.app.data
 
 import android.content.Context
+import com.searchlauncher.app.util.webAddressUrl
 
 class SmartActionManager(private val context: Context) {
 
@@ -125,15 +126,10 @@ class SmartActionManager(private val context: Context) {
       )
     }
 
-    // URL Check
-    val urlMatcher = android.util.Patterns.WEB_URL.matcher(trimmedQuery)
-    if (urlMatcher.matches()) {
-      val url =
-        if (!trimmedQuery.startsWith("http://") && !trimmedQuery.startsWith("https://")) {
-          "https://$trimmedQuery"
-        } else {
-          trimmedQuery
-        }
+    // URL check. Patterns.WEB_URL misses real hosts (multi-label names, localhost, some
+    // IPs), so recognition lives in webAddressUrl.
+    val url = webAddressUrl(trimmedQuery)
+    if (url != null) {
 
       // Use a generic browser icon or similar if available, otherwise default
       // search icon

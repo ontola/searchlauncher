@@ -11,10 +11,10 @@ package com.searchlauncher.app.data
  *    context boost + usage.
  *
  * Approximate descending order of typical scores: 1600 timer smart action; 1200 custom shortcut
- * with explicit search term ("g cats"); ~450-480 a page open in the browser; ~150-250 indexed hits,
- * which usage history lifts to ~525 at most (varies by namespace, short-query boost, usage); 200
- * suggestion / widget result; 150 custom shortcut bare alias; 100 call / email smart action; 98-99
- * sms / url / add-contact smart action
+ * with explicit search term ("g cats"); 560 a typed web address; ~450-480 a page open in the
+ * browser; ~150-250 indexed hits, which usage history lifts to ~525 at most (varies by namespace,
+ * short-query boost, usage); 200 suggestion / widget result; 150 custom shortcut bare alias; 100
+ * call / email smart action; 98-99 sms / add-contact smart action
  *
  * Learning is deliberately kept within one order of magnitude of the structural signals, so that
  * having picked something once at one exact query nudges the order rather than dictating it.
@@ -29,7 +29,12 @@ object RankingScores {
   const val SMART_ACTION_CALL = 100
   const val SMART_ACTION_EMAIL = 100
   const val SMART_ACTION_SMS = 99
-  const val SMART_ACTION_URL = 98
+
+  /**
+   * A query that is itself a web address. Above a learned app or an open tab (~525) so Go opens the
+   * site, and below an explicit shortcut search ("g cats") and a timer.
+   */
+  const val SMART_ACTION_URL = 560
   const val SMART_ACTION_ADD_CONTACT = 98
 
   // --- Direct scores outside the index pipeline ---
