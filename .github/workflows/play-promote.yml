@@ -1,0 +1,55 @@
+name: Promote Play release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: Android version code already on the internal track
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-production
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: false
+      - name: Install fastlane
+        run: gem install fastlane --no-document
+      - name: Promote existing bundle to production
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] || { echo 'Version code must be numeric'; exit 1; }
+          test -n "$PLAY_SERVICE_ACCOUNT_JSON" || { echo 'Play credentials are missing'; exit 1; }
+          key_file="$RUNNER_TEMP/play-key.json"
+          trap 'rm -f "$key_file"' EXIT
+          umask 077
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$key_file"
+          fastlane supply \
+            --package_name com.searchlauncher.app \
+            --track internal \
+            --track_promote_to production \
+            --version_code "$VERSION_CODE" \
+            --track_promote_release_status completed \
+            --changes_not_sent_for_review false \
+            --rescue_changes_not_sent_for_review false \
+            --json_key "$key_file" \
+            --skip_upload_apk true \
+            --skip_upload_aab true \
+            --skip_upload_metadata true \
+            --skip_upload_images true \
+            --skip_upload_screenshots true \
+            --skip_upload_changelogs true

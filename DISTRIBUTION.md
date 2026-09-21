@@ -12,7 +12,7 @@ here except the console forms is already in the repo.
 
 Tagging a release uploads it. The `play` job in
 [`.github/workflows/android.yml`](.github/workflows/android.yml) builds the bundle and
-hands it to the **internal** track with `fastlane supply`, taking the release notes from
+hands it to the **production** track with `fastlane supply`, taking the release notes from
 `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`. Without the
 `PLAY_SERVICE_ACCOUNT_JSON` secret the job skips rather than fails, so a fork still gets a
 green build.
@@ -153,7 +153,7 @@ The upload needs a service account, which is four things in two consoles:
    cannot be downloaded again. Linking the project to your Play account used to be
    required and no longer is.
 2. **Play Console** — *Users and permissions* > *Invite new users*, paste the service
-   account's email, and give it access to this app with *Release apps to testing tracks*.
+   account's email, and give it access to this app with *Release to production, exclude devices, and use Play App Signing*.
    Permissions can take a few minutes to apply.
 3. **GitHub** — add the whole JSON file as a repository secret named
    `PLAY_SERVICE_ACCOUNT_JSON`.
@@ -174,11 +174,17 @@ account has not been invited in *Users and permissions*, or the invitation has n
 propagated yet.
 
 After that, `git tag v0.0.23 && git push origin v0.0.23` is the whole release: GitHub gets
-the APK, and Play's internal track gets the bundle.
+the APK, and Play's production track gets the bundle and the changes are submitted for review.
 
-To promote further than internal, change `--track` in the workflow, or promote in the
-console. Note that **internal testing does not count towards the 14-day closed-testing
-requirement** below.
+Google may review an update before it becomes public. Managed publishing, if enabled
+in Play Console, can also hold an approved update. CI deliberately fails if Play requires
+manual review submission instead of silently leaving the changes unsubmitted.
+
+For a version already uploaded to internal testing, run **Promote Play release** in
+GitHub Actions with its Android version code. This promotes that existing bundle to
+production without rebuilding or uploading a duplicate version. It preserves the store
+listing and its screenshots. Internal testing does not count towards the 14-day
+closed-testing requirement below.
 
 ### Console forms
 
