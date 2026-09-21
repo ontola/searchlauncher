@@ -1,0 +1,3 @@
+Manage website storage in Settings → Browser: see reported usage by domain, find the largest sites, and clear one site's data or all website data. Confirmations explain sign-out and offline-content removal. Downloads and history are kept. Storage totals exclude cookies and some other data.
+
+Swipe-down onboarding now adapts to phones with one notification tray or separate notification and Quick Settings trays.
