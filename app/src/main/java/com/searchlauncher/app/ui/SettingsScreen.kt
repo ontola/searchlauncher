@@ -87,6 +87,7 @@ import com.searchlauncher.app.data.DownloadIndexer
 import com.searchlauncher.app.ui.browser.AdBlocker
 import com.searchlauncher.app.ui.browser.BrowserStoragePanel
 import com.searchlauncher.app.ui.components.FAVORITES_MAX_ROWS_AUTO
+import com.searchlauncher.app.ui.components.FeedbackDialog
 import com.searchlauncher.app.ui.components.PrivacyPolicyDialog
 import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
 import com.searchlauncher.app.ui.components.shouldShowFavoritesIconSizeSetting
@@ -1547,6 +1548,7 @@ fun rememberPermissionState(check: () -> Boolean): State<Boolean> {
 @Composable
 private fun AboutCard() {
   val context = LocalContext.current
+  var showFeedback by remember { mutableStateOf(false) }
   Card(modifier = Modifier.fillMaxWidth()) {
     Column(
       modifier = Modifier.padding(16.dp),
@@ -1565,6 +1567,10 @@ private fun AboutCard() {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
       )
+
+      OutlinedButton(onClick = { showFeedback = true }, modifier = Modifier.fillMaxWidth()) {
+        Text("Send feedback")
+      }
 
       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(
@@ -1587,6 +1593,10 @@ private fun AboutCard() {
         Text("searchlauncher.eu")
       }
     }
+  }
+
+  if (showFeedback) {
+    FeedbackDialog(onDismiss = { showFeedback = false })
   }
 }
 

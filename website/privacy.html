@@ -53,7 +53,7 @@
       <a class="back" href="index.html">← Back</a>
     </div>
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: August 2026</p>
+    <p class="updated">Last updated: September 2026</p>
     <p>This Privacy Policy describes how Ontola, the company behind SearchLauncher ("we", "us", or "our") collects, uses, and shares information when you use our mobile application.</p>
 
     <h2>Information Collection and Use</h2>
@@ -70,22 +70,27 @@
 
     <h3>Error Logs and Diagnostics</h3>
     <p>We collect error logs and crash reports to identify and fix issues in the application. This data helps us improve the stability and performance of the app.</p>
-    <p>We use <strong>GlitchTip</strong> (a Sentry-compatible service) to collect this information. The data collected involves:</p>
+    <p>We use <strong>GlitchTip</strong> (a Sentry-compatible service, via the Sentry SDK) to collect this information. The data collected involves:</p>
     <ul>
       <li>Stack traces of crashes</li>
-      <li>Device information (model, OS version)</li>
-      <li>App version</li>
+      <li>Device information (manufacturer, model, Android version, screen size, locale)</li>
+      <li>App version and build identifier</li>
+      <li>WebView version</li>
     </ul>
     <p>We <strong>do not</strong> collect:</p>
     <ul>
-      <li>Personally Identifiable Information (PII) such as your name, email, or phone number.</li>
+      <li>Personally Identifiable Information (PII) such as your name, email, or phone number, unless you type an email into Send feedback.</li>
       <li>Search queries.</li>
-      <li>Any other user inputs.</li>
+      <li>Contacts, calendar events, or browsing history.</li>
     </ul>
+
+    <h3>Feedback</h3>
+    <p><strong>Settings → Send feedback</strong> sends a report only when you tap Send. The report includes the message you write, an email address if you enter one, and the device and version details listed above. Sending feedback does not turn on crash reporting.</p>
 
     <h2>User Consent</h2>
     <ul>
       <li><strong>Error logging</strong> is optional. You will be asked for permission to enable this feature when you first open the app. You can change your preference at any time in <strong>Settings → Privacy</strong>.</li>
+      <li><strong>Feedback</strong> is sent only when you submit it from Settings.</li>
       <li><strong>Web shortcuts and search suggestions</strong> are optional. You will be asked whether to enable them when you first open the app. You can change your preference at any time in <strong>Settings → Privacy</strong>.</li>
     </ul>
 

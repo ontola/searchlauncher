@@ -199,7 +199,11 @@ closed-testing requirement below.
   shortcut names — DuckDuckGo, Bing, Google, Wikipedia and YouTube endpoints are in the
   source. This is "shared, not collected": it goes to a third party, not to us.
 - *Crash reporting*, when enabled, sends stack traces to GlitchTip. Declare it as crash
-  logs, optional, not used for tracking.
+  logs, optional, not used for tracking. Reports include device model, Android version,
+  app version, build identifier, and WebView version.
+- *Send feedback* (Settings) is a separate, user-initiated report to the same GlitchTip
+  project. It includes the message, those same device details, and an email only if the
+  user types one. It does not enable ongoing crash reporting.
 - Contacts and calendar are read on the device to answer a query and are never sent
   anywhere. They are permissions, not collected data. Custom wallpapers are chosen
   with the system photo picker; the app does not request storage or photos access.
