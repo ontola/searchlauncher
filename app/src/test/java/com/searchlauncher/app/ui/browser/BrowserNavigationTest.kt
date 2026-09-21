@@ -13,6 +13,12 @@ class BrowserNavigationTest {
   @Test
   fun addsHttpsToHostNames() {
     assertEquals("https://example.com/page", browserDestination("example.com/page"))
+    assertEquals(
+      "https://ontola.staging.atomicserver.eu",
+      browserDestination("ontola.staging.atomicserver.eu"),
+    )
+    assertEquals("https://localhost:8080", browserDestination("localhost:8080"))
+    assertEquals("https://192.168.0.1", browserDestination("192.168.0.1"))
   }
 
   @Test
@@ -20,6 +26,11 @@ class BrowserNavigationTest {
     assertEquals(
       "https://www.google.com/search?q=keyboard+first+launcher",
       browserDestination("keyboard first launcher"),
+    )
+    assertEquals("https://www.google.com/search?q=3.14", browserDestination("3.14"))
+    assertEquals(
+      "https://www.google.com/search?q=ftp%3A%2F%2Fexample.com",
+      browserDestination("ftp://example.com"),
     )
   }
 

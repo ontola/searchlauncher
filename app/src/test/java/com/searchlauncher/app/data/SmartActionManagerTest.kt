@@ -52,4 +52,32 @@ class SmartActionManagerTest {
 
     assertTrue(results.none { it.id == "smart_action_add_snippet" })
   }
+
+  @Test
+  fun `multi label domain opens as a website`() {
+    val results = manager.checkSmartActions("ontola.staging.atomicserver.eu")
+
+    val open = results.firstOrNull { it.id == "smart_action_url_ontola.staging.atomicserver.eu" }
+    assertNotNull(open)
+    open as SearchResult.Content
+    assertEquals("Open ontola.staging.atomicserver.eu", open.title)
+    assertEquals("Website", open.subtitle)
+    assertEquals("https://ontola.staging.atomicserver.eu", open.deepLink)
+  }
+
+  @Test
+  fun `explicit http url keeps its scheme`() {
+    val query = "http://ontola.staging.atomicserver.eu/path"
+    val results = manager.checkSmartActions(query)
+
+    val open = results.first { it.id == "smart_action_url_$query" } as SearchResult.Content
+    assertEquals(query, open.deepLink)
+  }
+
+  @Test
+  fun `plain text is not a website`() {
+    val results = manager.checkSmartActions("random query")
+
+    assertTrue(results.none { it.id.startsWith("smart_action_url_") })
+  }
 }
