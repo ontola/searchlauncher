@@ -8,6 +8,7 @@ import android.net.Uri
 import android.util.Log
 import com.searchlauncher.app.R
 import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.util.displayPageAddress
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -162,7 +163,11 @@ class SearchResultFactory(
       id = doc.id,
       namespace = if (saved) "web_saved" else "web_bookmarks",
       title = doc.name,
-      subtitle = if (saved) "Bookmark" else "Browser history",
+      // The page address, not "Bookmark" / "Browser history": several pages share a title, and
+      // the second line is what tells them apart.
+      subtitle =
+        doc.intentUri?.let(::displayPageAddress)?.takeIf { it.isNotEmpty() }
+          ?: if (saved) "Bookmark" else "Browser history",
       icon = icon,
       packageName = "com.android.chrome",
       deepLink = doc.intentUri,

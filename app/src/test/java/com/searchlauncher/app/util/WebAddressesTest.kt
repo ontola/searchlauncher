@@ -6,6 +6,17 @@ import org.junit.Test
 
 class WebAddressesTest {
   @Test
+  fun pageAddressDropsSchemeAndTrailingSlash() {
+    assertEquals("atomic.place", displayPageAddress("https://atomic.place/"))
+    assertEquals("atomic.place/docs", displayPageAddress("https://atomic.place/docs/"))
+    assertEquals("atomic.place/a/b", displayPageAddress("http://atomic.place/a/b"))
+    assertEquals("Example.COM/Path", displayPageAddress("HTTPS://Example.COM/Path"))
+    assertEquals("atomic.place/docs/?q=1", displayPageAddress("https://atomic.place/docs/?q=1"))
+    assertEquals("about:blank", displayPageAddress("  about:blank  "))
+    assertEquals("", displayPageAddress("   "))
+  }
+
+  @Test
   fun recognizesMultiLabelHosts() {
     assertEquals(
       "https://ontola.staging.atomicserver.eu",

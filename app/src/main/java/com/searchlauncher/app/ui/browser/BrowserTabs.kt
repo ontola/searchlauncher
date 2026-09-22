@@ -17,6 +17,7 @@ import androidx.core.view.WindowInsetsCompat
 import com.searchlauncher.app.R
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.TimedRecent
+import com.searchlauncher.app.util.displayPageAddress
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 
@@ -448,7 +449,7 @@ internal fun BrowserTab.toSearchResult(context: Context): SearchResult.BrowserTa
   return SearchResult.BrowserTab(
     id = "browser_tab_$id",
     title = pageTitle ?: address.ifBlank { "Tab" },
-    subtitle = "Open tab",
+    subtitle = displayPageAddress(url).ifEmpty { "Open tab" },
     icon = icon,
     tabId = id,
     url = url,

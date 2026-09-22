@@ -26,7 +26,7 @@ class BrowserTabRecentsTest {
     val result = tab.toSearchResult(context)!!
 
     assertEquals("Example", result.title)
-    assertEquals("Open tab", result.subtitle)
+    assertEquals("example.com/page", result.subtitle)
     assertEquals(tab.id, result.tabId)
     assertEquals("https://example.com/page", result.url)
   }
