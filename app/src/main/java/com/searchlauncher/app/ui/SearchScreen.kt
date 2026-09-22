@@ -2063,7 +2063,9 @@ fun SearchScreen(
           run {
             // When opened from the browser, the results panel takes the page color like the rest
             // of the chrome. SearchResultItem reads onSurface/onSurfaceVariant from the theme, so
-            // override those locally for contrast on arbitrary page colors.
+            // override those locally for contrast on arbitrary page colors. The selection highlight
+            // is chosen against this pair, so the theme's container colour is not painted under
+            // text that was picked for the page.
             val resultsColor = chromeBarColor ?: MaterialTheme.colorScheme.surface
             val resultsContentColor =
               chromeBarColor?.let {

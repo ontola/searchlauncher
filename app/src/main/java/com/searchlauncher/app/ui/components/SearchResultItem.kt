@@ -49,7 +49,13 @@ fun SearchResultItem(
   modifier: Modifier = Modifier,
 ) {
   var showMenu by remember { mutableStateOf(false) }
-  val highlightColor = MaterialTheme.colorScheme.secondaryContainer
+  val colors = MaterialTheme.colorScheme
+  val highlightColor =
+    resultHighlightColor(
+      surface = colors.surface,
+      onSurface = colors.onSurface,
+      container = colors.secondaryContainer,
+    )
   val context = LocalContext.current
   val searchRepository = remember {
     (context.applicationContext as SearchLauncherApp).searchRepository
