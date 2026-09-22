@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated: August 2026**
+**Last updated: September 2026**
 
 This Privacy Policy describes how Ontola, the company behind SearchLauncher ("we", "us", or "our") collects, uses, and shares information when you use our mobile application.
 
@@ -36,18 +36,23 @@ Pages you open naturally contact the servers of the sites you are visiting, exac
 ### Error Logs and Diagnostics
 We collect error logs and crash reports to identify and fix issues in the application. This data helps us improve the stability and performance of the app.
 
-We use **GlitchTip** (a Sentry-compatible service) to collect this information. The data collected involves:
+We use **GlitchTip** (a Sentry-compatible service, via the Sentry SDK) to collect this information. The data collected involves:
 - Stack traces of crashes
-- Device information (model, OS version)
-- App version
+- Device information (manufacturer, model, Android version, screen size, locale)
+- App version and build identifier
+- WebView version
 
 We **do not** collect:
-- Personally Identifiable Information (PII) such as your name, email, or phone number.
+- Personally Identifiable Information (PII) such as your name, email, or phone number, unless you type an email into Send feedback.
 - Search queries.
-- Any other user inputs.
+- Contacts, calendar events, or browsing history.
+
+### Feedback
+**Settings → Send feedback** sends a report only when you tap Send. The report includes the message you write, an email address if you enter one, and the device and version details listed above. Sending feedback does not turn on crash reporting.
 
 ## User Consent
 - **Error logging** is optional. You will be asked for permission to enable this feature when you first open the app. You can change your preference at any time in **Settings → Privacy**.
+- **Feedback** is sent only when you submit it from Settings.
 - **Web shortcuts and search suggestions** are optional. You will be asked whether to enable them when you first open the app. You can change your preference at any time in **Settings → Privacy**.
 
 ## Contact Us
