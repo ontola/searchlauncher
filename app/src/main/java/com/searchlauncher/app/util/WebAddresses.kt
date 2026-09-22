@@ -23,6 +23,19 @@ internal fun webAddressUrl(input: String): String? {
   return "https://$trimmed"
 }
 
+/**
+ * The address shown on the second line of a bookmark, history entry, or open tab.
+ *
+ * The scheme and a trailing slash carry nothing the row's title doesn't already imply, and a long
+ * query still ellipsizes in the row. `https://atomic.place/docs/` becomes `atomic.place/docs`.
+ */
+internal fun displayPageAddress(url: String): String {
+  val trimmed = url.trim()
+  val schemeLength = httpSchemeLength(trimmed)
+  val withoutScheme = if (schemeLength != null) trimmed.substring(schemeLength) else trimmed
+  return withoutScheme.removeSuffix("/")
+}
+
 /** Length of a leading `http://` or `https://`, matched without regard to case. */
 private fun httpSchemeLength(value: String): Int? {
   if (value.length >= 8 && value.regionMatches(0, "https://", 0, 8, ignoreCase = true)) return 8
