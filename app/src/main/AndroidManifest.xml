@@ -121,6 +121,18 @@
                 <data android:scheme="http" />
                 <data android:scheme="https" />
             </intent-filter>
+            <!--
+              Registers this activity as a browser app. The VIEW filter above is what opens a
+              link; this one is what Settings and some OEM "Open with" sheets consult when they
+              list browsers. Without it those sheets show Chrome and the other browsers and omit
+              SearchLauncher. Not a launcher category, so it does not add a second home-screen icon.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.APP_BROWSER" />
+            </intent-filter>
         </activity>
 
         <activity
