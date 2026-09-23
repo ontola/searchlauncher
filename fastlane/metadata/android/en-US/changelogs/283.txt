@@ -1,0 +1,1 @@
+Web addresses now open reliably, including multi-part domains, localhost, IP addresses, ports and paths. Clearing a search also clears the visible text. Bookmarks, history and tabs show page addresses, with readable selection colors. Settings now offers Send feedback with device and app details to help diagnose problems.
