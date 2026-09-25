@@ -1779,12 +1779,6 @@ fun SearchScreen(
             bottomPadding = bottomPadding,
             separateShade = separateShade,
             onSkip = { scope.launch { onboardingManager.skipAll() } },
-            onSeparateShadeAnswer = { twoTrays ->
-              scope.launch {
-                context.dataStore.edit { it[PreferencesKeys.SEPARATE_QUICK_SETTINGS] = twoTrays }
-                onboardingManager.markStepComplete(OnboardingStep.AskSeparateShade)
-              }
-            },
           )
 
           if (showDefaultLauncherDialog) {

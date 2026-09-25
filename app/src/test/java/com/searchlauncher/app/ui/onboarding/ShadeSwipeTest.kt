@@ -35,7 +35,7 @@ class ShadeSwipeTest {
   }
 
   @Test
-  fun notificationsAndTrayQuestionKeepRightSwipeOnNotifications() {
+  fun notificationsStepKeepsRightSwipeOnNotifications() {
     assertFalse(
       shouldOpenQuickSettings(
         isLeft = false,
@@ -43,38 +43,18 @@ class ShadeSwipeTest {
         separateShade = true,
       )
     )
-    assertFalse(
-      shouldOpenQuickSettings(
-        isLeft = false,
-        currentStep = OnboardingStep.AskSeparateShade,
-        separateShade = true,
-      )
-    )
-  }
-
-  @Test
-  fun afterNotificationsTheUserIsAskedAboutTrays() {
-    val completed = setOf(OnboardingStep.SwipeNotifications)
-    assertEquals(OnboardingStep.AskSeparateShade, nextHomeStep(completed, separateShade = true))
-    assertEquals(OnboardingStep.AskSeparateShade, nextHomeStep(completed, separateShade = false))
   }
 
   @Test
   fun oneTraySkipsQuickSettings() {
-    val completed = setOf(OnboardingStep.SwipeNotifications, OnboardingStep.AskSeparateShade)
+    val completed = setOf(OnboardingStep.SwipeNotifications)
     assertEquals(OnboardingStep.SwipeAppDrawer, nextHomeStep(completed, separateShade = false))
   }
 
   @Test
-  fun twoTraysTeachesQuickSettingsAfterTheQuestion() {
-    val completed = setOf(OnboardingStep.SwipeNotifications, OnboardingStep.AskSeparateShade)
+  fun twoTraysTeachesQuickSettingsRightAfterNotifications() {
+    val completed = setOf(OnboardingStep.SwipeNotifications)
     assertEquals(OnboardingStep.SwipeQuickSettings, nextHomeStep(completed, separateShade = true))
-  }
-
-  @Test
-  fun finishingOldQuickSettingsOnboardingDoesNotAskAgain() {
-    val completed = setOf(OnboardingStep.SwipeNotifications, OnboardingStep.SwipeQuickSettings)
-    assertEquals(OnboardingStep.SwipeAppDrawer, nextHomeStep(completed, separateShade = false))
   }
 
   @Test

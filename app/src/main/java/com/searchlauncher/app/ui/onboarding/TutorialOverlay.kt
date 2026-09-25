@@ -12,6 +12,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -26,9 +31,14 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
@@ -38,7 +48,6 @@ fun TutorialOverlay(
   bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
   separateShade: Boolean = true,
   onSkip: (() -> Unit)? = null,
-  onSeparateShadeAnswer: ((Boolean) -> Unit)? = null,
 ) {
   // Manage visibility and delayed step update
   val visibleState = remember { MutableTransitionState(false) }
@@ -94,11 +103,6 @@ fun TutorialOverlay(
                 direction = SwipeDirection.Down,
                 align = if (separateShade) Alignment.Start else Alignment.CenterHorizontally,
               )
-            OnboardingStep.AskSeparateShade ->
-              SeparateShadeChoice(
-                onOneTray = { onSeparateShadeAnswer?.invoke(false) },
-                onTwoTrays = { onSeparateShadeAnswer?.invoke(true) },
-              )
             OnboardingStep.SwipeQuickSettings ->
               SwipeGestureIndicator(
                 text = "Swipe down (right) for settings",
@@ -119,8 +123,7 @@ fun TutorialOverlay(
               TextHintIndicator(text = "Long press a result to Favorite")
             OnboardingStep.ReorderFavorites ->
               TextHintIndicator(text = "Hold favorite icons to change order")
-            OnboardingStep.OpenSettings ->
-              TextHintIndicator(text = "Press the \u2699 to open Settings")
+            OnboardingStep.OpenSettings -> SettingsIconHint()
             OnboardingStep.SetTimer ->
               TextHintIndicator(text = "Type '2h' or '10m rice'\n to set a timer")
           }
@@ -175,7 +178,6 @@ private fun paddingFor(step: OnboardingStep, separateShade: Boolean): Modifier =
       if (separateShade) Modifier.padding(start = 24.dp, bottom = 120.dp)
       else Modifier.padding(start = 24.dp, end = 24.dp, bottom = 120.dp)
     OnboardingStep.SwipeQuickSettings -> Modifier.padding(end = 24.dp, bottom = 120.dp)
-    OnboardingStep.AskSeparateShade -> Modifier.padding(horizontal = 24.dp)
     OnboardingStep.AddFavorite -> Modifier.padding(bottom = 100.dp)
     OnboardingStep.ReorderFavorites,
     OnboardingStep.OpenSettings -> Modifier.padding(bottom = 150.dp)
@@ -355,34 +357,38 @@ fun HoldGestureIndicator(text: String, modifier: Modifier = Modifier) {
   }
 }
 
+/**
+ * Draws the same icon the search bar's settings button uses inline in the hint, so the hint points
+ * at what is actually on screen rather than a text glyph that renders differently per font.
+ */
 @Composable
-private fun SeparateShadeChoice(onOneTray: () -> Unit, onTwoTrays: () -> Unit) {
-  Column(horizontalAlignment = Alignment.CenterHorizontally) {
-    TextHintIndicator(
-      text =
-        "Some phones open notifications on the left and Quick Settings on the right. " +
-          "Many Samsung phones use one tray for both.\n\nDoes this phone have two trays?"
-    )
-    Spacer(modifier = Modifier.height(16.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-      ShadeChoiceChip(text = "One tray", onClick = onOneTray)
-      ShadeChoiceChip(text = "Two trays", onClick = onTwoTrays)
-    }
+private fun SettingsIconHint() {
+  val iconId = "settings"
+  val text = buildAnnotatedString {
+    append("Press the ")
+    appendInlineContent(iconId, "[settings]")
+    append(" to open Settings")
   }
-}
-
-@Composable
-private fun ShadeChoiceChip(text: String, onClick: () -> Unit) {
+  val inlineContent =
+    mapOf(
+      iconId to
+        InlineTextContent(
+          Placeholder(width = 1.2.em, height = 1.2.em, PlaceholderVerticalAlign.Center)
+        ) {
+          Icon(
+            imageVector = Icons.Default.Settings,
+            contentDescription = "Settings",
+            tint = Color.White,
+            modifier = Modifier.fillMaxSize(),
+          )
+        }
+    )
   Text(
     text = text,
+    inlineContent = inlineContent,
     color = Color.White,
-    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+    style = hintTextStyle(),
     textAlign = TextAlign.Center,
-    modifier =
-      Modifier.clip(RoundedCornerShape(16.dp))
-        .clickable(onClick = onClick)
-        .background(Color.Black.copy(alpha = 0.45f))
-        .padding(horizontal = 20.dp, vertical = 10.dp),
   )
 }
 
@@ -392,16 +398,16 @@ fun TextHintIndicator(text: String, modifier: Modifier = Modifier) {
     text = text,
     color = Color.White,
     modifier = modifier,
-    style =
-      MaterialTheme.typography.titleLarge.copy(
-        fontSize = 22.sp,
-        fontWeight = FontWeight.Bold,
-        shadow =
-          androidx.compose.ui.graphics.Shadow(
-            color = Color.Black.copy(alpha = 0.9f),
-            blurRadius = 8f,
-          ),
-      ),
+    style = hintTextStyle(),
     textAlign = TextAlign.Center,
   )
 }
+
+@Composable
+private fun hintTextStyle(): TextStyle =
+  MaterialTheme.typography.titleLarge.copy(
+    fontSize = 22.sp,
+    fontWeight = FontWeight.Bold,
+    shadow =
+      androidx.compose.ui.graphics.Shadow(color = Color.Black.copy(alpha = 0.9f), blurRadius = 8f),
+  )
