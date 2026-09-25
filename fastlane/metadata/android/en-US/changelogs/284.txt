@@ -1,0 +1,1 @@
+Type a clock time such as 22:10, 7.30pm or "alarm 6.45 gym" to set an alarm in your clock app. Onboarding no longer asks how many swipe-down trays your phone has, and its settings hint shows the real settings icon. Long-press an app in the app drawer to add it to or remove it from Favorites.
