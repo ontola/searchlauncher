@@ -80,4 +80,55 @@ class SmartActionManagerTest {
 
     assertTrue(results.none { it.id.startsWith("smart_action_url_") })
   }
+
+  @Test
+  fun `clock time with colon or dot sets an alarm`() {
+    for (query in listOf("22:10", "22.10")) {
+      val alarm =
+        manager.checkSmartActions(query).first { it.id == "smart_action_alarm_22:10" }
+          as SearchResult.Content
+      assertEquals("Set alarm for 22:10", alarm.title)
+      assertEquals("alarm://set?hour=22&minutes=10", alarm.deepLink)
+    }
+  }
+
+  @Test
+  fun `clock time is not offered as a phone number`() {
+    val results = manager.checkSmartActions("22.10")
+
+    assertTrue(results.none { it.id.startsWith("smart_action_call_") })
+    assertTrue(results.none { it.id.startsWith("smart_action_sms_") })
+  }
+
+  @Test
+  fun `alarm keeps a trailing label`() {
+    val alarm =
+      manager.checkSmartActions("wekker 6.45 gym").first { it.id == "smart_action_alarm_6:45" }
+        as SearchResult.Content
+    assertEquals("Set alarm for 6:45 (gym)", alarm.title)
+    assertEquals("alarm://set?hour=6&minutes=45&name=gym", alarm.deepLink)
+  }
+
+  @Test
+  fun `parses am pm into 24 hour time`() {
+    assertEquals(
+      SmartActionManager.AlarmTime(19, 30, null),
+      SmartActionManager.parseAlarmQuery("7:30pm"),
+    )
+    assertEquals(
+      SmartActionManager.AlarmTime(0, 5, null),
+      SmartActionManager.parseAlarmQuery("12:05 am"),
+    )
+    assertEquals(
+      SmartActionManager.AlarmTime(12, 0, null),
+      SmartActionManager.parseAlarmQuery("12.00pm"),
+    )
+  }
+
+  @Test
+  fun `impossible times and plain numbers are not alarms`() {
+    for (query in listOf("24:00", "22:60", "13:00pm", "2210", "1.5", "0612345678")) {
+      assertEquals(query, null, SmartActionManager.parseAlarmQuery(query))
+    }
+  }
 }

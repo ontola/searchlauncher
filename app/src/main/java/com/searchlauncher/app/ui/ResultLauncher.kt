@@ -208,6 +208,26 @@ class ResultLauncher(
       return
     }
 
+    if (deepLink.startsWith("alarm://set")) {
+      val uri = Uri.parse(deepLink)
+      val hour = uri.getQueryParameter("hour")?.toIntOrNull() ?: return
+      val minutes = uri.getQueryParameter("minutes")?.toIntOrNull() ?: return
+      val name = uri.getQueryParameter("name")
+      val alarmIntent =
+        Intent(android.provider.AlarmClock.ACTION_SET_ALARM).apply {
+          putExtra(android.provider.AlarmClock.EXTRA_HOUR, hour)
+          putExtra(android.provider.AlarmClock.EXTRA_MINUTES, minutes)
+          if (name != null) putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, name)
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+      try {
+        context.startActivity(alarmIntent)
+      } catch (e: android.content.ActivityNotFoundException) {
+        Toast.makeText(context, "No alarm app found", Toast.LENGTH_SHORT).show()
+      }
+      return
+    }
+
     try {
       val intent =
         if (deepLink.startsWith("intent:")) {
