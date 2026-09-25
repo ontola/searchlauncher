@@ -26,6 +26,7 @@ package com.searchlauncher.app.data
 object RankingScores {
   // --- Smart actions (deterministic pattern matches on the whole query) ---
   const val SMART_ACTION_TIMER = 1600
+  const val SMART_ACTION_ALARM = SMART_ACTION_TIMER
   const val SMART_ACTION_CALL = 100
   const val SMART_ACTION_EMAIL = 100
   const val SMART_ACTION_SMS = 99

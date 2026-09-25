@@ -11,8 +11,10 @@ class SmartActionManager(private val context: Context) {
     val trimmedQuery = query.trim()
 
     // Phone Number Check
+    // "22.10" is phone-shaped too, but a clock time means an alarm, not a call.
+    val alarm = parseAlarmQuery(trimmedQuery)
     val phoneMatcher = android.util.Patterns.PHONE.matcher(trimmedQuery)
-    val isPhone = phoneMatcher.matches() && trimmedQuery.length >= 3
+    val isPhone = alarm == null && phoneMatcher.matches() && trimmedQuery.length >= 3
 
     // Check for explicit triggers
     val lowerQuery = trimmedQuery.lowercase()
@@ -175,6 +177,29 @@ class SmartActionManager(private val context: Context) {
       )
     }
 
+    // Alarm Check - clock times like "22:10", "22.10", "7:30am", "alarm 6.45 gym"
+    if (alarm != null) {
+      val alarmIcon = context.getDrawable(android.R.drawable.ic_lock_idle_alarm)
+      val title =
+        if (alarm.name != null) "Set alarm for ${alarm.label} (${alarm.name})"
+        else "Set alarm for ${alarm.label}"
+      val deepLink =
+        "alarm://set?hour=${alarm.hour}&minutes=${alarm.minutes}" +
+          (alarm.name?.let { "&name=${android.net.Uri.encode(it)}" } ?: "")
+      results.add(
+        SearchResult.Content(
+          id = "smart_action_alarm_${alarm.label}",
+          namespace = "smart_actions",
+          title = title,
+          subtitle = "Alarm",
+          icon = alarmIcon,
+          packageName = "com.google.android.deskclock",
+          deepLink = deepLink,
+          rankingScore = RankingScores.SMART_ACTION_ALARM,
+        )
+      )
+    }
+
     // Widget logic moved to Shortcuts.kt
 
     return results
@@ -234,5 +259,38 @@ class SmartActionManager(private val context: Context) {
       }
 
     return Triple(seconds, label, name)
+  }
+
+  data class AlarmTime(val hour: Int, val minutes: Int, val name: String?) {
+    val label: String
+      get() = "$hour:${minutes.toString().padStart(2, '0')}"
+  }
+
+  companion object {
+    private val ALARM_PATTERN =
+      Regex(
+        """^(?:(?:alarm|wekker)\s+)?(\d{1,2})[:.](\d{2})(?:\s*(am|pm))?(?:\s+(.+))?$""",
+        RegexOption.IGNORE_CASE,
+      )
+
+    /**
+     * Reads a clock time ("22:10", "22.10", "7:30pm", optionally prefixed with "alarm" or "wekker"
+     * and followed by a label) as an alarm, in 24-hour time.
+     */
+    fun parseAlarmQuery(query: String): AlarmTime? {
+      val match = ALARM_PATTERN.matchEntire(query.trim()) ?: return null
+      var hour = match.groupValues[1].toInt()
+      val minutes = match.groupValues[2].toInt()
+      val meridiem = match.groupValues[3].lowercase()
+      if (minutes > 59) return null
+      if (meridiem.isNotEmpty()) {
+        if (hour !in 1..12) return null
+        hour = hour % 12 + if (meridiem == "pm") 12 else 0
+      } else if (hour > 23) {
+        return null
+      }
+      val name = match.groupValues[4].trim().takeIf { it.isNotEmpty() }
+      return AlarmTime(hour, minutes, name)
+    }
   }
 }

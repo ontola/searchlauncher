@@ -22,6 +22,7 @@ class HintManager(
       Hint("Give access to contacts to search them") { !isContactsAccessGranted() },
       Hint("Type a phone number and call"),
       Hint("Type '2h' or '10m rice' to set a timer"),
+      Hint("Type '7:30' or '22.10' to set an alarm"),
       Hint("Type a website URL to open"),
       Hint("Try some maths: 1+1, 2^2, 2*2, 2/2, 2%2"),
       Hint("Swipe up to open the app drawer"),
