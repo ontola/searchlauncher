@@ -16,23 +16,19 @@ fun resolveSeparateShade(preference: Boolean?, manufacturer: String, brand: Stri
 
 /**
  * Right-side swipe-down opens Quick Settings only when this phone has two trays, and never while
- * onboarding is still teaching the shared notifications swipe or asking which trays exist.
+ * onboarding is still teaching the shared notifications swipe.
  */
 fun shouldOpenQuickSettings(
   isLeft: Boolean,
   currentStep: OnboardingStep?,
   separateShade: Boolean,
-): Boolean =
-  !isLeft &&
-    separateShade &&
-    currentStep != OnboardingStep.SwipeNotifications &&
-    currentStep != OnboardingStep.AskSeparateShade
+): Boolean = !isLeft && separateShade && currentStep != OnboardingStep.SwipeNotifications
 
 /**
  * Which home-screen hint to show, or null when onboarding is finished for the current state.
  *
- * Completing the old Quick Settings swipe counts as having answered [AskSeparateShade], so people
- * who already finished onboarding are not asked about trays.
+ * Whether the Quick Settings swipe is taught follows [separateShade] (the manufacturer default, or
+ * the setting if the user changed it), so onboarding never asks how many trays the phone has.
  */
 fun nextOnboardingStep(
   completed: Set<OnboardingStep>,
@@ -52,15 +48,10 @@ fun nextOnboardingStep(
     }
   }
 
-  val askedSeparateShade =
-    completed.contains(OnboardingStep.AskSeparateShade) ||
-      completed.contains(OnboardingStep.SwipeQuickSettings)
-
   return when {
     !completed.contains(OnboardingStep.SwipeBackground) && hasMultipleWallpapers ->
       OnboardingStep.SwipeBackground
     !completed.contains(OnboardingStep.SwipeNotifications) -> OnboardingStep.SwipeNotifications
-    !askedSeparateShade -> OnboardingStep.AskSeparateShade
     !completed.contains(OnboardingStep.SwipeQuickSettings) && separateShade ->
       OnboardingStep.SwipeQuickSettings
     !completed.contains(OnboardingStep.SwipeAppDrawer) -> OnboardingStep.SwipeAppDrawer

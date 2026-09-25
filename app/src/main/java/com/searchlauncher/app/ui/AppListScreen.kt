@@ -43,8 +43,12 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
+import com.searchlauncher.app.data.canPinToFavorites
+import com.searchlauncher.app.data.favoriteKey
+import com.searchlauncher.app.ui.components.ResultMenuActions
 import com.searchlauncher.app.ui.components.SearchResultItem
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -63,6 +67,27 @@ fun AppListScreen(
     remember(privateSnapshot) { searchRepository.privateSpace.controlResult(privateSnapshot) }
   val privateApps =
     remember(privateSnapshot, privateAppInfos) { searchRepository.privateSpace.appResults() }
+
+  val favoritesRepository =
+    (androidx.compose.ui.platform.LocalContext.current.applicationContext as SearchLauncherApp)
+      .favoritesRepository
+  val favoriteIds by favoritesRepository.favoriteIds.collectAsState()
+
+  // Long-pressing an app in the drawer offers the same favourite toggle it gets in the results.
+  @Composable
+  fun AppRow(app: SearchResult) {
+    SearchResultItem(
+      result = app,
+      isFavorite = app.favoriteKey in favoriteIds,
+      actions =
+        if (app.canPinToFavorites()) {
+          ResultMenuActions(onToggleFavorite = { favoritesRepository.toggleFavorite(app) })
+        } else {
+          ResultMenuActions()
+        },
+      onClick = { onAppClick(app) },
+    )
+  }
 
   val groupedApps =
     remember(apps) { apps.groupBy { it.title.firstOrNull()?.uppercaseChar() ?: '#' }.toSortedMap() }
@@ -168,9 +193,7 @@ fun AppListScreen(
               )
             }
           }
-          items(appList, key = { it.id }) { app ->
-            SearchResultItem(result = app, onClick = { onAppClick(app) })
-          }
+          items(appList, key = { it.id }) { app -> AppRow(app) }
         }
         if (privateControl != null) {
           stickyHeader {
@@ -190,9 +213,7 @@ fun AppListScreen(
           item(key = privateControl.id) {
             SearchResultItem(result = privateControl, onClick = { onAppClick(privateControl) })
           }
-          items(privateApps, key = { it.id }) { app ->
-            SearchResultItem(result = app, onClick = { onAppClick(app) })
-          }
+          items(privateApps, key = { it.id }) { app -> AppRow(app) }
         }
       }
 
