@@ -2067,7 +2067,30 @@ internal fun BrowserScreen(
                   ): Boolean {
                     if (request.isForMainFrame && openVerifiedAppLink(context, request.url))
                       return true
-                    if (openOutsideWebView(context, request.url)) return true
+                    when (val outside = dispatchOutsideWebView(context, request.url)) {
+                      OutsideNavigation.Proceed -> Unit
+                      OutsideNavigation.Consumed -> return true
+                      is OutsideNavigation.Load -> {
+                        // A subframe must not be able to navigate the page the user is reading.
+                        // Reloading the page already on screen loops when that page's only "app"
+                        // link falls back to itself, which is what a missing GitHub app does.
+                        if (!request.isForMainFrame || sameWebPage(view.url, outside.url))
+                          return true
+                        siteSettings = siteSettingsStore.load(outside.url)
+                        view.applySiteSettings(siteSettings)
+                        view.loadUrl(outside.url)
+                        return true
+                      }
+                      OutsideNavigation.NoApp -> {
+                        Toast.makeText(context, "No app can open this link", Toast.LENGTH_SHORT)
+                          .show()
+                        return true
+                      }
+                      OutsideNavigation.Failed -> {
+                        Toast.makeText(context, "Cannot open this link", Toast.LENGTH_SHORT).show()
+                        return true
+                      }
+                    }
                     siteSettings = siteSettingsStore.load(request.url.toString())
                     view.applySiteSettings(siteSettings)
                     return false
@@ -2778,24 +2801,6 @@ private fun StationaryChromeActions(
 
 /** Width of the mic, tab counter and overflow buttons together, reserved by both chrome layouts. */
 private val CHROME_ACTIONS_WIDTH = 96.dp
-
-private fun openOutsideWebView(context: Context, uri: Uri): Boolean {
-  if (uri.scheme == "http" || uri.scheme == "https") return false
-
-  return try {
-    val intent =
-      if (uri.scheme == "intent") Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)
-      else Intent(Intent.ACTION_VIEW, uri)
-    context.startActivity(intent)
-    true
-  } catch (_: ActivityNotFoundException) {
-    Toast.makeText(context, "No app can open this link", Toast.LENGTH_SHORT).show()
-    true
-  } catch (_: Exception) {
-    Toast.makeText(context, "Cannot open this link", Toast.LENGTH_SHORT).show()
-    true
-  }
-}
 
 private fun shareUrl(context: Context, url: String, title: String?) {
   if (url.isBlank()) return
