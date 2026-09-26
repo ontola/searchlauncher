@@ -2,10 +2,15 @@ package com.searchlauncher.app.data
 
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
+import android.graphics.Color
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ColorDrawable
 import androidx.test.core.app.ApplicationProvider
 import com.searchlauncher.app.SearchLauncherApp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -57,22 +62,24 @@ class ShortcutAppIconTest {
     val generator = SearchIconGenerator(context)
     val reddit = default("reddit")
     val size = (40 * context.resources.displayMetrics.density).toInt()
+    val appIcon = ColorDrawable(Color.RED)
 
-    assertNotNull(generator.getShortcutIcon(reddit))
+    val letterTile = generator.getShortcutIcon(reddit)
+    assertNotNull(letterTile)
+    assertNotSame(appIcon, letterTile)
 
-    shadowOf(context.packageManager)
-      .installPackage(
-        PackageInfo().apply {
-          packageName = "com.reddit.frontpage"
-          applicationInfo = ApplicationInfo().apply { packageName = "com.reddit.frontpage" }
-        }
-      )
-    val badged = generator.getShortcutIcon(reddit, badged = true)
-    assertTrue(badged is android.graphics.drawable.BitmapDrawable)
-    assertEquals(size, (badged as android.graphics.drawable.BitmapDrawable).bitmap.width)
-    assertEquals(
-      context.packageManager.getApplicationIcon("com.reddit.frontpage").javaClass,
-      generator.getShortcutIcon(reddit)?.javaClass,
+    val packageManager = shadowOf(context.packageManager)
+    packageManager.installPackage(
+      PackageInfo().apply {
+        packageName = "com.reddit.frontpage"
+        applicationInfo = ApplicationInfo().apply { packageName = "com.reddit.frontpage" }
+      }
     )
+    packageManager.setApplicationIcon("com.reddit.frontpage", appIcon)
+
+    assertSame(appIcon, generator.getShortcutIcon(reddit))
+    val badged = generator.getShortcutIcon(reddit, badged = true)
+    assertTrue(badged is BitmapDrawable)
+    assertEquals(size, (badged as BitmapDrawable).bitmap.width)
   }
 }
