@@ -119,11 +119,11 @@ class SearchResultFactory(
     val alias = doc.description ?: ""
     val cacheKey = "search_shortcut_${doc.id}"
     var icon = iconRepository.getMemory(cacheKey)
+    val app = context.applicationContext as? SearchLauncherApp
+    val shortcutDef = app?.searchShortcutRepository?.items?.value?.find { it.alias == alias }
 
-    if (icon == null) {
-      val app = context.applicationContext as? SearchLauncherApp
-      val shortcutDef = app?.searchShortcutRepository?.items?.value?.find { it.alias == alias }
-      icon = iconGenerator.getColoredSearchIcon(shortcutDef?.color, shortcutDef?.alias)
+    if (icon == null && shortcutDef != null) {
+      icon = iconGenerator.getShortcutIcon(shortcutDef)
       if (icon != null) {
         iconRepository.putMemory(cacheKey, icon)
       }
@@ -133,7 +133,7 @@ class SearchResultFactory(
       id = doc.id,
       namespace = "search_shortcuts",
       title = doc.name,
-      subtitle = "Type '${doc.description} ' to search",
+      subtitle = shortcutDef?.searchHint ?: "Type '${doc.description} ' to search",
       icon = icon,
       trigger = doc.description ?: "",
       rankingScore = rankingScore,

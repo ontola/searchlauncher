@@ -45,6 +45,7 @@ fun SearchResultItem(
   highlighted: Boolean = false,
   isFavorite: Boolean = false,
   actions: ResultMenuActions = ResultMenuActions(),
+  shortcutKey: ShortcutKey? = null,
   onClick: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
@@ -196,6 +197,10 @@ fun SearchResultItem(
           )
         }
 
+        if (shortcutKey != null) {
+          ShortcutKeyButton(shortcutKey, modifier = Modifier.padding(start = 8.dp))
+        }
+
         if (hasMenuItems) {
           IconButton(
             onClick = { showMenu = true },
@@ -233,6 +238,53 @@ fun SearchResultItem(
           }
         }
       }
+    }
+  }
+}
+
+/**
+ * The keys that start a search shortcut, drawn beside a result: its coloured letter tile and a
+ * space bar. Tapping them types the alias and a space, the same thing the keyboard would do.
+ */
+data class ShortcutKey(val alias: String, val tile: Drawable?, val onClick: () -> Unit)
+
+@Composable
+private fun ShortcutKeyButton(key: ShortcutKey, modifier: Modifier = Modifier) {
+  val tile =
+    remember(key.tile) {
+      traceSection("SL:SearchResultItem.shortcutKey") { key.tile?.toImageBitmap() }
+    }
+  Row(
+    modifier =
+      modifier
+        .clip(RoundedCornerShape(8.dp))
+        .clickable(onClickLabel = "Type ${key.alias} and space", onClick = key.onClick)
+        .padding(4.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(4.dp),
+  ) {
+    if (tile != null) {
+      Image(
+        bitmap = tile,
+        contentDescription = key.alias,
+        modifier = Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)),
+        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+      )
+    }
+    Box(
+      modifier =
+        Modifier.height(24.dp)
+          .clip(RoundedCornerShape(6.dp))
+          .background(MaterialTheme.colorScheme.surfaceVariant)
+          .padding(horizontal = 8.dp),
+      contentAlignment = Alignment.Center,
+    ) {
+      Text(
+        text = "space",
+        fontSize = 12.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+      )
     }
   }
 }

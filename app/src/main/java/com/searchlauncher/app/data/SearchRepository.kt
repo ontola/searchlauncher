@@ -1294,7 +1294,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               val cacheKey = "search_shortcut_${shortcut.id}"
               var icon = iconRepository.getMemory(cacheKey)
               if (icon == null) {
-                icon = iconGenerator.getColoredSearchIcon(shortcut.color, shortcut.alias)
+                icon = iconGenerator.getShortcutIcon(shortcut)
                 if (icon != null) {
                   iconRepository.putMemory(cacheKey, icon)
                 }
@@ -1303,7 +1303,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                 id = shortcut.id,
                 namespace = "search_shortcuts",
                 title = shortcut.description,
-                subtitle = "Type '${shortcut.alias} ' to search",
+                subtitle = shortcut.searchHint,
                 icon = icon,
                 trigger = shortcut.alias,
                 rankingScore = 0,
@@ -1746,12 +1746,14 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         android.util.Log.d("SearchRepository", "onPackageRemoved: $packageName")
         scheduleAppsRefresh(packageName)
         iconRepository.invalidateShortcutIcons(packageName)
+        iconRepository.invalidateSearchShortcutIcons()
         privateSpace.refresh()
       }
 
       override fun onPackageAdded(packageName: String, user: android.os.UserHandle) {
         android.util.Log.d("SearchRepository", "onPackageAdded: $packageName")
         scheduleAppsRefresh(packageName)
+        iconRepository.invalidateSearchShortcutIcons()
         scope.launch { iconRepository.cacheAppIcon(packageName) }
         privateSpace.refresh()
       }
@@ -2167,7 +2169,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     }
 
     val results = mutableListOf<SearchResult>()
-    val icon = iconGenerator.getColoredSearchIcon(shortcut.color, shortcut.alias)
+    val icon = iconGenerator.getShortcutIcon(shortcut)
 
     val url = shortcut.urlForQuery(searchTerm)
 

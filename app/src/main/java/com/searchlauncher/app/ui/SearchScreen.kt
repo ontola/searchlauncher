@@ -102,6 +102,7 @@ import com.searchlauncher.app.data.applySiteAppTabFilter
 import com.searchlauncher.app.data.canPinToFavorites
 import com.searchlauncher.app.data.collapsePinnedSites
 import com.searchlauncher.app.data.favoriteKey
+import com.searchlauncher.app.data.forApp
 import com.searchlauncher.app.data.isDisplayedAsFavorite
 import com.searchlauncher.app.data.keysAfterCollapsingSites
 import com.searchlauncher.app.data.mergeRecentsByTime
@@ -130,6 +131,7 @@ import com.searchlauncher.app.ui.components.SearchChromeBar
 import com.searchlauncher.app.ui.components.SearchResultItem
 import com.searchlauncher.app.ui.components.SearchShortcutStrip
 import com.searchlauncher.app.ui.components.ShortcutDialog
+import com.searchlauncher.app.ui.components.ShortcutKey
 import com.searchlauncher.app.ui.components.SnippetDialog
 import com.searchlauncher.app.ui.components.WallpaperBackground
 import com.searchlauncher.app.ui.components.builtInHomeKeyboardVisible
@@ -254,7 +256,7 @@ fun SearchScreen(
             namespace = "search_shortcuts",
             title = "Search in ${shortcut.shortLabel ?: shortcut.description}",
             subtitle = "Type your query...",
-            icon = iconGenerator.getColoredSearchIcon(shortcut.color, shortcut.alias),
+            icon = iconGenerator.getShortcutIcon(shortcut),
             packageName = shortcut.packageName ?: "android",
             deepLink = shortcut.urlForQuery(""),
             rankingScore =
@@ -281,9 +283,7 @@ fun SearchScreen(
         .mapNotNull { entry -> (entry as? SearchOptions.QueryBarEntry.Option)?.shortcut }
         .associate { shortcut ->
           shortcut.id to
-            shortcut.toSearchIntent(
-              iconGenerator.getColoredSearchIcon(shortcut.color, shortcut.alias)
-            )
+            shortcut.toSearchIntent(iconGenerator.getShortcutIcon(shortcut, badged = true))
         }
     }
   val searchOptionFavoriteIds =
@@ -1057,6 +1057,36 @@ fun SearchScreen(
     onQueryChange(
       if (activeShortcut != null) "${activeShortcut.alias} ${newValue.text}" else newValue.text
     )
+  }
+
+  // The keys that start a shortcut, drawn beside the rows that search inside an app: the
+  // shortcut's own row, and the app's row when someone types its name.
+  val shortcutKeyTiles =
+    remember(searchShortcuts) {
+      searchShortcuts.associate { it.alias to iconGenerator.getLetterTile(it) }
+    }
+  fun shortcutKeyFor(result: SearchResult): ShortcutKey? {
+    val shortcut =
+      when {
+        result is SearchResult.SearchIntent && result.namespace == "search_shortcuts" ->
+          searchShortcuts.find { it.alias == result.trigger }
+        result is SearchResult.App && !result.isPrivate ->
+          searchShortcuts.forApp(result.packageName)
+        else -> null
+      } ?: return null
+    // A query the shortcut row fell back on is what to search for, so it carries over, just as
+    // tapping the row searches it. A query that found the row by name, or found the app, is only
+    // the app's name, and the search starts from scratch.
+    val carried =
+      query.trim().takeIf {
+        result is SearchResult.SearchIntent &&
+          !it.equals(shortcut.alias, ignoreCase = true) &&
+          !result.title.contains(it, ignoreCase = true)
+      } ?: ""
+    return ShortcutKey(shortcut.alias, shortcutKeyTiles[shortcut.alias]) {
+      searchRepository.reportUsageAsync(SearchOptions.NAMESPACE, shortcut.id)
+      onQueryChange("${shortcut.alias} $carried")
+    }
   }
 
   val keyboardShortcutHints =
@@ -2184,6 +2214,7 @@ fun SearchScreen(
                             treatFavoritedSitesAsApps,
                           ),
                         actions = menuActionsFor(result, index),
+                        shortcutKey = shortcutKeyFor(result),
                         onClick = {
                           if (result is SearchResult.SearchIntent) {
                             // If the title implies a direct search (or we

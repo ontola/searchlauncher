@@ -172,6 +172,16 @@ class IconRepository(private val context: Context) {
     }
   }
 
+  /**
+   * Drops cached search shortcut icons. They borrow the icon of whichever of their apps is
+   * installed, so any install or removal can change them.
+   */
+  fun invalidateSearchShortcutIcons() {
+    memoryCache.snapshot().keys.forEach { key ->
+      if (key.startsWith("search_shortcut_")) memoryCache.remove(key)
+    }
+  }
+
   private fun getIconDir() = File(context.filesDir, "favorite_icons").apply { mkdirs() }
 
   private fun sanitizeId(id: String) = id.replace("/", "_").replace(":", "_")
