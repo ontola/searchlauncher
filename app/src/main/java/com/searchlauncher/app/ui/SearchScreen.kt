@@ -268,9 +268,10 @@ fun SearchScreen(
     }
   // Re-read after every launch so the bar reflects the count that tap just bumped.
   val usageRevision by searchRepository.usageRevision.collectAsState()
+  val shortcutOrderManual by app.searchShortcutRepository.manualOrder.collectAsState()
   val searchOptionBar =
-    remember(searchShortcuts, searchOptionIds, usageRevision) {
-      SearchOptions.queryBar(searchShortcuts, searchOptionIds) {
+    remember(searchShortcuts, shortcutOrderManual, usageRevision) {
+      SearchOptions.queryBar(searchShortcuts, shortcutOrderManual) {
         searchRepository.globalUsage(SearchOptions.NAMESPACE, it.id)
       }
     }

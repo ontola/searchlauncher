@@ -29,6 +29,13 @@ class SearchShortcutRepository(context: Context) {
    */
   val launchable: StateFlow<List<SearchShortcut>> = _launchable
 
+  private val _manualOrder = MutableStateFlow(false)
+  /**
+   * True after the user drags the settings list. While false, settings and the query bar sort by
+   * usage and the stored list stays the catalog order used as a tie-break.
+   */
+  val manualOrder: StateFlow<Boolean> = _manualOrder
+
   init {
     loadItems()
   }
@@ -43,6 +50,7 @@ class SearchShortcutRepository(context: Context) {
   }
 
   private fun loadItems() {
+    _manualOrder.value = prefs.getBoolean(Prefs.SearchShortcuts.MANUAL_ORDER, false)
     val json = prefs.getString(Prefs.SearchShortcuts.SHORTCUTS, null)
     if (json == null) {
       // First run, load defaults
@@ -115,8 +123,14 @@ class SearchShortcutRepository(context: Context) {
   }
 
   fun resetToDefaults() {
-    val defaults = DefaultShortcuts.searchShortcuts
-    saveItems(defaults)
+    writeManualOrder(false)
+    saveItems(DefaultShortcuts.searchShortcuts)
+  }
+
+  /** Saves [shortcuts] in the dragged order and stops sorting by usage. */
+  fun reorder(shortcuts: List<SearchShortcut>) {
+    writeManualOrder(true)
+    saveItems(shortcuts)
   }
 
   suspend fun updateShortcut(shortcut: SearchShortcut) =
@@ -172,7 +186,13 @@ class SearchShortcutRepository(context: Context) {
     refreshAvailability()
   }
 
-  fun replaceAll(shortcuts: List<SearchShortcut>) {
+  fun replaceAll(shortcuts: List<SearchShortcut>, manualOrder: Boolean = false) {
+    writeManualOrder(manualOrder)
     saveItems(shortcuts)
+  }
+
+  private fun writeManualOrder(manual: Boolean) {
+    prefs.edit().putBoolean(Prefs.SearchShortcuts.MANUAL_ORDER, manual).apply()
+    _manualOrder.value = manual
   }
 }

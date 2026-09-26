@@ -71,6 +71,8 @@ object Prefs {
   object SearchShortcuts {
     const val FILE = "search_shortcuts"
     const val SHORTCUTS = "shortcuts"
+    /** True once the user has dragged the list. Until then the list is sorted by usage. */
+    const val MANUAL_ORDER = "manual_order"
   }
 
   /** Quick-copy text snippets, stored as a JSON array. */

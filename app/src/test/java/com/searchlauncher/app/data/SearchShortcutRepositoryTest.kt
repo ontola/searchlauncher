@@ -6,6 +6,8 @@ import com.searchlauncher.app.SearchLauncherApp
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -144,5 +146,52 @@ class SearchShortcutRepositoryTest {
     val youtube = SearchShortcutRepository(context).items.value.first { it.id == "youtube" }
     assertEquals("yt", youtube.alias)
     assertEquals("com.google.android.youtube", youtube.packageName)
+  }
+
+  @Test
+  fun `a fresh list is not a manual order`() {
+    assertFalse(SearchShortcutRepository(context).manualOrder.value)
+  }
+
+  @Test
+  fun `reorder saves the dragged list and survives a restart`() {
+    val repository = SearchShortcutRepository(context)
+    val reversed = repository.items.value.reversed()
+
+    repository.reorder(reversed)
+
+    assertTrue(repository.manualOrder.value)
+    assertEquals(reversed.map { it.id }, repository.items.value.map { it.id })
+    val reloaded = SearchShortcutRepository(context)
+    assertTrue(reloaded.manualOrder.value)
+    assertEquals(reversed.map { it.id }, reloaded.items.value.map { it.id })
+  }
+
+  @Test
+  fun `reset defaults clears a manual order`() {
+    val repository = SearchShortcutRepository(context)
+    repository.reorder(repository.items.value.reversed())
+
+    repository.resetToDefaults()
+
+    assertFalse(repository.manualOrder.value)
+    assertEquals(
+      DefaultShortcuts.searchShortcuts.map { it.id },
+      repository.items.value.map { it.id },
+    )
+  }
+
+  @Test
+  fun `editing a shortcut does not drop a manual order`() {
+    val repository = SearchShortcutRepository(context)
+    val reversed = repository.items.value.reversed()
+    repository.reorder(reversed)
+    val first = reversed.first()
+
+    kotlinx.coroutines.runBlocking { repository.updateShortcut(first.copy(alias = "zz")) }
+
+    assertTrue(repository.manualOrder.value)
+    assertEquals(reversed.map { it.id }, repository.items.value.map { it.id })
+    assertEquals("zz", repository.items.value.first().alias)
   }
 }

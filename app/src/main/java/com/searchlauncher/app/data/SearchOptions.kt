@@ -3,9 +3,9 @@ package com.searchlauncher.app.data
 /**
  * The query-time favorites bar shows search destinations rather than pinned apps.
  *
- * Favorites are shortcut ids (`google`, `youtube`, …). Unknown or removed ids are skipped. The bar
- * scrolls sideways through every launchable shortcut — pinned ones first, then the rest by usage —
- * and the last cell opens custom shortcut settings.
+ * The bar scrolls sideways through every launchable shortcut, most-used first, and the last cell
+ * opens custom shortcut settings. After the user drags the list in settings, both the bar and the
+ * settings list keep that order instead.
  */
 object SearchOptions {
   /** Key of the trailing settings cell in [queryBar]. */
@@ -105,18 +105,46 @@ object SearchOptions {
     )
 
   /**
-   * Every cell of the query-time bar: pinned favorites in drag order, then the other launchable
-   * shortcuts most-used first, then [QueryBarEntry.Settings]. Every launchable shortcut is
-   * included.
+   * Order for the settings list and the query-time bar. A drag in settings freezes [shortcuts] as
+   * the user left them; otherwise the list is most-used first.
+   */
+  fun displayOrder(
+    shortcuts: List<SearchShortcut>,
+    manualOrder: Boolean,
+    usageCount: (SearchShortcut) -> Int,
+  ): List<SearchShortcut> = if (manualOrder) shortcuts else byUsage(shortcuts, usageCount)
+
+  /**
+   * Every cell of the query-time bar, in [displayOrder], then [QueryBarEntry.Settings]. Every
+   * launchable shortcut is included.
    */
   fun queryBar(
     shortcuts: List<SearchShortcut>,
-    favoriteIds: List<String>,
+    manualOrder: Boolean = false,
     usageCount: (SearchShortcut) -> Int,
   ): List<QueryBarEntry> {
-    val (favorites, extras) = partition(shortcuts, favoriteIds)
-    val ordered = favorites + byUsage(extras, usageCount)
+    val ordered = displayOrder(shortcuts, manualOrder, usageCount)
     return ordered.map { QueryBarEntry.Option(it) } + QueryBarEntry.Settings
+  }
+
+  /**
+   * Steps a dragged row when the finger has moved past half a row. The leftover offset is what the
+   * row still needs to draw so it stays under the finger after the swap.
+   */
+  fun advanceDrag(index: Int, count: Int, offsetPx: Float, itemHeightPx: Float): Pair<Int, Float> {
+    if (count <= 1 || itemHeightPx <= 0f) return index to offsetPx
+    val threshold = itemHeightPx / 2f
+    var next = index
+    var offset = offsetPx
+    while (offset > threshold && next < count - 1) {
+      next += 1
+      offset -= itemHeightPx
+    }
+    while (offset < -threshold && next > 0) {
+      next -= 1
+      offset += itemHeightPx
+    }
+    return next to offset
   }
 
   /**
