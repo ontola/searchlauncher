@@ -155,7 +155,7 @@ fun SettingsScreen(
     }
 
     item { WallpaperManagementCard() }
-    item { CustomShortcutsCard() }
+    item { CustomShortcutsCard(startExpanded = initialHighlightSection == "shortcuts") }
     item { SnippetsCard() }
 
     item { ThemeSettingsCard() }
@@ -1110,7 +1110,7 @@ private fun ShortcutIcon(
 }
 
 @Composable
-private fun CustomShortcutsCard() {
+private fun CustomShortcutsCard(startExpanded: Boolean = false) {
   val context = LocalContext.current
   val app = context.applicationContext as SearchLauncherApp
   val shortcuts by app.searchShortcutRepository.items.collectAsState()
@@ -1123,7 +1123,7 @@ private fun CustomShortcutsCard() {
   var editingShortcut by remember {
     mutableStateOf<com.searchlauncher.app.data.SearchShortcut?>(null)
   }
-  var isExpanded by remember { mutableStateOf(false) }
+  var isExpanded by remember { mutableStateOf(startExpanded) }
 
   ExpandableSettingsCard(
     title = "Custom Shortcuts",

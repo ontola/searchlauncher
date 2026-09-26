@@ -3,10 +3,21 @@ package com.searchlauncher.app.data
 /**
  * The query-time favorites bar shows search destinations rather than pinned apps.
  *
- * Favorites are shortcut ids (`google`, `youtube`, …). Unknown or removed ids are skipped. Extra
- * shortcuts fill whatever space is left so the row uses the full width.
+ * Favorites are shortcut ids (`google`, `youtube`, …). Unknown or removed ids are skipped. The bar
+ * scrolls sideways through every launchable shortcut — pinned ones first, then the rest by usage —
+ * and the last cell opens custom shortcut settings.
  */
 object SearchOptions {
+  /** Key of the trailing settings cell in [queryBar]. */
+  const val QUERY_BAR_SETTINGS = "settings"
+
+  /** One cell in the scrolling query-time bar. */
+  sealed interface QueryBarEntry {
+    data class Option(val shortcut: SearchShortcut) : QueryBarEntry
+
+    data object Settings : QueryBarEntry
+  }
+
   val DEFAULT_FAVORITE_IDS = listOf("google", "youtube", "spotify")
 
   /** Namespace shortcut results and their usage counts are recorded under. */
@@ -92,6 +103,21 @@ object SearchOptions {
         .thenBy { DefaultShortcuts.searchShortcutOrder(idOf(it)) }
         .thenBy { titleOf(it) }
     )
+
+  /**
+   * Every cell of the query-time bar: pinned favorites in drag order, then the other launchable
+   * shortcuts most-used first, then [QueryBarEntry.Settings]. Every launchable shortcut is
+   * included.
+   */
+  fun queryBar(
+    shortcuts: List<SearchShortcut>,
+    favoriteIds: List<String>,
+    usageCount: (SearchShortcut) -> Int,
+  ): List<QueryBarEntry> {
+    val (favorites, extras) = partition(shortcuts, favoriteIds)
+    val ordered = favorites + byUsage(extras, usageCount)
+    return ordered.map { QueryBarEntry.Option(it) } + QueryBarEntry.Settings
+  }
 
   /**
    * The term to send to a search option. An alias prefix (`y cats`) is stripped so tapping Google

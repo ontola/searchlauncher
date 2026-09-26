@@ -107,6 +107,28 @@ class SearchOptionsTest {
   }
 
   @Test
+  fun `queryBar scrolls every shortcut and ends on settings`() {
+    val counts = mapOf("spotify" to 1, "wikipedia" to 50, "google" to 0)
+    val bar = SearchOptions.queryBar(shortcuts, listOf("spotify", "google")) { counts[it.id] ?: 0 }
+    val options = bar.filterIsInstance<SearchOptions.QueryBarEntry.Option>().map { it.shortcut.id }
+
+    assertEquals(listOf("spotify", "google"), options.take(2))
+    assertEquals("wikipedia", options[2])
+    assertEquals(shortcuts.map { it.id }.toSet(), options.toSet())
+    assertEquals(shortcuts.size, options.size)
+    assertEquals(SearchOptions.QueryBarEntry.Settings, bar.last())
+    assertEquals(1, bar.count { it == SearchOptions.QueryBarEntry.Settings })
+  }
+
+  @Test
+  fun `queryBar is the settings cell when nothing is launchable`() {
+    assertEquals(
+      listOf(SearchOptions.QueryBarEntry.Settings),
+      SearchOptions.queryBar(emptyList(), listOf("google")) { 0 },
+    )
+  }
+
+  @Test
   fun `namespace matches the one results are indexed under`() {
     assertEquals(SearchOptions.NAMESPACE, shortcuts.first().toSearchIntent().namespace)
   }
