@@ -3,10 +3,21 @@ package com.searchlauncher.app.data
 /**
  * The query-time favorites bar shows search destinations rather than pinned apps.
  *
- * Favorites are shortcut ids (`google`, `youtube`, …). Unknown or removed ids are skipped. Extra
- * shortcuts fill whatever space is left so the row uses the full width.
+ * The bar scrolls sideways through every launchable shortcut, most-used first, and the last cell
+ * opens custom shortcut settings. After the user drags the list in settings, both the bar and the
+ * settings list keep that order instead.
  */
 object SearchOptions {
+  /** Key of the trailing settings cell in [queryBar]. */
+  const val QUERY_BAR_SETTINGS = "settings"
+
+  /** One cell in the scrolling query-time bar. */
+  sealed interface QueryBarEntry {
+    data class Option(val shortcut: SearchShortcut) : QueryBarEntry
+
+    data object Settings : QueryBarEntry
+  }
+
   val DEFAULT_FAVORITE_IDS = listOf("google", "youtube", "spotify")
 
   /** Namespace shortcut results and their usage counts are recorded under. */
@@ -92,6 +103,49 @@ object SearchOptions {
         .thenBy { DefaultShortcuts.searchShortcutOrder(idOf(it)) }
         .thenBy { titleOf(it) }
     )
+
+  /**
+   * Order for the settings list and the query-time bar. A drag in settings freezes [shortcuts] as
+   * the user left them; otherwise the list is most-used first.
+   */
+  fun displayOrder(
+    shortcuts: List<SearchShortcut>,
+    manualOrder: Boolean,
+    usageCount: (SearchShortcut) -> Int,
+  ): List<SearchShortcut> = if (manualOrder) shortcuts else byUsage(shortcuts, usageCount)
+
+  /**
+   * Every cell of the query-time bar, in [displayOrder], then [QueryBarEntry.Settings]. Every
+   * launchable shortcut is included.
+   */
+  fun queryBar(
+    shortcuts: List<SearchShortcut>,
+    manualOrder: Boolean = false,
+    usageCount: (SearchShortcut) -> Int,
+  ): List<QueryBarEntry> {
+    val ordered = displayOrder(shortcuts, manualOrder, usageCount)
+    return ordered.map { QueryBarEntry.Option(it) } + QueryBarEntry.Settings
+  }
+
+  /**
+   * Steps a dragged row when the finger has moved past half a row. The leftover offset is what the
+   * row still needs to draw so it stays under the finger after the swap.
+   */
+  fun advanceDrag(index: Int, count: Int, offsetPx: Float, itemHeightPx: Float): Pair<Int, Float> {
+    if (count <= 1 || itemHeightPx <= 0f) return index to offsetPx
+    val threshold = itemHeightPx / 2f
+    var next = index
+    var offset = offsetPx
+    while (offset > threshold && next < count - 1) {
+      next += 1
+      offset -= itemHeightPx
+    }
+    while (offset < -threshold && next > 0) {
+      next -= 1
+      offset += itemHeightPx
+    }
+    return next to offset
+  }
 
   /**
    * The term to send to a search option. An alias prefix (`y cats`) is stripped so tapping Google

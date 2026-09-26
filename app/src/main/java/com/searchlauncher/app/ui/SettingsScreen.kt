@@ -20,6 +20,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -42,6 +44,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
@@ -60,22 +63,34 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.Lifecycle
@@ -92,6 +107,7 @@ import com.searchlauncher.app.ui.components.PrivacyPolicyDialog
 import com.searchlauncher.app.ui.components.loadPrivacyPolicyText
 import com.searchlauncher.app.ui.components.shouldShowFavoritesIconSizeSetting
 import com.searchlauncher.app.util.CustomActionHandler
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -104,6 +120,7 @@ fun SettingsScreen(
 ) {
   val context = LocalContext.current
   val listState = rememberLazyListState()
+  var reorderingShortcuts by remember { mutableStateOf(false) }
 
   // Check if this app is the default launcher
   val isDefaultLauncher = remember {
@@ -136,6 +153,7 @@ fun SettingsScreen(
 
   LazyColumn(
     state = listState,
+    userScrollEnabled = !reorderingShortcuts,
     modifier =
       Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp).contentMaxWidth(),
     verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -155,7 +173,12 @@ fun SettingsScreen(
     }
 
     item { WallpaperManagementCard() }
-    item { CustomShortcutsCard() }
+    item {
+      CustomShortcutsCard(
+        startExpanded = initialHighlightSection == "shortcuts",
+        onReorderActive = { reorderingShortcuts = it },
+      )
+    }
     item { SnippetsCard() }
 
     item { ThemeSettingsCard() }
@@ -1110,20 +1133,64 @@ private fun ShortcutIcon(
 }
 
 @Composable
-private fun CustomShortcutsCard() {
+private fun CustomShortcutsCard(
+  startExpanded: Boolean = false,
+  onReorderActive: (Boolean) -> Unit = {},
+) {
   val context = LocalContext.current
   val app = context.applicationContext as SearchLauncherApp
   val shortcuts by app.searchShortcutRepository.items.collectAsState()
+  val manualOrder by app.searchShortcutRepository.manualOrder.collectAsState()
+  val usageRevision by app.searchRepository.usageRevision.collectAsState()
   val scope = rememberCoroutineScope()
   // The same generator the search results and the favourites bar use, so a shortcut is the same
   // coloured letter wherever the user meets it.
   val iconGenerator = remember { com.searchlauncher.app.data.SearchIconGenerator(context) }
+  val haptic = LocalHapticFeedback.current
+  val spacingPx = with(LocalDensity.current) { 8.dp.toPx() }
 
   var showDialog by remember { mutableStateOf(false) }
   var editingShortcut by remember {
     mutableStateOf<com.searchlauncher.app.data.SearchShortcut?>(null)
   }
-  var isExpanded by remember { mutableStateOf(false) }
+  var isExpanded by remember { mutableStateOf(startExpanded) }
+  var rowHeights by remember { mutableStateOf(mapOf<String, Int>()) }
+  var dragging by remember { mutableStateOf(false) }
+  var origin by remember { mutableStateOf(emptyList<com.searchlauncher.app.data.SearchShortcut>()) }
+  var visualIds by remember { mutableStateOf(emptyList<String>()) }
+  var dragIndex by remember { mutableIntStateOf(-1) }
+  var dragOffset by remember { mutableFloatStateOf(0f) }
+  var stepPx by remember { mutableFloatStateOf(0f) }
+  var pendingIds by remember { mutableStateOf<List<String>?>(null) }
+
+  val ordered =
+    remember(shortcuts, manualOrder, usageRevision) {
+      com.searchlauncher.app.data.SearchOptions.displayOrder(shortcuts, manualOrder) { shortcut ->
+        app.searchRepository.globalUsage(
+          com.searchlauncher.app.data.SearchOptions.NAMESPACE,
+          shortcut.id,
+        )
+      }
+    }
+  val latestOrdered = rememberUpdatedState(ordered)
+  val latestSpacing = rememberUpdatedState(spacingPx)
+  val latestReorderActive = rememberUpdatedState(onReorderActive)
+  SideEffect {
+    val pending = pendingIds
+    if (pending != null && !dragging && ordered.map { it.id } == pending) {
+      pendingIds = null
+    }
+  }
+  val shown =
+    when {
+      dragging -> origin
+      pendingIds != null ->
+        pendingIds!!.mapNotNull { id ->
+          ordered.find { it.id == id } ?: shortcuts.find { it.id == id }
+        }
+      else -> ordered
+    }
+  val draggedId = if (dragging) visualIds.getOrNull(dragIndex) else null
 
   ExpandableSettingsCard(
     title = "Custom Shortcuts",
@@ -1151,62 +1218,168 @@ private fun CustomShortcutsCard() {
         Text("Reset Defaults")
       }
 
-      if (shortcuts.isNotEmpty()) {
+      Text(
+        text =
+          if (manualOrder) {
+            "Custom order. Hold a handle and drag to rearrange."
+          } else {
+            "Most used first. Hold a handle and drag to set your own order."
+          },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+
+      if (shown.isNotEmpty()) {
         // Settings lists every shortcut, including ones with no app to open — hiding those would
         // leave the user unable to edit or delete them. They say so instead.
         val launchable by app.searchShortcutRepository.launchable.collectAsState()
-        shortcuts.forEach { shortcut ->
-          val isAvailable = launchable.any { it.id == shortcut.id }
-          Card(
-            modifier =
-              Modifier.fillMaxWidth().clickable {
-                editingShortcut = shortcut
-                showDialog = true
-              },
-            colors =
-              CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-              ),
-          ) {
-            Row(
-              modifier = Modifier.fillMaxWidth().padding(12.dp),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically,
+        shown.forEachIndexed { layoutIndex, shortcut ->
+          key(shortcut.id) {
+            val isAvailable = launchable.any { it.id == shortcut.id }
+            val visualIndex = if (dragging) visualIds.indexOf(shortcut.id) else layoutIndex
+            val translation =
+              if (!dragging || stepPx <= 0f || visualIndex < 0) 0f
+              else
+                (visualIndex - layoutIndex) * stepPx +
+                  if (shortcut.id == draggedId) dragOffset else 0f
+            Card(
+              modifier =
+                Modifier.fillMaxWidth()
+                  .zIndex(if (shortcut.id == draggedId) 1f else 0f)
+                  .offset { IntOffset(0, translation.roundToInt()) }
+                  .onSizeChanged { size ->
+                    if (rowHeights[shortcut.id] != size.height) {
+                      rowHeights = rowHeights + (shortcut.id to size.height)
+                    }
+                  },
+              elevation =
+                CardDefaults.cardElevation(
+                  defaultElevation = if (shortcut.id == draggedId) 8.dp else 0.dp
+                ),
+              colors =
+                CardDefaults.cardColors(
+                  containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
             ) {
-              ShortcutIcon(
-                shortcut = shortcut,
-                iconGenerator = iconGenerator,
-                modifier = Modifier.padding(end = 12.dp),
-              )
-              Column(modifier = Modifier.weight(1f)) {
-                Text(
-                  text = shortcut.description,
-                  style = MaterialTheme.typography.bodyLarge,
-                  fontWeight = FontWeight.Bold,
-                )
-                Text(
-                  text = "Alias: ${shortcut.alias}",
-                  style = MaterialTheme.typography.bodySmall,
-                  color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (!isAvailable) {
-                  Text(
-                    text = "App not installed — hidden from search",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+              Row(
+                modifier =
+                  Modifier.fillMaxWidth()
+                    .padding(start = 4.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Box(
+                  modifier =
+                    Modifier.size(40.dp).pointerInput(shortcut.id) {
+                      detectDragGesturesAfterLongPress(
+                        onDragStart = {
+                          val start = latestOrdered.value
+                          val index = start.indexOfFirst { it.id == shortcut.id }
+                          val height = rowHeights[shortcut.id] ?: 0
+                          if (dragging || index < 0 || height <= 0)
+                            return@detectDragGesturesAfterLongPress
+                          origin = start
+                          visualIds = start.map { it.id }
+                          dragIndex = index
+                          dragOffset = 0f
+                          stepPx = height + latestSpacing.value
+                          dragging = true
+                          latestReorderActive.value(true)
+                          haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                        onDrag = { change, amount ->
+                          change.consume()
+                          if (!dragging || stepPx <= 0f) return@detectDragGesturesAfterLongPress
+                          val (next, leftover) =
+                            com.searchlauncher.app.data.SearchOptions.advanceDrag(
+                              dragIndex,
+                              visualIds.size,
+                              dragOffset + amount.y,
+                              stepPx,
+                            )
+                          if (next != dragIndex) {
+                            val moved = visualIds.toMutableList()
+                            moved.add(next, moved.removeAt(dragIndex))
+                            visualIds = moved
+                            dragIndex = next
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                          }
+                          dragOffset = leftover
+                        },
+                        onDragEnd = {
+                          val ids = visualIds
+                          val changed = dragging && ids != origin.map { it.id }
+                          if (changed) {
+                            val byId = origin.associateBy { it.id }
+                            pendingIds = ids
+                            app.searchShortcutRepository.reorder(ids.mapNotNull(byId::get))
+                          }
+                          dragging = false
+                          dragIndex = -1
+                          dragOffset = 0f
+                          latestReorderActive.value(false)
+                        },
+                        onDragCancel = {
+                          dragging = false
+                          dragIndex = -1
+                          dragOffset = 0f
+                          latestReorderActive.value(false)
+                        },
+                      )
+                    },
+                  contentAlignment = Alignment.Center,
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.DragHandle,
+                    contentDescription = "Reorder",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                   )
                 }
-              }
-              IconButton(
-                onClick = {
-                  scope.launch { app.searchShortcutRepository.removeShortcut(shortcut.id) }
+                Row(
+                  modifier =
+                    Modifier.weight(1f).clickable(enabled = !dragging) {
+                      editingShortcut = shortcut
+                      showDialog = true
+                    },
+                  verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  ShortcutIcon(
+                    shortcut = shortcut,
+                    iconGenerator = iconGenerator,
+                    modifier = Modifier.padding(end = 12.dp),
+                  )
+                  Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                      text = shortcut.description,
+                      style = MaterialTheme.typography.bodyLarge,
+                      fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                      text = "Alias: ${shortcut.alias}",
+                      style = MaterialTheme.typography.bodySmall,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (!isAvailable) {
+                      Text(
+                        text = "App not installed — hidden from search",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                      )
+                    }
+                  }
                 }
-              ) {
-                Icon(
-                  imageVector = Icons.Default.Close,
-                  contentDescription = "Delete",
-                  tint = MaterialTheme.colorScheme.error,
-                )
+                IconButton(
+                  onClick = {
+                    scope.launch { app.searchShortcutRepository.removeShortcut(shortcut.id) }
+                  },
+                  enabled = !dragging,
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.error,
+                  )
+                }
               }
             }
           }

@@ -1,0 +1,1 @@
+While you search, every shortcut scrolls sideways and the last one opens Custom Shortcuts. Shortcuts are ordered by how often you use them. Hold a handle and drag to set your own order.

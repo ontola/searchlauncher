@@ -81,6 +81,7 @@ class BackupManager(
             shortcutsCount++
           }
           writer.endArray()
+          writer.name("searchShortcutOrderManual").value(searchShortcutRepository.manualOrder.value)
 
           // 3. Export Favorites
           android.util.Log.d("BackupManager", "Exporting Favorites...")
@@ -295,7 +296,10 @@ class BackupManager(
             )
             shortcutsCount++
           }
-          searchShortcutRepository.replaceAll(newShortcuts)
+          searchShortcutRepository.replaceAll(
+            newShortcuts,
+            manualOrder = backupData.optBoolean("searchShortcutOrderManual", false),
+          )
         }
 
         // 3. Import Favorites

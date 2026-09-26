@@ -71,6 +71,15 @@ class SearchActivity : ComponentActivity(), KeyShortcutHost {
           startActivity(intent)
           finish()
         },
+        onOpenShortcutSettings = {
+          val intent =
+            Intent(this, MainActivity::class.java).apply {
+              putExtra("open_setting_page", "shortcuts")
+              flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+          startActivity(intent)
+          finish()
+        },
         onOpenAppDrawer = {},
         searchRepository = (application as SearchLauncherApp).searchRepository,
         focusTrigger = 0L,

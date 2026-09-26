@@ -7,6 +7,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
@@ -32,6 +33,7 @@ class BackupManagerTest {
     val favorites = FavoritesRepository(context)
     every { snippets.items } returns MutableStateFlow(emptyList())
     every { shortcuts.items } returns MutableStateFlow(emptyList())
+    every { shortcuts.manualOrder } returns MutableStateFlow(false)
     every { history.historyIds } returns MutableStateFlow(emptyList())
     every { widgets.widgets } returns MutableStateFlow(emptyList())
     return BackupManager(
@@ -78,6 +80,34 @@ class BackupManagerTest {
       """{"version":4,"bookmarks":[{"url":"https://example.com","title":"Good"},{"url":"","title":"Bad"}]}"""
     assertTrue(manager().importBackup(json.byteInputStream()).isFailure)
     coVerify(exactly = 0) { search.saveBookmark(any(), any()) }
+  }
+
+  @Test
+  fun `a manual shortcut order round trips`() = runBlocking {
+    val shortcut = SearchShortcut("google", "g", "https://www.google.com/search?q=%s", "Google")
+    every { shortcuts.items } returns MutableStateFlow(listOf(shortcut))
+    every { shortcuts.manualOrder } returns MutableStateFlow(true)
+    coEvery { search.exportBookmarks() } returns emptyList()
+    val backup = manager()
+    every { shortcuts.items } returns MutableStateFlow(listOf(shortcut))
+    every { shortcuts.manualOrder } returns MutableStateFlow(true)
+    val output = ByteArrayOutputStream()
+    backup.exportBackup(output, false).getOrThrow()
+    val json = JSONObject(output.toString("UTF-8"))
+
+    assertTrue(json.getBoolean("searchShortcutOrderManual"))
+    backup.importBackup(output.toByteArray().inputStream()).getOrThrow()
+    verify {
+      shortcuts.replaceAll(match { restored -> restored.map { it.id } == listOf("google") }, true)
+    }
+  }
+
+  @Test
+  fun `an older shortcut backup stays on usage order`() = runBlocking {
+    val json =
+      """{"version":4,"searchShortcuts":[{"id":"google","alias":"g","urlTemplate":"https://www.google.com/search?q=%s","description":"Google"}]}"""
+    manager().importBackup(json.byteInputStream()).getOrThrow()
+    verify { shortcuts.replaceAll(any(), false) }
   }
 
   @Test

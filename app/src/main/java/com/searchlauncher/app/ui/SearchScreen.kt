@@ -129,6 +129,7 @@ import com.searchlauncher.app.ui.components.PrivacyPolicyDialog
 import com.searchlauncher.app.ui.components.ResultMenuActions
 import com.searchlauncher.app.ui.components.SearchChromeBar
 import com.searchlauncher.app.ui.components.SearchResultItem
+import com.searchlauncher.app.ui.components.SearchShortcutStrip
 import com.searchlauncher.app.ui.components.ShortcutDialog
 import com.searchlauncher.app.ui.components.ShortcutKey
 import com.searchlauncher.app.ui.components.SnippetDialog
@@ -164,6 +165,8 @@ fun SearchScreen(
   onQueryChange: (String) -> Unit,
   onDismiss: () -> Unit,
   onOpenSettings: () -> Unit,
+  /** Opens settings with the custom search shortcuts card expanded. */
+  onOpenShortcutSettings: () -> Unit = onOpenSettings,
   onOpenAppDrawer: () -> Unit,
   searchRepository: SearchRepository,
   focusTrigger: Long = 0L,
@@ -265,21 +268,26 @@ fun SearchScreen(
     remember(fetchedSearchResults, emptyShortcutResult) {
       prioritizeActiveShortcut(fetchedSearchResults, emptyShortcutResult)
     }
-  // Re-read after every launch so the fill slots below reflect the count that tap just bumped.
+  // Re-read after every launch so the bar reflects the count that tap just bumped.
   val usageRevision by searchRepository.usageRevision.collectAsState()
-  val (searchOptionFavorites, searchOptionExtras) =
-    remember(searchShortcuts, searchOptionIds, usageRevision) {
-      val (favored, extras) = SearchOptions.partition(searchShortcuts, searchOptionIds)
-      fun intents(list: List<SearchShortcut>) =
-        list.map { it.toSearchIntent(iconGenerator.getShortcutIcon(it, badged = true)) }
-      // Same usage order as the shortcut results appended below the query. [favored] stays in
-      // drag order; only the fill slots move when a shortcut is used.
-      val ranked =
-        SearchOptions.byUsage(extras) {
-          searchRepository.globalUsage(SearchOptions.NAMESPACE, it.id)
-        }
-      intents(favored) to intents(ranked)
+  val shortcutOrderManual by app.searchShortcutRepository.manualOrder.collectAsState()
+  val searchOptionBar =
+    remember(searchShortcuts, shortcutOrderManual, usageRevision) {
+      SearchOptions.queryBar(searchShortcuts, shortcutOrderManual) {
+        searchRepository.globalUsage(SearchOptions.NAMESPACE, it.id)
+      }
     }
+  val searchOptionResults =
+    remember(searchOptionBar) {
+      searchOptionBar
+        .mapNotNull { entry -> (entry as? SearchOptions.QueryBarEntry.Option)?.shortcut }
+        .associate { shortcut ->
+          shortcut.id to
+            shortcut.toSearchIntent(iconGenerator.getShortcutIcon(shortcut, badged = true))
+        }
+    }
+  val searchOptionFavoriteIds =
+    remember(searchOptionIds) { searchOptionIds.map(SearchOptions::normalizeId).toSet() }
   var showShortcutDialog by remember { mutableStateOf(false) }
   var bookmarkDialogTarget by remember { mutableStateOf<BookmarkDialogTarget?>(null) }
   // Bumped whenever something a result was built from changes — a bookmark's title, a tab being
@@ -1465,7 +1473,7 @@ fun SearchScreen(
   }
   val favoritesRowVisible =
     if (showingSearchOptions) {
-      searchOptionFavorites.isNotEmpty() || searchOptionExtras.isNotEmpty()
+      true
     } else {
       favorites.isNotEmpty() || historyItems.isNotEmpty()
     }
@@ -2302,12 +2310,7 @@ fun SearchScreen(
             modifier =
               Modifier.contentMaxWidth().onSizeChanged { publishDockMeasurement(0, it.height) }
           ) {
-            if (
-              favorites.isNotEmpty() ||
-                historyItems.isNotEmpty() ||
-                searchOptionFavorites.isNotEmpty() ||
-                searchOptionExtras.isNotEmpty()
-            ) {
+            if (showingSearchOptions || favorites.isNotEmpty() || historyItems.isNotEmpty()) {
               Column(
                 modifier =
                   Modifier.contentMaxWidth().onSizeChanged { publishDockMeasurement(1, it.height) }
@@ -2328,14 +2331,10 @@ fun SearchScreen(
                   },
                 ) { showOptions ->
                   if (showOptions) {
-                    FavoritesRow(
-                      favorites = searchOptionFavorites,
-                      history = searchOptionExtras,
+                    SearchShortcutStrip(
+                      entries = searchOptionBar,
+                      results = searchOptionResults,
                       minIconSizeSetting = minIconSizeSetting,
-                      maxRows = favoritesMaxRowsForBar(true, favoritesMaxRows),
-                      expandToFill = true,
-                      reverseHistory = false,
-                      drawDivider = false,
                       onLaunch = { result ->
                         val intent = result as? SearchResult.SearchIntent
                         val shortcut =
@@ -2358,13 +2357,7 @@ fun SearchScreen(
                           onQueryChange(intent.trigger + " ")
                         }
                       },
-                      onToggleFavorite = { result ->
-                        app.favoritesRepository.toggleSearchOption(result)
-                      },
-                      onReorder = { newOrder ->
-                        app.favoritesRepository.updateSearchOptionOrder(newOrder)
-                      },
-                      onCapacityChanged = {},
+                      onOpenSettings = onOpenShortcutSettings,
                       // The same menu the results list offers, so long-pressing an option here and
                       // long-pressing it in the results are the same gesture with the same answer.
                       // Only pinning differs: in this row "favourite" means the search-options bar,
@@ -2376,6 +2369,9 @@ fun SearchScreen(
                               app.favoritesRepository.toggleSearchOption(result)
                             }
                           )
+                      },
+                      isItemFavorite = { result ->
+                        SearchOptions.normalizeId(result.id) in searchOptionFavoriteIds
                       },
                     )
                   } else {

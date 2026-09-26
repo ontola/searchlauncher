@@ -107,6 +107,71 @@ class SearchOptionsTest {
   }
 
   @Test
+  fun `queryBar orders by usage and ends on settings`() {
+    val counts = mapOf("spotify" to 1, "wikipedia" to 50, "google" to 0)
+    val bar = SearchOptions.queryBar(shortcuts) { counts[it.id] ?: 0 }
+    val options = bar.filterIsInstance<SearchOptions.QueryBarEntry.Option>().map { it.shortcut.id }
+
+    assertEquals("wikipedia", options.first())
+    assertTrue(options.indexOf("google") < options.indexOf("spotify"))
+    assertEquals(shortcuts.map { it.id }.toSet(), options.toSet())
+    assertEquals(shortcuts.size, options.size)
+    assertEquals(SearchOptions.QueryBarEntry.Settings, bar.last())
+    assertEquals(1, bar.count { it == SearchOptions.QueryBarEntry.Settings })
+  }
+
+  @Test
+  fun `queryBar keeps a manual order even when usage would sort otherwise`() {
+    val manual =
+      listOf(shortcuts.first { it.id == "spotify" }, shortcuts.first { it.id == "google" })
+    val bar =
+      SearchOptions.queryBar(manual, manualOrder = true) { if (it.id == "google") 99 else 0 }
+    val options = bar.filterIsInstance<SearchOptions.QueryBarEntry.Option>().map { it.shortcut.id }
+
+    assertEquals(listOf("spotify", "google"), options)
+    assertEquals(SearchOptions.QueryBarEntry.Settings, bar.last())
+  }
+
+  @Test
+  fun `displayOrder follows usage until the order is manual`() {
+    val counts = mapOf("wikipedia" to 50)
+    val byUsage = SearchOptions.displayOrder(shortcuts, manualOrder = false) { counts[it.id] ?: 0 }
+    assertEquals("wikipedia", byUsage.first().id)
+
+    val manual = shortcuts.reversed()
+    val kept = SearchOptions.displayOrder(manual, manualOrder = true) { counts[it.id] ?: 0 }
+    assertEquals(manual.map { it.id }, kept.map { it.id })
+  }
+
+  @Test
+  fun `advanceDrag swaps after half a row and keeps the leftover offset`() {
+    val (down, downOffset) = SearchOptions.advanceDrag(1, 4, offsetPx = 30f, itemHeightPx = 40f)
+    assertEquals(2, down)
+    assertEquals(-10f, downOffset)
+
+    val (up, upOffset) = SearchOptions.advanceDrag(2, 4, offsetPx = -25f, itemHeightPx = 40f)
+    assertEquals(1, up)
+    assertEquals(15f, upOffset)
+
+    val (two, twoOffset) = SearchOptions.advanceDrag(0, 5, offsetPx = 100f, itemHeightPx = 40f)
+    assertEquals(2, two)
+    assertEquals(20f, twoOffset)
+
+    val (top, topOffset) = SearchOptions.advanceDrag(0, 3, offsetPx = -100f, itemHeightPx = 40f)
+    assertEquals(0, top)
+    assertEquals(-100f, topOffset)
+    assertEquals(0, SearchOptions.advanceDrag(0, 1, offsetPx = 80f, itemHeightPx = 40f).first)
+  }
+
+  @Test
+  fun `queryBar is the settings cell when nothing is launchable`() {
+    assertEquals(
+      listOf(SearchOptions.QueryBarEntry.Settings),
+      SearchOptions.queryBar(emptyList()) { 0 },
+    )
+  }
+
+  @Test
   fun `namespace matches the one results are indexed under`() {
     assertEquals(SearchOptions.NAMESPACE, shortcuts.first().toSearchIntent().namespace)
   }

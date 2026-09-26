@@ -989,6 +989,12 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
         onDismiss = { clearQueryState() },
         onOpenSettings = {
           keyboardController?.hide()
+          pendingSettingsSection = null
+          currentScreenState = Screen.Settings
+        },
+        onOpenShortcutSettings = {
+          keyboardController?.hide()
+          pendingSettingsSection = "shortcuts"
           currentScreenState = Screen.Settings
         },
         onOpenAppDrawer = { currentScreenState = Screen.AppList },
@@ -1019,7 +1025,10 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
               .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
         ) {
           SettingsScreen(
-            onBack = { currentScreenState = Screen.Search },
+            onBack = {
+              pendingSettingsSection = null
+              currentScreenState = Screen.Search
+            },
             initialHighlightSection = pendingSettingsSection,
             onExportBackup = { initiateExportBackup() },
           )
