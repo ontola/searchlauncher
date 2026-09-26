@@ -18,6 +18,20 @@ data class SearchShortcut(
     urlTemplate.replace("%s", java.net.URLEncoder.encode(query, "UTF-8"))
 
   /**
+   * Apps whose icon may stand in for this shortcut's letter tile, first installed one wins. Only
+   * the picture is borrowed: unlike [packageName], these never decide which app opens or whether
+   * the shortcut is offered.
+   */
+  val iconPackages: List<String>
+    get() = listOfNotNull(packageName) + DefaultShortcuts.iconPackages[id].orEmpty()
+
+  /** Says the shortcut searches inside a known app, so the result reads as more than a letter. */
+  val searchHint: String
+    get() =
+      if (iconPackages.isEmpty()) "Type '$alias ' to search"
+      else "Type '$alias ' to search in ${shortLabel ?: description}"
+
+  /**
    * The same result the search list builds for this shortcut, including the coloured letter icon
    * when [icon] is supplied by [SearchIconGenerator].
    */
@@ -26,7 +40,7 @@ data class SearchShortcut(
       id = id,
       namespace = SearchOptions.NAMESPACE,
       title = description,
-      subtitle = "Type '$alias ' to search",
+      subtitle = searchHint,
       icon = icon,
       trigger = alias,
     )
@@ -54,6 +68,26 @@ object DefaultShortcuts {
 
   fun searchShortcutOrder(indexedId: String): Int =
     searchShortcutOrderById[indexedId.removePrefix("search_")] ?: Int.MAX_VALUE
+
+  /**
+   * Well-known apps behind the default search shortcuts, keyed by shortcut id, so the results list
+   * can show the app the user already knows instead of a bare letter.
+   */
+  val iconPackages: Map<String, List<String>> =
+    mapOf(
+      "google" to listOf("com.google.android.googlequicksearchbox"),
+      "gemini" to listOf("com.google.android.apps.bard"),
+      "duckduckgo" to listOf("com.duckduckgo.mobile.android"),
+      "bing" to listOf("com.microsoft.bing"),
+      "maps" to listOf("com.google.android.apps.maps"),
+      "reddit" to listOf("com.reddit.frontpage"),
+      "wikipedia" to listOf("org.wikipedia"),
+      "chatgpt_ask" to listOf("com.openai.chatgpt"),
+      "perplexity" to listOf("ai.perplexity.app.android"),
+      "claude" to listOf("com.anthropic.claude"),
+      "playstore" to listOf("com.android.vending"),
+      "linkedin" to listOf("com.linkedin.android"),
+    )
 
   // App-defined actions and settings (not editable by user)
   private val settingsActions =

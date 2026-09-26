@@ -251,7 +251,7 @@ fun SearchScreen(
             namespace = "search_shortcuts",
             title = "Search in ${shortcut.shortLabel ?: shortcut.description}",
             subtitle = "Type your query...",
-            icon = iconGenerator.getColoredSearchIcon(shortcut.color, shortcut.alias),
+            icon = iconGenerator.getShortcutIcon(shortcut),
             packageName = shortcut.packageName ?: "android",
             deepLink = shortcut.urlForQuery(""),
             rankingScore =

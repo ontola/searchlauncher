@@ -8,6 +8,45 @@ import android.graphics.drawable.LayerDrawable
 
 class SearchIconGenerator(private val context: Context) {
 
+  /**
+   * The icon a search shortcut shows in the results list: the installed app it searches with the
+   * shortcut's letter tile as a small badge in the corner, or just the letter tile when none of its
+   * [SearchShortcut.iconPackages] is installed.
+   */
+  fun getShortcutIcon(shortcut: SearchShortcut): Drawable? {
+    val letterTile = getColoredSearchIcon(shortcut.color ?: 0xFF808080, shortcut.alias)
+    val appIcon = installedAppIcon(shortcut.iconPackages) ?: return letterTile
+    if (letterTile == null) return appIcon
+
+    val density = context.resources.displayMetrics.density
+    val size = (40 * density).toInt()
+    val bitmap =
+      android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bitmap)
+
+    // Leave room at the bottom right so the badge overlaps the app icon rather than covering it.
+    val appSize = (size * 0.86f).toInt()
+    appIcon.mutate().setBounds(0, 0, appSize, appSize)
+    appIcon.draw(canvas)
+
+    // The results list clips shortcut icons to 8dp corners; keep the badge clear of that curve.
+    val badgeSize = (size * 0.48f).toInt()
+    val badgeEnd = size - (1.5f * density).toInt()
+    letterTile.setBounds(badgeEnd - badgeSize, badgeEnd - badgeSize, badgeEnd, badgeEnd)
+    letterTile.draw(canvas)
+
+    return android.graphics.drawable.BitmapDrawable(context.resources, bitmap)
+  }
+
+  private fun installedAppIcon(packages: List<String>): Drawable? =
+    packages.firstNotNullOfOrNull { pkg ->
+      try {
+        context.packageManager.getApplicationIcon(pkg)
+      } catch (e: android.content.pm.PackageManager.NameNotFoundException) {
+        null
+      }
+    }
+
   fun getColoredSearchIcon(color: Long?, text: String? = null): Drawable? {
     if (color == null) return null
 
