@@ -1,0 +1,1 @@
+The calculator now accepts the keyboard's extra math keys: × and ÷, square roots, π, and degree marks such as 180°-45°. Search shortcuts scroll sideways, stay ordered by use, and can be dragged into your own order in Custom Shortcuts.
