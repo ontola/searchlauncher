@@ -25,11 +25,14 @@ data class SearchShortcut(
   val iconPackages: List<String>
     get() = listOfNotNull(packageName) + DefaultShortcuts.iconPackages[id].orEmpty()
 
-  /** Says the shortcut searches inside a known app, so the result reads as more than a letter. */
+  /**
+   * Says the shortcut searches inside a known app, so the result reads as more than a letter. The
+   * key to type is drawn beside it, so only shortcuts without an app spell the alias out.
+   */
   val searchHint: String
     get() =
       if (iconPackages.isEmpty()) "Type '$alias ' to search"
-      else "Type '$alias ' to search in ${shortLabel ?: description}"
+      else "Search inside ${shortLabel ?: description}"
 
   /**
    * The same result the search list builds for this shortcut, including the coloured letter icon
@@ -44,6 +47,13 @@ data class SearchShortcut(
       icon = icon,
       trigger = alias,
     )
+}
+
+/**
+ * The search shortcut that searches inside the app [packageName], if any, so its row can offer it.
+ */
+fun List<SearchShortcut>.forApp(packageName: String): SearchShortcut? = firstOrNull {
+  packageName in it.iconPackages
 }
 
 /** App-defined shortcuts that are not user-editable */

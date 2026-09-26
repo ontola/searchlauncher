@@ -22,8 +22,8 @@ class ShortcutAppIconTest {
 
   @Test
   fun `known apps name the app they search in`() {
-    assertEquals("Type 'r ' to search in Reddit", default("reddit").searchHint)
-    assertEquals("Type 'y ' to search in YouTube", default("youtube").searchHint)
+    assertEquals("Search inside Reddit", default("reddit").searchHint)
+    assertEquals("Search inside YouTube", default("youtube").searchHint)
   }
 
   @Test
@@ -35,6 +35,14 @@ class ShortcutAppIconTest {
   fun `the explicit package comes before the borrowed ones`() {
     val custom = default("reddit").copy(packageName = "com.example.reddit")
     assertEquals(listOf("com.example.reddit", "com.reddit.frontpage"), custom.iconPackages)
+  }
+
+  @Test
+  fun `an app row finds the shortcut that searches inside it`() {
+    val shortcuts = DefaultShortcuts.searchShortcuts
+    assertEquals("reddit", shortcuts.forApp("com.reddit.frontpage")?.id)
+    assertEquals("youtube", shortcuts.forApp("com.google.android.youtube")?.id)
+    assertEquals(null, shortcuts.forApp("com.example.unrelated"))
   }
 
   @Test
@@ -59,8 +67,12 @@ class ShortcutAppIconTest {
           applicationInfo = ApplicationInfo().apply { packageName = "com.reddit.frontpage" }
         }
       )
-    val badged = generator.getShortcutIcon(reddit)
+    val badged = generator.getShortcutIcon(reddit, badged = true)
     assertTrue(badged is android.graphics.drawable.BitmapDrawable)
     assertEquals(size, (badged as android.graphics.drawable.BitmapDrawable).bitmap.width)
+    assertEquals(
+      context.packageManager.getApplicationIcon("com.reddit.frontpage").javaClass,
+      generator.getShortcutIcon(reddit)?.javaClass,
+    )
   }
 }

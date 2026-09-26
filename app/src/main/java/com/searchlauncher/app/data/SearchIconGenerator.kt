@@ -9,14 +9,14 @@ import android.graphics.drawable.LayerDrawable
 class SearchIconGenerator(private val context: Context) {
 
   /**
-   * The icon a search shortcut shows in the results list: the installed app it searches with the
-   * shortcut's letter tile as a small badge in the corner, or just the letter tile when none of its
-   * [SearchShortcut.iconPackages] is installed.
+   * The icon a search shortcut shows: the installed app it searches, or just its letter tile when
+   * none of its [SearchShortcut.iconPackages] is installed. [badged] puts the letter tile in the
+   * app icon's corner, for the chip bar where there is no room to draw the key beside it.
    */
-  fun getShortcutIcon(shortcut: SearchShortcut): Drawable? {
-    val letterTile = getColoredSearchIcon(shortcut.color ?: 0xFF808080, shortcut.alias)
+  fun getShortcutIcon(shortcut: SearchShortcut, badged: Boolean = false): Drawable? {
+    val letterTile = getLetterTile(shortcut)
     val appIcon = installedAppIcon(shortcut.iconPackages) ?: return letterTile
-    if (letterTile == null) return appIcon
+    if (!badged || letterTile == null) return appIcon
 
     val density = context.resources.displayMetrics.density
     val size = (40 * density).toInt()
@@ -37,6 +37,10 @@ class SearchIconGenerator(private val context: Context) {
 
     return android.graphics.drawable.BitmapDrawable(context.resources, bitmap)
   }
+
+  /** The shortcut's coloured letter tile, the key the user types to start it. */
+  fun getLetterTile(shortcut: SearchShortcut): Drawable? =
+    getColoredSearchIcon(shortcut.color ?: 0xFF808080, shortcut.alias)
 
   private fun installedAppIcon(packages: List<String>): Drawable? =
     packages.firstNotNullOfOrNull { pkg ->
