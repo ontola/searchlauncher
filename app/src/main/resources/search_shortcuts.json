@@ -1,0 +1,448 @@
+{
+  "shortcuts": [
+    {
+      "id": "google",
+      "alias": "g",
+      "description": "Google Search",
+      "shortLabel": "Google",
+      "urlTemplate": "https://www.google.com/search?q=%s",
+      "suggestionUrl": "http://suggestqueries.google.com/complete/search?client=firefox&q=%s",
+      "apps": ["com.google.android.googlequicksearchbox"],
+      "color": "#4285F4"
+    },
+    {
+      "id": "gemini",
+      "alias": "gem",
+      "description": "Gemini AI",
+      "shortLabel": "Gemini",
+      "urlTemplate": "https://www.google.com/search?udm=50&source=searchlabs&q=%s",
+      "apps": ["com.google.android.apps.bard"],
+      "color": "#8E24AA"
+    },
+    {
+      "id": "duckduckgo",
+      "alias": "dd",
+      "description": "DuckDuckGo Search",
+      "shortLabel": "DuckDuckGo",
+      "urlTemplate": "https://duckduckgo.com/?q=%s",
+      "suggestionUrl": "https://ac.duckduckgo.com/ac/?q=%s&type=list",
+      "apps": ["com.duckduckgo.mobile.android"],
+      "color": "#DE5833"
+    },
+    {
+      "id": "bing",
+      "alias": "bing",
+      "description": "Bing Search",
+      "shortLabel": "Bing",
+      "urlTemplate": "https://www.bing.com/search?q=%s",
+      "suggestionUrl": "https://api.bing.com/osjson.aspx?query=%s",
+      "apps": ["com.microsoft.bing"],
+      "color": "#008373"
+    },
+    {
+      "id": "calendar",
+      "alias": "cal",
+      "description": "Add Calendar Item",
+      "shortLabel": "Calendar",
+      "urlTemplate": "intent:#Intent;action=android.intent.action.INSERT;type=vnd.android.cursor.item/event;S.title=%s;end",
+      "color": "#3F51B5"
+    },
+    {
+      "id": "youtube",
+      "alias": "y",
+      "description": "YouTube Search",
+      "shortLabel": "YouTube",
+      "urlTemplate": "https://www.youtube.com/results?search_query=%s",
+      "packageName": "com.google.android.youtube",
+      "suggestionUrl": "http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=%s",
+      "color": "#FF0000"
+    },
+    {
+      "id": "navigate",
+      "alias": "nav",
+      "description": "Navigate to",
+      "shortLabel": "Navigate",
+      "urlTemplate": "geo:0,0?q=%s",
+      "color": "#009688"
+    },
+    {
+      "id": "maps",
+      "alias": "m",
+      "description": "Google Maps Search",
+      "shortLabel": "Maps",
+      "urlTemplate": "https://www.google.com/maps/search/%s",
+      "apps": ["com.google.android.apps.maps"],
+      "color": "#34A853"
+    },
+    {
+      "id": "reddit",
+      "alias": "r",
+      "description": "Reddit Search",
+      "shortLabel": "Reddit",
+      "urlTemplate": "https://www.reddit.com/search/?q=%s",
+      "apps": ["com.reddit.frontpage"],
+      "color": "#FF4500"
+    },
+    {
+      "id": "wikipedia",
+      "alias": "w",
+      "description": "Wikipedia Search",
+      "shortLabel": "Wikipedia",
+      "urlTemplate": "https://en.wikipedia.org/w/index.php?search=%s",
+      "apps": ["org.wikipedia"],
+      "color": "#808080"
+    },
+    {
+      "id": "chatgpt_ask",
+      "alias": "c",
+      "description": "Ask ChatGPT",
+      "shortLabel": "ChatGPT",
+      "urlTemplate": "https://chatgpt.com/?q=%s",
+      "apps": ["com.openai.chatgpt"],
+      "color": "#10A37F"
+    },
+    {
+      "id": "perplexity",
+      "alias": "pp",
+      "description": "Ask Perplexity",
+      "shortLabel": "Perplexity",
+      "urlTemplate": "https://www.perplexity.ai/search?q=%s",
+      "apps": ["ai.perplexity.app.android"],
+      "color": "#20808D"
+    },
+    {
+      "id": "claude",
+      "alias": "cl",
+      "description": "Ask Claude",
+      "shortLabel": "Claude",
+      "urlTemplate": "claude://claude.ai/new?q=%s",
+      "apps": ["com.anthropic.claude"],
+      "color": "#D97757"
+    },
+    {
+      "id": "playstore",
+      "alias": "p",
+      "description": "Play Store Search",
+      "shortLabel": "Play Store",
+      "urlTemplate": "market://search?q=%s",
+      "apps": ["com.android.vending"],
+      "color": "#01875F"
+    },
+    {
+      "id": "spotify",
+      "alias": "s",
+      "description": "Spotify Search",
+      "shortLabel": "Spotify",
+      "urlTemplate": "spotify:search:%s",
+      "packageName": "com.spotify.music",
+      "color": "#1DB954"
+    },
+    {
+      "id": "linkedin",
+      "alias": "li",
+      "description": "LinkedIn Search",
+      "shortLabel": "LinkedIn",
+      "urlTemplate": "https://www.linkedin.com/search/results/all/?keywords=%s",
+      "apps": ["com.linkedin.android"],
+      "color": "#0077B5"
+    },
+    {
+      "id": "widget_search",
+      "alias": "widgets",
+      "description": "Search Widgets",
+      "shortLabel": "Widgets",
+      "urlTemplate": "internal://widget?q=%s",
+      "color": "#FF9800"
+    },
+    {
+      "id": "amazon",
+      "alias": "am",
+      "description": "Amazon Search",
+      "shortLabel": "Amazon",
+      "urlTemplate": "https://www.amazon.com/s?k=%s",
+      "apps": ["com.amazon.mShop.android.shopping"],
+      "color": "#FF9900",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "ebay",
+      "alias": "eb",
+      "description": "eBay Search",
+      "shortLabel": "eBay",
+      "urlTemplate": "https://www.ebay.com/sch/i.html?_nkw=%s",
+      "apps": ["com.ebay.mobile"],
+      "color": "#E53238",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "aliexpress",
+      "alias": "ali",
+      "description": "AliExpress Search",
+      "shortLabel": "AliExpress",
+      "urlTemplate": "https://www.aliexpress.com/wholesale?SearchText=%s",
+      "apps": ["com.alibaba.aliexpresshd"],
+      "color": "#E62E04",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "etsy",
+      "alias": "et",
+      "description": "Etsy Search",
+      "shortLabel": "Etsy",
+      "urlTemplate": "https://www.etsy.com/search?q=%s",
+      "apps": ["com.etsy.android"],
+      "color": "#F1641E",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "walmart",
+      "alias": "wm",
+      "description": "Walmart Search",
+      "shortLabel": "Walmart",
+      "urlTemplate": "https://www.walmart.com/search?q=%s",
+      "apps": ["com.walmart.android"],
+      "color": "#0071CE",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "bol",
+      "alias": "bol",
+      "description": "bol Search",
+      "shortLabel": "bol",
+      "urlTemplate": "https://www.bol.com/nl/nl/s/?searchtext=%s",
+      "apps": ["com.bol.shop"],
+      "color": "#0000A4",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "albert_heijn",
+      "alias": "ah",
+      "description": "Albert Heijn Search",
+      "shortLabel": "Albert Heijn",
+      "urlTemplate": "https://www.ah.nl/zoeken?query=%s",
+      "apps": ["com.icemobile.albertheijn"],
+      "color": "#00A0E2",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "youtube_music",
+      "alias": "ym",
+      "description": "YouTube Music Search",
+      "shortLabel": "YouTube Music",
+      "urlTemplate": "https://music.youtube.com/search?q=%s",
+      "apps": ["com.google.android.apps.youtube.music"],
+      "color": "#FF0000",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "soundcloud",
+      "alias": "sc",
+      "description": "SoundCloud Search",
+      "shortLabel": "SoundCloud",
+      "urlTemplate": "https://soundcloud.com/search?q=%s",
+      "apps": ["com.soundcloud.android"],
+      "color": "#FF5500",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "genius",
+      "alias": "ge",
+      "description": "Genius Lyrics Search",
+      "shortLabel": "Genius",
+      "urlTemplate": "https://genius.com/search?q=%s",
+      "apps": ["com.genius.android"],
+      "color": "#FFFF64",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "netflix",
+      "alias": "nf",
+      "description": "Netflix Search",
+      "shortLabel": "Netflix",
+      "urlTemplate": "https://www.netflix.com/search?q=%s",
+      "apps": ["com.netflix.mediaclient"],
+      "color": "#E50914",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "imdb",
+      "alias": "imdb",
+      "description": "IMDb Search",
+      "shortLabel": "IMDb",
+      "urlTemplate": "https://www.imdb.com/find/?q=%s",
+      "apps": ["com.imdb.mobile"],
+      "color": "#F5C518",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "twitch",
+      "alias": "tw",
+      "description": "Twitch Search",
+      "shortLabel": "Twitch",
+      "urlTemplate": "https://www.twitch.tv/search?term=%s",
+      "apps": ["tv.twitch.android.app"],
+      "color": "#9146FF",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "goodreads",
+      "alias": "gr",
+      "description": "Goodreads Search",
+      "shortLabel": "Goodreads",
+      "urlTemplate": "https://www.goodreads.com/search?q=%s",
+      "apps": ["com.goodreads"],
+      "color": "#553B08",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "x",
+      "alias": "x",
+      "description": "X Search",
+      "shortLabel": "X",
+      "urlTemplate": "https://x.com/search?q=%s",
+      "apps": ["com.twitter.android"],
+      "color": "#000000",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "bluesky",
+      "alias": "bs",
+      "description": "Bluesky Search",
+      "shortLabel": "Bluesky",
+      "urlTemplate": "https://bsky.app/search?q=%s",
+      "apps": ["xyz.blueskyweb.app"],
+      "color": "#1185FE",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "threads",
+      "alias": "th",
+      "description": "Threads Search",
+      "shortLabel": "Threads",
+      "urlTemplate": "https://www.threads.net/search?q=%s",
+      "apps": ["com.instagram.barcelona"],
+      "color": "#000000",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "facebook",
+      "alias": "fb",
+      "description": "Facebook Search",
+      "shortLabel": "Facebook",
+      "urlTemplate": "https://www.facebook.com/search/top?q=%s",
+      "apps": ["com.facebook.katana"],
+      "color": "#0866FF",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "tiktok",
+      "alias": "tt",
+      "description": "TikTok Search",
+      "shortLabel": "TikTok",
+      "urlTemplate": "https://www.tiktok.com/search?q=%s",
+      "apps": ["com.zhiliaoapp.musically"],
+      "color": "#000000",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "pinterest",
+      "alias": "pin",
+      "description": "Pinterest Search",
+      "shortLabel": "Pinterest",
+      "urlTemplate": "https://www.pinterest.com/search/pins/?q=%s",
+      "apps": ["com.pinterest"],
+      "color": "#E60023",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "github",
+      "alias": "gh",
+      "description": "GitHub Search",
+      "shortLabel": "GitHub",
+      "urlTemplate": "https://github.com/search?q=%s",
+      "apps": ["com.github.android"],
+      "color": "#24292F",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "booking",
+      "alias": "bk",
+      "description": "Booking.com Search",
+      "shortLabel": "Booking.com",
+      "urlTemplate": "https://www.booking.com/searchresults.html?ss=%s",
+      "apps": ["com.booking"],
+      "color": "#003580",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "waze",
+      "alias": "wz",
+      "description": "Waze Navigate",
+      "shortLabel": "Waze",
+      "urlTemplate": "https://waze.com/ul?q=%s",
+      "apps": ["com.waze"],
+      "color": "#33CCFF",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "google_translate",
+      "alias": "tr",
+      "description": "Google Translate",
+      "shortLabel": "Translate",
+      "urlTemplate": "https://translate.google.com/?sl=auto&text=%s",
+      "apps": ["com.google.android.apps.translate"],
+      "color": "#4285F4",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "kagi",
+      "alias": "kg",
+      "description": "Kagi Search",
+      "shortLabel": "Kagi",
+      "urlTemplate": "https://kagi.com/search?q=%s",
+      "apps": ["com.kagi.search"],
+      "color": "#FFB319",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "ecosia",
+      "alias": "eco",
+      "description": "Ecosia Search",
+      "shortLabel": "Ecosia",
+      "urlTemplate": "https://www.ecosia.org/search?q=%s",
+      "apps": ["com.ecosia.android"],
+      "color": "#008009",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "brave_search",
+      "alias": "br",
+      "description": "Brave Search",
+      "shortLabel": "Brave",
+      "urlTemplate": "https://search.brave.com/search?q=%s",
+      "apps": ["com.brave.browser"],
+      "color": "#FB542B",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "copilot",
+      "alias": "co",
+      "description": "Ask Copilot",
+      "shortLabel": "Copilot",
+      "urlTemplate": "https://copilot.microsoft.com/?q=%s",
+      "apps": ["com.microsoft.copilot"],
+      "color": "#0078D4",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "le_chat",
+      "alias": "mi",
+      "description": "Ask Le Chat",
+      "shortLabel": "Le Chat",
+      "urlTemplate": "https://chat.mistral.ai/chat?q=%s",
+      "apps": ["ai.mistral.chat"],
+      "color": "#FA520F",
+      "onlyWhenInstalled": true
+    }
+  ]
+}

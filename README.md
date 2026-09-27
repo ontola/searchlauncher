@@ -88,6 +88,32 @@ cd searchlauncher
 ./gradlew installRelease
 ```
 
+### Adding a search shortcut
+
+Search shortcuts (`y cats` searches YouTube) are listed in
+[`app/src/main/resources/search_shortcuts.json`](app/src/main/resources/search_shortcuts.json).
+To add a site or app, add an entry there:
+
+```json
+{
+  "id": "etsy",
+  "alias": "et",
+  "description": "Etsy Search",
+  "shortLabel": "Etsy",
+  "urlTemplate": "https://www.etsy.com/search?q=%s",
+  "apps": ["com.etsy.android"],
+  "color": "#F1641E",
+  "onlyWhenInstalled": true
+}
+```
+
+- `urlTemplate` gets the query in place of `%s`. Web addresses work best: they open in the app when it claims the link, and in the built-in browser otherwise.
+- `apps` are the Android package names of the app. Its icon replaces the letter tile.
+- `onlyWhenInstalled` keeps the shortcut hidden until one of those apps is installed, so regional and niche apps are welcome. Leave it out only for shortcuts everyone should get.
+- `alias` must be unique. Prefer two or more letters, since a single letter also starts ordinary queries.
+
+`./gradlew test` checks the file for duplicate ids and aliases, missing `%s` and bad colours.
+
 ### Releasing
 
 `versionCode` and `versionName` are plain literals in `app/build.gradle.kts` because F-Droid
