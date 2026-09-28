@@ -194,4 +194,90 @@ class SearchShortcutRepositoryTest {
     assertEquals(reversed.map { it.id }, repository.items.value.map { it.id })
     assertEquals("zz", repository.items.value.first().alias)
   }
+
+  private fun installApp(packageName: String) {
+    org.robolectric.Shadows.shadowOf(context.packageManager)
+      .installPackage(android.content.pm.PackageInfo().apply { this.packageName = packageName })
+  }
+
+  private val amazonApp = "com.amazon.mShop.android.shopping"
+
+  @Test
+  fun `an app shortcut stays out until its app is installed`() {
+    val repository = SearchShortcutRepository(context)
+    assertFalse(repository.items.value.any { it.id == "amazon" })
+
+    installApp(amazonApp)
+    repository.refreshAvailability()
+
+    val amazon = repository.items.value.last()
+    assertEquals("amazon", amazon.id)
+    assertTrue(repository.launchable.value.any { it.id == "amazon" })
+  }
+
+  @Test
+  fun `an app shortcut already installed is there on first start`() {
+    installApp(amazonApp)
+
+    assertTrue(SearchShortcutRepository(context).items.value.any { it.id == "amazon" })
+  }
+
+  @Test
+  fun `a removed app shortcut is not added back`() {
+    installApp(amazonApp)
+    val repository = SearchShortcutRepository(context)
+    kotlinx.coroutines.runBlocking { repository.removeShortcut("amazon") }
+
+    repository.refreshAvailability()
+    assertFalse(repository.items.value.any { it.id == "amazon" })
+    assertFalse(SearchShortcutRepository(context).items.value.any { it.id == "amazon" })
+  }
+
+  @Test
+  fun `a removed default stays removed after a restart`() {
+    val repository = SearchShortcutRepository(context)
+    kotlinx.coroutines.runBlocking { repository.removeShortcut("wikipedia") }
+
+    assertFalse(SearchShortcutRepository(context).items.value.any { it.id == "wikipedia" })
+  }
+
+  @Test
+  fun `reset defaults brings removed shortcuts back`() {
+    installApp(amazonApp)
+    val repository = SearchShortcutRepository(context)
+    kotlinx.coroutines.runBlocking {
+      repository.removeShortcut("wikipedia")
+      repository.removeShortcut("amazon")
+    }
+
+    repository.resetToDefaults()
+
+    val ids = repository.items.value.map { it.id }
+    assertTrue("wikipedia" in ids)
+    assertTrue("amazon" in ids)
+  }
+
+  @Test
+  fun `an app shortcut whose key is taken is left out`() {
+    val repository = SearchShortcutRepository(context)
+    val google = repository.items.value.first { it.id == "google" }
+    kotlinx.coroutines.runBlocking { repository.updateShortcut(google.copy(alias = "am")) }
+
+    installApp(amazonApp)
+    repository.refreshAvailability()
+
+    assertFalse(repository.items.value.any { it.id == "amazon" })
+  }
+
+  @Test
+  fun `an app shortcut is no longer offered once its app is uninstalled`() {
+    installApp(amazonApp)
+    val repository = SearchShortcutRepository(context)
+
+    org.robolectric.Shadows.shadowOf(context.packageManager).removePackage(amazonApp)
+    repository.refreshAvailability()
+
+    assertTrue(repository.items.value.any { it.id == "amazon" })
+    assertFalse(repository.launchable.value.any { it.id == "amazon" })
+  }
 }

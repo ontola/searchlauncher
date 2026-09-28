@@ -45,9 +45,53 @@ class SearchShortcutRepository(context: Context) {
    * packages are installed or removed, since that is the other half of the answer.
    */
   fun refreshAvailability() {
-    val packageManager = appContext.packageManager
-    _launchable.value = _items.value.filter { ShortcutAvailability.isAvailable(packageManager, it) }
+    val withNewApps = adoptInstalledApps(_items.value)
+    if (withNewApps != _items.value) saveItems(withNewApps) else updateLaunchable()
   }
+
+  private fun updateLaunchable() {
+    val packageManager = appContext.packageManager
+    val appPackages =
+      DefaultShortcuts.installableShortcuts.associate { it.shortcut.id to it.packages }
+    _launchable.value =
+      _items.value.filter { shortcut ->
+        // A shortcut that arrived with its app goes quiet again once that app is uninstalled.
+        appPackages[shortcut.id]?.any(::isInstalled) != false &&
+          ShortcutAvailability.isAvailable(packageManager, shortcut)
+      }
+  }
+
+  /**
+   * Appends the [DefaultShortcuts.installableShortcuts] whose app is now installed. One the user
+   * removed stays removed, and one whose key is already taken is left out rather than making the
+   * key ambiguous.
+   */
+  private fun adoptInstalledApps(items: List<SearchShortcut>): List<SearchShortcut> {
+    val dismissed = dismissedIds()
+    val ids = items.mapTo(mutableSetOf()) { it.id }
+    val aliases = items.mapTo(mutableSetOf()) { it.alias.lowercase() }
+    val adopted =
+      DefaultShortcuts.installableShortcuts
+        .filter { entry ->
+          entry.shortcut.id !in ids &&
+            entry.shortcut.id !in dismissed &&
+            entry.packages.any(::isInstalled) &&
+            aliases.add(entry.shortcut.alias.lowercase())
+        }
+        .map { it.shortcut }
+    return if (adopted.isEmpty()) items else items + adopted
+  }
+
+  private fun isInstalled(packageName: String): Boolean =
+    try {
+      appContext.packageManager.getPackageInfo(packageName, 0)
+      true
+    } catch (_: Exception) {
+      false
+    }
+
+  private fun dismissedIds(): Set<String> =
+    prefs.getStringSet(Prefs.SearchShortcuts.DISMISSED, null).orEmpty()
 
   private fun loadItems() {
     _manualOrder.value = prefs.getBoolean(Prefs.SearchShortcuts.MANUAL_ORDER, false)
@@ -80,14 +124,18 @@ class SearchShortcutRepository(context: Context) {
 
     // Merge in any new default shortcuts that are missing from persisted items
     val defaults = DefaultShortcuts.searchShortcuts
-    val missingDefaults = defaults.filter { default -> persistedItems.none { it.id == default.id } }
-    val migrated = migratePersistedShortcuts(persistedItems)
+    val dismissed = dismissedIds()
+    val missingDefaults =
+      defaults.filter { default ->
+        default.id !in dismissed && persistedItems.none { it.id == default.id }
+      }
+    val migrated = adoptInstalledApps(migratePersistedShortcuts(persistedItems) + missingDefaults)
 
-    if (missingDefaults.isNotEmpty() || migrated != persistedItems) {
-      saveItems(migrated + missingDefaults)
+    if (migrated != persistedItems) {
+      saveItems(migrated)
     } else {
       _items.value = persistedItems
-      refreshAvailability()
+      updateLaunchable()
     }
   }
 
@@ -124,7 +172,8 @@ class SearchShortcutRepository(context: Context) {
 
   fun resetToDefaults() {
     writeManualOrder(false)
-    saveItems(DefaultShortcuts.searchShortcuts)
+    prefs.edit().remove(Prefs.SearchShortcuts.DISMISSED).apply()
+    saveItems(adoptInstalledApps(DefaultShortcuts.searchShortcuts))
   }
 
   /** Saves [shortcuts] in the dragged order and stops sorting by usage. */
@@ -154,6 +203,14 @@ class SearchShortcutRepository(context: Context) {
     withContext(Dispatchers.IO) {
       val currentItems = _items.value.toMutableList()
       currentItems.removeAll { it.id == shortcutId }
+      // A shortcut SearchLauncher ships would otherwise come back on the next start, or the next
+      // time its app is updated.
+      if (ShortcutCatalog.entries.any { it.shortcut.id == shortcutId }) {
+        prefs
+          .edit()
+          .putStringSet(Prefs.SearchShortcuts.DISMISSED, dismissedIds() + shortcutId)
+          .apply()
+      }
       saveItems(currentItems)
     }
 
@@ -183,7 +240,7 @@ class SearchShortcutRepository(context: Context) {
     }
     prefs.edit().putString(Prefs.SearchShortcuts.SHORTCUTS, jsonArray.toString()).apply()
     _items.value = items
-    refreshAvailability()
+    updateLaunchable()
   }
 
   fun replaceAll(shortcuts: List<SearchShortcut>, manualOrder: Boolean = false) {

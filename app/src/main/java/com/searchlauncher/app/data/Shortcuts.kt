@@ -73,31 +73,19 @@ sealed class AppShortcut {
 
 object DefaultShortcuts {
   private val searchShortcutOrderById by lazy {
-    searchShortcuts.mapIndexed { index, shortcut -> shortcut.id to index }.toMap()
+    ShortcutCatalog.entries.mapIndexed { index, entry -> entry.shortcut.id to index }.toMap()
   }
 
   fun searchShortcutOrder(indexedId: String): Int =
     searchShortcutOrderById[indexedId.removePrefix("search_")] ?: Int.MAX_VALUE
 
   /**
-   * Well-known apps behind the default search shortcuts, keyed by shortcut id, so the results list
-   * can show the app the user already knows instead of a bare letter.
+   * Well-known apps behind the search shortcuts, keyed by shortcut id, so the results list can show
+   * the app the user already knows instead of a bare letter. Comes from [ShortcutCatalog].
    */
-  val iconPackages: Map<String, List<String>> =
-    mapOf(
-      "google" to listOf("com.google.android.googlequicksearchbox"),
-      "gemini" to listOf("com.google.android.apps.bard"),
-      "duckduckgo" to listOf("com.duckduckgo.mobile.android"),
-      "bing" to listOf("com.microsoft.bing"),
-      "maps" to listOf("com.google.android.apps.maps"),
-      "reddit" to listOf("com.reddit.frontpage"),
-      "wikipedia" to listOf("org.wikipedia"),
-      "chatgpt_ask" to listOf("com.openai.chatgpt"),
-      "perplexity" to listOf("ai.perplexity.app.android"),
-      "claude" to listOf("com.anthropic.claude"),
-      "playstore" to listOf("com.android.vending"),
-      "linkedin" to listOf("com.linkedin.android"),
-    )
+  val iconPackages: Map<String, List<String>> by lazy {
+    ShortcutCatalog.entries.filter { it.apps.isNotEmpty() }.associate { it.shortcut.id to it.apps }
+  }
 
   // App-defined actions and settings (not editable by user)
   private val settingsActions =
@@ -333,152 +321,16 @@ object DefaultShortcuts {
       ),
     ) + generateSettingsShortcuts()
 
-  // User-editable search shortcuts with default aliases
-  val searchShortcuts =
-    listOf(
-      SearchShortcut(
-        id = "google",
-        alias = "g",
-        urlTemplate = "https://www.google.com/search?q=%s",
-        description = "Google Search",
-        suggestionUrl = "http://suggestqueries.google.com/complete/search?client=firefox&q=%s",
-        color = 0xFF4285F4,
-        shortLabel = "Google",
-      ),
-      SearchShortcut(
-        id = "gemini",
-        alias = "gem",
-        urlTemplate = "https://www.google.com/search?udm=50&source=searchlabs&q=%s",
-        description = "Gemini AI",
-        color = 0xFF8E24AA, // Purple-ish
-        shortLabel = "Gemini",
-      ),
-      SearchShortcut(
-        id = "duckduckgo",
-        alias = "dd",
-        urlTemplate = "https://duckduckgo.com/?q=%s",
-        description = "DuckDuckGo Search",
-        suggestionUrl = "https://ac.duckduckgo.com/ac/?q=%s&type=list",
-        color = 0xFFDE5833,
-        shortLabel = "DuckDuckGo",
-      ),
-      SearchShortcut(
-        id = "bing",
-        alias = "bing",
-        urlTemplate = "https://www.bing.com/search?q=%s",
-        description = "Bing Search",
-        suggestionUrl = "https://api.bing.com/osjson.aspx?query=%s",
-        color = 0xFF008373,
-        shortLabel = "Bing",
-      ),
-      SearchShortcut(
-        id = "calendar",
-        alias = "cal",
-        urlTemplate =
-          "intent:#Intent;action=android.intent.action.INSERT;type=vnd.android.cursor.item/event;S.title=%s;end",
-        description = "Add Calendar Item",
-        color = 0xFF3F51B5,
-        shortLabel = "Calendar",
-      ),
-      SearchShortcut(
-        id = "youtube",
-        alias = "y",
-        urlTemplate = "https://www.youtube.com/results?search_query=%s",
-        description = "YouTube Search",
-        packageName = "com.google.android.youtube",
-        suggestionUrl =
-          "http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=%s",
-        color = 0xFFFF0000,
-        shortLabel = "YouTube",
-      ),
-      SearchShortcut(
-        id = "navigate",
-        alias = "nav",
-        urlTemplate = "geo:0,0?q=%s",
-        description = "Navigate to",
-        color = 0xFF009688,
-        shortLabel = "Navigate",
-      ),
-      SearchShortcut(
-        id = "maps",
-        alias = "m",
-        urlTemplate = "https://www.google.com/maps/search/%s",
-        description = "Google Maps Search",
-        color = 0xFF34A853,
-        shortLabel = "Maps",
-      ),
-      SearchShortcut(
-        id = "reddit",
-        alias = "r",
-        urlTemplate = "https://www.reddit.com/search/?q=%s",
-        description = "Reddit Search",
-        color = 0xFFFF4500,
-        shortLabel = "Reddit",
-      ),
-      SearchShortcut(
-        id = "wikipedia",
-        alias = "w",
-        urlTemplate = "https://en.wikipedia.org/w/index.php?search=%s",
-        description = "Wikipedia Search",
-        color = 0xFF808080,
-        shortLabel = "Wikipedia",
-      ),
-      SearchShortcut(
-        id = "chatgpt_ask",
-        alias = "c",
-        urlTemplate = "https://chatgpt.com/?q=%s",
-        description = "Ask ChatGPT",
-        color = 0xFF10A37F,
-        shortLabel = "ChatGPT",
-      ),
-      SearchShortcut(
-        id = "perplexity",
-        alias = "pp",
-        urlTemplate = "https://www.perplexity.ai/search?q=%s",
-        description = "Ask Perplexity",
-        color = 0xFF20808D,
-        shortLabel = "Perplexity",
-      ),
-      SearchShortcut(
-        id = "claude",
-        alias = "cl",
-        urlTemplate = "claude://claude.ai/new?q=%s",
-        description = "Ask Claude",
-        color = 0xFFD97757,
-        shortLabel = "Claude",
-      ),
-      SearchShortcut(
-        id = "playstore",
-        alias = "p",
-        urlTemplate = "market://search?q=%s",
-        description = "Play Store Search",
-        color = 0xFF01875F,
-        shortLabel = "Play Store",
-      ),
-      SearchShortcut(
-        id = "spotify",
-        alias = "s",
-        urlTemplate = "spotify:search:%s",
-        description = "Spotify Search",
-        packageName = "com.spotify.music",
-        color = 0xFF1DB954,
-        shortLabel = "Spotify",
-      ),
-      SearchShortcut(
-        id = "linkedin",
-        alias = "li",
-        urlTemplate = "https://www.linkedin.com/search/results/all/?keywords=%s",
-        description = "LinkedIn Search",
-        color = 0xFF0077B5,
-        shortLabel = "LinkedIn",
-      ),
-      SearchShortcut(
-        id = "widget_search",
-        alias = "widgets",
-        urlTemplate = "internal://widget?q=%s", // custom interceptor logic
-        description = "Search Widgets",
-        color = 0xFFFF9800, // Orange
-        shortLabel = "Widgets",
-      ),
-    )
+  /**
+   * User-editable search shortcuts every install starts with. The full list, including shortcuts
+   * that only appear once their app is installed, is in `search_shortcuts.json`.
+   */
+  val searchShortcuts: List<SearchShortcut> by lazy {
+    ShortcutCatalog.entries.filterNot { it.onlyWhenInstalled }.map { it.shortcut }
+  }
+
+  /** Shortcuts that join the user's list by themselves once their app is installed. */
+  val installableShortcuts: List<ShortcutCatalog.Entry> by lazy {
+    ShortcutCatalog.entries.filter { it.onlyWhenInstalled }
+  }
 }

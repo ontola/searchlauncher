@@ -73,6 +73,8 @@ object Prefs {
     const val SHORTCUTS = "shortcuts"
     /** True once the user has dragged the list. Until then the list is sorted by usage. */
     const val MANUAL_ORDER = "manual_order"
+    /** Ids of shipped shortcuts the user removed, so they are not merged back in. */
+    const val DISMISSED = "dismissed"
   }
 
   /** Quick-copy text snippets, stored as a JSON array. */
