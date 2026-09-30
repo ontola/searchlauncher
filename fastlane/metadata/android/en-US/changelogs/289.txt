@@ -1,0 +1,1 @@
+Downloads from WeTransfer now work in the browser. The file is fetched once, with its real name, and shows up in Downloads like any other file instead of failing as an empty entry.
