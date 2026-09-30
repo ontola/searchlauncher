@@ -1,0 +1,1 @@
+Your search stays put when you switch to another app to look something up and come back home. Images saved from the browser now arrive with their real name and type, instead of failing as an empty .bin file on sites like WeTransfer. Search shortcuts come from a longer list: 29 apps such as Amazon, bol and GitHub appear as shortcuts once they are installed.
