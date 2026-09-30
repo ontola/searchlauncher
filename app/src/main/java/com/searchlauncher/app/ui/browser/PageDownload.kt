@@ -60,10 +60,20 @@ internal fun contentDispositionFileName(disposition: String?): String? {
     ?.takeIf { it.isNotBlank() }
 }
 
-/** The name to save a download under: the server's, else a guess from the URL and type. */
+/**
+ * The name to save a download under: the server's, else a guess from the URL and type. A generic
+ * type is left out of the guess, because [URLUtil.guessFileName] swaps any extension that does not
+ * match the type for the type's own: `photo.jpg` sent as `application/octet-stream` became
+ * `photo.bin`.
+ */
 internal fun downloadFileName(url: String, disposition: String?, mimeType: String?): String =
   safePageDownloadName(
-    contentDispositionFileName(disposition) ?: URLUtil.guessFileName(url, disposition, mimeType)
+    contentDispositionFileName(disposition)
+      ?: URLUtil.guessFileName(
+        url,
+        disposition,
+        mimeType?.takeUnless { it.isBlank() || it == "application/octet-stream" },
+      )
   )
 
 internal fun safePageDownloadName(name: String): String =
