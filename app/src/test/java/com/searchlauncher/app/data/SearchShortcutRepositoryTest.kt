@@ -258,10 +258,45 @@ class SearchShortcutRepositoryTest {
   }
 
   @Test
-  fun `an app shortcut whose key is taken is left out`() {
+  fun `an app shortcut takes its first free key`() {
+    installApp("com.github.android")
+
+    val github = SearchShortcutRepository(context).items.value.first { it.id == "github" }
+    assertEquals("gh", github.alias) // "g" is Google's
+  }
+
+  @Test
+  fun `an app shortcut gets the short key when it is free`() {
     val repository = SearchShortcutRepository(context)
-    val google = repository.items.value.first { it.id == "google" }
-    kotlinx.coroutines.runBlocking { repository.updateShortcut(google.copy(alias = "am")) }
+    kotlinx.coroutines.runBlocking { repository.removeShortcut("google") }
+
+    installApp("com.github.android")
+    repository.refreshAvailability()
+
+    assertEquals("g", repository.items.value.first { it.id == "github" }.alias)
+  }
+
+  @Test
+  fun `an app shortcut keeps its key once it has one`() {
+    installApp("com.github.android")
+    val repository = SearchShortcutRepository(context)
+    kotlinx.coroutines.runBlocking { repository.removeShortcut("google") }
+
+    repository.refreshAvailability()
+    val reloaded = SearchShortcutRepository(context)
+
+    assertEquals("gh", reloaded.items.value.first { it.id == "github" }.alias)
+  }
+
+  @Test
+  fun `an app shortcut whose keys are all taken is left out`() {
+    val repository = SearchShortcutRepository(context)
+    val taken = listOf("am", "amz", "amazon")
+    kotlinx.coroutines.runBlocking {
+      repository.items.value.take(taken.size).zip(taken).forEach { (shortcut, alias) ->
+        repository.updateShortcut(shortcut.copy(alias = alias))
+      }
+    }
 
     installApp(amazonApp)
     repository.refreshAvailability()

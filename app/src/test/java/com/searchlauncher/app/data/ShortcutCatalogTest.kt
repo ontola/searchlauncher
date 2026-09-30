@@ -18,8 +18,8 @@ class ShortcutCatalogTest {
   }
 
   @Test
-  fun `every alias is used once`() {
-    val aliases = entries.map { it.shortcut.alias.lowercase() }
+  fun `the shortcuts everyone starts with have keys of their own`() {
+    val aliases = DefaultShortcuts.searchShortcuts.map { it.alias.lowercase() }
     assertEquals(
       aliases.filter { alias -> aliases.count { it == alias } > 1 }.distinct(),
       emptyList<String>(),
@@ -27,13 +27,39 @@ class ShortcutCatalogTest {
   }
 
   @Test
-  fun `every alias is a single word`() {
-    entries.forEach { entry ->
-      val alias = entry.shortcut.alias
+  fun `an app shortcut always has a key no other shortcut wants`() {
+    // Earlier keys may be shared, since the first free one wins, but the last resort must not be,
+    // or the shortcut could be left without a key on some phone.
+    val all = entries.flatMap { entry -> entry.aliases.map { it.lowercase() } }
+    DefaultShortcuts.installableShortcuts.forEach { entry ->
       assertTrue(
-        "'$alias' of ${entry.shortcut.id}",
-        alias.isNotBlank() && alias.none { it.isWhitespace() },
+        "${entry.shortcut.id} needs a key only it uses",
+        entry.aliases.any { alias -> all.count { it == alias.lowercase() } == 1 },
       )
+    }
+  }
+
+  @Test
+  fun `every key is a single word`() {
+    entries.forEach { entry ->
+      entry.aliases.forEach { alias ->
+        assertTrue(
+          "'$alias' of ${entry.shortcut.id}",
+          alias.isNotBlank() && alias.none { it.isWhitespace() },
+        )
+      }
+    }
+  }
+
+  @Test
+  fun `no key is a word that starts ordinary queries`() {
+    // "a cheap flight" should stay a search, not become one inside Amazon.
+    val words =
+      setOf("a", "i", "o", "u", "an", "at", "in", "is", "it", "me", "my", "of", "on", "to")
+    entries.forEach { entry ->
+      entry.aliases.forEach { alias ->
+        assertTrue("'$alias' of ${entry.shortcut.id}", alias.lowercase() !in words)
+      }
     }
   }
 

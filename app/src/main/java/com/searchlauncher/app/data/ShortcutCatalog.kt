@@ -23,6 +23,11 @@ object ShortcutCatalog {
     val apps: List<String>,
     /** Offered only once one of [apps] (or [SearchShortcut.packageName]) is installed. */
     val onlyWhenInstalled: Boolean,
+    /**
+     * Keys to try, best first. [SearchShortcut.alias] is the first of them. When the shortcut joins
+     * the user's list, it gets the first one nobody else uses, and keeps it from then on.
+     */
+    val aliases: List<String> = listOf(shortcut.alias),
   ) {
     /** Every package that counts as "the app" for this entry. */
     val packages: List<String>
@@ -43,12 +48,15 @@ object ShortcutCatalog {
     return List(array.length()) { i -> parseEntry(array.getJSONObject(i)) }
   }
 
-  private fun parseEntry(obj: JSONObject): Entry =
-    Entry(
+  private fun parseEntry(obj: JSONObject): Entry {
+    // "aliases" lists keys best first, for shortcuts that pick theirs on arrival; "alias" is the
+    // one fixed key of a shortcut everyone starts with.
+    val aliases = obj.optJSONArray("aliases")?.strings() ?: listOf(obj.getString("alias"))
+    return Entry(
       shortcut =
         SearchShortcut(
           id = obj.getString("id"),
-          alias = obj.getString("alias"),
+          alias = aliases.first(),
           urlTemplate = obj.getString("urlTemplate"),
           description = obj.getString("description"),
           packageName = obj.optString("packageName").takeIf { it.isNotEmpty() },
@@ -58,7 +66,9 @@ object ShortcutCatalog {
         ),
       apps = obj.optJSONArray("apps")?.strings().orEmpty(),
       onlyWhenInstalled = obj.optBoolean("onlyWhenInstalled", false),
+      aliases = aliases,
     )
+  }
 
   /** `#RRGGBB` as an opaque ARGB long, the form [SearchShortcut.color] has always stored. */
   fun parseColor(hex: String): Long {

@@ -156,7 +156,7 @@
     },
     {
       "id": "amazon",
-      "alias": "am",
+      "aliases": ["am", "amz", "amazon"],
       "description": "Amazon Search",
       "shortLabel": "Amazon",
       "urlTemplate": "https://www.amazon.com/s?k=%s",
@@ -166,7 +166,7 @@
     },
     {
       "id": "ebay",
-      "alias": "eb",
+      "aliases": ["e", "eb", "ebay"],
       "description": "eBay Search",
       "shortLabel": "eBay",
       "urlTemplate": "https://www.ebay.com/sch/i.html?_nkw=%s",
@@ -176,7 +176,7 @@
     },
     {
       "id": "aliexpress",
-      "alias": "ali",
+      "aliases": ["ali", "aliexpress"],
       "description": "AliExpress Search",
       "shortLabel": "AliExpress",
       "urlTemplate": "https://www.aliexpress.com/wholesale?SearchText=%s",
@@ -186,7 +186,7 @@
     },
     {
       "id": "etsy",
-      "alias": "et",
+      "aliases": ["et", "etsy"],
       "description": "Etsy Search",
       "shortLabel": "Etsy",
       "urlTemplate": "https://www.etsy.com/search?q=%s",
@@ -196,7 +196,7 @@
     },
     {
       "id": "walmart",
-      "alias": "wm",
+      "aliases": ["wm", "walmart"],
       "description": "Walmart Search",
       "shortLabel": "Walmart",
       "urlTemplate": "https://www.walmart.com/search?q=%s",
@@ -206,7 +206,7 @@
     },
     {
       "id": "bol",
-      "alias": "bol",
+      "aliases": ["b", "bol"],
       "description": "bol Search",
       "shortLabel": "bol",
       "urlTemplate": "https://www.bol.com/nl/nl/s/?searchtext=%s",
@@ -216,7 +216,7 @@
     },
     {
       "id": "albert_heijn",
-      "alias": "ah",
+      "aliases": ["ah", "albert"],
       "description": "Albert Heijn Search",
       "shortLabel": "Albert Heijn",
       "urlTemplate": "https://www.ah.nl/zoeken?query=%s",
@@ -226,7 +226,7 @@
     },
     {
       "id": "youtube_music",
-      "alias": "ym",
+      "aliases": ["ym", "ytm", "ytmusic"],
       "description": "YouTube Music Search",
       "shortLabel": "YouTube Music",
       "urlTemplate": "https://music.youtube.com/search?q=%s",
@@ -236,7 +236,7 @@
     },
     {
       "id": "soundcloud",
-      "alias": "sc",
+      "aliases": ["sc", "soundcloud"],
       "description": "SoundCloud Search",
       "shortLabel": "SoundCloud",
       "urlTemplate": "https://soundcloud.com/search?q=%s",
@@ -246,7 +246,7 @@
     },
     {
       "id": "genius",
-      "alias": "ge",
+      "aliases": ["ge", "genius"],
       "description": "Genius Lyrics Search",
       "shortLabel": "Genius",
       "urlTemplate": "https://genius.com/search?q=%s",
@@ -256,7 +256,7 @@
     },
     {
       "id": "netflix",
-      "alias": "nf",
+      "aliases": ["n", "nf", "netflix"],
       "description": "Netflix Search",
       "shortLabel": "Netflix",
       "urlTemplate": "https://www.netflix.com/search?q=%s",
@@ -266,7 +266,7 @@
     },
     {
       "id": "imdb",
-      "alias": "imdb",
+      "aliases": ["imdb"],
       "description": "IMDb Search",
       "shortLabel": "IMDb",
       "urlTemplate": "https://www.imdb.com/find/?q=%s",
@@ -276,7 +276,7 @@
     },
     {
       "id": "twitch",
-      "alias": "tw",
+      "aliases": ["tw", "twitch"],
       "description": "Twitch Search",
       "shortLabel": "Twitch",
       "urlTemplate": "https://www.twitch.tv/search?term=%s",
@@ -286,7 +286,7 @@
     },
     {
       "id": "goodreads",
-      "alias": "gr",
+      "aliases": ["gr", "goodreads"],
       "description": "Goodreads Search",
       "shortLabel": "Goodreads",
       "urlTemplate": "https://www.goodreads.com/search?q=%s",
@@ -296,7 +296,7 @@
     },
     {
       "id": "x",
-      "alias": "x",
+      "aliases": ["x", "twitter"],
       "description": "X Search",
       "shortLabel": "X",
       "urlTemplate": "https://x.com/search?q=%s",
@@ -306,7 +306,7 @@
     },
     {
       "id": "bluesky",
-      "alias": "bs",
+      "aliases": ["bs", "bsky", "bluesky"],
       "description": "Bluesky Search",
       "shortLabel": "Bluesky",
       "urlTemplate": "https://bsky.app/search?q=%s",
@@ -316,7 +316,7 @@
     },
     {
       "id": "threads",
-      "alias": "th",
+      "aliases": ["th", "threads"],
       "description": "Threads Search",
       "shortLabel": "Threads",
       "urlTemplate": "https://www.threads.net/search?q=%s",
@@ -326,7 +326,7 @@
     },
     {
       "id": "facebook",
-      "alias": "fb",
+      "aliases": ["f", "fb", "facebook"],
       "description": "Facebook Search",
       "shortLabel": "Facebook",
       "urlTemplate": "https://www.facebook.com/search/top?q=%s",
@@ -336,7 +336,7 @@
     },
     {
       "id": "tiktok",
-      "alias": "tt",
+      "aliases": ["t", "tt", "tiktok"],
       "description": "TikTok Search",
       "shortLabel": "TikTok",
       "urlTemplate": "https://www.tiktok.com/search?q=%s",
@@ -346,7 +346,7 @@
     },
     {
       "id": "pinterest",
-      "alias": "pin",
+      "aliases": ["pin", "pinterest"],
       "description": "Pinterest Search",
       "shortLabel": "Pinterest",
       "urlTemplate": "https://www.pinterest.com/search/pins/?q=%s",
@@ -356,7 +356,7 @@
     },
     {
       "id": "github",
-      "alias": "gh",
+      "aliases": ["g", "gh", "github"],
       "description": "GitHub Search",
       "shortLabel": "GitHub",
       "urlTemplate": "https://github.com/search?q=%s",
@@ -366,7 +366,7 @@
     },
     {
       "id": "booking",
-      "alias": "bk",
+      "aliases": ["bk", "booking"],
       "description": "Booking.com Search",
       "shortLabel": "Booking.com",
       "urlTemplate": "https://www.booking.com/searchresults.html?ss=%s",
@@ -376,7 +376,7 @@
     },
     {
       "id": "waze",
-      "alias": "wz",
+      "aliases": ["wz", "waze"],
       "description": "Waze Navigate",
       "shortLabel": "Waze",
       "urlTemplate": "https://waze.com/ul?q=%s",
@@ -386,7 +386,7 @@
     },
     {
       "id": "google_translate",
-      "alias": "tr",
+      "aliases": ["tr", "translate"],
       "description": "Google Translate",
       "shortLabel": "Translate",
       "urlTemplate": "https://translate.google.com/?sl=auto&text=%s",
@@ -396,7 +396,7 @@
     },
     {
       "id": "kagi",
-      "alias": "kg",
+      "aliases": ["k", "kg", "kagi"],
       "description": "Kagi Search",
       "shortLabel": "Kagi",
       "urlTemplate": "https://kagi.com/search?q=%s",
@@ -406,7 +406,7 @@
     },
     {
       "id": "ecosia",
-      "alias": "eco",
+      "aliases": ["eco", "ecosia"],
       "description": "Ecosia Search",
       "shortLabel": "Ecosia",
       "urlTemplate": "https://www.ecosia.org/search?q=%s",
@@ -416,7 +416,7 @@
     },
     {
       "id": "brave_search",
-      "alias": "br",
+      "aliases": ["br", "brave"],
       "description": "Brave Search",
       "shortLabel": "Brave",
       "urlTemplate": "https://search.brave.com/search?q=%s",
@@ -426,7 +426,7 @@
     },
     {
       "id": "copilot",
-      "alias": "co",
+      "aliases": ["co", "copilot"],
       "description": "Ask Copilot",
       "shortLabel": "Copilot",
       "urlTemplate": "https://copilot.microsoft.com/?q=%s",
@@ -436,7 +436,7 @@
     },
     {
       "id": "le_chat",
-      "alias": "mi",
+      "aliases": ["mi", "lechat"],
       "description": "Ask Le Chat",
       "shortLabel": "Le Chat",
       "urlTemplate": "https://chat.mistral.ai/chat?q=%s",
