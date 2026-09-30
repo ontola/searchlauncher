@@ -443,6 +443,236 @@
       "apps": ["ai.mistral.chat"],
       "color": "#FA520F",
       "onlyWhenInstalled": true
+    },
+    {
+      "id": "google_drive",
+      "aliases": ["d", "dr", "drive"],
+      "description": "Google Drive Search",
+      "shortLabel": "Drive",
+      "urlTemplate": "https://drive.google.com/drive/search?q=%s",
+      "apps": ["com.google.android.apps.docs"],
+      "color": "#1FA463",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "google_news",
+      "aliases": ["gn", "news"],
+      "description": "Google News Search",
+      "shortLabel": "News",
+      "urlTemplate": "https://news.google.com/search?q=%s",
+      "apps": ["com.google.android.apps.magazines"],
+      "color": "#4285F4",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "quora",
+      "aliases": ["q", "qu", "quora"],
+      "description": "Quora Search",
+      "shortLabel": "Quora",
+      "urlTemplate": "https://www.quora.com/search?q=%s",
+      "apps": ["com.quora.android"],
+      "color": "#B92B27",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "medium",
+      "aliases": ["md", "medium"],
+      "description": "Medium Search",
+      "shortLabel": "Medium",
+      "urlTemplate": "https://medium.com/search?q=%s",
+      "apps": ["com.medium.reader"],
+      "color": "#000000",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "temu",
+      "aliases": ["te", "temu"],
+      "description": "Temu Search",
+      "shortLabel": "Temu",
+      "urlTemplate": "https://www.temu.com/search_result.html?search_key=%s",
+      "apps": ["com.einnovation.temu"],
+      "color": "#FB7701",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "target",
+      "aliases": ["tg", "target"],
+      "description": "Target Search",
+      "shortLabel": "Target",
+      "urlTemplate": "https://www.target.com/s?searchTerm=%s",
+      "apps": ["com.target.ui"],
+      "color": "#CC0000",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "bestbuy",
+      "aliases": ["bb", "bestbuy"],
+      "description": "Best Buy Search",
+      "shortLabel": "Best Buy",
+      "urlTemplate": "https://www.bestbuy.com/site/searchpage.jsp?st=%s",
+      "apps": ["com.bestbuy.android"],
+      "color": "#0046BE",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "flipkart",
+      "aliases": ["fk", "flipkart"],
+      "description": "Flipkart Search",
+      "shortLabel": "Flipkart",
+      "urlTemplate": "https://www.flipkart.com/search?q=%s",
+      "apps": ["com.flipkart.android"],
+      "color": "#2874F0",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "tripadvisor",
+      "aliases": ["ta", "tripadvisor"],
+      "description": "Tripadvisor Search",
+      "shortLabel": "Tripadvisor",
+      "urlTemplate": "https://www.tripadvisor.com/Search?q=%s",
+      "apps": ["com.tripadvisor.tripadvisor"],
+      "color": "#34E0A1",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "yelp",
+      "aliases": ["ye", "yelp"],
+      "description": "Yelp Search",
+      "shortLabel": "Yelp",
+      "urlTemplate": "https://www.yelp.com/search?find_desc=%s",
+      "apps": ["com.yelp.android"],
+      "color": "#D32323",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "allrecipes",
+      "aliases": ["ar", "allrecipes"],
+      "description": "Allrecipes Search",
+      "shortLabel": "Allrecipes",
+      "urlTemplate": "https://www.allrecipes.com/search?q=%s",
+      "apps": ["com.allrecipes.spinner.free"],
+      "color": "#E04F1A",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "steam",
+      "aliases": ["st", "steam"],
+      "description": "Steam Store Search",
+      "shortLabel": "Steam",
+      "urlTemplate": "https://store.steampowered.com/search/?term=%s",
+      "apps": ["com.valvesoftware.android.steam.community"],
+      "color": "#1B2838",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "apple_music",
+      "aliases": ["amu", "applemusic"],
+      "description": "Apple Music Search",
+      "shortLabel": "Apple Music",
+      "urlTemplate": "https://music.apple.com/search?term=%s",
+      "apps": ["com.apple.android.music"],
+      "color": "#FA243C",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "tidal",
+      "aliases": ["ti", "tidal"],
+      "description": "Tidal Search",
+      "shortLabel": "Tidal",
+      "urlTemplate": "https://tidal.com/search?q=%s",
+      "apps": ["com.aspiro.tidal"],
+      "color": "#000000",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "disney_plus",
+      "aliases": ["dp", "disney"],
+      "description": "Disney+ Search",
+      "shortLabel": "Disney+",
+      "urlTemplate": "https://www.disneyplus.com/search?q=%s",
+      "apps": ["com.disney.disneyplus"],
+      "color": "#113CCF",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "vimeo",
+      "aliases": ["v", "vi", "vimeo"],
+      "description": "Vimeo Search",
+      "shortLabel": "Vimeo",
+      "urlTemplate": "https://vimeo.com/search?q=%s",
+      "apps": ["com.vimeo.android.videoapp"],
+      "color": "#1AB7EA",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "imgur",
+      "aliases": ["img", "imgur"],
+      "description": "Imgur Search",
+      "shortLabel": "Imgur",
+      "urlTemplate": "https://imgur.com/search?q=%s",
+      "apps": ["com.imgur.mobile"],
+      "color": "#1BB76E",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "qwant",
+      "aliases": ["qw", "qwant"],
+      "description": "Qwant Search",
+      "shortLabel": "Qwant",
+      "urlTemplate": "https://www.qwant.com/?q=%s",
+      "apps": ["com.qwant.liberty"],
+      "color": "#5C97FF",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "grok",
+      "aliases": ["gk", "grok"],
+      "description": "Ask Grok",
+      "shortLabel": "Grok",
+      "urlTemplate": "https://grok.com/?q=%s",
+      "apps": ["ai.x.grok"],
+      "color": "#000000",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "wolfram_alpha",
+      "aliases": ["wa", "wolfram"],
+      "description": "Wolfram Alpha",
+      "shortLabel": "Wolfram",
+      "urlTemplate": "https://www.wolframalpha.com/input?i=%s",
+      "apps": ["com.wolfram.android.alpha"],
+      "color": "#DD1100",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "indeed",
+      "aliases": ["ind", "indeed"],
+      "description": "Indeed Jobs Search",
+      "shortLabel": "Indeed",
+      "urlTemplate": "https://www.indeed.com/jobs?q=%s",
+      "apps": ["com.indeed.android.jobsearch"],
+      "color": "#2164F3",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "coursera",
+      "aliases": ["cs", "coursera"],
+      "description": "Coursera Search",
+      "shortLabel": "Coursera",
+      "urlTemplate": "https://www.coursera.org/search?query=%s",
+      "apps": ["org.coursera.android"],
+      "color": "#0056D2",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "udemy",
+      "aliases": ["ud", "udemy"],
+      "description": "Udemy Search",
+      "shortLabel": "Udemy",
+      "urlTemplate": "https://www.udemy.com/courses/search/?q=%s",
+      "apps": ["com.udemy.android"],
+      "color": "#A435F0",
+      "onlyWhenInstalled": true
     }
   ]
 }
