@@ -22,6 +22,50 @@ import org.json.JSONTokener
 internal fun isPageDownload(url: String): Boolean =
   url.startsWith("blob:", ignoreCase = true) || url.startsWith("data:", ignoreCase = true)
 
+/**
+ * The filename a `Content-Disposition` header names, preferring the RFC 5987 `filename*` form.
+ * [URLUtil.guessFileName] only understands a lone `attachment; filename="…"`, so a header that also
+ * carries `filename*` (or says `inline`) falls through to the URL, whose last segment often has no
+ * extension, and the file is saved as `something.bin`.
+ */
+internal fun contentDispositionFileName(disposition: String?): String? {
+  if (disposition.isNullOrBlank()) return null
+  val params =
+    disposition.split(';').drop(1).mapNotNull { part ->
+      val eq = part.indexOf('=')
+      if (eq < 0) null
+      else part.substring(0, eq).trim().lowercase() to part.substring(eq + 1).trim()
+    }
+  params
+    .firstOrNull { it.first == "filename*" }
+    ?.second
+    ?.let { value ->
+      val quote = value.indexOf('\'')
+      val second = if (quote < 0) -1 else value.indexOf('\'', quote + 1)
+      if (second < 0) return@let null
+      val charset = value.substring(0, quote).ifBlank { "UTF-8" }
+      runCatching {
+          java.net.URLDecoder.decode(value.substring(second + 1).replace("+", "%2B"), charset)
+        }
+        .getOrNull()
+    }
+    ?.takeIf { it.isNotBlank() }
+    ?.let {
+      return it
+    }
+  return params
+    .firstOrNull { it.first == "filename" }
+    ?.second
+    ?.removeSurrounding("\"")
+    ?.takeIf { it.isNotBlank() }
+}
+
+/** The name to save a download under: the server's, else a guess from the URL and type. */
+internal fun downloadFileName(url: String, disposition: String?, mimeType: String?): String =
+  safePageDownloadName(
+    contentDispositionFileName(disposition) ?: URLUtil.guessFileName(url, disposition, mimeType)
+  )
+
 internal fun safePageDownloadName(name: String): String =
   name
     .substringAfterLast('/')
@@ -47,29 +91,42 @@ private suspend fun WebView.scriptResult(script: String): String =
     }
   }
 
-/** Pull bounded chunks from the initiating page; no native interface is exposed to page scripts. */
+/**
+ * Pull bounded chunks from the initiating page; no native interface is exposed to page scripts.
+ *
+ * Also used for images on http(s), which the page already has and can read back with its own
+ * session and referrer. Refetching those through DownloadManager is what failed on sites that only
+ * serve a file to the page that shows it. With [quiet], a failure shows nothing so the caller can
+ * fall back; the result says whether the file was saved.
+ */
 @Suppress("DEPRECATION")
 internal suspend fun downloadFromPage(
   view: WebView,
   url: String,
   disposition: String?,
   mimeType: String?,
-) {
+  quiet: Boolean = false,
+): Boolean {
   val context = view.context
   val key = "__searchlauncher_download_" + UUID.randomUUID().toString().replace("-", "")
   val quotedKey = JSONObject.quote(key)
   val quotedUrl = JSONObject.quote(url)
   var file: File? = null
   var registered = false
-  pendingPageDownloads[key] = PageDownloadProgress("Preparing export…", null)
-  Toast.makeText(context, "Preparing download…", Toast.LENGTH_SHORT).show()
+  val fromPage = isPageDownload(url)
+  pendingPageDownloads[key] =
+    PageDownloadProgress(if (fromPage) "Preparing export…" else "Preparing download…", null)
+  if (!quiet) Toast.makeText(context, "Preparing download…", Toast.LENGTH_SHORT).show()
   try {
-    check(isPageDownload(url))
+    check(fromPage || url.startsWith("https://") || url.startsWith("http://"))
     view.scriptResult(
       """
       (() => {
         const state = window[$quotedKey] = {ready:false};
-        fetch($quotedUrl).then(r => r.blob()).then(blob => {
+        fetch($quotedUrl, {cache: 'force-cache'}).then(r => {
+          if (!r.ok) throw new Error(r.status);
+          return r.blob();
+        }).then(blob => {
           state.blob = blob;
           state.size = blob.size;
           state.type = blob.type;
@@ -111,7 +168,11 @@ internal suspend fun downloadFromPage(
     val name =
       safePageDownloadName(
         metadata.optString("name").takeIf { it.isNotBlank() }
-          ?: URLUtil.guessFileName("https://download.invalid/download", disposition, type)
+          ?: downloadFileName(
+            if (fromPage) "https://download.invalid/download" else url,
+            disposition,
+            type,
+          )
       )
     // DownloadManager accepts app-owned external paths on scoped-storage Android. Register the
     // completed file so existing history, open, share and delete actions all work for JS exports.
@@ -164,16 +225,19 @@ internal suspend fun downloadFromPage(
     registered = true
     Toast.makeText(context, "Downloaded $name", Toast.LENGTH_LONG).show()
   } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
-    Toast.makeText(
-        context,
-        "Export timed out. Keep the source tab open and try again.",
-        Toast.LENGTH_LONG,
-      )
-      .show()
+    if (!quiet)
+      Toast.makeText(
+          context,
+          "Export timed out. Keep the source tab open and try again.",
+          Toast.LENGTH_LONG,
+        )
+        .show()
   } catch (cancelled: kotlinx.coroutines.CancellationException) {
     throw cancelled
   } catch (error: Exception) {
-    Toast.makeText(context, error.message ?: "Could not save this export", Toast.LENGTH_LONG).show()
+    if (!quiet)
+      Toast.makeText(context, error.message ?: "Could not save this export", Toast.LENGTH_LONG)
+        .show()
   } finally {
     withContext(NonCancellable + Dispatchers.Main) {
       pendingPageDownloads.remove(key)
@@ -188,4 +252,5 @@ internal suspend fun downloadFromPage(
         }
       }
   }
+  return registered
 }

@@ -24,8 +24,8 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
+import android.webkit.MimeTypeMap
 import android.webkit.PermissionRequest
-import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -1147,6 +1147,30 @@ internal fun BrowserScreen(
     onClose()
   }
 
+  /**
+   * The image is already in the page, so read it back from there first: the page has the session
+   * and referrer a site may insist on, which a fresh DownloadManager request lacks. Only when the
+   * page cannot read it (a cross-origin image without CORS) does DownloadManager fetch it again.
+   */
+  fun downloadImage(url: String) {
+    val sourceView = webView
+    linkMenuTarget = null
+    showDownloads = true
+    if (sourceView == null) {
+      startDownload(context, url)
+      return
+    }
+    val userAgent = sourceView.settings.userAgentString
+    val pageUrl = sourceView.url
+    coroutineScope.launch {
+      if (isPageDownload(url)) {
+        downloadFromPage(sourceView, url, null, null)
+      } else if (!downloadFromPage(sourceView, url, null, null, quiet = true)) {
+        startDownload(context, url, userAgent, referer = pageUrl)
+      }
+    }
+  }
+
   // Plays the same slide animation as a horizontal swipe, so menu-triggered tab switches teach
   // the gesture. A slower spring than the swipe settle keeps the motion legible.
   fun openLinkInNewTab(url: String) {
@@ -1770,7 +1794,14 @@ internal fun BrowserScreen(
                     downloadFromPage(sourceView, downloadUrl, contentDisposition, mimeType)
                   }
                 } else {
-                  startDownload(context, downloadUrl, userAgent, contentDisposition, mimeType)
+                  startDownload(
+                    context,
+                    downloadUrl,
+                    userAgent,
+                    contentDisposition,
+                    mimeType,
+                    referer = this.url,
+                  )
                 }
                 if (!isPageDownload(downloadUrl)) stopLoading()
                 progress = 100
@@ -2354,16 +2385,7 @@ internal fun BrowserScreen(
         },
         onCopyUrl = { url -> copyUrl(context, url) },
         onShareUrl = { url -> shareUrl(context, url, null) },
-        onDownloadImage = { url ->
-          val sourceView = webView
-          if (isPageDownload(url) && sourceView != null) {
-            coroutineScope.launch { downloadFromPage(sourceView, url, null, null) }
-          } else {
-            startDownload(context, url)
-          }
-          linkMenuTarget = null
-          showDownloads = true
-        },
+        onDownloadImage = { url -> downloadImage(url) },
         onDismiss = { linkMenuTarget = null },
       )
     } else
@@ -2376,16 +2398,7 @@ internal fun BrowserScreen(
         },
         onCopyUrl = { url -> copyUrl(context, url) },
         onShareUrl = { url -> shareUrl(context, url, null) },
-        onDownloadImage = { url ->
-          val sourceView = webView
-          if (isPageDownload(url) && sourceView != null) {
-            coroutineScope.launch { downloadFromPage(sourceView, url, null, null) }
-          } else {
-            startDownload(context, url)
-          }
-          linkMenuTarget = null
-          showDownloads = true
-        },
+        onDownloadImage = { url -> downloadImage(url) },
         onDismiss = { linkMenuTarget = null },
       )
   }
@@ -2825,6 +2838,7 @@ private fun startDownload(
   userAgent: String? = null,
   contentDisposition: String? = null,
   mimeType: String? = null,
+  referer: String? = null,
 ) {
   if (!url.startsWith("https://") && !url.startsWith("http://")) {
     // blob: and data: downloads are built inside the page, so DownloadManager cannot refetch them.
@@ -2832,17 +2846,26 @@ private fun startDownload(
     return
   }
   try {
-    val fileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
+    val fileName = downloadFileName(url, contentDisposition, mimeType)
+    // A generic type makes the saved file open as "unknown"; the name's extension knows better.
+    val type =
+      mimeType?.takeUnless { it.isBlank() || it == "application/octet-stream" }
+        ?: MimeTypeMap.getSingleton()
+          .getMimeTypeFromExtension(fileName.substringAfterLast('.', "").lowercase())
+        ?: mimeType
     val request =
       DownloadManager.Request(Uri.parse(url))
         .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
         .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
         .setTitle(fileName)
-        .setMimeType(mimeType)
+        .setMimeType(type)
     // DownloadManager fetches the URL again from outside the WebView, so it needs the session and
     // the same user agent — otherwise a gated file can come back as a login page saved to disk.
     CookieManager.getInstance().getCookie(url)?.let { request.addRequestHeader("Cookie", it) }
     if (!userAgent.isNullOrBlank()) request.addRequestHeader("User-Agent", userAgent)
+    // Hotlink-protected files (image CDNs, file-transfer sites) refuse a request with no referrer.
+    if (referer != null && (referer.startsWith("https://") || referer.startsWith("http://")))
+      request.addRequestHeader("Referer", referer)
     (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
     Toast.makeText(context, "Downloading $fileName", Toast.LENGTH_SHORT).show()
   } catch (_: Exception) {
