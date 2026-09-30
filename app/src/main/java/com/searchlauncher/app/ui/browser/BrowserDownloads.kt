@@ -40,6 +40,8 @@ internal data class BrowserDownload(
   val bytes: Long,
   val total: Long,
   val updated: Long,
+  /** DownloadManager's COLUMN_REASON: an HTTP status or an ERROR_* code once a download fails. */
+  val reason: Int = 0,
 ) {
   val active: Boolean
     get() =
@@ -63,12 +65,31 @@ internal fun readBrowserDownloads(manager: DownloadManager): List<BrowserDownloa
               long(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR),
               long(DownloadManager.COLUMN_TOTAL_SIZE_BYTES),
               long(DownloadManager.COLUMN_LAST_MODIFIED_TIMESTAMP),
+              long(DownloadManager.COLUMN_REASON).toInt(),
             )
           )
         }
       }
     }
     .sortedByDescending { it.id }
+
+/**
+ * Why a download failed, in words. Without it every failure read the same, and a site refusing the
+ * request looked no different from a full disk.
+ */
+internal fun downloadFailureReason(reason: Int): String? =
+  when (reason) {
+    in 400..599 -> "the server refused it (HTTP $reason)"
+    DownloadManager.ERROR_INSUFFICIENT_SPACE -> "not enough storage"
+    DownloadManager.ERROR_DEVICE_NOT_FOUND -> "no storage available"
+    DownloadManager.ERROR_FILE_ALREADY_EXISTS -> "the file already exists"
+    DownloadManager.ERROR_FILE_ERROR -> "the file could not be written"
+    DownloadManager.ERROR_CANNOT_RESUME -> "the connection dropped"
+    DownloadManager.ERROR_HTTP_DATA_ERROR -> "the connection dropped"
+    DownloadManager.ERROR_TOO_MANY_REDIRECTS -> "too many redirects"
+    DownloadManager.ERROR_UNHANDLED_HTTP_CODE -> "unexpected server response"
+    else -> null
+  }
 
 internal const val APK_MIME_TYPE = "application/vnd.android.package-archive"
 
@@ -282,7 +303,8 @@ private fun DownloadCard(
   val status =
     when (item.status) {
       DownloadManager.STATUS_SUCCESSFUL -> "Complete"
-      DownloadManager.STATUS_FAILED -> "Download failed"
+      DownloadManager.STATUS_FAILED ->
+        downloadFailureReason(item.reason)?.let { "Download failed: $it" } ?: "Download failed"
       DownloadManager.STATUS_PAUSED -> "Waiting for connection"
       DownloadManager.STATUS_PENDING -> "Queued"
       else -> percent?.let { "Downloading · $it%" } ?: "Downloading"
