@@ -377,6 +377,13 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     return if (query.isNotBlank() && isRecent) query else ""
   }
 
+  /**
+   * Set once the launcher leaves the screen and cleared when it is back in front. A home intent
+   * arriving while this is set is the user returning from another app, not pressing home on the
+   * launcher itself.
+   */
+  private var stoppedSinceResume = false
+
   private val screenOnReceiver =
     object : BroadcastReceiver() {
       override fun onReceive(context: Context, intent: Intent) {
@@ -477,7 +484,15 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
       intent.getBooleanExtra(EXTRA_FOCUS_SEARCH, false) ||
         (intent.hasCategory(Intent.CATEGORY_HOME) && intent.action == Intent.ACTION_MAIN)
     ) {
-      clearQueryState()
+      // Coming home from another app keeps a recent query: the user may have gone to look up
+      // something to type (a street name, a phone number) and expects to carry on where they left
+      // off. Home pressed on the launcher itself still means a clean home screen, as does a query
+      // old enough that the process-restore path would have dropped it too.
+      val returningWithQuery =
+        !intent.getBooleanExtra(EXTRA_FOCUS_SEARCH, false) &&
+          stoppedSinceResume &&
+          restoreRecentQuery().isNotEmpty()
+      if (!returningWithQuery) clearQueryState()
       currentScreenState = Screen.Search
       pendingSettingsSection = null
       focusTrigger = System.currentTimeMillis()
@@ -642,6 +657,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
 
   override fun onResume() {
     super.onResume()
+    stoppedSinceResume = false
     if (currentScreenState == Screen.Search) {
       focusTrigger = System.currentTimeMillis()
     }
@@ -665,6 +681,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
 
   override fun onStop() {
     super.onStop()
+    stoppedSinceResume = true
     try {
       appWidgetHost.stopListening()
     } catch (e: Exception) {
