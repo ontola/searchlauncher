@@ -2096,6 +2096,18 @@ internal fun BrowserScreen(
                     view: WebView,
                     request: WebResourceRequest,
                   ): Boolean {
+                    // Taken before the WebView requests it: the link works once, and letting the
+                    // WebView find out it is a download would spend that one use.
+                    if (isSingleUseDownload(request.url)) {
+                      startDirectDownload(
+                        context,
+                        request.url.toString(),
+                        view.settings.userAgentString,
+                        referer = view.url,
+                      )
+                      showDownloads = true
+                      return true
+                    }
                     if (request.isForMainFrame && openVerifiedAppLink(context, request.url))
                       return true
                     if (openOutsideWebView(context, request.url)) return true
