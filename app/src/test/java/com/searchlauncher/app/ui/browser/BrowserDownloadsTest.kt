@@ -68,11 +68,14 @@ class BrowserDownloadsTest {
           DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR,
           DownloadManager.COLUMN_TOTAL_SIZE_BYTES,
           DownloadManager.COLUMN_LAST_MODIFIED_TIMESTAMP,
+          DownloadManager.COLUMN_REASON,
         )
       )
-    cursor.addRow(arrayOf<Any>(1L, "old.apk", DownloadManager.STATUS_SUCCESSFUL, 100L, 100L, 10L))
-    cursor.addRow(arrayOf<Any>(3L, "new.apk", DownloadManager.STATUS_RUNNING, 25L, 100L, 30L))
-    cursor.addRow(arrayOf<Any>(2L, "failed.zip", DownloadManager.STATUS_FAILED, 0L, -1L, 20L))
+    cursor.addRow(
+      arrayOf<Any>(1L, "old.apk", DownloadManager.STATUS_SUCCESSFUL, 100L, 100L, 10L, 0)
+    )
+    cursor.addRow(arrayOf<Any>(3L, "new.apk", DownloadManager.STATUS_RUNNING, 25L, 100L, 30L, 0))
+    cursor.addRow(arrayOf<Any>(2L, "failed.zip", DownloadManager.STATUS_FAILED, 0L, -1L, 20L, 403))
     val manager = mockk<DownloadManager>()
     every { manager.query(any()) } returns cursor
     val results = readBrowserDownloads(manager)
@@ -80,6 +83,8 @@ class BrowserDownloadsTest {
     assertEquals(25L, results.first().bytes)
     assertTrue(results.first().active)
     assertFalse(results[1].active)
+    assertEquals(403, results[1].reason)
+    assertEquals("the server refused it (HTTP 403)", downloadFailureReason(results[1].reason))
     assertFalse(results.last().active)
     assertTrue(cursor.isClosed)
   }
