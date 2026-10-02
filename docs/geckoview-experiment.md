@@ -153,3 +153,28 @@ affected-device logs.
   retries once its local server becomes available.
 
 Physical Xiaomi verification and the separately reported Proton Pass crash remain outstanding.
+
+## Experimental build 5
+
+- Restored domain-based ad filtering through a bundled privileged Gecko extension. Subresource
+  requests use the existing AdBlocker rules, global toggle and saved site exceptions. Explicit
+  top-level navigation remains allowed. The extension is enabled for private browsing without
+  installing the public favicon/content-script bridge there. No request data is sent to a service.
+  Native replies are booleans, and request decisions have a bounded timeout to prevent a stalled
+  native callback from hanging the page.
+- `about:blank` remains an internal empty tab instead of becoming a Google search. Gecko's initial
+  blank location/state no longer replaces a requested or saved website address. Reload during
+  startup leaves the real navigation underway.
+- Restore from the saved URL when the history snapshot is absent, corrupt or stale. Flush history
+  on location changes and persist matching snapshots, including same-document navigation, so
+  activity recreation preserves the current route and Back history.
+- Validation: both unit suites and APK variants, formatting, seven existing/new Gecko scenarios,
+  and the corrected ad-filter scenario passed on Android 15 ARM64. The latter checks server-side
+  absence of blocked requests, global disabling, per-site exceptions, re-enabling, and direct
+  navigation to a listed host. Restoration coverage includes a missing snapshot, early Reload,
+  pushState navigation, activity recreation, Reload and Back.
+- Manually opened app.atomic.place, entered its demo, navigated to Team, refreshed and restored
+  the tab after process restart. The reported Google search was not reproduced by that sequence;
+  the independently confirmed blank-URL parser and startup/restore defects are addressed above.
+
+The Proton Pass crash and physical Xiaomi verification remain outstanding.

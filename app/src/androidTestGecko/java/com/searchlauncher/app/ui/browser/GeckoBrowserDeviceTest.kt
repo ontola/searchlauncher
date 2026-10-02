@@ -24,6 +24,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.concurrent.thread
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
@@ -41,6 +42,7 @@ class GeckoBrowserDeviceTest {
   private val reports = CopyOnWriteArrayList<String>()
   private lateinit var origin: String
   private val delayNextDocument = java.util.concurrent.atomic.AtomicBoolean(false)
+  private val releaseRestore = java.util.concurrent.CountDownLatch(1)
   private val releaseReload = java.util.concurrent.CountDownLatch(1)
   private val releaseDownload = java.util.concurrent.CountDownLatch(1)
   private val downloadBytes = ByteArray(1024 * 1024 + 123) { (it % 251).toByte() }
@@ -70,6 +72,7 @@ class GeckoBrowserDeviceTest {
     releaseIcon.countDown()
     releaseDownload.countDown()
     releaseReload.countDown()
+    releaseRestore.countDown()
     server.close()
   }
 
@@ -130,6 +133,127 @@ class GeckoBrowserDeviceTest {
     waitFor("storage-written")
     tap("Read data")
     waitFor("storage-present")
+  }
+
+  @Test
+  fun adFilteringBlocksNetworkRequestsAndRespectsBothSettings() {
+    val hashes =
+      AdBlocker::class.java.getDeclaredField("domainHashes").apply { isAccessible = true }
+    val original = hashes.get(AdBlocker)
+    val settings = BrowserSiteSettingsStore(context, false)
+    val originalSite = settings.load(origin)
+    val originalEnabled = runBlocking {
+      context.dataStore.data.first()[PreferencesKeys.AD_BLOCK_ENABLED] ?: true
+    }
+    try {
+      hashes.set(AdBlocker, longArrayOf(domainHash("127.0.0.2")))
+      runBlocking { context.dataStore.edit { it[PreferencesKeys.AD_BLOCK_ENABLED] = true } }
+      settings.save(origin, originalSite.copy(adBlockEnabled = true))
+      context.startActivity(BrowserActivity.createIntent(context, "$origin/ad-test"))
+      waitFor("ads-ready")
+      tap("Fetch ad")
+      waitFor("ad-blocked")
+      assertFalse(reports.contains("ad-server-hit"))
+      reports.clear()
+      settings.save(origin, originalSite.copy(adBlockEnabled = false))
+      tap("Fetch ad")
+      waitFor("ad-allowed")
+      assertTrue(reports.contains("ad-server-hit"))
+      reports.clear()
+      settings.save(origin, originalSite.copy(adBlockEnabled = true))
+      runBlocking { context.dataStore.edit { it[PreferencesKeys.AD_BLOCK_ENABLED] = false } }
+      tap("Fetch ad")
+      waitFor("ad-allowed")
+      assertTrue(reports.contains("ad-server-hit"))
+      reports.clear()
+      runBlocking { context.dataStore.edit { it[PreferencesKeys.AD_BLOCK_ENABLED] = true } }
+      tap("Fetch ad")
+      waitFor("ad-blocked")
+      assertFalse(reports.contains("ad-server-hit"))
+      // Visiting a blocked host deliberately must still work.
+      context.startActivity(
+        BrowserActivity.createIntent(context, "http://127.0.0.2:${server.localPort}/ad-test")
+      )
+      assertNotNull(device.wait(Until.findObject(By.text("Fetch ad")), 10000))
+      instrumentation.runOnMainSync {
+        assertEquals(
+          "http://127.0.0.2:${server.localPort}/ad-test",
+          BrowserTabStore.tabs!!.active.url,
+        )
+      }
+      saveScreenshot("ad-filtering")
+    } finally {
+      hashes.set(AdBlocker, original)
+      settings.save(origin, originalSite)
+      runBlocking {
+        context.dataStore.edit { it[PreferencesKeys.AD_BLOCK_ENABLED] = originalEnabled }
+      }
+    }
+  }
+
+  @Test
+  fun restoringWithoutHistoryAndReloadingDuringStartupRetainsTheRealAddress() {
+    var restoredId = 0L
+    instrumentation.runOnMainSync {
+      val tab = BrowserTabStore.addBackgroundTab("about:blank")
+      restoredId = tab.id
+      context
+        .getSharedPreferences("gecko-tabs", android.content.Context.MODE_PRIVATE)
+        .edit()
+        .putString("url:${tab.id}", "$origin/restored")
+        .remove("state:${tab.id}")
+        .commit()
+      BrowserTabTasks.open(context, tab.id)
+    }
+    waitFor("restore-waiting")
+    instrumentation.runOnMainSync {
+      assertEquals("$origin/restored", BrowserTabStore.tab(restoredId)!!.url)
+    }
+    device.wait(Until.findObject(By.desc("Browser menu")), 10000)!!.click()
+    menuItem("Reload").click()
+    assertTrue(device.wait(Until.gone(By.text("Reload")), 10000))
+    instrumentation.runOnMainSync {
+      assertEquals("$origin/restored", BrowserTabStore.tab(restoredId)!!.url)
+    }
+    reports.clear()
+    releaseRestore.countDown()
+    waitFor("engine")
+    tap("Next route")
+    waitFor("route-changed")
+    eventually {
+      val saved = context.getSharedPreferences("gecko-tabs", android.content.Context.MODE_PRIVATE)
+      val state =
+        org.mozilla.geckoview.GeckoSession.SessionState.fromString(
+          saved.getString("state:$restoredId", null)
+        )
+      state != null &&
+        runCatching { state[state.currentIndex].uri == "$origin/next" }.getOrDefault(false)
+    }
+    instrumentation.runOnMainSync {
+      assertEquals("$origin/next", BrowserTabStore.tab(restoredId)!!.url)
+      ActivityLifecycleMonitorRegistry.getInstance()
+        .getActivitiesInStage(Stage.RESUMED)
+        .filterIsInstance<BrowserActivity>()
+        .single()
+        .recreate()
+    }
+    assertNotNull(device.wait(Until.findObject(By.text("Export file")), 15000))
+    device.wait(Until.findObject(By.desc("Browser menu")), 10000)!!.click()
+    menuItem("Reload").click()
+    assertTrue(device.wait(Until.gone(By.text("Reload")), 10000))
+    assertNotNull(device.wait(Until.findObject(By.text("Export file")), 15000))
+    instrumentation.runOnMainSync {
+      assertEquals("$origin/next", BrowserTabStore.tab(restoredId)!!.url)
+    }
+    device.pressBack()
+    eventually {
+      var correct = false
+      instrumentation.runOnMainSync {
+        correct = BrowserTabStore.tab(restoredId)?.url == "$origin/restored"
+      }
+      correct
+    }
+    saveScreenshot("restored-after-back")
   }
 
   @Test
@@ -489,6 +613,10 @@ class GeckoBrowserDeviceTest {
       val reader = it.getInputStream().bufferedReader()
       val path = reader.readLine()?.split(' ')?.getOrNull(1) ?: return
       while (!reader.readLine().isNullOrEmpty()) {}
+      if (path == "/restored") {
+        reports += "restore-waiting"
+        releaseRestore.await(30, java.util.concurrent.TimeUnit.SECONDS)
+      }
       if (path == "/" && delayNextDocument.compareAndSet(true, false)) {
         reports += "reload-waiting"
         releaseReload.await(30, java.util.concurrent.TimeUnit.SECONDS)
@@ -512,6 +640,14 @@ class GeckoBrowserDeviceTest {
       var mime = "text/html"
       val body =
         when {
+          path.startsWith("/ad-resource") -> {
+            reports += "ad-server-hit"
+            "ad resource"
+          }
+          path == "/ad-test" ->
+            """<!doctype html><meta name="viewport" content="width=device-width"><title>Ad filtering fixture</title>
+            <button style="font-size:24px;padding:24px" onclick="fetch('http://127.0.0.2:${server.localPort}/ad-resource?t='+Date.now(),{mode:'no-cors'}).then(()=>report('ad-allowed'),()=>report('ad-blocked'))">Fetch ad</button>
+            <script>function report(s){document.body.append(s);fetch('/report?'+s)}report('ads-ready')</script>"""
           path.startsWith("/report?") -> {
             reports += java.net.URLDecoder.decode(path, "UTF-8")
             "ok"
@@ -551,6 +687,7 @@ class GeckoBrowserDeviceTest {
           <button onclick="notify()">Notify me</button>
           <button onclick="localStorage.setItem('fixture','saved');report('storage-written')">Store data</button>
           <button onclick="report(localStorage.getItem('fixture')==='saved'?'storage-present':'storage-missing')">Read data</button>
+          <button onclick="history.pushState({},'','/next');report('route-changed')">Next route</button>
           <script>
           function report(s){fetch('/report?'+encodeURIComponent(s))}
           report('engine:'+navigator.userAgent);

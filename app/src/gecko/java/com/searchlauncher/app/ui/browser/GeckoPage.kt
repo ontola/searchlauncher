@@ -28,7 +28,11 @@ internal class GeckoPage(
   private val privateMode: Boolean,
   private val onClose: () -> Unit,
 ) {
-  private val initialUrl = tab.url
+  private val saved by lazy { activity.getSharedPreferences("gecko-tabs", Context.MODE_PRIVATE) }
+  private val initialUrl =
+    if (!privateMode && tab.url == "about:blank") saved.getString("url:${tab.id}", null) ?: tab.url
+    else tab.url
+  private var awaitingInitialLocation = initialUrl != "about:blank"
   private val suppliedSession = GeckoEnvironment.take(tab.id)
   val session =
     suppliedSession
@@ -49,13 +53,16 @@ internal class GeckoPage(
   private var navigationGeneration = 0
   private val captureCallbacks = mutableListOf<() -> Unit>()
   private var state: GeckoSession.SessionState? = null
-  private val saved by lazy { activity.getSharedPreferences("gecko-tabs", Context.MODE_PRIVATE) }
 
   init {
+    tab.url = initialUrl
     session.selectionActionDelegate = org.mozilla.geckoview.BasicSelectionActionDelegate(activity)
     session.progressDelegate =
       object : GeckoSession.ProgressDelegate {
         override fun onPageStart(session: GeckoSession, url: String) {
+          if (awaitingInitialLocation && url == "about:blank") return
+          if (Uri.parse(tab.url).host != Uri.parse(url).host) tab.favicon = null
+          tab.url = url
           navigationGeneration++
           tab.pageDrawn = false
           loading = true
@@ -80,7 +87,10 @@ internal class GeckoPage(
           session: GeckoSession,
           sessionState: GeckoSession.SessionState,
         ) {
-          state = sessionState
+          if (!(awaitingInitialLocation && sessionState.currentUrl() == "about:blank")) {
+            state = sessionState
+            if (sessionState.currentUrl() == tab.url) persist()
+          }
         }
       }
     session.contentDelegate =
@@ -91,6 +101,7 @@ internal class GeckoPage(
         }
 
         override fun onFirstContentfulPaint(session: GeckoSession) {
+          if (awaitingInitialLocation) return
           tab.pageDrawn = true
           if (tab.url != "about:blank") hasRenderedDocument = true
           view?.postOnAnimation { capture() }
@@ -154,9 +165,13 @@ internal class GeckoPage(
           hasUserGesture: Boolean,
         ) {
           if (url != null) {
+            // Gecko announces its empty startup document before load/restore commits.
+            if (awaitingInitialLocation && url == "about:blank") return
+            awaitingInitialLocation = false
             if (Uri.parse(tab.url).host != Uri.parse(url).host) tab.favicon = null
             tab.url = url
             if (tab.favicon == null) favicons?.restoreCached()
+            session.flushSessionState()
           }
         }
 
@@ -243,7 +258,7 @@ internal class GeckoPage(
   }
 
   fun reload() {
-    if (error != null) retry() else session.reload()
+    if (error != null) retry() else if (!awaitingInitialLocation) session.reload()
   }
 
   fun retry() {
@@ -266,21 +281,27 @@ internal class GeckoPage(
     if (!session.isOpen) session.open(runtime)
     session.setActive(true)
     favicons?.restoreCached()
-    if (favicons != null)
-      GeckoEnvironment.attachIcons(activity, session, favicons) { loadInitialPage() }
-    else loadInitialPage()
+    GeckoAdBlocking.prepare(activity) {
+      if (session.isOpen) {
+        if (favicons != null)
+          GeckoEnvironment.attachIcons(activity, session, favicons) { loadInitialPage() }
+        else loadInitialPage()
+      }
+    }
   }
 
   private fun loadInitialPage() {
     if (suppliedSession != null) return
     val restored =
       if (!privateMode)
-        GeckoSession.SessionState.fromString(saved.getString("state:${tab.id}", null))
+        runCatching {
+            GeckoSession.SessionState.fromString(saved.getString("state:${tab.id}", null))
+          }
+          .getOrNull()
       else null
-    if (restored != null) {
-      tab.url = saved.getString("url:${tab.id}", tab.url) ?: tab.url
-      session.restoreState(restored)
-    } else session.loadUri(initialUrl)
+    // An empty/stale history snapshot must not replace the separately saved destination.
+    if (restored != null && restored.currentUrl() == initialUrl) session.restoreState(restored)
+    else session.loadUri(initialUrl)
   }
 
   /** Capture while visible, before another window/overlay can suspend the compositor. */
@@ -346,7 +367,7 @@ internal class GeckoPage(
     saved
       .edit()
       .putString("url:${tab.id}", tab.url)
-      .putString("state:${tab.id}", state?.toString())
+      .putString("state:${tab.id}", state?.takeIf { it.currentUrl() == tab.url }?.toString())
       .apply()
   }
 
@@ -368,3 +389,6 @@ internal class GeckoPage(
     }
   }
 }
+
+private fun GeckoSession.SessionState.currentUrl(): String? =
+  runCatching { getOrNull(currentIndex)?.uri }.getOrNull()
