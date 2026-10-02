@@ -152,6 +152,8 @@ class GeckoBrowserDeviceTest {
     device.wait(Until.findObject(By.desc("Browser menu")), 10000)!!.click()
     menuItem("Reload").click()
     waitFor("reload-waiting")
+    assertTrue(device.wait(Until.gone(By.text("Reload")), 10000))
+    device.waitForIdle()
     val reloadImage =
       android.graphics.BitmapFactory.decodeFile(saveScreenshot("reload-waiting").absolutePath)
     val center = reloadImage.getPixel(reloadImage.width / 2, reloadImage.height * 3 / 4)
