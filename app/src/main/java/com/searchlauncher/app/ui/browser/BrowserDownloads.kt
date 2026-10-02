@@ -43,6 +43,13 @@ internal data class BrowserDownload(
   /** DownloadManager's COLUMN_REASON: an HTTP status or an ERROR_* code once a download fails. */
   val reason: Int = 0,
 ) {
+  // addCompletedDownload records the file length without transferring bytes through
+  // DownloadManager.
+  val displayBytes: Long
+    get() =
+      (if (status == DownloadManager.STATUS_SUCCESSFUL && total >= 0) total else bytes)
+        .coerceAtLeast(0)
+
   val active: Boolean
     get() =
       status == DownloadManager.STATUS_PENDING ||
@@ -380,7 +387,7 @@ private fun DownloadCard(
           )
         else LinearProgressIndicator(Modifier.fillMaxWidth())
       }
-      val bytes = Formatter.formatShortFileSize(context, item.bytes.coerceAtLeast(0))
+      val bytes = Formatter.formatShortFileSize(context, item.displayBytes)
       val total =
         if (item.active && item.total > 0)
           " / ${Formatter.formatShortFileSize(context, item.total)}"

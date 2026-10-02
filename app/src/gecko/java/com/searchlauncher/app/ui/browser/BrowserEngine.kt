@@ -9,6 +9,9 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -179,15 +182,16 @@ internal object BrowserEngine {
         onBrowserMenuShown()
       }
     }
-    LaunchedEffect(frameColor) {
+    val systemBarColor = if (page.showDownloads) MaterialTheme.colorScheme.surface else frameColor
+    LaunchedEffect(systemBarColor) {
       activity.window.setBackgroundDrawable(
-        android.graphics.drawable.ColorDrawable(frameColor.toArgb())
+        android.graphics.drawable.ColorDrawable(systemBarColor.toArgb())
       )
-      activity.window.navigationBarColor = frameColor.toArgb()
+      activity.window.navigationBarColor = systemBarColor.toArgb()
       activity.window.isNavigationBarContrastEnforced = false
       WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
-        isAppearanceLightStatusBars = frameColor.luminance() > 0.5f
-        isAppearanceLightNavigationBars = frameColor.luminance() > 0.5f
+        isAppearanceLightStatusBars = systemBarColor.luminance() > 0.5f
+        isAppearanceLightNavigationBars = systemBarColor.luminance() > 0.5f
       }
     }
     LaunchedEffect(page.fullscreen) {
@@ -233,7 +237,8 @@ internal object BrowserEngine {
               // SurfaceView cannot follow Compose transforms reliably. Move the cached frame
               // during a tab swipe and keep the live compositor at its normal size underneath.
               view.visibility =
-                if ((swipe.inMotion && tab.snapshot != null) || overview) View.INVISIBLE
+                if ((swipe.inMotion && tab.snapshot != null) || overview || page.showDownloads)
+                  View.INVISIBLE
                 else View.VISIBLE
             },
             modifier =
@@ -399,9 +404,7 @@ internal object BrowserEngine {
                   text = { Text("Downloads") },
                   leadingIcon = { Icon(Icons.Default.Download, null) },
                   colors = menuColors,
-                  onClick = {
-                    run { activity.startActivity(Intent(activity, DownloadsActivity::class.java)) }
-                  },
+                  onClick = { run { page.showDownloads = true } },
                 )
                 DropdownMenuItem(
                   text = { Text("Find in page") },
@@ -572,6 +575,9 @@ internal object BrowserEngine {
               onClose()
             },
           )
+      }
+      AnimatedVisibility(visible = page.showDownloads, enter = fadeIn(), exit = fadeOut()) {
+        BrowserDownloadsScreen(onDismiss = page::dismissDownloads)
       }
       if (showInfo)
         AlertDialog(

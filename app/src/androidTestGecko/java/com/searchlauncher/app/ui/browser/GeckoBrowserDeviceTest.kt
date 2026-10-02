@@ -40,6 +40,8 @@ class GeckoBrowserDeviceTest {
   private lateinit var server: ServerSocket
   private val reports = CopyOnWriteArrayList<String>()
   private lateinit var origin: String
+  private val releaseDownload = java.util.concurrent.CountDownLatch(1)
+  private val downloadBytes = ByteArray(1024 * 1024 + 123) { (it % 251).toByte() }
   private val releaseIcon = java.util.concurrent.CountDownLatch(1)
 
   @Before
@@ -64,6 +66,7 @@ class GeckoBrowserDeviceTest {
   @After
   fun stop() {
     releaseIcon.countDown()
+    releaseDownload.countDown()
     server.close()
   }
 
@@ -96,6 +99,14 @@ class GeckoBrowserDeviceTest {
         found
       }
     }
+    assertNotNull(device.wait(Until.findObject(By.text("Downloads")), 10000))
+    val expectedSize =
+      android.text.format.Formatter.formatShortFileSize(
+        context,
+        "Original Gecko response ${server.localPort}".toByteArray().size.toLong(),
+      )
+    assertNotNull(device.wait(Until.findObject(By.textStartsWith("$expectedSize ·")), 10000))
+    tap("Done")
     tap("Open popup")
     waitFor("popup-opened")
     tap("Message opener")
@@ -116,6 +127,57 @@ class GeckoBrowserDeviceTest {
     waitFor("storage-written")
     tap("Read data")
     waitFor("storage-present")
+  }
+
+  @Test
+  fun directDownloadShowsProgressAndClosesOnlyItsEmptyTab() {
+    var sourceId = 0L
+    instrumentation.runOnMainSync { sourceId = BrowserTabStore.tabs!!.active.id }
+    context.startActivity(BrowserActivity.createIntent(context, "$origin/download"))
+    assertNotNull(device.wait(Until.findObject(By.text("Downloads")), 15000))
+    assertNotNull(device.wait(Until.findObject(By.text("direct-${server.localPort}.bin")), 10000))
+    eventually {
+      var progressing = false
+      instrumentation.runOnMainSync {
+        progressing =
+          pendingPageDownloads.values.any { it.fraction?.let { f -> f > 0f && f < 1f } == true }
+      }
+      progressing
+    }
+    saveScreenshot("download-progress")
+    var downloadId = 0L
+    instrumentation.runOnMainSync { downloadId = BrowserTabStore.tabs!!.active.id }
+    assertNotEquals(sourceId, downloadId)
+    // Dismissing the blank download tab must not cancel its response stream.
+    tap("Done")
+    assertNotNull(device.wait(Until.findObject(By.text("Export file")), 10000))
+    instrumentation.runOnMainSync {
+      assertNull(BrowserTabStore.tab(downloadId))
+      assertNotNull(BrowserTabStore.tab(sourceId))
+    }
+    releaseDownload.countDown()
+    val manager = context.getSystemService(DownloadManager::class.java)
+    var result: BrowserDownload? = null
+    eventually {
+      result =
+        readBrowserDownloads(manager).firstOrNull { it.name == "direct-${server.localPort}.bin" }
+      result?.status == DownloadManager.STATUS_SUCCESSFUL
+    }
+    assertEquals(downloadBytes.size.toLong(), result!!.displayBytes)
+    manager.openDownloadedFile(result!!.id).use { descriptor ->
+      android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor).use {
+        assertArrayEquals(downloadBytes, it.readBytes())
+      }
+    }
+    assertEquals(1, reports.count { it == "download-request" })
+    device.wait(Until.findObject(By.desc("Browser menu")), 10000)!!.click()
+    menuItem("Downloads").click()
+    val expectedSize =
+      android.text.format.Formatter.formatShortFileSize(context, downloadBytes.size.toLong())
+    assertNotNull(device.wait(Until.findObject(By.textStartsWith("$expectedSize ·")), 10000))
+    saveScreenshot("download-complete")
+    tap("Done")
+    assertNotNull(device.wait(Until.findObject(By.text("Export file")), 10000))
   }
 
   @Test
@@ -349,6 +411,22 @@ class GeckoBrowserDeviceTest {
       val reader = it.getInputStream().bufferedReader()
       val path = reader.readLine()?.split(' ')?.getOrNull(1) ?: return
       while (!reader.readLine().isNullOrEmpty()) {}
+      if (path == "/download") {
+        reports += "download-request"
+        val output = it.getOutputStream()
+        output.write(
+          ("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n" +
+              "Content-Disposition: attachment; filename=direct-${server.localPort}.bin\r\n" +
+              "Content-Length: ${downloadBytes.size}\r\nConnection: close\r\n\r\n")
+            .toByteArray()
+        )
+        output.write(downloadBytes, 0, 768 * 1024)
+        output.flush()
+        releaseDownload.await(45, java.util.concurrent.TimeUnit.SECONDS)
+        output.write(downloadBytes, 768 * 1024, downloadBytes.size - 768 * 1024)
+        output.flush()
+        return
+      }
       var mime = "text/html"
       val body =
         when {

@@ -41,6 +41,9 @@ internal class GeckoPage(
   var canGoForward by mutableStateOf(false)
   var fullscreen by mutableStateOf(false)
   var error by mutableStateOf<String?>(null)
+  var showDownloads by mutableStateOf(false)
+  private var closeDownloadTab = false
+  private var hasRenderedDocument = false
   private var captureRunning = false
   private var navigationGeneration = 0
   private val captureCallbacks = mutableListOf<() -> Unit>()
@@ -87,6 +90,7 @@ internal class GeckoPage(
 
         override fun onFirstContentfulPaint(session: GeckoSession) {
           tab.pageDrawn = true
+          if (tab.url != "about:blank") hasRenderedDocument = true
           view?.postOnAnimation { capture() }
         }
 
@@ -100,6 +104,11 @@ internal class GeckoPage(
 
         override fun onExternalResponse(session: GeckoSession, response: WebResponse) {
           saveGeckoDownload(activity, response)
+          loading = false
+          progress = 100
+          error = null
+          closeDownloadTab = !hasRenderedDocument
+          showDownloads = true
         }
 
         override fun onCrash(session: GeckoSession) {
@@ -227,6 +236,14 @@ internal class GeckoPage(
           return null
         }
       }
+  }
+
+  fun dismissDownloads() {
+    showDownloads = false
+    if (closeDownloadTab) {
+      closeDownloadTab = false
+      activity.finishAndRemoveTask()
+    }
   }
 
   fun start() {

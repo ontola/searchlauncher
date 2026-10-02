@@ -12,6 +12,22 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class BrowserDownloadsTest {
   @Test
+  fun completedImportsUseFileLengthWhilePartialDownloadsUseTransferredBytes() {
+    val complete = BrowserDownload(1, "export.zip", DownloadManager.STATUS_SUCCESSFUL, 0, 4096, 0)
+    assertEquals(4096L, complete.displayBytes)
+    assertEquals(0L, complete.copy(total = 0).displayBytes)
+    assertEquals(123L, complete.copy(total = -1, bytes = 123).displayBytes)
+    assertEquals(
+      123L,
+      complete.copy(status = DownloadManager.STATUS_RUNNING, bytes = 123).displayBytes,
+    )
+    assertEquals(
+      123L,
+      complete.copy(status = DownloadManager.STATUS_FAILED, bytes = 123).displayBytes,
+    )
+  }
+
+  @Test
   fun appDoesNotRequestBroadStoragePermissions() {
     val context =
       androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()

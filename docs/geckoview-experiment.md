@@ -131,3 +131,20 @@ this follow-up, so its crash log is not available and no Proton crash fix is cla
 Previously uncached websites need to be opened once in Gecko to collect their icon. This build
 does not migrate icons from the regular app. Proton Pass crash investigation remains pending
 affected-device logs.
+
+## Experimental build 4
+
+- Gecko responses open the existing full-screen Downloads panel immediately, including direct
+  attachment links and JavaScript blob exports. The browser menu opens the same panel, keeping
+  in-flight progress visible in the current browser process. System bars match its surface.
+- Dismissing a download-only tab removes that empty tab. Exporting from a rendered page preserves
+  the source page. Transfers continue after dismissing the temporary download tab.
+- Completed files use DownloadManager's recorded file length for size display. Imported downloads
+  can report zero transferred bytes even with a nonempty saved file. Partial and failed transfers
+  continue to display only the bytes transferred. Existing history benefits without redownloading.
+- Validation: spotlessCheck, regular and Gecko unit suites, both APK builds, and five Android 15
+  ARM64 device scenarios passed. The new direct-download scenario verifies live progress, exact
+  saved bytes after closing the temporary tab, a single server request, and the visible file size.
+  The blob-export scenario verifies Downloads opens and returns to the source page.
+
+Physical Xiaomi verification and the separately reported Proton Pass crash remain outstanding.
