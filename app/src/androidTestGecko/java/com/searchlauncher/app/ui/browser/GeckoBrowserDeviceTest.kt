@@ -4,8 +4,10 @@ import android.app.DownloadManager
 import android.app.NotificationManager
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.SystemClock
+import androidx.datastore.preferences.core.edit
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
@@ -13,11 +15,16 @@ import androidx.test.runner.lifecycle.Stage
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
+import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.MainActivity
+import com.searchlauncher.app.ui.PreferencesKeys
+import com.searchlauncher.app.ui.dataStore
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.concurrent.thread
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -33,6 +40,7 @@ class GeckoBrowserDeviceTest {
   private lateinit var server: ServerSocket
   private val reports = CopyOnWriteArrayList<String>()
   private lateinit var origin: String
+  private val releaseIcon = java.util.concurrent.CountDownLatch(1)
 
   @Before
   fun start() {
@@ -55,6 +63,7 @@ class GeckoBrowserDeviceTest {
 
   @After
   fun stop() {
+    releaseIcon.countDown()
     server.close()
   }
 
@@ -219,6 +228,78 @@ class GeckoBrowserDeviceTest {
     device.pressBack()
   }
 
+  @Test
+  fun siteIconsReachExistingFavoritesRecentsAndDiskCache() {
+    val app = context.applicationContext as SearchLauncherApp
+    eventually(30000) { app.searchRepository.isInitialized.value }
+    // Pin before the icon is available: the already visible globe must refresh when it arrives.
+    val iconHost = "127.0.${server.localPort / 256}.${server.localPort % 256}"
+    val url = "http://$iconHost:${server.localPort}/icons"
+    assertNull(
+      "Use a fresh host to test globe replacement",
+      runBlocking { app.searchRepository.loadFavicon(url) },
+    )
+    runBlocking {
+      app.searchRepository.saveAndFavoriteBookmark(url, "Icon fixture")
+      context.dataStore.edit { it[PreferencesKeys.BROWSER_SHOW_FAVORITES] = true }
+    }
+    try {
+      context.startActivity(BrowserActivity.createIntent(context, url))
+      waitFor("icon-request", 30000)
+      releaseIcon.countDown()
+      eventually(15000) {
+        var matches = false
+        instrumentation.runOnMainSync {
+          matches =
+            BrowserTabStore.tabs?.items?.firstOrNull { it.url == url }?.favicon?.let(::isMagenta) ==
+              true
+        }
+        matches
+      }
+      eventually {
+        app.searchRepository.favorites.value.any {
+          it is SearchResult.Content &&
+            it.deepLink == url &&
+            (it.icon as? BitmapDrawable)?.bitmap?.let(::isMagenta) == true
+        }
+      }
+      instrumentation.runOnMainSync {
+        val tab = BrowserTabStore.tabs!!.items.first { it.url == url }
+        assertTrue(isMagenta((tab.toSearchResult(context)!!.icon as BitmapDrawable).bitmap))
+      }
+      assertTrue(runBlocking { app.searchRepository.loadFavicon(url)?.let(::isMagenta) == true })
+      device.waitForIdle()
+      SystemClock.sleep(800)
+      val screenshot =
+        android.graphics.BitmapFactory.decodeFile(saveScreenshot("favicon-strip").absolutePath)
+      var visibleIcon = false
+      for (y in screenshot.height * 3 / 4 until screenshot.height step 3) {
+        for (x in 0 until screenshot.width step 3) {
+          val pixel = screenshot.getPixel(x, y)
+          if (Color.red(pixel) > 200 && Color.green(pixel) < 70 && Color.blue(pixel) > 180)
+            visibleIcon = true
+        }
+      }
+      screenshot.recycle()
+      assertTrue("The favorites strip must visibly render the site's icon", visibleIcon)
+      // A private host with an icon must never create a public icon-cache entry.
+      context.startActivity(
+        BrowserActivity.createPrivateIntent(context, "http://127.0.0.2:${server.localPort}/icons")
+      )
+      waitFor("icon-page-127.0.0.2", 30000)
+      SystemClock.sleep(500)
+      assertNull(runBlocking { app.searchRepository.loadFavicon("http://127.0.0.2/") })
+      device.pressBack()
+    } finally {
+      runBlocking { context.dataStore.edit { it[PreferencesKeys.BROWSER_SHOW_FAVORITES] = false } }
+    }
+  }
+
+  private fun isMagenta(bitmap: android.graphics.Bitmap): Boolean {
+    val pixel = bitmap.getPixel(bitmap.width / 2, bitmap.height / 2)
+    return Color.red(pixel) > 200 && Color.green(pixel) < 70 && Color.blue(pixel) > 180
+  }
+
   private fun saveScreenshot(name: String): java.io.File =
     java.io.File(context.getExternalFilesDir(null), "gecko-$name.png").also {
       device.takeScreenshot(it)
@@ -275,6 +356,20 @@ class GeckoBrowserDeviceTest {
             reports += java.net.URLDecoder.decode(path, "UTF-8")
             "ok"
           }
+          path == "/assets/custom-icon.svg" -> {
+            reports += "icon-request"
+            releaseIcon.await(20, java.util.concurrent.TimeUnit.SECONDS)
+            mime = "image/svg+xml"
+            """<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="16" fill="#ff00ee"/></svg>"""
+          }
+          path == "/icons" ->
+            """
+            <!doctype html><meta name="viewport" content="width=device-width"><title>Icon fixture</title>
+            <link rel="icon" type="image/svg+xml" sizes="any" href="/assets/custom-icon.svg">
+            <h1>Icon fixture</h1><p>This page has a custom SVG favicon.</p>
+            <script>fetch("/report?icon-page-"+location.hostname)</script>
+          """
+              .trimIndent()
           path == "/sw.js" -> {
             mime = "application/javascript"
             "self.addEventListener('install',()=>self.skipWaiting()); self.addEventListener('activate',e=>e.waitUntil(clients.claim()));"

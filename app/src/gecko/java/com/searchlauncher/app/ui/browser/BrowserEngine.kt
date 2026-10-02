@@ -32,13 +32,17 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.ui.MainActivity
+import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.components.SearchChromeBar
+import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.util.displayPageAddress
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.mozilla.geckoview.GeckoSessionSettings
 import org.mozilla.geckoview.GeckoView
@@ -87,6 +91,11 @@ internal object BrowserEngine {
         )
       }
     }
+    val showFavorites by
+      remember(activity) {
+          activity.dataStore.data.map { it[PreferencesKeys.BROWSER_SHOW_FAVORITES] ?: false }
+        }
+        .collectAsState(initial = false)
     var menu by remember { mutableStateOf(false) }
     var overview by remember { mutableStateOf(false) }
     var find by remember { mutableStateOf(false) }
@@ -157,7 +166,7 @@ internal object BrowserEngine {
         prompts.close()
         page.persist()
         page.view?.releaseSession()
-        page.session.close()
+        page.close()
         if (activity.isFinishing && !privateMode) page.forget()
       }
     }
@@ -275,6 +284,11 @@ internal object BrowserEngine {
           )
         }
         if (!page.fullscreen && showLauncherChrome) {
+          if (showFavorites && !privateMode)
+            GeckoFavoritesStrip(
+              onOpenSearch = { query -> onOpenSearch(false, tab.frameColorArgb, query) },
+              modifier = Modifier.geckoChromeSwipe(swipe),
+            )
           SearchChromeBar(
             isIndexing = false,
             color = frameColor,
@@ -499,6 +513,21 @@ internal object BrowserEngine {
                     }
                   },
                 )
+                if (!privateMode)
+                  DropdownMenuItem(
+                    text = { Text(if (showFavorites) "Hide favorites" else "Show favorites") },
+                    leadingIcon = { Icon(Icons.Default.StarOutline, null) },
+                    colors = menuColors,
+                    onClick = {
+                      run {
+                        scope.launch {
+                          activity.dataStore.edit {
+                            it[PreferencesKeys.BROWSER_SHOW_FAVORITES] = !showFavorites
+                          }
+                        }
+                      }
+                    },
+                  )
                 DropdownMenuItem(
                   text = { Text("About this experiment") },
                   leadingIcon = { Icon(Icons.Default.Info, null) },

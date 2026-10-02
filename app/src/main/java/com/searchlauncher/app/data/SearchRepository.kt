@@ -1621,6 +1621,19 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       val drawable = BitmapDrawable(context.resources, ownedIcon)
       iconRepository.putMemory(cacheKey, drawable)
       iconRepository.saveToDisk(cacheKey, drawable, force = true)
+      // Existing favorites/recents may already hold the fallback globe. Re-resolve their icons.
+      _indexUpdated.emit(Unit)
+    }
+
+  /** Cached only: restoring an open tab never makes an extra network request. */
+  suspend fun loadFavicon(url: String): Bitmap? =
+    withContext(Dispatchers.IO) {
+      val host = faviconHost(url) ?: return@withContext null
+      val key = faviconCacheKey(host)
+      val drawable =
+        iconRepository.getMemory(key)
+          ?: iconRepository.loadFromDisk(key)?.also { iconRepository.putMemory(key, it) }
+      (drawable as? BitmapDrawable)?.bitmap
     }
 
   /** Defaults to enabled if the preference can't be read, matching the setting's own default. */

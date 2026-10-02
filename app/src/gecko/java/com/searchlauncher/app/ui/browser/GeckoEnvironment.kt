@@ -10,6 +10,9 @@ import org.mozilla.geckoview.GeckoSessionSettings
 /** Created on first browser use, never on the launcher's startup path. One runtime per process. */
 internal object GeckoEnvironment {
   private var instance: GeckoRuntime? = null
+  private var iconExtension:
+    org.mozilla.geckoview.GeckoResult<org.mozilla.geckoview.WebExtension>? =
+    null
   private val sessions = mutableMapOf<Long, GeckoSession>()
 
   fun runtime(context: Context): GeckoRuntime =
@@ -36,6 +39,33 @@ internal object GeckoEnvironment {
             instance = it
           }
       }
+
+  fun attachIcons(
+    context: Context,
+    session: GeckoSession,
+    delegate: GeckoFavicons,
+    ready: () -> Unit,
+  ) {
+    val runtime = runtime(context)
+    val extension =
+      iconExtension
+        ?: runtime.webExtensionController
+          .ensureBuiltIn("resource://android/assets/site-icons/", "site-icons@searchlauncher.eu")
+          .also { iconExtension = it }
+    extension.accept(
+      { installed ->
+        if (session.isOpen) {
+          if (installed != null)
+            session.webExtensionController.setMessageDelegate(installed, delegate, "site_icons")
+          ready()
+        }
+      },
+      { failure ->
+        android.util.Log.w("GeckoFavicons", "Could not install page icon bridge", failure)
+        if (session.isOpen) ready()
+      },
+    )
+  }
 
   fun take(id: Long): GeckoSession? = sessions.remove(id)
 

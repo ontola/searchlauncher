@@ -47,8 +47,7 @@ The WebAuthn API is exposed, but successful registration/login with Proton Pass 
 has not been established. An engine change does not automatically grant a password provider's
 browser trust or make restricted OAuth providers accept this app.
 
-This is a compatibility prototype, not full UI parity: the browser favorites row,
-page-derived toolbar colors, private popup windows, PiP/background media,
+This is a compatibility prototype, not full UI parity: page-derived toolbar colors, private popup windows, PiP/background media,
 site-specific JavaScript/cookie/ad-block controls, and aggregate storage sizes are not yet ported.
 The browser uses Gecko's defaults for those engine settings; existing WebView settings are not
 silently claimed to apply. The global Website storage panel explains the missing size reporting;
@@ -113,3 +112,22 @@ accessibility bounds when embedded below Compose content.
 
 Proton Pass password/passkey crashes were reported against build 1. No phone was connected during
 this follow-up, so its crash log is not available and no Proton crash fix is claimed in build 2.
+
+## Experimental build 3
+
+- Connected public Gecko tabs to the shared favicon cache. A bundled, top-level content script
+  reports declared icon URLs (including custom paths and dynamically changed links), with a
+  same-site `/favicon.ico` fallback. Icon fetching is anonymous and size-limited; decoding uses
+  Gecko for SVG/ICO support. No external favicon lookup service is used.
+- Website icons now populate open-tab recents, tab cards, Android task icons and saved favorites.
+  Newly saved icons trigger refresh of favorites/history that were already showing a globe.
+  Tabs can restore cached icons without fetching them again.
+- Restored the optional browser favorites/recents strip, using the launcher's existing preferences,
+  pinning, ordering and history filtering. Toggle it with Show favorites / Hide favorites.
+- Private tabs do not install the icon bridge or write to the public cache.
+- Retained the requested initial URL while the asynchronous icon bridge is installed, preventing
+  Gecko's initial `about:blank` callback from replacing it.
+
+Previously uncached websites need to be opened once in Gecko to collect their icon. This build
+does not migrate icons from the regular app. Proton Pass crash investigation remains pending
+affected-device logs.

@@ -28,10 +28,12 @@ internal class GeckoPage(
   private val privateMode: Boolean,
   private val onClose: () -> Unit,
 ) {
+  private val initialUrl = tab.url
   private val suppliedSession = GeckoEnvironment.take(tab.id)
   val session =
     suppliedSession
       ?: GeckoSession(GeckoSessionSettings.Builder().usePrivateMode(privateMode).build())
+  private val favicons = if (privateMode) null else GeckoFavicons(activity, tab, session)
   var view: GeckoView? = null
   var loading by mutableStateOf(false)
   var progress by mutableStateOf(0)
@@ -80,7 +82,7 @@ internal class GeckoPage(
       object : GeckoSession.ContentDelegate {
         override fun onTitleChange(session: GeckoSession, title: String?) {
           tab.title = title
-          activity.publishTaskDescription(title, null, tab.frameColorArgb)
+          activity.publishTaskDescription(title, tab.favicon, tab.frameColorArgb)
         }
 
         override fun onFirstContentfulPaint(session: GeckoSession) {
@@ -140,7 +142,11 @@ internal class GeckoPage(
           perms: MutableList<GeckoSession.PermissionDelegate.ContentPermission>,
           hasUserGesture: Boolean,
         ) {
-          if (url != null) tab.url = url
+          if (url != null) {
+            if (Uri.parse(tab.url).host != Uri.parse(url).host) tab.favicon = null
+            tab.url = url
+            if (tab.favicon == null) favicons?.restoreCached()
+          }
         }
 
         override fun onCanGoBack(session: GeckoSession, value: Boolean) {
@@ -227,6 +233,13 @@ internal class GeckoPage(
     val runtime = GeckoEnvironment.runtime(activity)
     if (!session.isOpen) session.open(runtime)
     session.setActive(true)
+    favicons?.restoreCached()
+    if (favicons != null)
+      GeckoEnvironment.attachIcons(activity, session, favicons) { loadInitialPage() }
+    else loadInitialPage()
+  }
+
+  private fun loadInitialPage() {
     if (suppliedSession != null) return
     val restored =
       if (!privateMode)
@@ -235,7 +248,7 @@ internal class GeckoPage(
     if (restored != null) {
       tab.url = saved.getString("url:${tab.id}", tab.url) ?: tab.url
       session.restoreState(restored)
-    } else session.loadUri(tab.url)
+    } else session.loadUri(initialUrl)
   }
 
   /** Capture while visible, before another window/overlay can suspend the compositor. */
@@ -303,6 +316,11 @@ internal class GeckoPage(
       .putString("url:${tab.id}", tab.url)
       .putString("state:${tab.id}", state?.toString())
       .apply()
+  }
+
+  fun close() {
+    favicons?.close()
+    session.close()
   }
 
   fun forget() {
