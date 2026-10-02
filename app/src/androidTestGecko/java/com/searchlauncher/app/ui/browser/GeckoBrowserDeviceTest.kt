@@ -3,13 +3,17 @@ package com.searchlauncher.app.ui.browser
 import android.app.DownloadManager
 import android.app.NotificationManager
 import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
+import com.searchlauncher.app.ui.MainActivity
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.CopyOnWriteArrayList
@@ -128,11 +132,108 @@ class GeckoBrowserDeviceTest {
     device.pressBack()
     reports.clear()
     device.wait(Until.findObject(By.desc("Browser menu")), 10000)!!.click()
-    device.wait(Until.findObject(By.text("Clear this site's data")), 10000)!!.click()
+    menuItem("Clear this site's data").click()
     device.wait(Until.findObject(By.res("android:id/button1")), 10000)!!.click()
     waitFor("engine")
     tap("Read data")
     waitFor("storage-missing")
+  }
+
+  @Test
+  fun previewsChromeAndSwipeSurviveRepeatedHandoffs() {
+    device.wait(Until.findObject(By.text("Export file")), 15000)
+    assertFalse(device.hasObject(By.textContains("Gecko experiment")))
+    var tabId = 0L
+    instrumentation.runOnMainSync { tabId = BrowserTabStore.tabs!!.active.id }
+    repeat(4) {
+      val button = device.wait(Until.findObject(By.descContains("open tab")), 10000)!!
+      val bounds = button.visibleBounds
+      val chrome = android.graphics.BitmapFactory.decodeFile(saveScreenshot("chrome").absolutePath)
+      val sample = chrome.getPixel(bounds.left - 15, bounds.centerY())
+      assertTrue(
+        "Browser toolbar should stay light even in dark launcher theme",
+        Color.red(sample) > 220 && Color.green(sample) > 220,
+      )
+      chrome.recycle()
+      button.click()
+      device.wait(Until.findObject(By.text("Close all")), 10000)
+      var hasColoredPreview = false
+      instrumentation.runOnMainSync {
+        val bitmap = BrowserTabStore.tab(tabId)?.snapshot
+        if (bitmap != null) {
+          for (y in 0 until bitmap.height step 8) for (x in 0 until bitmap.width step 8) {
+            val pixel = bitmap.getPixel(x, y)
+            if (Color.green(pixel) > 90 && Color.red(pixel) < 70 && Color.blue(pixel) > 80)
+              hasColoredPreview = true
+          }
+        }
+      }
+      assertTrue(
+        "Overview must contain the rendered teal fixture, not a blank bitmap",
+        hasColoredPreview,
+      )
+      saveScreenshot("overview-$it")
+      device.pressBack()
+      val bar = device.wait(Until.findObject(By.desc("Browser menu")), 10000)!!.visibleBounds
+      if (it == 0) {
+        // A short drag returns to this page; a committed left swipe returns to launcher.
+        device.swipe(
+          device.displayWidth / 2,
+          bar.centerY(),
+          device.displayWidth / 2 - 80,
+          bar.centerY(),
+          100,
+        )
+        device.waitForIdle()
+        assertTrue(device.hasObject(By.desc("Browser menu")))
+      }
+      device.swipe(
+        device.displayWidth * 3 / 4,
+        bar.centerY(),
+        device.displayWidth / 10,
+        bar.centerY(),
+        24,
+      )
+      eventually {
+        var home = false
+        instrumentation.runOnMainSync {
+          home =
+            ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED).any {
+              it is MainActivity
+            }
+        }
+        home
+      }
+      instrumentation.runOnMainSync { BrowserTabTasks.open(context, tabId) }
+      device.wait(Until.findObject(By.desc("Browser menu")), 10000)
+    }
+    device.findObject(By.desc("Browser menu")).click()
+    val back = device.wait(Until.findObject(By.text("Back")), 10000)!!
+    saveScreenshot("menu")
+    assertTrue(
+      "Menu should not cover the whole screen",
+      back.visibleBounds.top > device.displayHeight / 4,
+    )
+    menuItem("About this experiment").click()
+    assertNotNull(device.wait(Until.findObject(By.text("SearchLauncher Gecko")), 10000))
+    device.pressBack()
+  }
+
+  private fun saveScreenshot(name: String): java.io.File =
+    java.io.File(context.getExternalFilesDir(null), "gecko-$name.png").also {
+      device.takeScreenshot(it)
+    }
+
+  private fun menuItem(text: String): androidx.test.uiautomator.UiObject2 {
+    repeat(8) {
+      device.findObject(By.text(text))?.let {
+        return it
+      }
+      val scrollable = device.findObject(By.scrollable(true))
+      if (scrollable != null) scrollable.scroll(androidx.test.uiautomator.Direction.DOWN, 0.7f)
+      else SystemClock.sleep(200)
+    }
+    error("Missing menu item: $text")
   }
 
   private fun tap(text: String) {
@@ -189,7 +290,7 @@ class GeckoBrowserDeviceTest {
             """
           <!doctype html><meta name="viewport" content="width=device-width"><title>Gecko browser checks</title>
           <style>body{font:18px sans-serif;background:white;color:#192218;padding:16px}button{display:block;margin:12px 0;padding:12px;font:inherit}</style>
-          <h2>Gecko browser checks</h2><p>Real browser integration tests</p>
+          <h2 style="background:#009688;color:white;padding:24px">Gecko browser checks</h2><p>Real browser integration tests</p>
           <button onclick="report('export-click');const a=document.createElement('a');a.href=window.URL.createObjectURL(new Blob(['Original Gecko response ${server.localPort}'],{type:'text/plain'}));a.download='gecko-fixture.txt';document.body.append(a);a.click()">Export file</button>
           <button onclick="window.open('/popup','_blank')">Open popup</button>
           <button onclick="notify()">Notify me</button>

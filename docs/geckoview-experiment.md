@@ -47,8 +47,8 @@ The WebAuthn API is exposed, but successful registration/login with Proton Pass 
 has not been established. An engine change does not automatically grant a password provider's
 browser trust or make restricted OAuth providers accept this app.
 
-This is a compatibility prototype, not full UI parity: browser-to-home swipe transitions, the
-browser favorites row, page-derived toolbar colors, private popup windows, PiP/background media,
+This is a compatibility prototype, not full UI parity: the browser favorites row,
+page-derived toolbar colors, private popup windows, PiP/background media,
 site-specific JavaScript/cookie/ad-block controls, and aggregate storage sizes are not yet ported.
 The browser uses Gecko's defaults for those engine settings; existing WebView settings are not
 silently claimed to apply. The global Website storage panel explains the missing size reporting;
@@ -94,3 +94,22 @@ reboot; a user force-stopping an Android app is a different restriction.
 During integration, the emulator exposed and verified fixes for two concrete issues: duplicate
 AppSearch initialization in Gecko child processes, and missing screen offsets for Gecko's
 accessibility bounds when embedded below Compose content.
+
+## Experimental build 2
+
+- Removed the permanent experiment header; details remain in the overflow menu. Private mode
+  keeps a discreet icon in the bottom bar.
+- Browser/system bars use the tab frame color, with contrasting icons, rather than inheriting
+  the launcher theme. Restored the outlined tab-count button.
+- Restored horizontal bottom-bar gestures between tabs and back to home, using the existing
+  drag distance, flick threshold, and home-frame preview. Short/cancelled drags settle back.
+- Capped the menu at 420 dp or 60% of the available height; it scrolls and has action icons.
+- Capture previews on content paint/load, await a fresh capture before showing the overview or
+  search overlay, and capture before suspending the session. Ignore late/hidden-page results and
+  preserve the cached frame. This addresses the screenshot/visibility race behind intermittent
+  white previews; the reported physical-device behavior still needs confirmation.
+- Added a device scenario checking actual preview pixels, light toolbar, repeated overview/home
+  round trips, a cancelled short drag, and reaching the bottom of the scrollable menu.
+
+Proton Pass password/passkey crashes were reported against build 1. No phone was connected during
+this follow-up, so its crash log is not available and no Proton crash fix is claimed in build 2.

@@ -9,15 +9,21 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,6 +66,27 @@ internal object BrowserEngine {
     val localTab = remember { BrowserTab(navigationRequest?.url ?: "about:blank") }
     val tab = if (privateMode) localTab else pinnedTabId?.let(BrowserTabStore::tab) ?: return
     val page = remember(tab.id) { GeckoPage(activity, tab, privateMode, onClose) }
+    val frameColor = Color(tab.frameColorArgb)
+    val frameContentColor =
+      if (frameColor.luminance() > 0.5f) Color(0xFF1C1B1F) else Color(0xFFEDE8EE)
+    val menuColors =
+      MenuDefaults.itemColors(
+        textColor = frameContentColor,
+        leadingIconColor = frameContentColor,
+        disabledTextColor = frameContentColor.copy(alpha = 0.38f),
+        disabledLeadingIconColor = frameContentColor.copy(alpha = 0.38f),
+      )
+    val swipe = rememberGeckoChromeSwipe(page, privateMode)
+    fun goHome() {
+      scope.launch {
+        page.captureBeforeTransition()
+        activity.startActivity(
+          Intent(activity, MainActivity::class.java)
+            .putExtra(MainActivity.EXTRA_FOCUS_SEARCH, true)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+        )
+      }
+    }
     var menu by remember { mutableStateOf(false) }
     var overview by remember { mutableStateOf(false) }
     var find by remember { mutableStateOf(false) }
@@ -109,10 +136,13 @@ internal object BrowserEngine {
         when (event) {
           Lifecycle.Event.ON_RESUME -> page.session.setActive(true)
           Lifecycle.Event.ON_PAUSE -> {
-            page.capture()
             page.persist()
-            page.session.setActive(false)
+            page.capture {
+              if (page.session.isOpen && !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+                page.session.setActive(false)
+            }
           }
+          Lifecycle.Event.ON_STOP -> if (page.session.isOpen) page.session.setActive(false)
           else -> Unit
         }
       }
@@ -140,10 +170,19 @@ internal object BrowserEngine {
         onBrowserMenuShown()
       }
     }
+    LaunchedEffect(frameColor) {
+      activity.window.setBackgroundDrawable(
+        android.graphics.drawable.ColorDrawable(frameColor.toArgb())
+      )
+      activity.window.navigationBarColor = frameColor.toArgb()
+      activity.window.isNavigationBarContrastEnforced = false
+      WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
+        isAppearanceLightStatusBars = frameColor.luminance() > 0.5f
+        isAppearanceLightNavigationBars = frameColor.luminance() > 0.5f
+      }
+    }
     LaunchedEffect(page.fullscreen) {
       val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-      controller.isAppearanceLightStatusBars = true
-      controller.isAppearanceLightNavigationBars = true
       if (page.fullscreen) {
         controller.systemBarsBehavior =
           WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -159,24 +198,18 @@ internal object BrowserEngine {
         else -> onClose()
       }
     }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(frameColor)) {
       val screenWidth = maxWidth
       val screenHeight = maxHeight
+      swipe.widthPx = with(density) { screenWidth.roundToPx() }
+      GeckoSwipeDestination(swipe, frameColor)
       Column(
         Modifier.fillMaxSize()
+          .graphicsLayer { translationX = swipe.offset }
+          .background(frameColor)
           .windowInsetsPadding(if (page.fullscreen) WindowInsets(0) else WindowInsets.safeDrawing)
           .imePadding()
       ) {
-        if (!page.fullscreen) {
-          Text(
-            if (privateMode) "Gecko experiment · Private" else "Gecko experiment",
-            style = MaterialTheme.typography.labelSmall,
-            modifier =
-              Modifier.fillMaxWidth()
-                .clickable { showInfo = true }
-                .padding(horizontal = 16.dp, vertical = 2.dp),
-          )
-        }
         Box(Modifier.weight(1f).fillMaxWidth()) {
           AndroidView(
             factory = { context ->
@@ -187,15 +220,23 @@ internal object BrowserEngine {
                 page.view = it
               }
             },
+            update = { view ->
+              // SurfaceView cannot follow Compose transforms reliably. Move the cached frame
+              // during a tab swipe and keep the live compositor at its normal size underneath.
+              view.visibility =
+                if ((swipe.inMotion && tab.snapshot != null) || overview) View.INVISIBLE
+                else View.VISIBLE
+            },
             modifier =
               Modifier.fillMaxSize().onGloballyPositioned {
                 // Compose positions AndroidView using transforms. Notify Gecko after placement so
-                // its screen-space accessibility and input bounds include the header/inset offset.
+                // its screen-space accessibility and input bounds include the inset offset.
                 page.view?.let { view ->
                   view.post { view.gatherTransparentRegion(android.graphics.Region()) }
                 }
               },
           )
+          if (swipe.inMotion) GeckoTabPreview(tab, Modifier.fillMaxSize())
           page.error?.let { message ->
             Surface(Modifier.fillMaxSize()) {
               Column(Modifier.padding(24.dp)) {
@@ -234,7 +275,17 @@ internal object BrowserEngine {
           )
         }
         if (!page.fullscreen && showLauncherChrome) {
-          SearchChromeBar(isIndexing = false, modifier = Modifier.padding(vertical = 8.dp)) {
+          SearchChromeBar(
+            isIndexing = false,
+            color = frameColor,
+            contentColor = frameContentColor,
+            tonalElevation = 0.dp,
+            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp).geckoChromeSwipe(swipe),
+          ) {
+            if (privateMode) {
+              Icon(Icons.Default.VisibilityOff, "Private browsing", modifier = Modifier.size(20.dp))
+              Spacer(Modifier.width(8.dp))
+            }
             Text(
               displayPageAddress(tab.url).ifBlank { "Search anything…" },
               maxLines = 1,
@@ -242,55 +293,72 @@ internal object BrowserEngine {
               modifier =
                 Modifier.weight(1f)
                   .clickable {
-                    page.capture()
-                    onOpenSearch(false, tab.frameColorArgb, "")
+                    scope.launch {
+                      page.captureBeforeTransition()
+                      onOpenSearch(false, tab.frameColorArgb, "")
+                    }
                   }
                   .padding(vertical = 12.dp),
             )
             IconButton(
               onClick = {
-                page.capture()
-                onOpenSearch(true, tab.frameColorArgb, "")
+                scope.launch {
+                  page.captureBeforeTransition()
+                  onOpenSearch(true, tab.frameColorArgb, "")
+                }
               },
               modifier = Modifier.size(36.dp),
             ) {
               Icon(Icons.Default.Mic, "Voice search")
             }
             if (!privateMode)
-              IconButton(
+              BrowserTabsButton(
+                tabCount = BrowserTabStore.tabs?.items?.size ?: 1,
                 onClick = {
-                  page.capture()
-                  overview = true
+                  scope.launch {
+                    page.captureBeforeTransition()
+                    overview = true
+                  }
                 },
-                modifier = Modifier.size(36.dp),
-              ) {
-                Text((BrowserTabStore.tabs?.items?.size ?: 1).toString(), modifier = Modifier)
-              }
+              )
             Box {
               IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Default.MoreVert, "Browser menu")
               }
-              DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+              DropdownMenu(
+                expanded = menu,
+                onDismissRequest = { menu = false },
+                modifier = Modifier.heightIn(max = minOf(420.dp, screenHeight * 0.6f)),
+                containerColor = frameColor,
+              ) {
                 fun run(action: () -> Unit) {
                   menu = false
                   action()
                 }
                 DropdownMenuItem(
                   text = { Text("Back") },
+                  leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) },
+                  colors = menuColors,
                   enabled = page.canGoBack,
                   onClick = { run { page.session.goBack() } },
                 )
                 DropdownMenuItem(
                   text = { Text("Forward") },
+                  leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null) },
+                  colors = menuColors,
                   enabled = page.canGoForward,
                   onClick = { run { page.session.goForward() } },
                 )
                 DropdownMenuItem(
                   text = { Text("Reload") },
+                  leadingIcon = { Icon(Icons.Default.Refresh, null) },
+                  colors = menuColors,
                   onClick = { run { page.session.reload() } },
                 )
                 DropdownMenuItem(
                   text = { Text("New tab") },
+                  leadingIcon = { Icon(Icons.Default.Add, null) },
+                  colors = menuColors,
                   onClick = {
                     run {
                       if (privateMode) page.session.loadUri("about:blank")
@@ -303,32 +371,34 @@ internal object BrowserEngine {
                 )
                 DropdownMenuItem(
                   text = { Text("Close tab") },
+                  leadingIcon = { Icon(Icons.Default.Close, null) },
+                  colors = menuColors,
                   onClick = { run { activity.finishAndRemoveTask() } },
                 )
                 DropdownMenuItem(
                   text = { Text("Home") },
-                  onClick = {
-                    run {
-                      page.capture()
-                      activity.startActivity(
-                        Intent(activity, MainActivity::class.java)
-                          .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                      )
-                    }
-                  },
+                  leadingIcon = { Icon(Icons.Default.Home, null) },
+                  colors = menuColors,
+                  onClick = { run { goHome() } },
                 )
                 DropdownMenuItem(
                   text = { Text("Downloads") },
+                  leadingIcon = { Icon(Icons.Default.Download, null) },
+                  colors = menuColors,
                   onClick = {
                     run { activity.startActivity(Intent(activity, DownloadsActivity::class.java)) }
                   },
                 )
                 DropdownMenuItem(
                   text = { Text("Find in page") },
+                  leadingIcon = { Icon(Icons.Default.Search, null) },
+                  colors = menuColors,
                   onClick = { run { find = !find } },
                 )
                 DropdownMenuItem(
                   text = { Text(if (tab.desktopMode) "Mobile site" else "Desktop site") },
+                  leadingIcon = { Icon(Icons.Default.Computer, null) },
+                  colors = menuColors,
                   onClick = {
                     run {
                       tab.desktopMode = !tab.desktopMode
@@ -345,6 +415,8 @@ internal object BrowserEngine {
                 if (!privateMode) {
                   DropdownMenuItem(
                     text = { Text("Save bookmark") },
+                    leadingIcon = { Icon(Icons.Default.BookmarkAdd, null) },
+                    colors = menuColors,
                     onClick = {
                       run {
                         scope.launch {
@@ -363,6 +435,8 @@ internal object BrowserEngine {
                   )
                   DropdownMenuItem(
                     text = { Text("Favorite website") },
+                    leadingIcon = { Icon(Icons.Default.Star, null) },
+                    colors = menuColors,
                     onClick = {
                       run {
                         scope.launch {
@@ -376,6 +450,8 @@ internal object BrowserEngine {
                 }
                 DropdownMenuItem(
                   text = { Text("Share") },
+                  leadingIcon = { Icon(Icons.Default.Share, null) },
+                  colors = menuColors,
                   onClick = {
                     run {
                       activity.startActivity(
@@ -391,6 +467,8 @@ internal object BrowserEngine {
                 )
                 DropdownMenuItem(
                   text = { Text("Clear this site's data") },
+                  leadingIcon = { Icon(Icons.Default.DeleteOutline, null) },
+                  colors = menuColors,
                   onClick = {
                     run {
                       val host = Uri.parse(tab.url).host
@@ -423,6 +501,8 @@ internal object BrowserEngine {
                 )
                 DropdownMenuItem(
                   text = { Text("About this experiment") },
+                  leadingIcon = { Icon(Icons.Default.Info, null) },
+                  colors = menuColors,
                   onClick = { run { showInfo = true } },
                 )
               }
@@ -437,8 +517,8 @@ internal object BrowserEngine {
             tabs = tabs.items,
             activeIndex = tabs.indexOfFirst(tab.id),
             progress = { 1f },
-            scrimColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
+            scrimColor = frameColor,
+            contentColor = frameContentColor,
             cardWidth = screenWidth * TAB_CARD_WIDTH_FRACTION,
             previewAspectRatio = 0.55f,
             maxPreviewHeight = screenHeight * 0.7f,

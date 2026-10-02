@@ -10,7 +10,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.searchlauncher.app.SearchLauncherApp
+import kotlin.coroutines.resume
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoSession
@@ -36,6 +39,9 @@ internal class GeckoPage(
   var canGoForward by mutableStateOf(false)
   var fullscreen by mutableStateOf(false)
   var error by mutableStateOf<String?>(null)
+  private var captureRunning = false
+  private var navigationGeneration = 0
+  private val captureCallbacks = mutableListOf<() -> Unit>()
   private var state: GeckoSession.SessionState? = null
   private val saved by lazy { activity.getSharedPreferences("gecko-tabs", Context.MODE_PRIVATE) }
 
@@ -44,6 +50,8 @@ internal class GeckoPage(
     session.progressDelegate =
       object : GeckoSession.ProgressDelegate {
         override fun onPageStart(session: GeckoSession, url: String) {
+          navigationGeneration++
+          tab.pageDrawn = false
           loading = true
           error = null
           progress = 0
@@ -55,7 +63,10 @@ internal class GeckoPage(
 
         override fun onPageStop(session: GeckoSession, success: Boolean) {
           loading = false
-          if (success) recordHistory()
+          if (success) {
+            recordHistory()
+            view?.postOnAnimation { capture() }
+          }
         }
 
         override fun onSessionStateChange(
@@ -74,6 +85,7 @@ internal class GeckoPage(
 
         override fun onFirstContentfulPaint(session: GeckoSession) {
           tab.pageDrawn = true
+          view?.postOnAnimation { capture() }
         }
 
         override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) {
@@ -226,23 +238,62 @@ internal class GeckoPage(
     } else session.loadUri(tab.url)
   }
 
-  fun capture() {
-    if (privateMode || !tab.pageDrawn) return
-    view
-      ?.capturePixels()
-      ?.accept(
-        { bitmap ->
-          if (bitmap != null) {
-            // Match the WebView preview budget instead of keeping a full-resolution image per tab.
-            val width = bitmap.width.coerceAtMost(540)
-            val height = (bitmap.height.toFloat() * width / bitmap.width).toInt().coerceAtLeast(1)
-            val preview = android.graphics.Bitmap.createScaledBitmap(bitmap, width, height, true)
-            tab.snapshot = preview
-            if (preview !== bitmap) bitmap.recycle()
-          }
-        },
-        {},
-      )
+  /** Capture while visible, before another window/overlay can suspend the compositor. */
+  suspend fun captureBeforeTransition() {
+    withTimeoutOrNull(500) {
+      suspendCancellableCoroutine<Unit> { continuation ->
+        capture { if (continuation.isActive) continuation.resume(Unit) }
+      }
+    }
+  }
+
+  fun capture(onComplete: () -> Unit = {}) {
+    if (captureRunning) {
+      captureCallbacks += onComplete
+      return
+    }
+    val currentView = view
+    if (privateMode || !tab.pageDrawn || currentView?.isShown != true || !session.isOpen) {
+      onComplete()
+      return
+    }
+    captureRunning = true
+    captureCallbacks += onComplete
+    val generation = navigationGeneration
+    fun complete() {
+      captureRunning = false
+      val callbacks = captureCallbacks.toList()
+      captureCallbacks.clear()
+      callbacks.forEach { it() }
+    }
+    try {
+      currentView
+        .capturePixels()
+        .accept(
+          { bitmap ->
+            if (bitmap != null) {
+              if (generation == navigationGeneration && currentView.isShown && tab.pageDrawn) {
+                val width = bitmap.width.coerceAtMost(540)
+                val height =
+                  (bitmap.height.toFloat() * width / bitmap.width).toInt().coerceAtLeast(1)
+                val preview =
+                  android.graphics.Bitmap.createScaledBitmap(bitmap, width, height, true)
+                tab.snapshot = preview
+                if (preview !== bitmap) bitmap.recycle()
+              } else bitmap.recycle()
+            }
+            complete()
+          },
+          { failure ->
+            android.util.Log.w("GeckoPreview", "Could not capture tab preview", failure)
+            // Retain the last drawn frame; never replace it with a blank capture on suspension.
+            complete()
+          },
+        )
+    } catch (failure: Exception) {
+      android.util.Log.w("GeckoPreview", "Compositor unavailable for preview", failure)
+      complete()
+    }
   }
 
   fun persist() {
