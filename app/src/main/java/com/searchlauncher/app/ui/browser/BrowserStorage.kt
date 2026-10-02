@@ -29,10 +29,15 @@ internal fun groupSiteStorage(origins: List<Pair<String, Long>>): List<SiteStora
 /** Called on the UI thread. Only accesses the normal browsing process's WebStorage. */
 internal class BrowserStorage {
   val canClear: Boolean
-    get() = WebViewFeature.isFeatureSupported(WebViewFeature.DELETE_BROWSING_DATA)
+    get() =
+      !BrowserEngine.isGecko &&
+        WebViewFeature.isFeatureSupported(WebViewFeature.DELETE_BROWSING_DATA)
 
   suspend fun load(): List<SiteStorage> =
     withTimeout(15_000) {
+      check(!BrowserEngine.isGecko) {
+        "Gecko storage totals are not available in this experiment. Clear a site's data from its browser menu."
+      }
       suspendCancellableCoroutine { continuation ->
         WebStorage.getInstance().getOrigins { values ->
           val origins = values.values.filterIsInstance<WebStorage.Origin>()

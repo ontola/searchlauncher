@@ -217,7 +217,7 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
       val isOled by preference(PreferencesKeys.OLED_MODE, false)
 
       SearchLauncherTheme(themeColor, darkMode, themeSaturation, isOled) {
-        BrowserScreen(
+        BrowserEngine.Content(
           navigationRequest = navigationRequest,
           privateMode = isPrivateMode,
           showLauncherChrome = !searchOverlayVisible && !inPictureInPicture,

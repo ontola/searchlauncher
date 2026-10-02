@@ -12,7 +12,7 @@ class PrivateBrowserActivity : BrowserActivity() {
     // A process-specific data directory keeps private cookies and storage separate from normal
     // browsing. This must happen before the first WebView is created in the incognito process.
     synchronized(PrivateBrowserActivity::class.java) {
-      if (!dataDirectoryConfigured) {
+      if (!BrowserEngine.isGecko && !dataDirectoryConfigured) {
         WebView.setDataDirectorySuffix("incognito")
         dataDirectoryConfigured = true
       }
@@ -24,7 +24,7 @@ class PrivateBrowserActivity : BrowserActivity() {
     super.onDestroy()
     // Only wipe the private session when the activity is actually going away, not when the
     // system recreates it for a configuration change such as a screen rotation.
-    if (isFinishing) {
+    if (isFinishing && !BrowserEngine.isGecko) {
       CookieManager.getInstance().removeAllCookies(null)
       CookieManager.getInstance().flush()
       WebStorage.getInstance().deleteAllData()

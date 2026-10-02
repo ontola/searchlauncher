@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <application android:allowBackup="false" tools:replace="android:allowBackup">
+    <activity android:name=".ui.browser.BrowserActivity" android:taskAffinity="${applicationId}.browser" tools:replace="android:taskAffinity" />
+    <activity android:name=".ui.browser.PrivateBrowserActivity" android:taskAffinity="${applicationId}.incognito" tools:replace="android:taskAffinity" />
+    <activity android:name=".ui.browser.GeckoNotificationActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+    <receiver android:name=".ui.browser.GeckoNotificationDismissReceiver" android:exported="false" />
+  </application>
+</manifest>
