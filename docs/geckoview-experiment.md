@@ -178,3 +178,30 @@ Physical Xiaomi verification and the separately reported Proton Pass crash remai
   the independently confirmed blank-URL parser and startup/restore defects are addressed above.
 
 The Proton Pass crash and physical Xiaomi verification remain outstanding.
+
+## Experimental build 6
+
+- Active Gecko downloads and page exports now use the same rounded card, icon tile, two-line
+  filename and status typography as completed downloads. Progress and percentage stay inside
+  the card; unknown-size downloads keep an indeterminate bar. Pending and completed downloads
+  share one scrollable list.
+- Browser-toolbar swipes measure drag distance and fling velocity in stationary screen
+  coordinates. The home gesture uses those coordinates for velocity too. The browser-to-home
+  handover waits for the slide to finish instead of cutting it off at 85%. The destination bitmap
+  moves in the render layer without recomposing on every offset change, and previews refresh
+  after page scrolling settles rather than starting a new bitmap capture during the gesture.
+- Reopen Gecko sessions after a content-process kill/crash before retrying or navigating to
+  another address. Reattach the view and icon bridge, restore matching in-memory history for a
+  retry, and protect the destination against startup `about:blank` events. Website storage is
+  retained. This fixes recovery; it does not establish why Android reclaimed memory on the
+  reported Xiaomi device.
+- Emulator coverage includes real `kill -9` termination of Gecko content processes, successful
+  retry with retained site storage, another termination followed by same-tab navigation to a
+  different URL, and repeated swipes in both directions between the browser and home. The test
+  fixture disables HTTP caching so recovery evidence cannot be hidden by cached report requests.
+
+Validation: `spotlessCheck`, both browser variants' unit tests and APK builds passed. All nine
+Gecko emulator scenarios passed across the full run and the corrected bidirectional swipe rerun
+(the first run hit first-launch setup dialogs, now explicitly dismissed in the fixture).
+
+Physical Xiaomi smoothness and the separately reported Proton Pass crash remain unverified.

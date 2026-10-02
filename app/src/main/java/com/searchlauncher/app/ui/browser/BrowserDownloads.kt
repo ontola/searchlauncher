@@ -238,21 +238,17 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
           modifier = Modifier.padding(vertical = 8.dp),
         )
       }
-      pendingPageDownloads.values.forEach { export ->
-        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-          Text(export.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-          val fraction = export.fraction
-          if (fraction == null) LinearProgressIndicator(Modifier.fillMaxWidth())
-          else LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+      LazyColumn(Modifier.weight(1f)) {
+        items(pendingPageDownloads.toList(), key = { "pending:${it.first}" }) { (_, export) ->
+          PendingDownloadCard(export)
         }
-      }
-      when {
-        !loaded -> CircularProgressIndicator()
-        error -> Text("Couldn’t load downloads. Retrying…")
-        downloads.isEmpty() -> if (pendingPageDownloads.isEmpty()) Text("No downloads yet")
-        else ->
-          LazyColumn(Modifier.weight(1f)) {
-            items(downloads, key = { it.id }) { item ->
+        when {
+          !loaded -> item { CircularProgressIndicator() }
+          error -> item { Text("Couldn’t load downloads. Retrying…") }
+          downloads.isEmpty() ->
+            if (pendingPageDownloads.isEmpty()) item { Text("No downloads yet") }
+          else ->
+            items(downloads, key = { "download:${it.id}" }) { item ->
               DownloadCard(
                 item = item,
                 onOpen = { requestOpen(item) },
@@ -261,7 +257,7 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
                 onDelete = { deleteTarget = item },
               )
             }
-          }
+        }
       }
     }
   }
@@ -316,6 +312,93 @@ private fun DownloadCard(
       DownloadManager.STATUS_PENDING -> "Queued"
       else -> percent?.let { "Downloading · $it%" } ?: "Downloading"
     }
+  DownloadCardLayout(
+    name = item.name,
+    status = status,
+    active = item.active,
+    failed = item.status == DownloadManager.STATUS_FAILED,
+    actions = {
+      Box {
+        IconButton(onClick = { menu = true }) {
+          Icon(Icons.Default.MoreVert, "Actions for ${item.name}")
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+          if (complete)
+            DropdownMenuItem(
+              text = { Text("Open with…") },
+              onClick = {
+                menu = false
+                onOpenWith()
+              },
+            )
+          DropdownMenuItem(
+            text = { Text("Show in Files") },
+            onClick = {
+              menu = false
+              onShowInFiles()
+            },
+          )
+          DropdownMenuItem(
+            text = { Text(if (item.active) "Cancel download" else "Delete") },
+            onClick = {
+              menu = false
+              onDelete()
+            },
+          )
+        }
+      }
+    },
+  ) {
+    if (item.active)
+      DownloadProgress(if (item.total > 0) item.bytes.toFloat() / item.total else null)
+
+    val bytes = Formatter.formatShortFileSize(context, item.displayBytes)
+    val total =
+      if (item.active && item.total > 0) " / ${Formatter.formatShortFileSize(context, item.total)}"
+      else ""
+    Text(
+      "$bytes$total · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(item.updated))}",
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (complete)
+      FilledTonalButton(onClick = onOpen) {
+        Text(if (item.name.endsWith(".apk", true)) "Install APK" else "Open file")
+      }
+  }
+}
+
+@Composable
+private fun PendingDownloadCard(download: PageDownloadProgress) {
+  val percent = download.fraction?.let { (it * 100).toInt().coerceIn(0, 100) }
+  DownloadCardLayout(
+    name = download.name,
+    status = percent?.let { "Downloading · $it%" } ?: "Downloading",
+    active = true,
+  ) {
+    DownloadProgress(download.fraction)
+  }
+}
+
+@Composable
+private fun DownloadProgress(fraction: Float?) {
+  if (fraction == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+  else
+    LinearProgressIndicator(
+      progress = { fraction.coerceIn(0f, 1f) },
+      modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun DownloadCardLayout(
+  name: String,
+  status: String,
+  active: Boolean,
+  failed: Boolean = false,
+  actions: @Composable () -> Unit = {},
+  content: @Composable ColumnScope.() -> Unit,
+) {
   Card(
     modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
     shape = RoundedCornerShape(16.dp),
@@ -328,7 +411,7 @@ private fun DownloadCard(
           color = MaterialTheme.colorScheme.secondaryContainer,
         ) {
           Icon(
-            if (item.active) Icons.Default.Download else Icons.Default.InsertDriveFile,
+            if (active) Icons.Default.Download else Icons.Default.InsertDriveFile,
             contentDescription = null,
             modifier = Modifier.padding(12.dp).size(24.dp),
           )
@@ -336,7 +419,7 @@ private fun DownloadCard(
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
           Text(
-            item.name,
+            name,
             style = MaterialTheme.typography.titleSmall,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -345,62 +428,13 @@ private fun DownloadCard(
             status,
             style = MaterialTheme.typography.labelMedium,
             color =
-              if (item.status == DownloadManager.STATUS_FAILED) MaterialTheme.colorScheme.error
+              if (failed) MaterialTheme.colorScheme.error
               else MaterialTheme.colorScheme.onSurfaceVariant,
           )
         }
-        Box {
-          IconButton(onClick = { menu = true }) {
-            Icon(Icons.Default.MoreVert, "Actions for ${item.name}")
-          }
-          DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            if (complete)
-              DropdownMenuItem(
-                text = { Text("Open with…") },
-                onClick = {
-                  menu = false
-                  onOpenWith()
-                },
-              )
-            DropdownMenuItem(
-              text = { Text("Show in Files") },
-              onClick = {
-                menu = false
-                onShowInFiles()
-              },
-            )
-            DropdownMenuItem(
-              text = { Text(if (item.active) "Cancel download" else "Delete") },
-              onClick = {
-                menu = false
-                onDelete()
-              },
-            )
-          }
-        }
+        actions()
       }
-      if (item.active) {
-        if (item.total > 0)
-          LinearProgressIndicator(
-            progress = { (item.bytes.toFloat() / item.total).coerceIn(0f, 1f) },
-            modifier = Modifier.fillMaxWidth(),
-          )
-        else LinearProgressIndicator(Modifier.fillMaxWidth())
-      }
-      val bytes = Formatter.formatShortFileSize(context, item.displayBytes)
-      val total =
-        if (item.active && item.total > 0)
-          " / ${Formatter.formatShortFileSize(context, item.total)}"
-        else ""
-      Text(
-        "$bytes$total · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(item.updated))}",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-      if (complete)
-        FilledTonalButton(onClick = onOpen) {
-          Text(if (item.name.endsWith(".apk", true)) "Install APK" else "Open file")
-        }
+      content()
     }
   }
 }

@@ -32,7 +32,6 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
-import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Dp
@@ -170,7 +169,10 @@ internal fun Modifier.browserTabSwipe(
         }
         change.consume()
         if (gesture == Gesture.SIDEWAYS) {
-          velocityTracker.addPointerInputChange(change)
+          velocityTracker.addPosition(
+            change.uptimeMillis,
+            androidx.compose.ui.geometry.Offset(screenX, change.position.y),
+          )
           // The browser lives one screen to the left, so only a rightward pull has somewhere to
           // go. The other direction still gives under the finger the way the browser's outermost
           // tab does, so it reads as "nothing over there" rather than as dead.

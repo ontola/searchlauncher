@@ -6,7 +6,8 @@ import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,9 +15,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
-import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -51,19 +52,19 @@ internal class GeckoChromeSwipe(
     return tabs.items.getOrNull(tabs.indexOfFirst(page.tab.id) + direction)
   }
 
-  val towardsHome: Boolean
-    get() = offset < 0 && neighbour(1) == null
-
   fun start() {
     settle?.cancel()
     inMotion = true
     velocity.resetTracking()
-    // A frame was already captured at paint/load time, so the first drag is immediate.
-    page.capture()
+    // Reuse the painted preview. Capturing/scaling another bitmap while dragging competes
+    // with animation frames and can replace the image in the middle of the gesture.
   }
 
-  fun drag(change: androidx.compose.ui.input.pointer.PointerInputChange, delta: Float) {
-    velocity.addPointerInputChange(change)
+  fun track(time: Long, screenPosition: androidx.compose.ui.geometry.Offset) {
+    velocity.addPosition(time, screenPosition)
+  }
+
+  fun drag(delta: Float) {
     val proposed = offset + delta
     val allowed = proposed <= 0 || neighbour(-1) != null
     offset =
@@ -90,9 +91,7 @@ internal class GeckoChromeSwipe(
         )
     settle =
       scope.launch {
-        var handedOver = false
         fun handOver() {
-          handedOver = true
           page.persist()
           if (next != null) BrowserTabTasks.open(activity, next.id)
           else
@@ -109,10 +108,9 @@ internal class GeckoChromeSwipe(
             spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
         ) { value, _ ->
           offset = value
-          if (commit && !handedOver && abs(value) >= widthPx * LAUNCHER_HANDOVER_FRACTION)
-            handOver()
         }
-        if (commit && !handedOver) handOver()
+        // Switching activities at 85% cut off the remaining travel with a visible jump.
+        if (commit) handOver()
         if (!commit) inMotion = false
       }
   }
@@ -156,15 +154,50 @@ internal fun rememberGeckoChromeSwipe(page: GeckoPage, privateMode: Boolean): Ge
 
 internal fun Modifier.geckoChromeSwipe(swipe: GeckoChromeSwipe): Modifier =
   pointerInput(swipe) {
-    detectHorizontalDragGestures(
-      onDragStart = { swipe.start() },
-      onDragEnd = { swipe.end() },
-      onDragCancel = { swipe.end(cancelled = true) },
-      onHorizontalDrag = { change, delta ->
+    awaitEachGesture {
+      val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+      val offsetAtStart = swipe.offset
+      var previousX = down.position.x
+      var dragging = false
+      while (true) {
+        val event = awaitPointerEvent(PointerEventPass.Initial)
+        val change = event.changes.firstOrNull { it.id == down.id }
+        if (change == null) {
+          if (dragging) swipe.end(cancelled = true)
+          break
+        }
+        // The toolbar moves with the page. Measure the finger in stationary screen coordinates,
+        // otherwise the toolbar's own travel feeds back into drag distance and fling velocity.
+        val screenX = change.position.x + swipe.offset - offsetAtStart
+        val dx = screenX - down.position.x
+        val dy = change.position.y - down.position.y
+        if (!change.pressed) {
+          if (dragging) {
+            swipe.track(
+              change.uptimeMillis,
+              androidx.compose.ui.geometry.Offset(screenX, change.position.y),
+            )
+            swipe.end()
+          }
+          break
+        }
+        if (!dragging) {
+          if (abs(dy) > viewConfiguration.touchSlop && abs(dy) > abs(dx)) break
+          if (abs(dx) <= viewConfiguration.touchSlop) continue
+          swipe.start()
+          swipe.track(down.uptimeMillis, down.position)
+          dragging = true
+          previousX = down.position.x + kotlin.math.sign(dx) * viewConfiguration.touchSlop
+        }
         change.consume()
-        swipe.drag(change, delta)
-      },
-    )
+        swipe.track(
+          change.uptimeMillis,
+          androidx.compose.ui.geometry.Offset(screenX, change.position.y),
+        )
+        swipe.drag(screenX - previousX)
+        previousX = screenX
+      }
+    }
   }
 
 @Composable
@@ -184,9 +217,19 @@ internal fun GeckoTabPreview(tab: BrowserTab, modifier: Modifier = Modifier) {
 
 @Composable
 internal fun GeckoSwipeDestination(swipe: GeckoChromeSwipe, background: Color) {
-  if (!swipe.inMotion || swipe.offset == 0f) return
-  val home = swipe.towardsHome
-  val direction = if (swipe.offset < 0) 1 else -1
+  // Offset is read by the render layer only; don't recompose this full-screen image every frame.
+  val direction by
+    remember(swipe) {
+      derivedStateOf {
+        when {
+          !swipe.inMotion || swipe.offset == 0f -> 0
+          swipe.offset < 0f -> 1
+          else -> -1
+        }
+      }
+    }
+  if (direction == 0) return
+  val home = direction == 1 && swipe.neighbour(1) == null
   Box(
     Modifier.fillMaxSize()
       .graphicsLayer { translationX = swipe.offset + direction * swipe.widthPx }

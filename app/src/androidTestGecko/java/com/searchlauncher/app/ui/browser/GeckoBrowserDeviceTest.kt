@@ -257,6 +257,49 @@ class GeckoBrowserDeviceTest {
   }
 
   @Test
+  fun killedContentProcessRecoversOnRetryAndNewNavigation() {
+    var tabId = 0L
+    instrumentation.runOnMainSync { tabId = BrowserTabStore.tabs!!.active.id }
+    // Keep session history and website storage across a real OS process termination.
+    tap("Store data")
+    waitFor("storage-written")
+    fun killContentProcesses() {
+      val processes = device.executeShellCommand("ps -A -o PID,NAME")
+      val pids =
+        processes
+          .lineSequence()
+          .map { it.trim().split(Regex("\\s+")) }
+          .filter { it.size == 2 && it[1].startsWith("${context.packageName}:tab_") }
+          .map { it[0].toInt() }
+          .toList()
+      assertTrue("Gecko content processes must be running", pids.isNotEmpty())
+      // This instrumentation scenario runs on a rooted AOSP emulator (adb root).
+      pids.forEach { device.executeShellCommand("kill -9 $it") }
+      assertNotNull(device.wait(Until.findObject(By.text("Try again")), 15000))
+    }
+    killContentProcesses()
+    reports.clear()
+    tap("Try again")
+    waitFor("engine", 30000)
+    assertNotNull(device.wait(Until.findObject(By.text("Export file")), 15000))
+    tap("Read data")
+    waitFor("storage-present")
+    instrumentation.runOnMainSync { assertEquals("$origin/", BrowserTabStore.tab(tabId)!!.url) }
+    saveScreenshot("recovered-after-kill")
+
+    killContentProcesses()
+    reports.clear()
+    // Exercise the app's same-tab address/navigation path without pressing Retry.
+    instrumentation.runOnMainSync {
+      context.startActivity(BrowserActivity.createNavigateIntent(context, tabId, "$origin/next"))
+    }
+    waitFor("engine", 30000)
+    assertNotNull(device.wait(Until.findObject(By.text("Export file")), 15000))
+    instrumentation.runOnMainSync { assertEquals("$origin/next", BrowserTabStore.tab(tabId)!!.url) }
+    saveScreenshot("new-address-after-kill")
+  }
+
+  @Test
   fun reloadAndFailureKeepAnOpaqueBrowserAndRetryTheFailedAddress() {
     tap("Read data")
     instrumentation.runOnMainSync {
@@ -414,6 +457,18 @@ class GeckoBrowserDeviceTest {
 
   @Test
   fun previewsChromeAndSwipeSurviveRepeatedHandoffs() {
+    (context.applicationContext as SearchLauncherApp).apply {
+      setAskedDefaultLauncher()
+      setAskedDefaultBrowser()
+      setConsent(false)
+    }
+    runBlocking {
+      context.dataStore.edit {
+        it[PreferencesKeys.ONBOARDING_PERMISSIONS_ASKED] = true
+        it[PreferencesKeys.BUILT_IN_KEYBOARD] = true
+      }
+      com.searchlauncher.app.ui.onboarding.OnboardingManager(context).skipAll()
+    }
     device.wait(Until.findObject(By.text("Export file")), 15000)
     assertFalse(device.hasObject(By.textContains("Gecko experiment")))
     var tabId = 0L
@@ -477,8 +532,22 @@ class GeckoBrowserDeviceTest {
         }
         home
       }
-      instrumentation.runOnMainSync { BrowserTabTasks.open(context, tabId) }
-      device.wait(Until.findObject(By.desc("Browser menu")), 10000)
+      val homeSettings = device.wait(Until.findObject(By.desc("Settings")), 10000)
+      saveScreenshot("swipe-home-$it")
+      device.dumpWindowHierarchy(
+        java.io.File(context.getExternalFilesDir(null), "gecko-swipe-home.xml")
+      )
+      assertNotNull("Home search bar must be visible", homeSettings)
+      val homeBar = homeSettings!!.visibleBounds
+      // Return with the actual home chrome gesture, not a programmatic tab launch.
+      device.swipe(
+        device.displayWidth / 5,
+        homeBar.centerY(),
+        device.displayWidth * 4 / 5,
+        homeBar.centerY(),
+        40,
+      )
+      assertNotNull(device.wait(Until.findObject(By.desc("Browser menu")), 10000))
     }
     device.findObject(By.desc("Browser menu")).click()
     val back = device.wait(Until.findObject(By.text("Back")), 10000)!!
@@ -705,7 +774,7 @@ class GeckoBrowserDeviceTest {
       val bytes = body.toByteArray()
       it.getOutputStream().apply {
         write(
-          "HTTP/1.1 200 OK\r\nContent-Type: $mime; charset=utf-8\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
+          "HTTP/1.1 200 OK\r\nContent-Type: $mime; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
             .toByteArray()
         )
         write(bytes)

@@ -11,6 +11,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.searchlauncher.app.SearchLauncherApp
 import kotlin.coroutines.resume
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -50,12 +52,25 @@ internal class GeckoPage(
   private var hasRenderedDocument = false
   private var failedUrl: String? = null
   private var captureRunning = false
+  private var scrollCapture: Job? = null
   private var navigationGeneration = 0
+  private var loadGeneration = 0
   private val captureCallbacks = mutableListOf<() -> Unit>()
   private var state: GeckoSession.SessionState? = null
 
   init {
     tab.url = initialUrl
+    session.scrollDelegate =
+      object : GeckoSession.ScrollDelegate {
+        override fun onScrollChanged(session: GeckoSession, scrollX: Int, scrollY: Int) {
+          scrollCapture?.cancel()
+          scrollCapture =
+            activity.lifecycleScope.launch {
+              delay(200)
+              capture()
+            }
+        }
+      }
     session.selectionActionDelegate = org.mozilla.geckoview.BasicSelectionActionDelegate(activity)
     session.progressDelegate =
       object : GeckoSession.ProgressDelegate {
@@ -125,13 +140,11 @@ internal class GeckoPage(
         }
 
         override fun onCrash(session: GeckoSession) {
-          error = "The page process stopped. Reload to try again."
-          loading = false
+          processStopped("The page process stopped. Reload to try again.")
         }
 
         override fun onKill(session: GeckoSession) {
-          error = "Android stopped this page to reclaim memory. Reload to continue."
-          loading = false
+          processStopped("Android stopped this page to reclaim memory. Reload to continue.")
         }
 
         override fun onContextMenu(
@@ -258,14 +271,51 @@ internal class GeckoPage(
   }
 
   fun reload() {
-    if (error != null) retry() else if (!awaitingInitialLocation) session.reload()
+    if (error != null || !session.isOpen) retry()
+    else if (!awaitingInitialLocation) session.reload()
   }
 
   fun retry() {
     val url = failedUrl ?: tab.url
+    navigate(url, restoreHistory = true)
+  }
+
+  private fun processStopped(message: String) {
+    failedUrl = failedUrl ?: tab.url
+    navigationGeneration++
+    loadGeneration++
+    tab.pageDrawn = false
+    fullscreen = false
+    loading = false
+    error = message
+  }
+
+  /** A killed/crashed Gecko session is closed: loadUri alone just queues forever. */
+  fun navigate(url: String, restoreHistory: Boolean = false) {
+    val reopening = !session.isOpen
+    val history = state?.takeIf { reopening && restoreHistory && it.currentUrl() == url }
+    val generation = ++loadGeneration
     failedUrl = null
     error = null
-    session.loadUri(url)
+    loading = true
+    progress = 0
+    if (Uri.parse(tab.url).host != Uri.parse(url).host) tab.favicon = null
+    tab.url = url
+    awaitingInitialLocation = url != "about:blank"
+    if (reopening) {
+      navigationGeneration++
+      tab.pageDrawn = false
+      view?.releaseSession()
+      session.open(GeckoEnvironment.runtime(activity))
+      view?.setSession(session)
+      view?.coverUntilFirstPaint(android.graphics.Color.WHITE)
+      session.setActive(true)
+      preparePage {
+        if (generation == loadGeneration) {
+          if (history != null) session.restoreState(history) else session.loadUri(url)
+        }
+      }
+    } else session.loadUri(url)
   }
 
   fun dismissDownloads() {
@@ -281,11 +331,15 @@ internal class GeckoPage(
     if (!session.isOpen) session.open(runtime)
     session.setActive(true)
     favicons?.restoreCached()
+    val generation = ++loadGeneration
+    preparePage { if (generation == loadGeneration) loadInitialPage() }
+  }
+
+  private fun preparePage(ready: () -> Unit) {
     GeckoAdBlocking.prepare(activity) {
       if (session.isOpen) {
-        if (favicons != null)
-          GeckoEnvironment.attachIcons(activity, session, favicons) { loadInitialPage() }
-        else loadInitialPage()
+        if (favicons != null) GeckoEnvironment.attachIcons(activity, session, favicons, ready)
+        else ready()
       }
     }
   }
@@ -372,6 +426,7 @@ internal class GeckoPage(
   }
 
   fun close() {
+    scrollCapture?.cancel()
     favicons?.close()
     session.close()
   }

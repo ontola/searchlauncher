@@ -174,7 +174,9 @@ internal object BrowserEngine {
       }
     }
     LaunchedEffect(navigationRequest?.sequence) {
-      navigationRequest?.let { if (it.url != page.tab.url) page.session.loadUri(it.url) }
+      navigationRequest?.let {
+        if (it.url != page.tab.url || !page.session.isOpen) page.navigate(it.url)
+      }
     }
     LaunchedEffect(browserMenuRequest) {
       if (browserMenuRequest != 0L) {
