@@ -230,6 +230,8 @@ internal object BrowserEngine {
                 it.setBackgroundColor(AndroidColor.WHITE)
                 it.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
                 it.setSession(page.session)
+                // Paint Gecko's compositor surface, not only the FrameLayout behind it.
+                it.coverUntilFirstPaint(AndroidColor.WHITE)
                 page.view = it
               }
             },
@@ -237,7 +239,12 @@ internal object BrowserEngine {
               // SurfaceView cannot follow Compose transforms reliably. Move the cached frame
               // during a tab swipe and keep the live compositor at its normal size underneath.
               view.visibility =
-                if ((swipe.inMotion && tab.snapshot != null) || overview || page.showDownloads)
+                if (
+                  (swipe.inMotion && tab.snapshot != null) ||
+                    overview ||
+                    page.showDownloads ||
+                    page.error != null
+                )
                   View.INVISIBLE
                 else View.VISIBLE
             },
@@ -256,14 +263,7 @@ internal object BrowserEngine {
               Column(Modifier.padding(24.dp)) {
                 Text("Could not open this page", style = MaterialTheme.typography.titleLarge)
                 Text(message, modifier = Modifier.padding(vertical = 16.dp))
-                Button(
-                  onClick = {
-                    page.error = null
-                    page.session.reload()
-                  }
-                ) {
-                  Text("Try again")
-                }
+                Button(onClick = page::retry) { Text("Try again") }
               }
             }
           }
@@ -372,7 +372,7 @@ internal object BrowserEngine {
                   text = { Text("Reload") },
                   leadingIcon = { Icon(Icons.Default.Refresh, null) },
                   colors = menuColors,
-                  onClick = { run { page.session.reload() } },
+                  onClick = { run { page.reload() } },
                 )
                 DropdownMenuItem(
                   text = { Text("New tab") },

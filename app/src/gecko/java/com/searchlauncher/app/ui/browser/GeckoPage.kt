@@ -44,6 +44,7 @@ internal class GeckoPage(
   var showDownloads by mutableStateOf(false)
   private var closeDownloadTab = false
   private var hasRenderedDocument = false
+  private var failedUrl: String? = null
   private var captureRunning = false
   private var navigationGeneration = 0
   private val captureCallbacks = mutableListOf<() -> Unit>()
@@ -59,6 +60,7 @@ internal class GeckoPage(
           tab.pageDrawn = false
           loading = true
           error = null
+          failedUrl = null
           progress = 0
         }
 
@@ -231,11 +233,24 @@ internal class GeckoPage(
           uri: String?,
           failure: WebRequestError,
         ): GeckoResult<String>? {
-          error = "${uri ?: tab.url}\n\nGecko could not load this page (error ${failure.code})."
+          failedUrl = uri ?: tab.url
+          tab.url = failedUrl!!
+          error = "${failedUrl}\n\nCheck your connection and try again. (Error ${failure.code})"
           loading = false
           return null
         }
       }
+  }
+
+  fun reload() {
+    if (error != null) retry() else session.reload()
+  }
+
+  fun retry() {
+    val url = failedUrl ?: tab.url
+    failedUrl = null
+    error = null
+    session.loadUri(url)
   }
 
   fun dismissDownloads() {

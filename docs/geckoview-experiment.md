@@ -142,9 +142,14 @@ affected-device logs.
 - Completed files use DownloadManager's recorded file length for size display. Imported downloads
   can report zero transferred bytes even with a nonempty saved file. Partial and failed transfers
   continue to display only the bytes transferred. Existing history benefits without redownloading.
-- Validation: spotlessCheck, regular and Gecko unit suites, both APK builds, and five Android 15
+- Browser windows no longer inherit the launcher wallpaper flag. Gecko has an opaque compositor
+  clear color, and the live surface is hidden behind load errors so retry controls remain visible.
+  Retry and the Reload menu action target the failed address, even if it never committed.
+- Validation: spotlessCheck, regular and Gecko unit suites, both APK builds, and six Android 15
   ARM64 device scenarios passed. The new direct-download scenario verifies live progress, exact
   saved bytes after closing the temporary tab, a single server request, and the visible file size.
-  The blob-export scenario verifies Downloads opens and returns to the source page.
+  The blob-export scenario verifies Downloads opens and returns to the source page. A stalled
+  reload retains an opaque viewport; a refused connection shows a drawn error and successfully
+  retries once its local server becomes available.
 
 Physical Xiaomi verification and the separately reported Proton Pass crash remain outstanding.

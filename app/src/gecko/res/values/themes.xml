@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Gecko uses a SurfaceView. Its transparent regions must never expose launcher wallpaper. -->
+    <style name="Theme.SearchLauncher.GeckoBrowser" parent="Theme.SearchLauncher.Browser">
+        <item name="android:windowShowWallpaper">false</item>
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>

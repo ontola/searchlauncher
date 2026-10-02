@@ -40,6 +40,8 @@ class GeckoBrowserDeviceTest {
   private lateinit var server: ServerSocket
   private val reports = CopyOnWriteArrayList<String>()
   private lateinit var origin: String
+  private val delayNextDocument = java.util.concurrent.atomic.AtomicBoolean(false)
+  private val releaseReload = java.util.concurrent.CountDownLatch(1)
   private val releaseDownload = java.util.concurrent.CountDownLatch(1)
   private val downloadBytes = ByteArray(1024 * 1024 + 123) { (it % 251).toByte() }
   private val releaseIcon = java.util.concurrent.CountDownLatch(1)
@@ -67,6 +69,7 @@ class GeckoBrowserDeviceTest {
   fun stop() {
     releaseIcon.countDown()
     releaseDownload.countDown()
+    releaseReload.countDown()
     server.close()
   }
 
@@ -127,6 +130,79 @@ class GeckoBrowserDeviceTest {
     waitFor("storage-written")
     tap("Read data")
     waitFor("storage-present")
+  }
+
+  @Test
+  fun reloadAndFailureKeepAnOpaqueBrowserAndRetryTheFailedAddress() {
+    tap("Read data")
+    instrumentation.runOnMainSync {
+      val activity =
+        ActivityLifecycleMonitorRegistry.getInstance()
+          .getActivitiesInStage(Stage.RESUMED)
+          .filterIsInstance<BrowserActivity>()
+          .single()
+      assertEquals(
+        0,
+        activity.window.attributes.flags and
+          android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER,
+      )
+    }
+    reports.clear()
+    delayNextDocument.set(true)
+    device.wait(Until.findObject(By.desc("Browser menu")), 10000)!!.click()
+    menuItem("Reload").click()
+    waitFor("reload-waiting")
+    val reloadImage =
+      android.graphics.BitmapFactory.decodeFile(saveScreenshot("reload-waiting").absolutePath)
+    val center = reloadImage.getPixel(reloadImage.width / 2, reloadImage.height * 3 / 4)
+    assertTrue(
+      "Stalled reload must keep an opaque white page",
+      Color.red(center) > 230 && Color.green(center) > 230 && Color.blue(center) > 230,
+    )
+    reloadImage.recycle()
+    releaseReload.countDown()
+    waitFor("engine")
+    assertNotNull(device.wait(Until.findObject(By.text("Export file")), 10000))
+
+    val failedPort = ServerSocket(0).use { it.localPort }
+    context.startActivity(
+      BrowserActivity.createIntent(context, "http://localhost:$failedPort/retry")
+    )
+    assertNotNull(device.wait(Until.findObject(By.text("Could not open this page")), 15000))
+    val retry = device.wait(Until.findObject(By.text("Try again")), 10000)!!
+    instrumentation.runOnMainSync {
+      assertEquals("http://localhost:$failedPort/retry", BrowserTabStore.tabs!!.active.url)
+    }
+    val failureImage =
+      android.graphics.BitmapFactory.decodeFile(saveScreenshot("load-error").absolutePath)
+    val textBounds = retry.visibleBounds
+    var minLuminance = 255
+    var maxLuminance = 0
+    for (y in textBounds.top until textBounds.bottom) for (x in
+      textBounds.left until textBounds.right) {
+      val pixel = failureImage.getPixel(x, y)
+      val luminance = (Color.red(pixel) + Color.green(pixel) + Color.blue(pixel)) / 3
+      minLuminance = minOf(minLuminance, luminance)
+      maxLuminance = maxOf(maxLuminance, luminance)
+    }
+    assertTrue(
+      "Retry text must actually be drawn above the browser surface",
+      maxLuminance - minLuminance > 50,
+    )
+    failureImage.recycle()
+    reports.clear()
+    ServerSocket(failedPort).use { recovered ->
+      thread(isDaemon = true) {
+        while (!recovered.isClosed) {
+          val socket = runCatching { recovered.accept() }.getOrNull() ?: break
+          thread(isDaemon = true) { serve(socket) }
+        }
+      }
+      tap("Try again")
+      waitFor("engine")
+      assertNotNull(device.wait(Until.findObject(By.text("Export file")), 10000))
+      assertFalse(device.hasObject(By.text("Could not open this page")))
+    }
   }
 
   @Test
@@ -411,6 +487,10 @@ class GeckoBrowserDeviceTest {
       val reader = it.getInputStream().bufferedReader()
       val path = reader.readLine()?.split(' ')?.getOrNull(1) ?: return
       while (!reader.readLine().isNullOrEmpty()) {}
+      if (path == "/" && delayNextDocument.compareAndSet(true, false)) {
+        reports += "reload-waiting"
+        releaseReload.await(30, java.util.concurrent.TimeUnit.SECONDS)
+      }
       if (path == "/download") {
         reports += "download-request"
         val output = it.getOutputStream()
