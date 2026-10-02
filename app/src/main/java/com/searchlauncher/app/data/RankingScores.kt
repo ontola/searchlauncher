@@ -12,9 +12,10 @@ package com.searchlauncher.app.data
  *
  * Approximate descending order of typical scores: 1600 timer smart action; 1200 custom shortcut
  * with explicit search term ("g cats"); 560 a typed web address; ~450-480 a page open in the
- * browser; ~150-250 indexed hits, which usage history lifts to ~525 at most (varies by namespace,
- * short-query boost, usage); 200 suggestion / widget result; 150 custom shortcut bare alias; 100
- * call / email smart action; 98-99 sms / add-contact smart action
+ * browser; ~500-800 a pinned favorite whose name starts with the query; ~150-250 indexed hits,
+ * which usage history lifts to ~525 at most (varies by namespace, short-query boost, usage); 200
+ * suggestion / widget result; 150 custom shortcut bare alias; 100 call / email smart action; 98-99
+ * sms / add-contact smart action
  *
  * Learning is deliberately kept within one order of magnitude of the structural signals, so that
  * having picked something once at one exact query nudges the order rather than dictating it.
@@ -100,6 +101,18 @@ object RankingScores {
   /** Boost for contacts the user has launched before with a 1-2 char query. */
   const val LEARNED_CONTACT_SHORT_QUERY_MAX_LENGTH = 2
   const val LEARNED_CONTACT_SHORT_QUERY_BOOST = 320
+
+  // --- Favorites ---
+  /**
+   * Boost for a pinned favorite whose name starts with, or has a word starting with, the query (or
+   * matches its acronym). Large enough that a favorite outranks an unpinned prefix match from the
+   * first letter on, including an app with the short-query boost (~440), while a result the user
+   * has picked at this exact query before can still pass it.
+   */
+  const val FAVORITE_BOOST = 300
+
+  /** FuzzyMatch grade a favorite needs before [FAVORITE_BOOST] applies: acronym or better. */
+  const val FAVORITE_MIN_MATCH_SCORE = 80
 
   // --- Usage-based boost: globalUsage * GLOBAL_BOOST + scaled query-usage points ---
   const val GLOBAL_USAGE_SCORE_BOOST = 5

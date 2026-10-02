@@ -2222,6 +2222,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     val startTime = System.currentTimeMillis()
 
     val snapshot = documentSnapshot
+    val favoriteKeys =
+      (context.applicationContext as? SearchLauncherApp)
+        ?.favoritesRepository
+        ?.favoriteIds
+        ?.value
+        ?.mapTo(HashSet()) { FavoriteKeys.normalize(it) } ?: emptySet()
     val rankStart = System.currentTimeMillis()
     val candidates =
       traceSection("SL:SearchRepository.rankCandidates") {
@@ -2232,6 +2238,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           usageStats = usageStats,
           queryUsageStats = queryUsageStats,
           documentByNamespaceAndId = documentByNamespaceAndId,
+          favoriteKeys = favoriteKeys,
         )
       }
     android.util.Log.v(
