@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -184,10 +185,18 @@ internal object BrowserEngine {
         onBrowserMenuShown()
       }
     }
+    val revealingHome by
+      remember(swipe) {
+        derivedStateOf { swipe.inMotion && swipe.offset < 0f && swipe.neighbour(1) == null }
+      }
     val systemBarColor = if (page.showDownloads) MaterialTheme.colorScheme.surface else frameColor
     LaunchedEffect(systemBarColor) {
+      // Keep the window configuration stable during a drag. The opaque page panel covers
+      // the wallpaper except where the incoming home preview is being revealed.
+      activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+      activity.window.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
       activity.window.setBackgroundDrawable(
-        android.graphics.drawable.ColorDrawable(systemBarColor.toArgb())
+        android.graphics.drawable.ColorDrawable(AndroidColor.TRANSPARENT)
       )
       activity.window.navigationBarColor = systemBarColor.toArgb()
       activity.window.isNavigationBarContrastEnforced = false
@@ -213,7 +222,17 @@ internal object BrowserEngine {
         else -> onClose()
       }
     }
-    BoxWithConstraints(Modifier.fillMaxSize().background(frameColor)) {
+    BoxWithConstraints(
+      Modifier.fillMaxSize().drawBehind {
+        // Transparent SrcOver is a no-op and can retain old pixels as the page moves away.
+        // Replace the root pixels, revealing wallpaper only during a home swipe. Read the
+        // state here so clearing and the translated page update in the same draw.
+        drawRect(
+          if (revealingHome) Color.Transparent else frameColor,
+          blendMode = androidx.compose.ui.graphics.BlendMode.Src,
+        )
+      }
+    ) {
       val screenWidth = maxWidth
       val screenHeight = maxHeight
       swipe.widthPx = with(density) { screenWidth.roundToPx() }
@@ -229,6 +248,9 @@ internal object BrowserEngine {
           AndroidView(
             factory = { context ->
               GeckoView(context).also {
+                // TextureView participates in the app's composition: it follows horizontal
+                // transforms and does not punch SurfaceView holes through a home transition.
+                it.setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW)
                 it.setBackgroundColor(AndroidColor.WHITE)
                 it.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
                 it.setSession(page.session)
@@ -238,16 +260,8 @@ internal object BrowserEngine {
               }
             },
             update = { view ->
-              // SurfaceView cannot follow Compose transforms reliably. Move the cached frame
-              // during a tab swipe and keep the live compositor at its normal size underneath.
               view.visibility =
-                if (
-                  (swipe.inMotion && tab.snapshot != null) ||
-                    overview ||
-                    page.showDownloads ||
-                    page.error != null
-                )
-                  View.INVISIBLE
+                if (overview || page.showDownloads || page.error != null) View.INVISIBLE
                 else View.VISIBLE
             },
             modifier =
@@ -259,7 +273,6 @@ internal object BrowserEngine {
                 }
               },
           )
-          if (swipe.inMotion) GeckoTabPreview(tab, Modifier.fillMaxSize())
           page.error?.let { message ->
             Surface(Modifier.fillMaxSize()) {
               Column(Modifier.padding(24.dp)) {

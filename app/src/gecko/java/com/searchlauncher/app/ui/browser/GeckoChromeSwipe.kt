@@ -19,6 +19,8 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.Lifecycle
@@ -141,7 +143,7 @@ internal fun rememberGeckoChromeSwipe(page: GeckoPage, privateMode: Boolean): Ge
   val lifecycle = LocalLifecycleOwner.current.lifecycle
   DisposableEffect(swipe, lifecycle) {
     val observer = LifecycleEventObserver { _, event ->
-      if (event == Lifecycle.Event.ON_RESUME) swipe.reset()
+      if (event == Lifecycle.Event.ON_STOP || event == Lifecycle.Event.ON_RESUME) swipe.reset()
     }
     lifecycle.addObserver(observer)
     onDispose {
@@ -152,53 +154,54 @@ internal fun rememberGeckoChromeSwipe(page: GeckoPage, privateMode: Boolean): Ge
   return swipe
 }
 
-internal fun Modifier.geckoChromeSwipe(swipe: GeckoChromeSwipe): Modifier =
-  pointerInput(swipe) {
-    awaitEachGesture {
-      val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-      val offsetAtStart = swipe.offset
-      var previousX = down.position.x
-      var dragging = false
-      while (true) {
-        val event = awaitPointerEvent(PointerEventPass.Initial)
-        val change = event.changes.firstOrNull { it.id == down.id }
-        if (change == null) {
-          if (dragging) swipe.end(cancelled = true)
-          break
-        }
-        // The toolbar moves with the page. Measure the finger in stationary screen coordinates,
-        // otherwise the toolbar's own travel feeds back into drag distance and fling velocity.
-        val screenX = change.position.x + swipe.offset - offsetAtStart
-        val dx = screenX - down.position.x
-        val dy = change.position.y - down.position.y
-        if (!change.pressed) {
-          if (dragging) {
-            swipe.track(
-              change.uptimeMillis,
-              androidx.compose.ui.geometry.Offset(screenX, change.position.y),
-            )
-            swipe.end()
+@Composable
+internal fun Modifier.geckoChromeSwipe(swipe: GeckoChromeSwipe): Modifier {
+  var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+  return onGloballyPositioned { coordinates = it }
+    .pointerInput(swipe) {
+      awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        fun screenPosition(change: androidx.compose.ui.input.pointer.PointerInputChange) =
+          coordinates?.takeIf { it.isAttached }?.localToRoot(change.position) ?: change.position
+        val start = screenPosition(down)
+        var previousX = start.x
+        var dragging = false
+        while (true) {
+          val event = awaitPointerEvent(PointerEventPass.Initial)
+          val change = event.changes.firstOrNull { it.id == down.id }
+          if (change == null) {
+            if (dragging) swipe.end(cancelled = true)
+            break
           }
-          break
+          // The toolbar moves with the page. Measure the finger in stationary screen coordinates,
+          // otherwise the toolbar's own travel feeds back into drag distance and fling velocity.
+          val position = screenPosition(change)
+          val screenX = position.x
+          val dx = screenX - start.x
+          val dy = position.y - start.y
+          if (!change.pressed) {
+            if (dragging) {
+              swipe.track(change.uptimeMillis, position)
+              swipe.end()
+            }
+            break
+          }
+          if (!dragging) {
+            if (abs(dy) > viewConfiguration.touchSlop && abs(dy) > abs(dx)) break
+            if (abs(dx) <= viewConfiguration.touchSlop) continue
+            swipe.start()
+            swipe.track(down.uptimeMillis, start)
+            dragging = true
+            previousX = start.x + kotlin.math.sign(dx) * viewConfiguration.touchSlop
+          }
+          change.consume()
+          swipe.track(change.uptimeMillis, position)
+          swipe.drag(screenX - previousX)
+          previousX = screenX
         }
-        if (!dragging) {
-          if (abs(dy) > viewConfiguration.touchSlop && abs(dy) > abs(dx)) break
-          if (abs(dx) <= viewConfiguration.touchSlop) continue
-          swipe.start()
-          swipe.track(down.uptimeMillis, down.position)
-          dragging = true
-          previousX = down.position.x + kotlin.math.sign(dx) * viewConfiguration.touchSlop
-        }
-        change.consume()
-        swipe.track(
-          change.uptimeMillis,
-          androidx.compose.ui.geometry.Offset(screenX, change.position.y),
-        )
-        swipe.drag(screenX - previousX)
-        previousX = screenX
       }
     }
-  }
+}
 
 @Composable
 internal fun GeckoTabPreview(tab: BrowserTab, modifier: Modifier = Modifier) {
@@ -233,7 +236,7 @@ internal fun GeckoSwipeDestination(swipe: GeckoChromeSwipe, background: Color) {
   Box(
     Modifier.fillMaxSize()
       .graphicsLayer { translationX = swipe.offset + direction * swipe.widthPx }
-      .background(background)
+      .background(if (home) Color.Transparent else background)
   ) {
     if (home) {
       HomeSwipePreview.image?.let {

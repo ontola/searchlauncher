@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.SystemClock
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.datastore.preferences.core.edit
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -78,6 +79,12 @@ class GeckoBrowserDeviceTest {
 
   @Test
   fun browserSupportsNavigationPopupExportsAndLocalNotifications() {
+    if (android.os.Build.VERSION.SDK_INT >= 33) {
+      instrumentation.uiAutomation.grantRuntimePermission(
+        context.packageName,
+        android.Manifest.permission.POST_NOTIFICATIONS,
+      )
+    }
     assertTrue(reports.any { it.contains("apis:true,true,true") })
     tap("Export file")
     val manager = context.getSystemService(DownloadManager::class.java)
@@ -122,7 +129,7 @@ class GeckoBrowserDeviceTest {
     val allow = device.wait(Until.findObject(By.res("android:id/button1")), 10000)
     assertNotNull("Website notification permission prompt", allow)
     allow!!.click()
-    // The runtime notification permission is pregranted by the test command.
+    // Android permission is granted above; this click tests the separate website permission.
     waitFor("notification-granted")
     eventually {
       context.getSystemService(NotificationManager::class.java).activeNotifications.any {
@@ -302,18 +309,6 @@ class GeckoBrowserDeviceTest {
   @Test
   fun reloadAndFailureKeepAnOpaqueBrowserAndRetryTheFailedAddress() {
     tap("Read data")
-    instrumentation.runOnMainSync {
-      val activity =
-        ActivityLifecycleMonitorRegistry.getInstance()
-          .getActivitiesInStage(Stage.RESUMED)
-          .filterIsInstance<BrowserActivity>()
-          .single()
-      assertEquals(
-        0,
-        activity.window.attributes.flags and
-          android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER,
-      )
-    }
     reports.clear()
     delayNextDocument.set(true)
     device.wait(Until.findObject(By.desc("Browser menu")), 10000)!!.click()
@@ -548,6 +543,34 @@ class GeckoBrowserDeviceTest {
         40,
       )
       assertNotNull(device.wait(Until.findObject(By.desc("Browser menu")), 10000))
+      instrumentation.runOnMainSync {
+        val preview = HomeSwipePreview.image
+        assertNotNull("Home preview should be prepared before the swipe", preview)
+        val bitmap =
+          preview!!.asAndroidBitmap().copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+        var browserPixels = 0
+        for (y in 0 until bitmap.height step 4) for (x in 0 until bitmap.width step 4) {
+          val pixel = bitmap.getPixel(x, y)
+          if (
+            Color.alpha(pixel) > 240 &&
+              Color.red(pixel) < 20 &&
+              kotlin.math.abs(Color.green(pixel) - 150) < 15 &&
+              kotlin.math.abs(Color.blue(pixel) - 136) < 15
+          )
+            browserPixels++
+        }
+        java.io
+          .File(context.getExternalFilesDir(null), "gecko-home-preview-$it.png")
+          .outputStream()
+          .use { output ->
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output)
+          }
+        bitmap.recycle()
+        assertTrue(
+          "Home preview must not contain the browser fixture ($browserPixels teal pixels)",
+          browserPixels < 100,
+        )
+      }
     }
     device.findObject(By.desc("Browser menu")).click()
     val back = device.wait(Until.findObject(By.text("Back")), 10000)!!

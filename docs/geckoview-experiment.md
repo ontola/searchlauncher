@@ -67,7 +67,8 @@ popup-to-opener messaging, Android notification display, and storage behavior.
 ./gradlew assembleGecko assembleGeckoAndroidTest -PtestBuildType=gecko
 adb install -r app/build/outputs/apk/gecko/app-gecko.apk
 adb install -r app/build/outputs/apk/androidTest/gecko/app-gecko-androidTest.apk
-adb shell pm grant com.searchlauncher.app.gecko android.permission.POST_NOTIFICATIONS
+adb root # Emulator only: required by the process-termination recovery test.
+adb wait-for-device
 adb shell am instrument -w \
   -e class com.searchlauncher.app.ui.browser.GeckoBrowserDeviceTest \
   com.searchlauncher.app.gecko.test/androidx.test.runner.AndroidJUnitRunner
@@ -205,3 +206,28 @@ Gecko emulator scenarios passed across the full run and the corrected bidirectio
 (the first run hit first-launch setup dialogs, now explicitly dismissed in the fixture).
 
 Physical Xiaomi smoothness and the separately reported Proton Pass crash remain unverified.
+
+## Experimental build 7
+
+- Prepare the home preview while the launcher is idle and resumed, before any swipe starts.
+  The old capture happened after child layers began moving and could include the incoming browser
+  inside the next home preview. Pending captures now cancel when home starts transitioning.
+- Measure both toolbars' gestures with their actual rendered position in the root window. Keep
+  home gesture callbacks current without restarting pointer input on recomposition.
+- Use Gecko's TextureView backend so the live page participates in the same animation as its
+  toolbar. The outgoing page no longer swaps to a bitmap while dragging. TextureView supports
+  this composition but has additional rendering cost compared with SurfaceView.
+- Keep the wallpaper window configuration stable and explicitly clear the revealed part of the
+  root canvas. This prevents old page pixels leaving trails and keeps the system wallpaper visible
+  through the home preview. Loading and error states retain an opaque page panel.
+- Reset a completed browser swipe when its activity stops, as well as when it resumes, so reopening
+  the last tab does not begin from its old off-screen position.
+
+Validation includes a home-preview pixel regression that fails against build 6 and passes here,
+plus recorded repeated swipes in both directions. `spotlessCheck`, both unit suites and APK builds
+passed. All nine Gecko scenarios passed across the full run and the notification/recovery rerun
+after granting the missing Android permission and enabling emulator root for the deliberate
+process kill. The notification fixture now grants its own runtime permission.
+
+Physical Xiaomi frame pacing remains unverified;
+this is not a claim of measured FPS improvement on the phone or tablet.

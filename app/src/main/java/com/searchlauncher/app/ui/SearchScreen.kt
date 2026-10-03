@@ -517,13 +517,36 @@ fun SearchScreen(
    */
   var tabsOverviewOpen by remember { mutableStateOf(false) }
   var tabsOverviewRendered by remember { mutableStateOf(false) }
-  LaunchedEffect(browserShowing, openingTab, tabsOverviewOpen) {
+  val previewLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+  val previewLifecycleState by previewLifecycle.currentStateFlow.collectAsState()
+  LaunchedEffect(
+    isActive,
+    query,
+    browserShowing,
+    openingTab,
+    tabsOverviewOpen,
+    previewLifecycleState,
+    lastImageUriString,
+  ) {
     if (
       browserTabSwipeEnabled &&
-        (browserShowing || openingTab || tabsOverviewOpen) &&
-        homePreviewLayer.size.width > 0
+        isActive &&
+        query.isEmpty() &&
+        !browserShowing &&
+        !openingTab &&
+        !tabsOverviewOpen &&
+        previewLifecycleState == androidx.lifecycle.Lifecycle.State.RESUMED
     ) {
-      com.searchlauncher.app.ui.browser.HomeSwipePreview.image = homePreviewLayer.toImageBitmap()
+      // A recorded GraphicsLayer still references its children's live layers. Copy it while
+      // home is settled, before those children translate or a browser preview is inserted.
+      // Capturing when the drag starts both stalls that frame and can bake the incoming tab
+      // into the image that is later supposed to show only home.
+      kotlinx.coroutines.delay(120)
+      if (homePreviewLayer.size.width > 0) {
+        val image = homePreviewLayer.toImageBitmap()
+        currentCoroutineContext().ensureActive()
+        com.searchlauncher.app.ui.browser.HomeSwipePreview.image = image
+      }
     }
   }
 
