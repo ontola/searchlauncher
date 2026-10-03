@@ -211,10 +211,12 @@ internal class GeckoPage(
         ): GeckoResult<AllowOrDeny>? {
           val uri = Uri.parse(request.uri)
           if (uri.scheme in listOf("http", "https")) {
-            // Login flows often redirect or navigate from script after the tap has expired.
-            // This callback is top-level only; let Android's default non-browser handler decide,
-            // just as the WebView backend does. Subframes do not get this handoff.
-            if (openVerifiedAppLink(activity, uri)) return GeckoResult.deny()
+            // loadUri is an explicit choice to use this browser (pasted URL, search result,
+            // external browser intent). Redispatching it can open a site's app, which may then
+            // download in its own Chrome Custom Tab. Only website-initiated app links may leave.
+            // Script/redirect handoffs remain allowed for login flows such as DigiD.
+            if (!request.isDirectNavigation && openVerifiedAppLink(activity, uri))
+              return GeckoResult.deny()
             return null
           }
           if (uri.scheme in listOf("about", "data", "blob", "resource")) return null

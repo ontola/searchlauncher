@@ -70,6 +70,10 @@ internal object BrowserEngine {
     val activity = LocalContext.current as BrowserActivity
     val scope = rememberCoroutineScope()
     val density = androidx.compose.ui.platform.LocalDensity.current
+    // Website editing needs the full viewport above the IME, without browser controls
+    // riding on top of it.
+    val imeInsets = WindowInsets.ime
+    val websiteKeyboardVisible = imeInsets.getBottom(density) > 0
     val localTab = remember { BrowserTab(navigationRequest?.url ?: "about:blank") }
     val tab = if (privateMode) localTab else pinnedTabId?.let(BrowserTabStore::tab) ?: return
     val page = remember(tab.id) { GeckoPage(activity, tab, privateMode, onClose) }
@@ -298,7 +302,7 @@ internal object BrowserEngine {
             modifier = Modifier.fillMaxWidth().padding(8.dp),
           )
         }
-        if (!page.fullscreen && showLauncherChrome) {
+        if (!page.fullscreen && showLauncherChrome && !websiteKeyboardVisible) {
           if (showFavorites && !privateMode)
             GeckoFavoritesStrip(
               onOpenSearch = { query -> onOpenSearch(false, tab.frameColorArgb, query) },
@@ -322,10 +326,9 @@ internal object BrowserEngine {
                     remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                   indication = null,
                 ) {
-                  scope.launch {
-                    page.captureBeforeTransition()
-                    onOpenSearch(false, tab.frameColorArgb, "")
-                  }
+                  // Opening search must not wait up to 500 ms for a compositor screenshot.
+                  page.capture()
+                  onOpenSearch(false, tab.frameColorArgb, "")
                 },
               contentAlignment = androidx.compose.ui.Alignment.CenterStart,
             ) {
@@ -338,10 +341,8 @@ internal object BrowserEngine {
             }
             IconButton(
               onClick = {
-                scope.launch {
-                  page.captureBeforeTransition()
-                  onOpenSearch(true, tab.frameColorArgb, "")
-                }
+                page.capture()
+                onOpenSearch(true, tab.frameColorArgb, "")
               },
               modifier = Modifier.size(36.dp),
             ) {

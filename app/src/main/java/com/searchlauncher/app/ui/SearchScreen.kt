@@ -1429,6 +1429,25 @@ fun SearchScreen(
       inPip = inPip,
     )
   val builtInKeyboardHeight = minOf(243.dp, (LocalConfiguration.current.screenHeightDp * 0.45f).dp)
+  // Animate only the browser overlay's entrance. Home keeps its keyboard laid out immediately.
+  // Translate the already measured keyboard and chrome together; avoid remeasuring search rows
+  // on every animation frame.
+  val keyboardEntrance = remember { Animatable(if (riseWithKeyboard) 0f else 1f) }
+  LaunchedEffect(builtInKeyboardVisible, riseWithKeyboard) {
+    if (riseWithKeyboard && builtInKeyboardVisible) {
+      keyboardEntrance.animateTo(
+        1f,
+        tween(140, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+      )
+    } else keyboardEntrance.snapTo(if (riseWithKeyboard) 0f else 1f)
+  }
+  val keyboardEntranceOffset =
+    Modifier.graphicsLayer {
+      translationY =
+        if (riseWithKeyboard && builtInKeyboardVisible)
+          (1f - keyboardEntrance.value) * builtInKeyboardHeight.toPx()
+        else 0f
+    }
   val bottomPadding =
     with(density) {
       when {
@@ -2111,6 +2130,7 @@ fun SearchScreen(
           modifier =
             Modifier.fillMaxSize()
               .then(homeSwipeOffset)
+              .then(keyboardEntranceOffset)
               .then(
                 if (useBuiltInKeyboard) {
                   Modifier.navigationBarsPadding()
@@ -2680,6 +2700,7 @@ fun SearchScreen(
           modifier =
             Modifier.align(Alignment.BottomCenter)
               .then(homeSwipeOffset)
+              .then(keyboardEntranceOffset)
               .navigationBarsPadding()
               .fillMaxWidth()
               .height(builtInKeyboardHeight),

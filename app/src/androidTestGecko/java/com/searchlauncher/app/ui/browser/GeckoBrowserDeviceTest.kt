@@ -474,6 +474,43 @@ class GeckoBrowserDeviceTest {
   }
 
   @Test
+  fun explicitlyOpenedDownloadUrlStaysInBrowserEvenWithAVerifiedApp() {
+    val testPackage = instrumentation.context.packageName
+    device.executeShellCommand(
+      "pm set-app-links --package $testPackage 2 handoff.searchlauncher.test"
+    )
+    device.executeShellCommand(
+      "pm set-app-links-user-selection --user 0 --package $testPackage true handoff.searchlauncher.test"
+    )
+    try {
+      for (path in listOf("release.apk", "download")) {
+        val url = "https://handoff.searchlauncher.test/$path?token=exact%2Fvalue"
+        // This is the same route used when a URL is pasted into the launcher search input.
+        context.startActivity(BrowserActivity.createIntent(context, url))
+        eventually {
+          var current = false
+          instrumentation.runOnMainSync { current = BrowserTabStore.tabs!!.active.url == url }
+          current
+        }
+        assertNotNull(
+          "An explicit browser navigation must not launch the verified app",
+          device.wait(Until.findObject(By.text("Could not open this page")), 15000),
+        )
+        // The fixture host deliberately has no server; Gecko must try it and own the error.
+        assertFalse(device.hasObject(By.textStartsWith("Received app link:")))
+        instrumentation.runOnMainSync { assertEquals(url, BrowserTabStore.tabs!!.active.url) }
+      }
+    } finally {
+      device.executeShellCommand(
+        "pm set-app-links-user-selection --user 0 --package $testPackage false handoff.searchlauncher.test"
+      )
+      device.executeShellCommand(
+        "pm set-app-links --package $testPackage 0 handoff.searchlauncher.test"
+      )
+    }
+  }
+
+  @Test
   fun recentTabsKeepTheirLiveDocumentAcrossHomeAndOtherTabs() {
     prepareHome()
     var firstId = 0L
@@ -578,6 +615,51 @@ class GeckoBrowserDeviceTest {
     assertEquals(downloadBytes.size.toLong(), completed.displayBytes)
     assertNotNull(device.wait(Until.findObject(By.text("Open file")), 10000))
     saveScreenshot("persistent-download-complete")
+  }
+
+  @Test
+  fun websiteKeyboardDoesNotLiftBrowserChromeOverThePage() {
+    context.startActivity(BrowserActivity.createIntent(context, "$origin/keyboard"))
+    waitFor("keyboard-ready")
+    assertNotNull(device.wait(Until.findObject(By.desc("Browser menu")), 10000))
+    device.wait(Until.findObject(By.clazz("android.widget.EditText")), 10000)!!.click()
+    eventually { device.executeShellCommand("dumpsys input_method").contains("mInputShown=true") }
+    assertTrue(
+      "Browser toolbar must not sit above the website keyboard",
+      device.wait(Until.gone(By.desc("Browser menu")), 5000),
+    )
+    val input = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 10000)!!
+    input.text = "Visible page input"
+    waitFor("input-Visible page input")
+    SystemClock.sleep(1000) // Allow Gecko's focus scroll and the IME animation to settle.
+    val fieldBounds = device.findObject(By.clazz("android.widget.EditText"))!!.visibleBounds
+    var keyboardTop = device.displayHeight
+    instrumentation.runOnMainSync {
+      val activity =
+        ActivityLifecycleMonitorRegistry.getInstance()
+          .getActivitiesInStage(Stage.RESUMED)
+          .filterIsInstance<BrowserActivity>()
+          .first()
+      keyboardTop -=
+        activity.window.decorView.rootWindowInsets
+          .getInsets(android.view.WindowInsets.Type.ime())
+          .bottom
+    }
+    assertTrue(
+      "Page input must fit above the keyboard: $fieldBounds, keyboard top $keyboardTop",
+      fieldBounds.bottom <= keyboardTop,
+    )
+    assertTrue(
+      "The full 60 CSS-pixel input must remain visible: $fieldBounds",
+      fieldBounds.height() >= (60 * context.resources.displayMetrics.density).toInt() - 2,
+    )
+    saveScreenshot("website-keyboard")
+    device.pressBack()
+    assertNotNull(device.wait(Until.findObject(By.desc("Browser menu")), 10000))
+    assertEquals(
+      "Visible page input",
+      device.findObject(By.clazz("android.widget.EditText"))!!.text,
+    )
   }
 
   @Test
@@ -1048,6 +1130,12 @@ class GeckoBrowserDeviceTest {
             reports += "ad-server-hit"
             "ad resource"
           }
+          path == "/keyboard" ->
+            """<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content"><title>Website typing</title>
+            <style>body{background:#fff;color:#111;font:20px sans-serif}input{position:fixed;bottom:0;left:0;box-sizing:border-box;width:100%;height:60px;font:20px sans-serif}</style>
+            <h1>Website typing</h1><p>The input stays above the keyboard.</p>
+            <input aria-label="Page input" placeholder="Page input" oninput="fetch('/report?input-'+encodeURIComponent(this.value))">
+            <script>fetch('/report?keyboard-ready')</script>"""
           path == "/ad-test" ->
             """<!doctype html><meta name="viewport" content="width=device-width"><title>Ad filtering fixture</title>
             <button style="font-size:24px;padding:24px" onclick="fetch('http://127.0.0.2:${server.localPort}/ad-resource?t='+Date.now(),{mode:'no-cors'}).then(()=>report('ad-allowed'),()=>report('ad-blocked'))">Fetch ad</button>

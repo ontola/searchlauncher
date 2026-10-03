@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.webkit.MimeTypeMap
 
 /**
  * Let Android hand HTTPS app links to the user's default app. Requiring a default non-browser
@@ -13,6 +14,9 @@ import android.os.Build
  */
 internal fun openVerifiedAppLink(context: Context, uri: Uri): Boolean {
   if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || uri.scheme != "https") return false
+  // A site's app may claim every path on its domain, including downloadable attachments.
+  // Let the browser fetch file links and inspect Content-Disposition instead of handing them off.
+  if (isBrowserFileLink(uri)) return false
   val intent =
     Intent(Intent.ACTION_VIEW, uri)
       .addCategory(Intent.CATEGORY_BROWSABLE)
@@ -26,4 +30,12 @@ internal fun openVerifiedAppLink(context: Context, uri: Uri): Boolean {
   } catch (_: SecurityException) {
     false
   }
+}
+
+internal fun isBrowserFileLink(uri: Uri): Boolean {
+  val extension =
+    uri.lastPathSegment?.substringAfterLast('.', "")?.lowercase(java.util.Locale.ROOT)
+      ?: return false
+  if (extension in setOf("html", "htm", "xhtml", "php", "asp", "aspx", "jsp")) return false
+  return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) != null
 }

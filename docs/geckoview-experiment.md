@@ -353,3 +353,31 @@ and reversing. The Gecko home/tab preview and swipe-handoff scenario also passes
 report 447 tests, zero failures/errors and three skipped; spotlessCheck and both APK builds pass.
 These checks establish timing/state correctness on Android 15 ARM64; the reported Xiaomi visual
 hiccup still needs confirmation on the physical phone.
+
+## Experimental build 13
+
+- Open browser search immediately instead of awaiting a compositor screenshot (previously capped
+  at 500 ms). Preview capture continues asynchronously. This removes an avoidable wait; it is not
+  a claim that every tap previously took 500 ms or that all activity startup costs are eliminated.
+- Slide the built-in keyboard and search/favorites/results column in together over 140 ms. The
+  entrance transforms an already measured layout, avoiding repeated search-row layout work.
+- Hide Gecko's browser toolbar/favorites while a website uses the system keyboard, restoring them
+  on dismissal. Keep the page resized to the actual IME insets. Find-in-page controls can still
+  appear above the keyboard.
+- Keep explicit browser navigation (including pasted URLs) inside Gecko even when another app
+  claims the domain. Recognizable file links also remain in the browser so its download handler
+  can inspect the response. Scripted app links and redirects remain supported for login handoffs.
+  The regression reproduced with a verified test handler; the exact Xiaomi-to-Chrome chain has
+  not been traced on the physical device.
+
+Validation: both unit suites report 449 tests, zero failures/errors and three skipped; full
+spotlessCheck and both app builds pass. All 17 Gecko emulator scenarios passed, followed by
+focused keyboard rechecks on the final inset implementation. Emulator recording confirms the
+keyboard entrance motion. Website typing coverage checks toolbar dismissal/restoration and the
+full bounds of a bottom input on a page using `interactive-widget=resizes-content`.
+
+Known limitation: a default `resizes-visual` fixed-position input in the fixture was partly clipped
+by Gecko after caret panning (47 physical pixels on this emulator), despite the native browser view
+ending exactly above the IME. Removing browser chrome does not resolve that separate engine/page
+viewport interaction. No forced meta-viewport rewrite or site-script workaround is applied.
+Physical Xiaomi behavior and end-to-end latency still need confirmation on the phone.

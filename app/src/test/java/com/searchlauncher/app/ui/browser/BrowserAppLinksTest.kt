@@ -39,6 +39,30 @@ class BrowserAppLinksTest {
   }
 
   @Test
+  fun filesStayInBrowserEvenIfAnAppClaimsTheDomain() {
+    for (url in
+      listOf(
+        "https://github.com/ontola/searchlauncher/releases/download/build/app.APK?token=one%2Ftwo",
+        "https://example.org/report.pdf",
+        "https://example.org/archive.zip",
+        "https://example.org/photo%2Ejpg",
+      )) assertFalse(url, openVerifiedAppLink(context, Uri.parse(url)))
+    verify(exactly = 0) { context.startActivity(any()) }
+  }
+
+  @Test
+  fun webRoutesRemainEligibleForAppHandoff() {
+    for (url in
+      listOf(
+        "https://app.example.org/login",
+        "https://app.example.org/login.html",
+        "https://app.example.org/login.php",
+      )) {
+      assertTrue(url, openVerifiedAppLink(context, Uri.parse(url)))
+    }
+  }
+
+  @Test
   fun deniedAppStaysInWebView() {
     every { context.startActivity(any()) } throws SecurityException()
     assertFalse(openVerifiedAppLink(context, Uri.parse("https://example.org")))
