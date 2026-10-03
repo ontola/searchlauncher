@@ -84,6 +84,26 @@ class GeckoBrowserDeviceTest {
   }
 
   @Test
+  fun passkeyRequestsReturnToThePageWithoutCrashing() {
+    val processId = android.os.Process.myPid()
+    context.startActivity(BrowserActivity.createIntent(context, "$origin/passkeys"))
+    waitFor("passkeys-ready")
+    repeat(3) { attempt ->
+      tap("Use passkey")
+      waitFor("passkey-finished-${attempt + 1}", 15000)
+      assertEquals(
+        "Credential requests must not restart the browser",
+        processId,
+        android.os.Process.myPid(),
+      )
+      assertFalse(reports.any { it.contains("passkey-security-error") })
+    }
+    saveScreenshot("passkey-request-returned")
+    tap("Continue browsing")
+    assertNotNull(device.wait(Until.findObject(By.text("Export file")), 15000))
+  }
+
+  @Test
   fun browserSupportsNavigationPopupExportsAndLocalNotifications() {
     if (android.os.Build.VERSION.SDK_INT >= 33) {
       instrumentation.uiAutomation.grantRuntimePermission(
@@ -1130,6 +1150,23 @@ class GeckoBrowserDeviceTest {
             reports += "ad-server-hit"
             "ad resource"
           }
+          path == "/passkeys" ->
+            """<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Passkey fixture</title>
+            <style>body{font:22px sans-serif}button{font:inherit;padding:24px;display:block;margin:20px}</style>
+            <h1>Passkey fixture</h1><button onclick="usePasskey()">Use passkey</button>
+            <button onclick="location.href='/'">Continue browsing</button><p id="outcome"></p>
+            <script>
+            let attempt=0;
+            function report(s){fetch('/report?'+encodeURIComponent(s))}
+            async function usePasskey(){
+              const current=++attempt,controller=new AbortController();
+              const timeout=setTimeout(()=>controller.abort(),3000);
+              try{await navigator.credentials.get({signal:controller.signal,publicKey:{challenge:crypto.getRandomValues(new Uint8Array(32)),timeout:10000,userVerification:'preferred'}});document.getElementById('outcome').textContent='Credential returned'}
+              catch(e){document.getElementById('outcome').textContent=e.name;if(e.name==='SecurityError')report('passkey-security-error')}
+              finally{clearTimeout(timeout);report('passkey-finished-'+current)}
+            }
+            report('passkeys-ready');
+            </script>"""
           path == "/keyboard" ->
             """<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content"><title>Website typing</title>
             <style>body{background:#fff;color:#111;font:20px sans-serif}input{position:fixed;bottom:0;left:0;box-sizing:border-box;width:100%;height:60px;font:20px sans-serif}</style>

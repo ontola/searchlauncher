@@ -381,3 +381,23 @@ by Gecko after caret panning (47 physical pixels on this emulator), despite the 
 ending exactly above the IME. Removing browser chrome does not resolve that separate engine/page
 viewport interaction. No forced meta-viewport rewrite or site-script workaround is applied.
 Physical Xiaomi behavior and end-to-end latency still need confirmation on the phone.
+
+## Experimental build 14
+
+- Declare `android.permission.CREDENTIAL_MANAGER_QUERY_CANDIDATE_CREDENTIALS` in the Gecko manifest.
+  Gecko's Android 14+ WebAuthn implementation calls `PrepareGetCredentialResponse.hasCredentialResults`
+  while looking for passkeys. Android requires this permission; without it, the asynchronous
+  callback throws an uncaught `SecurityException` and terminates the browser process.
+- This is an install-time normal permission for the experimental build. It is separate from
+  provider browser allowlists and does not bypass credential consent or origin verification.
+
+Reproduced build 13 crashing on Android 15 with a minimal localhost `navigator.credentials.get`
+page: `caller doesn't have the permission to query credential results`, originating in
+`WebAuthnCredentialManager$2.onResult`. After the fix the installed permission is granted, three
+repeated requests return control to the page, and navigation to another page works in the same
+process. The fixture aborts pending requests after three seconds and does not require real credentials.
+Gecko unit tests pass (449 tests, three skipped), as do full spotlessCheck and app/test APK builds.
+This confirms the reproduced request-time crash is fixed, not successful registration/sign-in with
+Proton Pass or KeePassDX. No physical phone was connected during verification.
+
+Android contract: https://developer.android.com/reference/android/credentials/PrepareGetCredentialResponse#hasCredentialResults(java.lang.String)
