@@ -1,9 +1,12 @@
 package com.searchlauncher.app.ui.browser
 
+import android.app.Activity
 import android.app.ActivityManager
+import android.app.ActivityOptions
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import com.searchlauncher.app.ui.MainActivity
 
 /**
  * Each browser tab is its own Android task, so the system's app switcher lists tabs the way it
@@ -53,7 +56,32 @@ internal object BrowserTabTasks {
 
   /** Brings [tabId]'s window to the front, opening it if the tab has never had one. */
   fun open(context: Context, tabId: Long) {
-    context.startActivity(intentFor(context, tabId))
+    startAfterAnimation(context, intentFor(context, tabId))
+  }
+
+  /** Finishes the app-drawn slide onto home without asking Android for another transition. */
+  fun openHome(context: Context) {
+    startAfterAnimation(
+      context,
+      Intent(context, MainActivity::class.java)
+        .putExtra(MainActivity.EXTRA_FOCUS_SEARCH, true)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION),
+    )
+  }
+
+  private fun startAfterAnimation(context: Context, intent: Intent) {
+    val activity = context as? Activity
+    val options =
+      if (activity != null && activity.window.decorView.isAttachedToWindow) {
+        // The scene-transition protocol suppresses Android's task-snapshot starting surface.
+        // Our theme provides no enter/exit/reenter/return effect and no background fade: the
+        // Compose slide has already drawn the destination in its final position.
+        // NO_ANIMATION bypasses this protocol on a warm task switch, allowing the stale
+        // snapshot overlay back in. The protocol itself has zero effects in our theme.
+        intent.removeFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
+        ActivityOptions.makeSceneTransitionAnimation(activity)
+      } else ActivityOptions.makeCustomAnimation(context, 0, 0)
+    context.startActivity(intent, options.toBundle())
   }
 
   /** Opens the newest tab, which is where a swipe in from the launcher always lands. */

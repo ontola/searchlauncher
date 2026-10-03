@@ -1594,18 +1594,19 @@ fun SearchScreen(
     }
   }
   // The preview is deliberately left covering the screen while the browser starts, so it has to be
-  // cleared once the launcher is out of sight (or back in front, if the browser never took over).
+  // cleared before the launcher is shown again. ON_STOP can arrive while the system still uses
+  // this window as the outgoing task surface: resetting there exposes home under a fading browser.
   val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
   DisposableEffect(lifecycleOwner) {
     val observer =
       androidx.lifecycle.LifecycleEventObserver { _, event ->
         if (
-          event == androidx.lifecycle.Lifecycle.Event.ON_STOP ||
+          event == androidx.lifecycle.Lifecycle.Event.ON_START ||
             event == androidx.lifecycle.Lifecycle.Event.ON_RESUME
         ) {
           // Clears whatever a swipe left parked: a tab opened at the end of one leaves its preview
           // standing a full screen across so that its window has something to arrive onto, and this
-          // is where that is taken down once the launcher is out of sight or back in front.
+          // is where that is taken down before the launcher returns to the front.
           browserTabSwipe.reset()
           // A tab's card can be dismissed in the app switcher while the launcher is away, which is
           // the user closing that tab; the surviving windows are the honest account of which tabs

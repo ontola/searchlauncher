@@ -41,7 +41,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.searchlauncher.app.SearchLauncherApp
-import com.searchlauncher.app.ui.MainActivity
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.components.SearchChromeBar
 import com.searchlauncher.app.ui.dataStore
@@ -88,11 +87,7 @@ internal object BrowserEngine {
     fun goHome() {
       scope.launch {
         page.captureBeforeTransition()
-        activity.startActivity(
-          Intent(activity, MainActivity::class.java)
-            .putExtra(MainActivity.EXTRA_FOCUS_SEARCH, true)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
-        )
+        BrowserTabTasks.openHome(activity)
       }
     }
     val showFavorites by

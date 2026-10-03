@@ -1,6 +1,5 @@
 package com.searchlauncher.app.ui.browser
 
-import android.content.Intent
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
@@ -26,7 +25,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.searchlauncher.app.ui.MainActivity
 import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -96,12 +94,7 @@ internal class GeckoChromeSwipe(
         fun handOver() {
           page.persist()
           if (next != null) BrowserTabTasks.open(activity, next.id)
-          else
-            activity.startActivity(
-              Intent(activity, MainActivity::class.java)
-                .putExtra(MainActivity.EXTRA_FOCUS_SEARCH, true)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
-            )
+          else BrowserTabTasks.openHome(activity)
         }
         animate(
           initialValue = offset,
@@ -143,7 +136,9 @@ internal fun rememberGeckoChromeSwipe(page: GeckoPage, privateMode: Boolean): Ge
   val lifecycle = LocalLifecycleOwner.current.lifecycle
   DisposableEffect(swipe, lifecycle) {
     val observer = LifecycleEventObserver { _, event ->
-      if (event == Lifecycle.Event.ON_STOP || event == Lifecycle.Event.ON_RESUME) swipe.reset()
+      // Keep the completed destination painted while Android fades the outgoing task.
+      // ON_STOP is not proof that the window has stopped participating in that transition.
+      if (event == Lifecycle.Event.ON_START || event == Lifecycle.Event.ON_RESUME) swipe.reset()
     }
     lifecycle.addObserver(observer)
     onDispose {

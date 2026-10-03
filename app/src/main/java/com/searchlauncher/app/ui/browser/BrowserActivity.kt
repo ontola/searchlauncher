@@ -126,7 +126,6 @@ import com.searchlauncher.app.data.mergeRecentsByTime
 import com.searchlauncher.app.data.pinnedFavoritesForSite
 import com.searchlauncher.app.ui.KeyShortcutHost
 import com.searchlauncher.app.ui.KeyShortcuts
-import com.searchlauncher.app.ui.MainActivity
 import com.searchlauncher.app.ui.MinIconSize
 import com.searchlauncher.app.ui.PipCapable
 import com.searchlauncher.app.ui.PreferencesKeys
@@ -184,7 +183,7 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
       val url = intent.pageUrl()?.let(::browserDestination) ?: "about:blank"
       val tab =
         BrowserTabStore.addBackgroundTab(url) { evicted -> BrowserTabTasks.close(this, evicted.id) }
-      startActivity(BrowserTabTasks.intentFor(this, tab.id))
+      BrowserTabTasks.open(this, tab.id)
       finish()
       return
     }
@@ -1286,11 +1285,11 @@ internal fun BrowserScreen(
       when (event) {
         Lifecycle.Event.ON_PAUSE -> captureActiveTabPreview()
         // A swipe out to the launcher parks the page off the edge and hands the launcher control
-        // partway through the settle, so that animation is still running as this arrives —
-        // cancelling it first is what stops it writing the off-screen offset back afterwards and
+        // partway through the settle. Keep that final frame through ON_STOP; when returning,
+        // cancel any remaining animation before it can write the off-screen offset back and
         // leaving the browser stuck behind a full-screen launcher stand-in that eats every touch.
         // Resuming resets again in case the browser was never fully stopped.
-        Lifecycle.Event.ON_STOP,
+        Lifecycle.Event.ON_START,
         Lifecycle.Event.ON_RESUME -> {
           settleJob?.cancel()
           tabDragOffsetPx = 0f
@@ -1581,11 +1580,7 @@ internal fun BrowserScreen(
       .collectAsState(initial = null)
 
   fun returnToLauncher() {
-    context.startActivity(
-      Intent(context, MainActivity::class.java)
-        .putExtra(MainActivity.EXTRA_FOCUS_SEARCH, true)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
-    )
+    BrowserTabTasks.openHome(context)
   }
 
   // Tab-swipe handlers shared by the full chrome and the minimal pill.

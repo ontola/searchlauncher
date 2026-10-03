@@ -468,6 +468,35 @@ class GeckoBrowserDeviceTest {
     assertFalse(device.hasObject(By.textContains("Gecko experiment")))
     var tabId = 0L
     instrumentation.runOnMainSync { tabId = BrowserTabStore.tabs!!.active.id }
+    assertTrue(
+      "Run this scenario with SearchLauncher Gecko selected as the default home app",
+      context
+        .getSystemService(android.app.role.RoleManager::class.java)
+        .isRoleHeld(android.app.role.RoleManager.ROLE_HOME),
+    )
+    // Launch as the system/shell would; an app-originated explicit intent may itself be
+    // matched to an existing STANDARD task and miss the real default-HOME configuration.
+    device.executeShellCommand(
+      "am start -a android.intent.action.MAIN -c android.intent.category.HOME " +
+        "-n ${context.packageName}/com.searchlauncher.app.ui.MainActivity"
+    )
+    var homeTaskId = -1
+    eventually {
+      instrumentation.runOnMainSync {
+        homeTaskId =
+          ActivityLifecycleMonitorRegistry.getInstance()
+            .getActivitiesInStage(Stage.RESUMED)
+            .filterIsInstance<MainActivity>()
+            .firstOrNull()
+            ?.taskId ?: -1
+      }
+      homeTaskId != -1
+    }
+    assertNotNull(device.wait(Until.findObject(By.desc("Settings")), 10000))
+    instrumentation.runOnMainSync { BrowserTabTasks.open(context, tabId) }
+    // This setup launch has no app-drawn swipe preview. Let its normal task animation finish
+    // before checking the subsequent gestures, including runs with 5x system animation scale.
+    SystemClock.sleep(2000)
     repeat(4) {
       val button = device.wait(Until.findObject(By.descContains("open tab")), 10000)!!
       val bounds = button.visibleBounds
@@ -477,6 +506,24 @@ class GeckoBrowserDeviceTest {
         "Browser toolbar should stay light even in dark launcher theme",
         Color.red(sample) > 220 && Color.green(sample) > 220,
       )
+      if (it > 0) {
+        // This part of the fixture is plain white. A stale task screenshot can fade the
+        // home keyboard over this otherwise empty viewport during the final handover.
+        var homePixels = 0
+        var samples = 0
+        for (y in chrome.height * 3 / 4 until chrome.height * 17 / 20 step 8) {
+          for (x in chrome.width / 5 until chrome.width * 4 / 5 step 8) {
+            val pixel = chrome.getPixel(x, y)
+            samples++
+            if (Color.red(pixel) < 230 || Color.green(pixel) < 230 || Color.blue(pixel) < 230)
+              homePixels++
+          }
+        }
+        assertTrue(
+          "Outgoing home must not fade its keyboard over the browser ($homePixels/$samples)",
+          homePixels < samples / 50,
+        )
+      }
       chrome.recycle()
       button.click()
       device.wait(Until.findObject(By.text("Close all")), 10000)
@@ -526,6 +573,18 @@ class GeckoBrowserDeviceTest {
             }
         }
         home
+      }
+      instrumentation.runOnMainSync {
+        val resumedHome =
+          ActivityLifecycleMonitorRegistry.getInstance()
+            .getActivitiesInStage(Stage.RESUMED)
+            .filterIsInstance<MainActivity>()
+            .single()
+        assertEquals(
+          "Swipe must resume the real HOME task, not create a STANDARD launcher task",
+          homeTaskId,
+          resumedHome.taskId,
+        )
       }
       val homeSettings = device.wait(Until.findObject(By.desc("Settings")), 10000)
       saveScreenshot("swipe-home-$it")

@@ -69,6 +69,8 @@ adb install -r app/build/outputs/apk/gecko/app-gecko.apk
 adb install -r app/build/outputs/apk/androidTest/gecko/app-gecko-androidTest.apk
 adb root # Emulator only: required by the process-termination recovery test.
 adb wait-for-device
+# Record the current home app first, and restore it after the test run.
+adb shell cmd package set-home-activity com.searchlauncher.app.gecko/.ui.MainActivity
 adb shell am instrument -w \
   -e class com.searchlauncher.app.ui.browser.GeckoBrowserDeviceTest \
   com.searchlauncher.app.gecko.test/androidx.test.runner.AndroidJUnitRunner
@@ -231,3 +233,26 @@ process kill. The notification fixture now grants its own runtime permission.
 
 Physical Xiaomi frame pacing remains unverified;
 this is not a claim of measured FPS improvement on the phone or tablet.
+
+## Experimental build 8
+
+- Prevent Android's cached task screenshot from fading over the live page when reopening the
+  last tab. Handovers from an already drawn activity use the scene-transition protocol with
+  enter, exit, reenter, return and background effects disabled. Clear NO_ANIMATION for that
+  path: combining it with the protocol reproduced the stale home-keyboard overlay. Cold launches
+  and application-context callers retain explicit zero-animation options.
+- Share this path between home, tab activation and the Gecko home action. Keep the final app-drawn
+  swipe frame in place when an activity stops; reset it before it starts/resumes again.
+- Exercise the default-HOME configuration in the swipe scenario and check that repeated gestures
+  return to the same home task. Check the fixture's lower viewport for keyboard remnants as well
+  as the existing home-preview, toolbar and tab-thumbnail assertions.
+
+The fade was reproduced in emulator recordings with window/task animations at 5x speed. The
+corrected recording shows four round trips without the fading keyboard overlay. Pixel sampling
+of the fully arrived page found 84 overlay samples in the earlier recording and none during the
+corrected gestures (30 fps resampling, not an FPS/performance measurement). Physical Xiaomi
+verification remains outstanding.
+
+Validation: all nine Gecko emulator scenarios passed, including renderer recovery after process
+termination. Both Gecko and debug unit suites passed (442 tests each, three skipped each), along
+with full `spotlessCheck`, Gecko APK/test APK builds and the regular debug build.
