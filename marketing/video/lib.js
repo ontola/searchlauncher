@@ -1,6 +1,8 @@
 // Shared timing helpers and a recreated SearchLauncher phone UI.
 // Everything is a pure function of time, so any frame can be rendered on its own.
 
+import { LOGOS } from "./icons.js";
+
 export const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 export const prog = (t, a, b) => clamp((t - a) / (b - a));
 export const lerp = (a, b, x) => a + (b - a) * x;
@@ -55,10 +57,23 @@ export const icon = (kind, letter, bg) => {
   return `<div class="ic" style="background:${bg}">${letter}</div>`;
 };
 
+const FULL_BLEED = new Set(["spotify", "telegram"]);
+// A real app icon: the brand logo on a white adaptive-icon circle (or the logo itself when it is already round).
+export const appIcon = (key, size = 32) => {
+  if (key === "settings")
+    return `<div class="aic" style="width:${size}px;height:${size}px;background:#5f6368">${GEAR.replace('width="22" height="22"', `width="${size * 0.66}" height="${size * 0.66}"`)}</div>`;
+  const l = LOGOS[key];
+  const full = FULL_BLEED.has(key);
+  const box = size * (full ? 1 : 0.6);
+  const ratio = l.w / l.h;
+  const w = ratio >= 1 ? box : box * ratio, h = ratio >= 1 ? box / ratio : box;
+  return `<div class="aic" style="width:${size}px;height:${size}px;background:${full ? "transparent" : "#fff"}"><svg viewBox="0 0 ${l.w} ${l.h}" width="${w}" height="${h}">${l.body}</svg></div>`;
+};
+
 export const RESULTS = {
   mar: [
     { title: "Google Maps Search: mar", sub: "Type 'm' to search", icon: icon("tile", "M", "#2e9e4f") },
-    { title: "Maps: Work", sub: "Shortcut · Maps", icon: icon("tile", "◆", "#1f8a3c") },
+    { title: "Maps: Work", sub: "Shortcut · Maps", icon: appIcon("maps") },
     { title: "Mae Jemison", sub: "Contact", icon: icon("person") },
     { title: "openstreetmap.org", sub: "Browser history", icon: icon("globe") },
     { title: "Manage Write Settings", sub: "Action", icon: icon("gear") },
@@ -79,7 +94,8 @@ const CHIPS = [
   ["G", "#3f7fe0"], ["Y", "#e3262b"], ["GEM", "#9a3fd0"], ["DD", "#e2582b"], ["BING", "#1aa085"],
   ["CAL", "#3f6fd8"], ["NAV", "#1f8a8a"], ["M", "#2e9e4f"], ["R", "#f05a22"], ["W", "#6b6f73"],
 ];
-const FAVS = ["#4285f4", "#34a853", "#ea4335", "#5c9cf0", "#1e88e5", "#ff0000", "#fbbc04", "#e8453c"];
+const FAVS = ["calendar", "maps", "gmail", "chrome", "whatsapp", "youtube", "photos", "spotify"];
+const favRow = () => FAVS.map((k) => appIcon(k, 28)).join("");
 
 const MIC = `<svg viewBox="0 0 24 24" width="17" height="17" style="vertical-align:middle"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1a7 7 0 0 0 6-6.9z"/></svg>`;
 const ROWS = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
@@ -117,7 +133,7 @@ function searchScreen(s) {
   const hasQuery = !!s.query;
   const chips = hasQuery
     ? CHIPS.map(([l, c]) => `<div class="chip" style="background:${c}">${l}</div>`).join("")
-    : FAVS.map((c) => `<div class="fav" style="background:${c}"></div>`).join("");
+    : favRow();
   const q = s.query || "";
   const chip = s.chip ? `<span class="qchip">${s.chip}</span>` : "";
   const caret = s.caret === false ? "" : `<span class="caret"></span>`;
@@ -140,11 +156,18 @@ export const touch = (p) =>
 
 const PHONE_SVG = `<svg viewBox="0 0 24 24" width="18" height="18"><path fill="#fff" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1z"/></svg>`;
 RESULTS.phone = [{ title: "Call +31 6 12345678", sub: "Phone number", icon: `<div class="ic round" style="background:#1f9d55">${PHONE_SVG}</div>` }];
+const OSM_FAV = `<div class="ic" style="background:#fff;border-radius:8px"><svg viewBox="0 0 24 24" width="24" height="24"><rect x="2" y="2" width="20" height="20" rx="4" fill="#cfe7c1"/><path d="M2 15c5-3 9 2 20-2" stroke="#aad3df" stroke-width="5" fill="none"/><path d="M6 2l4 20M2 9l20-3" stroke="#f7c27a" stroke-width="2"/></svg></div>`;
+RESULTS.map = [
+  { title: "Google Maps Search: map", sub: "Type 'm' to search", icon: icon("tile", "M", "#2e9e4f") },
+  { title: "Maps", sub: "App", icon: appIcon("maps") },
+  { title: "Maps: Work", sub: "Shortcut · Maps", icon: appIcon("maps") },
+  { title: "OpenStreetMap", sub: "openstreetmap.org/#map=13/52.37/4.90", icon: OSM_FAV },
+];
 RESULTS.url = [{ title: "searchlauncher.eu", sub: "Open in browser", icon: icon("globe") }];
 
 // Web pages shown in the built-in browser, 360x736. ads: [p, p] blocking progress per ad.
 export function page(kind, ads = [0, 0]) {
-  if (kind === "wiki") {
+  if (kind === "news") {
     const ad = (p, label) => {
       const collapse = easeInOut(clamp((p - 0.45) / 0.55));
       const stamp = clamp(p * 4);
@@ -152,13 +175,22 @@ export function page(kind, ads = [0, 0]) {
         <div class="adin"><b>${label}</b><span>Sponsored</span></div>
         ${p > 0 ? `<div class="stamp" style="opacity:${stamp};transform:rotate(-8deg) scale(${lerp(1.8, 1, easeOut(stamp))})">BLOCKED</div>` : ""}</div>`;
     };
+    return `<div class="pg news"><div class="pstat"><span>9:41</span><span>▾ ▮</span></div>
+      <div class="nbar"><span>☰</span><span class="nlogo">The Daily Scroll</span><span>⌕</span></div>
+      ${ad(ads[0], "WIN A NEW PHONE!")}
+      <div class="kicker">CITY</div><h1>New cycling bridge opens to the public</h1>
+      <div class="byline">By Sam Rivera · 4 min read</div>
+      <div class="nimg"></div>
+      <p>After two years of work, the bridge links the old harbour with the new station district.</p>
+      ${ad(ads[1], "Hot deals near you")}
+      <p>Around 8,000 cyclists are expected to cross it every day.</p></div>`;
+  }
+  if (kind === "wiki") {
     return `<div class="pg wiki"><div class="pstat"><span>9:41</span><span>▾ ▮</span></div>
       <div class="wbar"><span>☰</span><span class="wlogo">Wikipedia</span><span>⌕</span></div>
       <h1>Free software</h1><div class="wtabs"><u>Article</u><span>Talk</span></div>
       <p><b>Free software</b> is computer software distributed under terms that let users run it for any purpose, and study, change and share it.</p>
-      ${ad(ads[0], "WIN A NEW PHONE!")}
       <p>Free software is a matter of liberty, not price: users are free to do what they want with their copies.</p>
-      ${ad(ads[1], "Hot deals near you")}
       <p>The right to study and modify the source code is central to free software.</p>
       <p>Computer programs are deemed free if they give end users ultimate control over the software.</p></div>`;
   }
@@ -193,7 +225,7 @@ function browserScreen(s) {
 }
 
 // state: { tabsP (0..1 shrink of current page into its card), current: kind, touch }
-const CARD = (i) => ({ x: 14 + i * 172 - 172, y: 92, w: 160, h: 327 });
+const CARD = (i) => ({ x: 14 + i * 172 - 172, y: 80, w: 160, h: 310 });
 function tabsScreen(s) {
   const kinds = ["wiki", "osm", "vid"];
   const titles = [["Free software", "en.wikipedia.org"], ["OpenStreetMap", "openstreetmap.org"], ["lofi hip hop radio", "youtube.com"]];
@@ -213,7 +245,7 @@ function tabsScreen(s) {
     <div class="status"><span>9:41</span><span>▾ ▮</span></div>
     <div class="thead" style="opacity:${p}"><span>3 tabs</span><span>Close all</span></div>
     <div style="opacity:${p}">${cards}
-      <div class="chips">${FAVS.map((c) => `<div class="fav" style="background:${c}"></div>`).join("")}</div>
+      <div class="chips">${favRow()}</div>
       <div class="bar"><span class="caret"></span><span class="ph">Search anything…</span><div class="baricons">${MIC}</div></div>
       ${keyboard(null)}</div>
     ${fly}
@@ -228,10 +260,10 @@ const WALLS = [
 ];
 export const WALL = WALLS;
 const APPS = [
-  ["Calendar", "#3f7fe0"], ["Camera", "#5f6368"], ["Chrome", "#e8453c"], ["Clock", "#1a73e8"],
-  ["Contacts", "#1e88e5"], ["Drive", "#fbbc04"], ["Files", "#34a853"], ["Gmail", "#ea4335"],
-  ["Maps", "#2e9e4f"], ["Messages", "#1a73e8"], ["Phone", "#1f9d55"], ["Photos", "#f29900"],
-  ["Play Store", "#01875f"], ["Settings", "#5f6368"], ["Spotify", "#1db954"], ["YouTube", "#e3262b"],
+  ["Calendar", "calendar"], ["Chrome", "chrome"], ["Drive", "drive"], ["Firefox", "firefox"],
+  ["Gmail", "gmail"], ["Google", "google"], ["Keep", "keep"], ["Maps", "maps"],
+  ["Meet", "meet"], ["Photos", "photos"], ["Play Store", "play"], ["Settings", "settings"],
+  ["Signal", "signal"], ["Spotify", "spotify"], ["Telegram", "telegram"], ["WhatsApp", "whatsapp"],
 ];
 export const APP_LIST = APPS;
 
@@ -264,11 +296,11 @@ function homeScreen(s) {
     : "";
   const dp = s.drawerP || 0;
   const drawer = dp > 0
-    ? `<div class="drawer" style="top:${lerp(800, 36, dp)}px"><div class="dgrab"></div>${APPS.map(([n, c]) => `<div class="app"><i style="background:${c}">${n[0]}</i><span>${n}</span></div>`).join("")}</div>`
+    ? `<div class="drawer" style="top:${lerp(800, 36, dp)}px"><div class="dgrab"></div>${APPS.map(([n, k]) => `<div class="app">${appIcon(k, 50)}<span>${n}</span></div>`).join("")}</div>`
     : "";
   return `<div class="screen">${walls}${widgets}
     <div class="status"><span>9:41</span><span>▾ ▮</span></div>
-    <div class="chips">${FAVS.map((c) => `<div class="fav" style="background:${c}"></div>`).join("")}</div>
+    <div class="chips">${favRow()}</div>
     <div class="bar"><span class="caret"></span><span class="ph">Search anything…</span><div class="baricons">${MIC}</div></div>
     ${keyboard(null)}${drawer}<div class="handle"></div>${touch(s.touch)}</div>`;
 }
@@ -295,7 +327,8 @@ export const PHONE_CSS = `
 .ic.round{border-radius:50%}
 .chips{position:absolute;left:12px;right:12px;top:440px;height:28px;display:flex;gap:5px;justify-content:center;align-items:center}
 .chip{width:28px;height:24px;border-radius:6px;font-size:7.5px;font-weight:800;color:#fff;display:flex;align-items:center;justify-content:center}
-.fav{width:26px;height:26px;border-radius:50%;box-shadow:inset 0 0 0 3px rgba(255,255,255,.85)}
+.aic{border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden}
+.chips{gap:7px}
 .bar{position:absolute;left:12px;right:12px;top:474px;height:40px;border-radius:20px;background:#2a2e31;display:flex;align-items:center;padding:0 14px;font-size:16px;gap:4px}
 .bar .ph{color:#8d9399}
 .bar .q{color:#f1f3f4;white-space:pre}
@@ -317,6 +350,13 @@ export const PHONE_CSS = `
 .pstat{height:36px;display:flex;justify-content:space-between;align-items:center;padding:0 24px;font-size:13px;font-weight:500;color:#202122}
 .wbar{display:flex;align-items:center;gap:14px;padding:6px 16px;background:#f8f9fa;border-bottom:1px solid #ddd;font-size:20px;color:#444}
 .wlogo{flex:1;font-family:Georgia,serif;font-size:21px;letter-spacing:1px;color:#202122}
+.nbar{display:flex;align-items:center;gap:14px;padding:8px 16px;border-bottom:3px solid #111;font-size:20px;color:#111}
+.nlogo{flex:1;text-align:center;font-family:Georgia,serif;font-weight:700;font-size:22px;letter-spacing:-.5px}
+.kicker{margin:14px 16px 0;font-family:Roboto;font-size:11px;font-weight:700;letter-spacing:1.5px;color:#c62828}
+.news h1{font-family:Georgia,serif;font-size:25px;line-height:1.15;margin:6px 16px 8px}
+.byline{margin:0 16px 10px;font-family:Roboto;font-size:11.5px;color:#666}
+.nimg{margin:0 16px;height:150px;border-radius:6px;background:linear-gradient(160deg,#9fd3f0 0%,#cfe8f5 45%,#7a8a99 46%,#56636e 60%,#4f7d5a 61%,#3d6b48 100%)}
+.news p{margin:10px 16px;font-family:Georgia,serif;font-size:14.5px;line-height:1.5}
 .wiki h1{font-family:Georgia,serif;font-weight:400;font-size:28px;margin:16px 16px 6px}
 .wtabs{display:flex;gap:16px;margin:0 16px 8px;padding-bottom:6px;border-bottom:1px solid #c8ccd1;font-size:13px;color:#555}
 .wtabs u{text-decoration:none;border-bottom:2px solid #202122;padding-bottom:5px;color:#202122}
@@ -339,7 +379,7 @@ export const PHONE_CSS = `
 .tabn{width:20px;height:20px;border:2px solid #d6d9dc;border-radius:5px;font-size:11px;display:flex;align-items:center;justify-content:center}
 .thead{position:absolute;left:20px;right:20px;top:52px;display:flex;justify-content:space-between;font-size:15px}
 .tcard{position:absolute;width:160px}
-.tmini{position:relative;width:160px;height:327px;border-radius:14px;overflow:hidden;box-shadow:0 0 0 2px #3a3f44}
+.tmini{position:relative;width:160px;height:310px;border-radius:14px;overflow:hidden;box-shadow:0 0 0 2px #3a3f44}
 .tmini .pg{width:360px;height:736px;transform:scale(.4444);transform-origin:0 0}
 .tclose{position:absolute;right:6px;top:6px;width:24px;height:24px;border-radius:50%;background:#202124;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center}
 .ttl{display:flex;flex-direction:column;margin-top:6px;font-size:11px}.ttl b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ttl span{color:#9aa0a6;font-size:10px}

@@ -1,8 +1,12 @@
 // The full demo video in direction B (bright and bouncy): light paper background,
 // the phone in the middle, and whatever it finds pops out around it as cards.
-import { prog, lerp, easeOut, easeOut5, easeIn, easeInOut, spring, typing, phoneScreen, camera, RESULTS, LOGO, clamp, page, CLOCK, calendarWidget, APP_LIST } from "./lib.js";
+import { prog, lerp, easeOut, easeOut5, easeIn, easeInOut, spring, typing, phoneScreen, camera, RESULTS, LOGO, clamp, page, CLOCK, calendarWidget, APP_LIST, appIcon } from "./lib.js";
 
-export const DURATION = 29.5;
+// Beats are written in "design seconds" and played back slower, so the whole video breathes a bit.
+const STRETCH = 1.2;
+// Design time 6 to 9 is the tab search beat; everything after it was written starting at 6.
+const TAB_BEAT = 3;
+export const DURATION = 32.5 * STRETCH;
 
 export const CSS = `
 .bgB{position:absolute;inset:0;background:#f3f6f2}
@@ -16,7 +20,7 @@ export const CSS = `
 .mini{position:relative;width:160px;height:327px;border-radius:14px;overflow:hidden;box-shadow:0 20px 44px rgba(16,32,24,.3)}
 .mini .pg{width:360px;height:736px;transform:scale(.4444);transform-origin:0 0}
 .keycap{width:100px;height:110px;border-radius:18px;background:#3b3e42;color:#eef0f1;font-size:58px;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 0 #24272a,0 24px 40px rgba(16,32,24,.3);font-family:Roboto}
-.appi{width:96px;height:96px;border-radius:50%;font-family:Roboto;font-weight:700;font-size:40px;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 16px 34px rgba(16,32,24,.28)}
+.appi{width:96px;height:96px;border-radius:50%;box-shadow:0 16px 34px rgba(16,32,24,.28)}
 .pill{font-family:"Roboto Mono",monospace;font-size:24px;font-weight:500;background:#fff;color:#102018;border:3px solid #102018;border-radius:12px;padding:8px 16px;white-space:nowrap}
 .shield{width:200px;height:200px;border-radius:50%;background:#0f7a5a;display:flex;align-items:center;justify-content:center;box-shadow:0 20px 50px rgba(15,122,90,.35)}
 .gp{display:inline-flex;align-items:center;gap:14px;background:#fff;color:#0f7a5a;border-radius:999px;padding:16px 34px;font-size:34px;font-weight:700}
@@ -71,7 +75,9 @@ const swipe = (t, a, b, x0, y0, x1, y1) => {
 
 const BEATS = [0, 3.3, 6.0, 10.0, 14.0, 18.0, 21.6, 25.2];
 
-export function render(t) {
+export function render(real) {
+  const u = real / STRETCH;
+  const t = u < 6 + TAB_BEAT ? u : u - TAB_BEAT;
   let st = {}, extra = "", caps = "";
 
   if (t < 3.3) {
@@ -96,6 +102,19 @@ export function render(t) {
       extra += sticker(t, l, c, x, y, r, 4.1 + k * 0.1, 5.7 + k * 0.03);
     });
     caps += caption(t, "And all of <em>the web</em>.", 3.4, 5.75);
+  } else if (u < 6 + TAB_BEAT) {
+    // 2b. Open tabs are searchable too: find one and jump straight back in
+    if (t < 7.85) {
+      const ty = typing(t, "map", 6.15, 8);
+      st = { query: ty.shown, pressed: ty.pressed, results: t > 6.6 ? RESULTS.map : [], rowP: stagger(t, 6.6, 0.05), touch: swipe(t, 7.65, 7.75, 180, rowY(3, 4), 180, rowY(3, 4)) };
+      st.rowGlow = (i) => (i === 3 ? clamp(prog(t, 6.95, 7.1)) : 0);
+      extra += fly(t, { start: 7.0, back: 7.5, from: [180, rowY(3, 4)], to: [1480, 470], rot: 4, scale: 1.7, w: 340, h: 54, html: rowHtml(RESULTS.map[3], "Open tab") });
+      extra += fly(t, { start: 7.1, back: 7.52, from: [180, rowY(1, 4)], to: [440, 470], rot: -4, scale: 1.5, w: 340, h: 54, html: rowHtml(RESULTS.map[1], "App") });
+    } else {
+      st = { mode: "browser", count: 3, pages: [{ kind: "osm", x: 0 }] };
+    }
+    caps += caption(t, "Even your <em>open tabs</em>.", 6.1, 7.65);
+    caps += caption(t, "Jump <em>straight back in</em>.", 7.8, 8.85);
   } else if (t < 10.0) {
     // 3. Smart input: sums, phone numbers and web addresses
     const parts = [
@@ -116,7 +135,7 @@ export function render(t) {
     caps += caption(t, "It knows <em>what you mean</em>.", 6.1, 9.75);
   } else if (t < 14.0) {
     // 4. Built-in browser that blocks ads and trackers
-    st = { mode: "browser", pages: [{ kind: "wiki", x: 0 }], ads: [easeInOut(prog(t, 10.8, 11.4)), easeInOut(prog(t, 11.15, 11.75))], count: 1 };
+    st = { mode: "browser", pages: [{ kind: "news", x: 0 }], ads: [easeInOut(prog(t, 10.8, 11.4)), easeInOut(prog(t, 11.15, 11.75))], count: 1 };
     caps += caption(t, "A browser that <em>blocks ads</em>.", 10.1, 11.95);
     caps += caption(t, "And <em>trackers</em>, too.", 12.05, 13.8);
     if (t > 12.0) {
@@ -158,9 +177,10 @@ export function render(t) {
     });
     const spots = [[420, 330], [600, 470], [380, 600], [590, 760], [1340, 330], [1520, 470], [1330, 620], [1530, 770]];
     spots.forEach(([x, y], k) => {
-      const [name, color] = APP_LIST[[0, 7, 8, 13, 15, 14, 2, 11][k]];
-      const col = [0, 3, 0, 1, 3, 2, 2, 3][k], row = [0, 1, 2, 3, 3, 3, 0, 2][k];
-      extra += fly(t, { start: 20.5 + k * 0.05, back: 21.3 + k * 0.01, from: [45 + col * 85, 80 + row * 90], to: [x, y], rot: (k % 2 ? 1 : -1) * 6, scale: 1, w: 96, h: 96, html: `<div class="appi" style="background:${color}">${name[0]}</div>` });
+      const idx = [0, 4, 7, 9, 13, 15, 1, 10][k];
+      const key = APP_LIST[idx][1];
+      const col = idx % 4, row = Math.floor(idx / 4);
+      extra += fly(t, { start: 20.5 + k * 0.05, back: 21.3 + k * 0.01, from: [45 + col * 85, 80 + row * 90], to: [x, y], rot: (k % 2 ? 1 : -1) * 6, scale: 1, w: 96, h: 96, html: `<div class="appi">${appIcon(key, 96)}</div>` });
     });
   } else {
     // 7. Your home screen: widgets and swipeable wallpapers
