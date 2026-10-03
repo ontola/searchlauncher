@@ -142,15 +142,15 @@ internal object BrowserEngine {
       page.session.permissionDelegate = prompts.permissions
       val observer = LifecycleEventObserver { _, event ->
         when (event) {
-          Lifecycle.Event.ON_RESUME -> page.session.setActive(true)
+          Lifecycle.Event.ON_START -> page.setVisible(true)
+          Lifecycle.Event.ON_RESUME -> page.recoverIfNeeded()
           Lifecycle.Event.ON_PAUSE -> {
             page.persist()
-            page.capture {
-              if (page.session.isOpen && !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
-                page.session.setActive(false)
-            }
+            page.capture()
           }
-          Lifecycle.Event.ON_STOP -> if (page.session.isOpen) page.session.setActive(false)
+          // Paused pages can still be visible (for example behind a permission/provider prompt).
+          // Lower their process priority only once the browser is actually hidden.
+          Lifecycle.Event.ON_STOP -> page.setVisible(false)
           else -> Unit
         }
       }

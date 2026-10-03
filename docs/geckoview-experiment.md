@@ -256,3 +256,30 @@ verification remains outstanding.
 Validation: all nine Gecko emulator scenarios passed, including renderer recovery after process
 termination. Both Gecko and debug unit suites passed (442 tests each, three skipped each), along
 with full `spotlessCheck`, Gecko APK/test APK builds and the regular debug build.
+
+## Experimental build 9
+
+- Restore a killed page automatically while its browser activity is resumed. If it was killed
+  in the background, wait until the user returns; do not restart hidden tabs. Reopen the closed
+  Gecko session and restore the matching saved session state through the existing recovery path.
+- Allow at most one automatic recovery per page instance in 30 seconds. A repeated termination
+  within that window leaves the manual retry action available. Crashes still require manual retry.
+- Keep visible sessions active until ON_STOP, including while paused behind a prompt or during
+  a task transition; reactivate at ON_START. Do not queue activity changes on a closed session.
+- Replace the memory-reclamation claim with a neutral stopped-page message: Gecko's onKill callback
+  establishes process termination, not its cause. Log kill/crash and foreground/background status
+  without URLs or page content for subsequent device diagnosis.
+
+Mozilla's [session visibility contract](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/GeckoSession.html#setActive(boolean))
+requires inactive sessions to be hidden; its [content delegate contract](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/GeckoSession.ContentDelegate.html#onKill(org.mozilla.geckoview.GeckoSession))
+requires reopening a killed session before loading or restoring it.
+
+Focused emulator tests terminated real Gecko child processes with SIGKILL. They verified automatic
+foreground recovery with preserved local storage, suppression of repeated automatic reloads,
+manual retry, navigation to another address, deferred background recovery, and preserved Back history.
+The underlying reason for the Xiaomi process termination remains unverified: no physical phone
+was connected for log capture during this change.
+
+Validation: all ten Gecko device scenarios passed on the Android 15 ARM64 emulator, including
+the existing swipe/preview checks. The Gecko unit suite passed (442 tests, three skipped), as did
+full `spotlessCheck`, the Gecko app build and its instrumentation APK build.

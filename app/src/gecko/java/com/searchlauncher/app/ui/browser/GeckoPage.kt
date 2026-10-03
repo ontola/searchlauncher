@@ -4,10 +4,12 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import com.searchlauncher.app.SearchLauncherApp
 import kotlin.coroutines.resume
@@ -16,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.yield
 import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoSession
@@ -57,6 +60,10 @@ internal class GeckoPage(
   private var loadGeneration = 0
   private val captureCallbacks = mutableListOf<() -> Unit>()
   private var state: GeckoSession.SessionState? = null
+  private var killed = false
+  private var lastAutomaticRecoveryAt: Long? = null
+  private var recoveryJob: Job? = null
+  private var closed = false
 
   init {
     tab.url = initialUrl
@@ -140,11 +147,13 @@ internal class GeckoPage(
         }
 
         override fun onCrash(session: GeckoSession) {
-          processStopped("The page process stopped. Reload to try again.")
+          processStopped("The page process crashed. Reload to try again.", wasKilled = false)
         }
 
         override fun onKill(session: GeckoSession) {
-          processStopped("Android stopped this page to reclaim memory. Reload to continue.")
+          // onKill does not tell us why the process was terminated (including OEM policies).
+          processStopped("The page was stopped. Reload to continue.", wasKilled = true)
+          recoverIfNeeded()
         }
 
         override fun onContextMenu(
@@ -280,7 +289,13 @@ internal class GeckoPage(
     navigate(url, restoreHistory = true)
   }
 
-  private fun processStopped(message: String) {
+  private fun processStopped(message: String, wasKilled: Boolean) {
+    killed = wasKilled
+    scrollCapture?.cancel()
+    android.util.Log.w(
+      "GeckoRecovery",
+      "Page process ${if (wasKilled) "killed" else "crashed"}; resumed=${activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)}",
+    )
     failedUrl = failedUrl ?: tab.url
     navigationGeneration++
     loadGeneration++
@@ -290,8 +305,32 @@ internal class GeckoPage(
     error = message
   }
 
+  /** Restore discarded pages on demand, never respawn background tabs or loop on a bad page. */
+  fun recoverIfNeeded() {
+    if (!killed || closed || recoveryJob?.isActive == true) return
+    recoveryJob =
+      activity.lifecycleScope.launch {
+        // Let Gecko finish closing the old session before reopening it.
+        yield()
+        if (
+          !killed || closed || !activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        )
+          return@launch
+        val now = SystemClock.elapsedRealtime()
+        if (lastAutomaticRecoveryAt?.let { now - it < 30_000 } == true) return@launch
+        lastAutomaticRecoveryAt = now
+        android.util.Log.i("GeckoRecovery", "Restoring killed foreground page")
+        retry()
+      }
+  }
+
+  fun setVisible(visible: Boolean) {
+    if (session.isOpen) session.setActive(visible)
+  }
+
   /** A killed/crashed Gecko session is closed: loadUri alone just queues forever. */
   fun navigate(url: String, restoreHistory: Boolean = false) {
+    killed = false
     val reopening = !session.isOpen
     val history = state?.takeIf { reopening && restoreHistory && it.currentUrl() == url }
     val generation = ++loadGeneration
@@ -309,7 +348,7 @@ internal class GeckoPage(
       session.open(GeckoEnvironment.runtime(activity))
       view?.setSession(session)
       view?.coverUntilFirstPaint(android.graphics.Color.WHITE)
-      session.setActive(true)
+      setVisible(activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
       preparePage {
         if (generation == loadGeneration) {
           if (history != null) session.restoreState(history) else session.loadUri(url)
@@ -329,7 +368,7 @@ internal class GeckoPage(
   fun start() {
     val runtime = GeckoEnvironment.runtime(activity)
     if (!session.isOpen) session.open(runtime)
-    session.setActive(true)
+    setVisible(activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
     favicons?.restoreCached()
     val generation = ++loadGeneration
     preparePage { if (generation == loadGeneration) loadInitialPage() }
@@ -426,6 +465,8 @@ internal class GeckoPage(
   }
 
   fun close() {
+    closed = true
+    recoveryJob?.cancel()
     scrollCapture?.cancel()
     favicons?.close()
     session.close()

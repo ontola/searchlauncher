@@ -270,23 +270,9 @@ class GeckoBrowserDeviceTest {
     // Keep session history and website storage across a real OS process termination.
     tap("Store data")
     waitFor("storage-written")
-    fun killContentProcesses() {
-      val processes = device.executeShellCommand("ps -A -o PID,NAME")
-      val pids =
-        processes
-          .lineSequence()
-          .map { it.trim().split(Regex("\\s+")) }
-          .filter { it.size == 2 && it[1].startsWith("${context.packageName}:tab_") }
-          .map { it[0].toInt() }
-          .toList()
-      assertTrue("Gecko content processes must be running", pids.isNotEmpty())
-      // This instrumentation scenario runs on a rooted AOSP emulator (adb root).
-      pids.forEach { device.executeShellCommand("kill -9 $it") }
-      assertNotNull(device.wait(Until.findObject(By.text("Try again")), 15000))
-    }
-    killContentProcesses()
     reports.clear()
-    tap("Try again")
+    killContentProcesses()
+    // A killed foreground page should restore itself without requiring a tap.
     waitFor("engine", 30000)
     assertNotNull(device.wait(Until.findObject(By.text("Export file")), 15000))
     tap("Read data")
@@ -294,7 +280,15 @@ class GeckoBrowserDeviceTest {
     instrumentation.runOnMainSync { assertEquals("$origin/", BrowserTabStore.tab(tabId)!!.url) }
     saveScreenshot("recovered-after-kill")
 
+    // A second kill inside the cooldown must stop instead of entering a reload loop.
     killContentProcesses()
+    assertNotNull(device.wait(Until.findObject(By.text("Try again")), 15000))
+    reports.clear()
+    tap("Try again")
+    waitFor("engine", 30000)
+
+    killContentProcesses()
+    assertNotNull(device.wait(Until.findObject(By.text("Try again")), 15000))
     reports.clear()
     // Exercise the app's same-tab address/navigation path without pressing Retry.
     instrumentation.runOnMainSync {
@@ -304,6 +298,73 @@ class GeckoBrowserDeviceTest {
     assertNotNull(device.wait(Until.findObject(By.text("Export file")), 15000))
     instrumentation.runOnMainSync { assertEquals("$origin/next", BrowserTabStore.tab(tabId)!!.url) }
     saveScreenshot("new-address-after-kill")
+  }
+
+  private fun prepareHome() {
+    (context.applicationContext as SearchLauncherApp).apply {
+      setAskedDefaultLauncher()
+      setAskedDefaultBrowser()
+      setConsent(false)
+    }
+    runBlocking {
+      context.dataStore.edit {
+        it[PreferencesKeys.ONBOARDING_PERMISSIONS_ASKED] = true
+        it[PreferencesKeys.BUILT_IN_KEYBOARD] = true
+      }
+      com.searchlauncher.app.ui.onboarding.OnboardingManager(context).skipAll()
+    }
+  }
+
+  private fun killContentProcesses() {
+    val processes = device.executeShellCommand("ps -A -o PID,NAME")
+    val pids =
+      processes
+        .lineSequence()
+        .map { it.trim().split(Regex("\\s+")) }
+        .filter { it.size == 2 && it[1].startsWith("${context.packageName}:tab_") }
+        .map { it[0].toInt() }
+        .toList()
+    assertTrue("Gecko content processes must be running", pids.isNotEmpty())
+    // This instrumentation scenario runs on a rooted AOSP emulator (adb root).
+    pids.forEach { device.executeShellCommand("kill -9 $it") }
+  }
+
+  @Test
+  fun killedBackgroundPageWaitsUntilReturningToBrowser() {
+    prepareHome()
+    var tabId = 0L
+    instrumentation.runOnMainSync { tabId = BrowserTabStore.tabs!!.active.id }
+    tap("Next route")
+    waitFor("route-changed")
+    instrumentation.runOnMainSync { BrowserTabTasks.openHome(context) }
+    assertNotNull(device.wait(Until.findObject(By.desc("Settings")), 10000))
+    eventually {
+      var stopped = false
+      instrumentation.runOnMainSync {
+        stopped =
+          ActivityLifecycleMonitorRegistry.getInstance()
+            .getActivitiesInStage(Stage.STOPPED)
+            .filterIsInstance<BrowserActivity>()
+            .isNotEmpty()
+      }
+      stopped
+    }
+    reports.clear()
+    killContentProcesses()
+    SystemClock.sleep(2000)
+    assertFalse("Do not restart discarded background pages", reports.any { it.contains("engine") })
+    instrumentation.runOnMainSync { BrowserTabTasks.open(context, tabId) }
+    waitFor("engine", 30000)
+    assertNotNull(device.wait(Until.findObject(By.text("Export file")), 15000))
+    instrumentation.runOnMainSync { assertEquals("$origin/next", BrowserTabStore.tab(tabId)!!.url) }
+    // History survives the discard, not just the current URL.
+    device.pressBack()
+    eventually {
+      var restored = false
+      instrumentation.runOnMainSync { restored = BrowserTabStore.tab(tabId)?.url == "$origin/" }
+      restored
+    }
+    saveScreenshot("recovered-background-tab")
   }
 
   @Test
@@ -452,18 +513,7 @@ class GeckoBrowserDeviceTest {
 
   @Test
   fun previewsChromeAndSwipeSurviveRepeatedHandoffs() {
-    (context.applicationContext as SearchLauncherApp).apply {
-      setAskedDefaultLauncher()
-      setAskedDefaultBrowser()
-      setConsent(false)
-    }
-    runBlocking {
-      context.dataStore.edit {
-        it[PreferencesKeys.ONBOARDING_PERMISSIONS_ASKED] = true
-        it[PreferencesKeys.BUILT_IN_KEYBOARD] = true
-      }
-      com.searchlauncher.app.ui.onboarding.OnboardingManager(context).skipAll()
-    }
+    prepareHome()
     device.wait(Until.findObject(By.text("Export file")), 15000)
     assertFalse(device.hasObject(By.textContains("Gecko experiment")))
     var tabId = 0L
