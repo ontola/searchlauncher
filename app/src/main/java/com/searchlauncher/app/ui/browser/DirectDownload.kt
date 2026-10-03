@@ -94,35 +94,35 @@ internal fun startDirectDownload(
                   if (written - reported >= 512 * 1024) {
                     reported = written
                     val fraction = if (total > 0) written.toFloat() / total else null
-                    withContext(Dispatchers.Main) {
-                      pendingPageDownloads[key] = PageDownloadProgress(name, fraction)
-                    }
+                    withContext(Dispatchers.Main) { updatePageDownload(key, name, fraction) }
                   }
                 }
               }
             }
             check(total < 0 || written == total) { "Download failed: the connection dropped" }
             val manager = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            manager.addCompletedDownload(
-              name,
-              Uri.parse(url).host ?: "Download",
-              false,
-              type,
-              target.path,
-              written,
-              true,
-            )
-            name
+            val id =
+              manager.addCompletedDownload(
+                name,
+                Uri.parse(url).host ?: "Download",
+                false,
+                type,
+                target.path,
+                written,
+                true,
+              )
+            Triple(id, name, written)
           } finally {
             connection.disconnect()
           }
         }
       registered = true
-      Toast.makeText(appContext, "Downloaded $saved", Toast.LENGTH_LONG).show()
+      completePageDownload(key, saved.first, saved.second, saved.third)
+      Toast.makeText(appContext, "Downloaded ${saved.second}", Toast.LENGTH_LONG).show()
     } catch (error: Exception) {
       Toast.makeText(appContext, error.message ?: "Download failed", Toast.LENGTH_LONG).show()
     } finally {
-      pendingPageDownloads.remove(key)
+      finishPageDownload(key)
       if (!registered)
         withContext(Dispatchers.IO) {
           file?.let {

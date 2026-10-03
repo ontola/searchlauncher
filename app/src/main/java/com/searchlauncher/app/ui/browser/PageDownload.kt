@@ -84,7 +84,13 @@ internal fun safePageDownloadName(name: String): String =
     .take(160)
     .takeUnless { it.isBlank() || it == "." || it == ".." } ?: "download"
 
-internal data class PageDownloadProgress(val name: String, val fraction: Float?)
+internal data class PageDownloadProgress(
+  val name: String,
+  val fraction: Float?,
+  val startedAt: Long = System.currentTimeMillis(),
+  val completed: BrowserDownload? = null,
+  val seenInHistory: Boolean = false,
+)
 
 internal val pendingPageDownloads =
   androidx.compose.runtime.mutableStateMapOf<String, PageDownloadProgress>()
@@ -218,21 +224,23 @@ internal suspend fun downloadFromPage(
       check(bytes.size.toLong() == end - offset)
       withContext(Dispatchers.IO) { target.appendBytes(bytes) }
       offset = end
-      pendingPageDownloads[key] = PageDownloadProgress(name, offset.toFloat() / size)
+      updatePageDownload(key, name, offset.toFloat() / size)
     }
-    withContext(Dispatchers.IO) {
-      val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-      manager.addCompletedDownload(
-        name,
-        "Exported from a webpage",
-        false,
-        type,
-        target.path,
-        size,
-        true,
-      )
-    }
+    val id =
+      withContext(Dispatchers.IO) {
+        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        manager.addCompletedDownload(
+          name,
+          "Exported from a webpage",
+          false,
+          type,
+          target.path,
+          size,
+          true,
+        )
+      }
     registered = true
+    completePageDownload(key, id, name, size)
     Toast.makeText(context, "Downloaded $name", Toast.LENGTH_LONG).show()
   } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
     if (!quiet)
@@ -250,7 +258,7 @@ internal suspend fun downloadFromPage(
         .show()
   } finally {
     withContext(NonCancellable + Dispatchers.Main) {
-      pendingPageDownloads.remove(key)
+      finishPageDownload(key)
       // No waiting: a destroyed/navigated WebView may no longer invoke evaluation callbacks.
       runCatching { view.evaluateJavascript("delete window[$quotedKey]", null) }
     }

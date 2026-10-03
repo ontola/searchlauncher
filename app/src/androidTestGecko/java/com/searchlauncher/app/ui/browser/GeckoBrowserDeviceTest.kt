@@ -431,6 +431,101 @@ class GeckoBrowserDeviceTest {
   }
 
   @Test
+  fun scriptedAppLinksOpenTheDefaultAppButEmbeddedFramesDoNot() {
+    val testPackage = instrumentation.context.packageName
+    device.executeShellCommand(
+      "pm set-app-links --package $testPackage 2 handoff.searchlauncher.test"
+    )
+    device.executeShellCommand(
+      "pm set-app-links-user-selection --user 0 --package $testPackage true handoff.searchlauncher.test"
+    )
+    try {
+      context.startActivity(BrowserActivity.createIntent(context, "$origin/app-link-frame"))
+      assertNotNull(device.wait(Until.findObject(By.text("Embedded app link fixture")), 15000))
+      SystemClock.sleep(1500)
+      assertFalse(device.hasObject(By.textStartsWith("Received app link:")))
+      context.startActivity(BrowserActivity.createIntent(context, "$origin/app-link-redirect"))
+      assertNotNull(
+        device.wait(
+          Until.findObject(
+            By.text(
+              "Received app link: https://handoff.searchlauncher.test/app?state=exact%2Fvalue"
+            )
+          ),
+          15000,
+        )
+      )
+      saveScreenshot("app-link-handoff")
+      device.pressBack()
+    } finally {
+      device.executeShellCommand(
+        "pm set-app-links-user-selection --user 0 --package $testPackage false handoff.searchlauncher.test"
+      )
+      device.executeShellCommand(
+        "pm set-app-links --package $testPackage 0 handoff.searchlauncher.test"
+      )
+    }
+  }
+
+  @Test
+  fun downloadCompletionKeepsTheNewestCardAtTheTop() {
+    context.startActivity(BrowserActivity.createIntent(context, "$origin/download"))
+    val name = "direct-${server.localPort}.bin"
+    assertNotNull(device.wait(Until.findObject(By.text(name)), 15000))
+    SystemClock.sleep(1000) // Include the first history poll with older downloads.
+    val top = device.findObject(By.text(name))!!.visibleBounds.top
+    saveScreenshot("persistent-download-progress")
+    releaseDownload.countDown()
+    val deadline = SystemClock.uptimeMillis() + 2500
+    var samples = 0
+    while (SystemClock.uptimeMillis() < deadline) {
+      val bounds = device.findObject(By.text(name))?.visibleBounds
+      assertNotNull("Latest download must never disappear", bounds)
+      assertEquals("The latest filename must stay visible in the same place", top, bounds!!.top)
+      samples++
+      SystemClock.sleep(16)
+    }
+    assertTrue(samples > 5)
+    val completed =
+      readBrowserDownloads(context.getSystemService(DownloadManager::class.java)).first {
+        it.name == name
+      }
+    assertEquals(DownloadManager.STATUS_SUCCESSFUL, completed.status)
+    assertEquals(downloadBytes.size.toLong(), completed.displayBytes)
+    assertNotNull(device.wait(Until.findObject(By.text("Open file")), 10000))
+    saveScreenshot("persistent-download-complete")
+  }
+
+  @Test
+  fun browserSearchUsesTheHomeKeyboardAndReturnsToThePage() {
+    prepareHome()
+    device.wait(Until.findObject(By.text(origin.removePrefix("http://"))), 15000)!!.click()
+    assertNotNull(device.wait(Until.findObject(By.desc("Space")), 10000))
+    device.findObject(By.desc("q"))!!.click()
+    assertEquals(
+      "q",
+      device.wait(Until.findObject(By.clazz("android.widget.EditText")), 10000)!!.text,
+    )
+    assertFalse(
+      "The system IME must stay hidden for built-in search",
+      device.executeShellCommand("dumpsys input_method").contains("mInputShown=true"),
+    )
+    saveScreenshot("browser-built-in-keyboard")
+    device.pressBack()
+    assertNotNull(device.wait(Until.findObject(By.text("Export file")), 10000))
+    runBlocking { com.searchlauncher.app.ui.HomeKeyboardPreference.set(context, false) }
+    try {
+      device.wait(Until.findObject(By.text(origin.removePrefix("http://"))), 15000)!!.click()
+      eventually { device.executeShellCommand("dumpsys input_method").contains("mInputShown=true") }
+      assertFalse(device.hasObject(By.desc("Space").pkg(context.packageName)))
+      device.pressBack()
+      assertNotNull(device.wait(Until.findObject(By.text("Export file")), 10000))
+    } finally {
+      runBlocking { com.searchlauncher.app.ui.HomeKeyboardPreference.set(context, true) }
+    }
+  }
+
+  @Test
   fun directDownloadShowsProgressAndClosesOnlyItsEmptyTab() {
     var sourceId = 0L
     instrumentation.runOnMainSync { sourceId = BrowserTabStore.tabs!!.active.id }
@@ -821,6 +916,30 @@ class GeckoBrowserDeviceTest {
       if (path == "/" && delayNextDocument.compareAndSet(true, false)) {
         reports += "reload-waiting"
         releaseReload.await(30, java.util.concurrent.TimeUnit.SECONDS)
+      }
+      if (path == "/app-link-frame" || path == "/app-link-redirect") {
+        val body =
+          if (path.endsWith("frame"))
+            "<html><body>Embedded app link fixture<iframe src='https://handoff.searchlauncher.test/app'></iframe></body></html>"
+          else
+            "<html><body>Opening app<script>setTimeout(() => location.href='$origin/app-link-location', 800)</script></body></html>"
+        val bytes = body.toByteArray()
+        it
+          .getOutputStream()
+          .write(
+            ("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n")
+              .toByteArray() + bytes
+          )
+        return
+      }
+      if (path == "/app-link-location") {
+        it
+          .getOutputStream()
+          .write(
+            "HTTP/1.1 302 Found\r\nLocation: https://handoff.searchlauncher.test/app?state=exact%2Fvalue\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+              .toByteArray()
+          )
+        return
       }
       if (path == "/download") {
         reports += "download-request"

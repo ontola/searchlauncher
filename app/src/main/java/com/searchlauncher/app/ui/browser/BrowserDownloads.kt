@@ -10,6 +10,8 @@ import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -60,7 +62,7 @@ internal data class BrowserDownload(
 /** DownloadManager retains this app's download records across browser and process restarts. */
 internal fun readBrowserDownloads(manager: DownloadManager): List<BrowserDownload> =
   buildList {
-      manager.query(DownloadManager.Query())?.use { cursor ->
+      requireNotNull(manager.query(DownloadManager.Query())).use { cursor ->
         fun long(column: String) = cursor.getLong(cursor.getColumnIndexOrThrow(column))
         while (cursor.moveToNext()) {
           add(
@@ -116,6 +118,7 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
   val manager = remember { context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager }
   var downloads by remember { mutableStateOf<List<BrowserDownload>>(emptyList()) }
   var pendingDocumentUri by rememberSaveable { mutableStateOf<String?>(null) }
+  var rows by remember { mutableStateOf<List<DownloadRow>>(emptyList()) }
   var loaded by remember { mutableStateOf(false) }
   var error by remember { mutableStateOf(false) }
   var openError by remember { mutableStateOf<String?>(null) }
@@ -210,11 +213,22 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
   LaunchedEffect(manager) {
     while (true) {
       val result = withContext(Dispatchers.IO) { runCatching { readBrowserDownloads(manager) } }
-      result.onSuccess { downloads = it }.onFailure { error = true }
+      result
+        .onSuccess {
+          androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            acknowledgePageDownloadHistory(it)
+            downloads = it
+          }
+        }
+        .onFailure { error = true }
       if (result.isSuccess) error = false
       loaded = true
       delay(750)
     }
+  }
+  LaunchedEffect(Unit) {
+    snapshotFlow { downloads to pendingPageDownloads.toMap() }
+      .collect { (history, transfers) -> rows = reconcileDownloadRows(rows, history, transfers) }
   }
   BackHandler(onBack = onDismiss)
   Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
@@ -239,24 +253,21 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
         )
       }
       LazyColumn(Modifier.weight(1f)) {
-        items(pendingPageDownloads.toList(), key = { "pending:${it.first}" }) { (_, export) ->
-          PendingDownloadCard(export)
+        items(rows, key = { it.key }) { row ->
+          val item = row.item
+          DownloadCard(
+            item = item,
+            pageProgress = row.progress,
+            onOpen = { requestOpen(item) },
+            onOpenWith = { requestOpen(item, chooser = true) },
+            onShowInFiles = ::showInFiles,
+            onDelete = { deleteTarget = item },
+          )
         }
         when {
           !loaded -> item { CircularProgressIndicator() }
           error -> item { Text("Couldn’t load downloads. Retrying…") }
-          downloads.isEmpty() ->
-            if (pendingPageDownloads.isEmpty()) item { Text("No downloads yet") }
-          else ->
-            items(downloads, key = { "download:${it.id}" }) { item ->
-              DownloadCard(
-                item = item,
-                onOpen = { requestOpen(item) },
-                onOpenWith = { requestOpen(item, chooser = true) },
-                onShowInFiles = ::showInFiles,
-                onDelete = { deleteTarget = item },
-              )
-            }
+          rows.isEmpty() -> item { Text("No downloads yet") }
         }
       }
     }
@@ -276,7 +287,10 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
                   runCatching { manager.remove(item.id) }.getOrDefault(0)
                 }
               if (removed > 0) {
-                downloads = downloads.filterNot { it.id == item.id }
+                androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+                  forgetPageDownload(item.id)
+                  downloads = downloads.filterNot { it.id == item.id }
+                }
               } else openError = "Couldn’t delete this download. Try removing it in Files."
             }
           }
@@ -292,6 +306,7 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
 @Composable
 private fun DownloadCard(
   item: BrowserDownload,
+  pageProgress: PageDownloadProgress? = null,
   onOpen: () -> Unit,
   onOpenWith: () -> Unit,
   onShowInFiles: () -> Unit,
@@ -301,7 +316,8 @@ private fun DownloadCard(
   var menu by remember { mutableStateOf(false) }
   val complete = item.status == DownloadManager.STATUS_SUCCESSFUL
   val percent =
-    if (item.total > 0) ((item.bytes.toDouble() / item.total) * 100).toInt().coerceIn(0, 100)
+    if (pageProgress != null) pageProgress.fraction?.let { (it * 100).toInt().coerceIn(0, 100) }
+    else if (item.total > 0) ((item.bytes.toDouble() / item.total) * 100).toInt().coerceIn(0, 100)
     else null
   val status =
     when (item.status) {
@@ -318,65 +334,58 @@ private fun DownloadCard(
     active = item.active,
     failed = item.status == DownloadManager.STATUS_FAILED,
     actions = {
-      Box {
-        IconButton(onClick = { menu = true }) {
-          Icon(Icons.Default.MoreVert, "Actions for ${item.name}")
-        }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-          if (complete)
+      if (pageProgress != null) Spacer(Modifier.size(48.dp))
+      else
+        Box {
+          IconButton(onClick = { menu = true }) {
+            Icon(Icons.Default.MoreVert, "Actions for ${item.name}")
+          }
+          DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            if (complete)
+              DropdownMenuItem(
+                text = { Text("Open with…") },
+                onClick = {
+                  menu = false
+                  onOpenWith()
+                },
+              )
             DropdownMenuItem(
-              text = { Text("Open with…") },
+              text = { Text("Show in Files") },
               onClick = {
                 menu = false
-                onOpenWith()
+                onShowInFiles()
               },
             )
-          DropdownMenuItem(
-            text = { Text("Show in Files") },
-            onClick = {
-              menu = false
-              onShowInFiles()
-            },
-          )
-          DropdownMenuItem(
-            text = { Text(if (item.active) "Cancel download" else "Delete") },
-            onClick = {
-              menu = false
-              onDelete()
-            },
-          )
+            DropdownMenuItem(
+              text = { Text(if (item.active) "Cancel download" else "Delete") },
+              onClick = {
+                menu = false
+                onDelete()
+              },
+            )
+          }
         }
-      }
     },
   ) {
     if (item.active)
-      DownloadProgress(if (item.total > 0) item.bytes.toFloat() / item.total else null)
+      DownloadProgress(
+        pageProgress?.fraction ?: if (item.total > 0) item.bytes.toFloat() / item.total else null
+      )
 
     val bytes = Formatter.formatShortFileSize(context, item.displayBytes)
     val total =
       if (item.active && item.total > 0) " / ${Formatter.formatShortFileSize(context, item.total)}"
       else ""
-    Text(
-      "$bytes$total · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(item.updated))}",
-      style = MaterialTheme.typography.bodySmall,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    if (pageProgress == null)
+      Text(
+        "$bytes$total · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(item.updated))}",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
     if (complete)
       FilledTonalButton(onClick = onOpen) {
         Text(if (item.name.endsWith(".apk", true)) "Install APK" else "Open file")
       }
-  }
-}
-
-@Composable
-private fun PendingDownloadCard(download: PageDownloadProgress) {
-  val percent = download.fraction?.let { (it * 100).toInt().coerceIn(0, 100) }
-  DownloadCardLayout(
-    name = download.name,
-    status = percent?.let { "Downloading · $it%" } ?: "Downloading",
-    active = true,
-  ) {
-    DownloadProgress(download.fraction)
   }
 }
 
@@ -400,7 +409,7 @@ private fun DownloadCardLayout(
   content: @Composable ColumnScope.() -> Unit,
 ) {
   Card(
-    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).animateContentSize(tween(160)),
     shape = RoundedCornerShape(16.dp),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
   ) {

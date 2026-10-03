@@ -12,6 +12,60 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class BrowserDownloadsTest {
   @Test
+  fun completingTransferKeepsItsKeyAndPlaceBeforeAndAfterHistoryPoll() {
+    val old = BrowserDownload(1, "old.apk", DownloadManager.STATUS_SUCCESSFUL, 10, 10, 100)
+    val progress = PageDownloadProgress("new.apk", 0.5f, startedAt = 200)
+    val active = reconcileDownloadRows(emptyList(), listOf(old), mapOf("transfer" to progress))
+    val complete = BrowserDownload(2, "new.apk", DownloadManager.STATUS_SUCCESSFUL, 20, 20, 300)
+    val transfers = mapOf("transfer" to progress.copy(completed = complete))
+    val betweenPolls = reconcileDownloadRows(active, listOf(old), transfers)
+    val afterPoll = reconcileDownloadRows(betweenPolls, listOf(complete, old), transfers)
+    for (rows in listOf(active, betweenPolls, afterPoll)) {
+      assertEquals(listOf("page:transfer", "download:1"), rows.map { it.key })
+      assertEquals(listOf("new.apk", "old.apk"), rows.map { it.item.name })
+    }
+    assertEquals(2L, betweenPolls.first().item.id)
+    assertNull(afterPoll.first().progress)
+  }
+
+  @Test
+  fun lateHistoryAndOutOfOrderCompletionsDoNotDisplaceTheNewestTransfer() {
+    val old = BrowserDownload(1, "old.apk", DownloadManager.STATUS_SUCCESSFUL, 10, 10, 100)
+    val first = PageDownloadProgress("first.apk", 0.5f, startedAt = 200)
+    val second = PageDownloadProgress("second.apk", 0.25f, startedAt = 300)
+    val transfers = mapOf("first" to first, "second" to second)
+    val beforeHistory = reconcileDownloadRows(emptyList(), emptyList(), transfers)
+    val afterHistory = reconcileDownloadRows(beforeHistory, listOf(old), transfers)
+    val completedFirst =
+      first.copy(
+        completed = BrowserDownload(2, first.name, DownloadManager.STATUS_SUCCESSFUL, 20, 20, 400)
+      )
+    val completed =
+      reconcileDownloadRows(afterHistory, listOf(old), transfers + ("first" to completedFirst))
+    assertEquals(listOf("page:second", "page:first", "download:1"), completed.map { it.key })
+  }
+
+  @Test
+  fun completionSurvivesCleanupUntilHistoryObservesItAndDeletionRemovesIt() {
+    pendingPageDownloads.clear()
+    try {
+      updatePageDownload("transfer", "new.apk", 0.5f)
+      val started = pendingPageDownloads.getValue("transfer").startedAt
+      completePageDownload("transfer", 42, "new.apk", 100)
+      finishPageDownload("transfer")
+      acknowledgePageDownloadHistory(emptyList())
+      assertEquals(started, pendingPageDownloads.getValue("transfer").startedAt)
+      val completed = pendingPageDownloads.getValue("transfer").completed!!
+      acknowledgePageDownloadHistory(listOf(completed))
+      assertTrue(pendingPageDownloads.getValue("transfer").seenInHistory)
+      acknowledgePageDownloadHistory(emptyList())
+      assertTrue(pendingPageDownloads.isEmpty())
+    } finally {
+      pendingPageDownloads.clear()
+    }
+  }
+
+  @Test
   fun completedImportsUseFileLengthWhilePartialDownloadsUseTransferredBytes() {
     val complete = BrowserDownload(1, "export.zip", DownloadManager.STATUS_SUCCESSFUL, 0, 4096, 0)
     assertEquals(4096L, complete.displayBytes)

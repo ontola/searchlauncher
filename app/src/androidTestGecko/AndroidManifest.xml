@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <activity android:name="com.searchlauncher.app.fixture.AppLinkReceiverActivity" android:exported="true" android:label="App link test receiver">
+      <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="https" android:host="handoff.searchlauncher.test" />
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

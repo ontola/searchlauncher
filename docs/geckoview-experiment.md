@@ -283,3 +283,32 @@ was connected for log capture during this change.
 Validation: all ten Gecko device scenarios passed on the Android 15 ARM64 emulator, including
 the existing swipe/preview checks. The Gecko unit suite passed (442 tests, three skipped), as did
 full `spotlessCheck`, the Gecko app build and its instrumentation APK build.
+
+## Experimental build 10
+
+- Keep streamed downloads in the same keyed card from progress through completion. Publish the
+  registered DownloadManager ID and completed metadata before cleanup, so the next 750 ms history
+  poll cannot leave a gap or move an older APK into the first row. Deduplicate that history record
+  by ID, preserve existing order, and insert late initial history by age. Remove retained transfer
+  metadata when its observed history record is deleted. The card resizes over 160 ms on completion.
+  This shared path covers Gecko responses, webpage exports and direct WebView downloads.
+- Remove the rectangular address-field press indication from Gecko chrome and vertically align
+  its address with the toolbar actions. Browser search now honors the built-in keyboard preference,
+  using the same keyboard component as home. Apply the window setting before the first frame and
+  avoid requesting a system IME on focus when the built-in keyboard is selected.
+- Match the existing WebView backend's HTTPS app-link handling for top-level Gecko loads, including
+  script navigation and redirects after a user gesture has expired. Android must still resolve a
+  default non-browser app. Embedded frames cannot trigger this handoff. This addresses a missing
+  route used by login handoffs such as DigiD; no authenticated DigiD login was performed.
+
+Regression coverage includes late download history, the registration-to-poll gap, stable row keys,
+concurrent downloads finishing out of order, and deletion. A device test repeatedly checks the
+latest filename's screen position through completion with older downloads below it. The keyboard
+scenario types via a built-in key, dismisses back to the page, and checks the system-IME fallback.
+A separate test APK receives an exact HTTPS URL after a JavaScript navigation and HTTP redirect;
+an iframe to the same registered host is also checked to remain inside the browser.
+
+Validation: all thirteen Gecko emulator scenarios passed. Both Gecko and debug unit suites passed
+(445 tests each, three skipped each), as did full `spotlessCheck`, both app builds, and the Gecko
+instrumentation build. Download and keyboard screenshots were inspected. Physical DigiD account
+authentication and Xiaomi-specific behavior still require confirmation on the phone.

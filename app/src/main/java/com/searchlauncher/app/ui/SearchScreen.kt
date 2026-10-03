@@ -360,7 +360,8 @@ fun SearchScreen(
       .collectAsState(initial = null)
   val separateShade =
     resolveSeparateShade(separateQuickSettingsPref, Build.MANUFACTURER, Build.BRAND)
-  val useBuiltInKeyboard = builtInKeyboardEnabled && !riseWithKeyboard && browserTabId == null
+  val useBuiltInKeyboard =
+    builtInKeyboardEnabled && (!riseWithKeyboard || onOpenBrowserContext != null)
 
   val defaultSearchEngineId by
     remember {
@@ -1166,7 +1167,7 @@ fun SearchScreen(
   val shouldShowKeyboard =
     rememberUpdatedState(isActive && !openingTab && !browserShowing && !inPip)
   LaunchedEffect(isActive, focusTrigger, browserShowing, openingTab, inPip, useBuiltInKeyboard) {
-    if (!riseWithKeyboard && browserTabId == null) {
+    if ((!riseWithKeyboard && browserTabId == null) || onOpenBrowserContext != null) {
       (context as? android.app.Activity)?.window?.let {
         Ime.applyHomeWindowMode(it, useBuiltInKeyboard)
       }
@@ -2694,7 +2695,7 @@ fun SearchScreen(
           },
           onGo = ::submitSearch,
           onHomeSwipe =
-            if (keyboardGesturesEnabled && query.isEmpty()) {
+            if (keyboardGesturesEnabled && query.isEmpty() && onOpenBrowserContext == null) {
               { swipe ->
                 when (swipe) {
                   com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Up -> {

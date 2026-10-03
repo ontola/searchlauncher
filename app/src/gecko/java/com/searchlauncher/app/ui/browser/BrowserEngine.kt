@@ -315,20 +315,27 @@ internal object BrowserEngine {
               Icon(Icons.Default.VisibilityOff, "Private browsing", modifier = Modifier.size(20.dp))
               Spacer(Modifier.width(8.dp))
             }
-            Text(
-              displayPageAddress(tab.url).ifBlank { "Search anything…" },
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
+            Box(
               modifier =
-                Modifier.weight(1f)
-                  .clickable {
-                    scope.launch {
-                      page.captureBeforeTransition()
-                      onOpenSearch(false, tab.frameColorArgb, "")
-                    }
+                Modifier.weight(1f).heightIn(min = 32.dp).clickable(
+                  interactionSource =
+                    remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                  indication = null,
+                ) {
+                  scope.launch {
+                    page.captureBeforeTransition()
+                    onOpenSearch(false, tab.frameColorArgb, "")
                   }
-                  .padding(vertical = 12.dp),
-            )
+                },
+              contentAlignment = androidx.compose.ui.Alignment.CenterStart,
+            ) {
+              Text(
+                displayPageAddress(tab.url).ifBlank { "Search anything…" },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyLarge,
+              )
+            }
             IconButton(
               onClick = {
                 scope.launch {

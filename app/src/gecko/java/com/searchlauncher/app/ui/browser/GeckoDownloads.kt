@@ -51,11 +51,11 @@ internal fun saveGeckoDownload(context: Context, response: WebResponse) {
                 if (bytes - reported >= 512 * 1024) {
                   reported = bytes
                   withContext(Dispatchers.Main) {
-                    pendingPageDownloads[key] =
-                      PageDownloadProgress(
-                        name,
-                        total?.takeIf { it > 0 }?.let { (bytes.toFloat() / it).coerceIn(0f, 1f) },
-                      )
+                    updatePageDownload(
+                      key,
+                      name,
+                      total?.takeIf { it > 0 }?.let { (bytes.toFloat() / it).coerceIn(0f, 1f) },
+                    )
                   }
                 }
               }
@@ -63,8 +63,10 @@ internal fun saveGeckoDownload(context: Context, response: WebResponse) {
           }
         // The stream can be decompressed by Gecko, so Content-Length is only a progress hint.
         val manager = app.getSystemService(DownloadManager::class.java)
-        manager.addCompletedDownload(name, "Gecko download", false, type, file.path, bytes, true)
+        val id =
+          manager.addCompletedDownload(name, "Gecko download", false, type, file.path, bytes, true)
         saved = true
+        withContext(Dispatchers.Main) { completePageDownload(key, id, name, bytes) }
       }
       Toast.makeText(app, "Downloaded $name", Toast.LENGTH_LONG).show()
     } catch (error: Exception) {
@@ -77,7 +79,7 @@ internal fun saveGeckoDownload(context: Context, response: WebResponse) {
           target?.parentFile?.delete()
         }
       }
-      pendingPageDownloads.remove(key)
+      finishPageDownload(key)
     }
   }
 }

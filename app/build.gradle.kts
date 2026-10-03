@@ -70,7 +70,7 @@ android {
     create("gecko") {
       initWith(getByName("debug"))
       applicationIdSuffix = ".gecko"
-      versionNameSuffix = "-gecko-experimental.9"
+      versionNameSuffix = "-gecko-experimental.10"
       ndk { abiFilters += "arm64-v8a" }
       matchingFallbacks += listOf("debug")
     }

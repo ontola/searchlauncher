@@ -44,7 +44,7 @@ class SearchActivity : ComponentActivity(), KeyShortcutHost {
       android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
     )
 
-    Ime.applyWindowMode(window)
+    Ime.applyHomeWindowMode(window, usesBuiltInBrowserKeyboard())
 
     animateBackdropBlur()
 
@@ -149,9 +149,12 @@ class SearchActivity : ComponentActivity(), KeyShortcutHost {
     }
   }
 
+  private fun usesBuiltInBrowserKeyboard(): Boolean =
+    intent.getBooleanExtra(EXTRA_BROWSER_SEARCH, false) && HomeKeyboardPreference.cached(this)
+
   override fun onWindowFocusChanged(hasFocus: Boolean) {
     super.onWindowFocusChanged(hasFocus)
-    if (hasFocus) Ime.onWindowFocused(this)
+    if (hasFocus && !usesBuiltInBrowserKeyboard()) Ime.onWindowFocused(this)
   }
 
   /**

@@ -211,8 +211,10 @@ internal class GeckoPage(
         ): GeckoResult<AllowOrDeny>? {
           val uri = Uri.parse(request.uri)
           if (uri.scheme in listOf("http", "https")) {
-            if (request.hasUserGesture && openVerifiedAppLink(activity, uri))
-              return GeckoResult.deny()
+            // Login flows often redirect or navigate from script after the tap has expired.
+            // This callback is top-level only; let Android's default non-browser handler decide,
+            // just as the WebView backend does. Subframes do not get this handoff.
+            if (openVerifiedAppLink(activity, uri)) return GeckoResult.deny()
             return null
           }
           if (uri.scheme in listOf("about", "data", "blob", "resource")) return null
