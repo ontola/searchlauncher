@@ -335,3 +335,21 @@ cause no extra document loads. Download coverage checks progress, stable notific
 completion, and opening Downloads. Existing killed-process recovery and animation scenarios pass.
 Xiaomi memory retention remains unverified because no physical phone was connected. Downloads
 still do not resume after process death; these notifications do not add a foreground transfer service.
+
+## Experimental build 12
+
+- Publish and save a wallpaper selection only after the pager settles. Previously `currentPage`
+  changed halfway through motion, starting palette/theme work and scheduling a home preview capture
+  120 ms later, during the end of the slide.
+- Report wallpaper motion to the home screen so another swipe cancels a pending preview capture.
+  Ignore asynchronous saved-wallpaper echoes during active scrolling instead of interrupting it
+  with `scrollToPage`. Direct finger tracking and the existing settling animation are preserved.
+- A drag that crosses halfway and reverses does not publish a temporary wallpaper/theme selection.
+
+Validation: a new device regression fails on the previous implementation because it publishes the
+selection during motion, and passes with this change. Two wallpaper emulator tests cover keyboard
+animation completion, the settled preference, motion callbacks, and a finger drag crossing halfway
+and reversing. The Gecko home/tab preview and swipe-handoff scenario also passes. Both unit suites
+report 447 tests, zero failures/errors and three skipped; spotlessCheck and both APK builds pass.
+These checks establish timing/state correctness on Android 15 ARM64; the reported Xiaomi visual
+hiccup still needs confirmation on the physical phone.

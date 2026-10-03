@@ -516,6 +516,7 @@ fun SearchScreen(
    * and arriving by gesture are the same movement, and so that a tap landing mid-swipe carries on
    * from wherever the finger left it rather than restarting.
    */
+  var wallpaperInMotion by remember { mutableStateOf(false) }
   var tabsOverviewOpen by remember { mutableStateOf(false) }
   var tabsOverviewRendered by remember { mutableStateOf(false) }
   val previewLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
@@ -528,6 +529,7 @@ fun SearchScreen(
     tabsOverviewOpen,
     previewLifecycleState,
     lastImageUriString,
+    wallpaperInMotion,
   ) {
     if (
       browserTabSwipeEnabled &&
@@ -536,6 +538,7 @@ fun SearchScreen(
         !browserShowing &&
         !openingTab &&
         !tabsOverviewOpen &&
+        !wallpaperInMotion &&
         previewLifecycleState == androidx.lifecycle.Lifecycle.State.RESUMED
     ) {
       // A recorded GraphicsLayer still references its children's live layers. Copy it while
@@ -1835,6 +1838,7 @@ fun SearchScreen(
               scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeBackground) }
             },
             keyboardSwipeRequest = keyboardWallpaperSwipe,
+            onScrollInProgressChanged = { wallpaperInMotion = it },
             onSwipeDownLeft = { onShadeSwipeDown(isLeft = true) },
             onSwipeDownRight = { onShadeSwipeDown(isLeft = false) },
           )
