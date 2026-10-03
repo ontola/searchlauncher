@@ -156,7 +156,7 @@
     },
     {
       "id": "amazon",
-      "alias": "am",
+      "aliases": ["am", "amz", "amazon"],
       "description": "Amazon Search",
       "shortLabel": "Amazon",
       "urlTemplate": "https://www.amazon.com/s?k=%s",
@@ -166,7 +166,7 @@
     },
     {
       "id": "ebay",
-      "alias": "eb",
+      "aliases": ["e", "eb", "ebay"],
       "description": "eBay Search",
       "shortLabel": "eBay",
       "urlTemplate": "https://www.ebay.com/sch/i.html?_nkw=%s",
@@ -176,7 +176,7 @@
     },
     {
       "id": "aliexpress",
-      "alias": "ali",
+      "aliases": ["ali", "aliexpress"],
       "description": "AliExpress Search",
       "shortLabel": "AliExpress",
       "urlTemplate": "https://www.aliexpress.com/wholesale?SearchText=%s",
@@ -186,7 +186,7 @@
     },
     {
       "id": "etsy",
-      "alias": "et",
+      "aliases": ["et", "etsy"],
       "description": "Etsy Search",
       "shortLabel": "Etsy",
       "urlTemplate": "https://www.etsy.com/search?q=%s",
@@ -196,7 +196,7 @@
     },
     {
       "id": "walmart",
-      "alias": "wm",
+      "aliases": ["wm", "walmart"],
       "description": "Walmart Search",
       "shortLabel": "Walmart",
       "urlTemplate": "https://www.walmart.com/search?q=%s",
@@ -206,7 +206,7 @@
     },
     {
       "id": "bol",
-      "alias": "bol",
+      "aliases": ["b", "bol"],
       "description": "bol Search",
       "shortLabel": "bol",
       "urlTemplate": "https://www.bol.com/nl/nl/s/?searchtext=%s",
@@ -216,7 +216,7 @@
     },
     {
       "id": "albert_heijn",
-      "alias": "ah",
+      "aliases": ["ah", "albert"],
       "description": "Albert Heijn Search",
       "shortLabel": "Albert Heijn",
       "urlTemplate": "https://www.ah.nl/zoeken?query=%s",
@@ -226,7 +226,7 @@
     },
     {
       "id": "youtube_music",
-      "alias": "ym",
+      "aliases": ["ym", "ytm", "ytmusic"],
       "description": "YouTube Music Search",
       "shortLabel": "YouTube Music",
       "urlTemplate": "https://music.youtube.com/search?q=%s",
@@ -236,7 +236,7 @@
     },
     {
       "id": "soundcloud",
-      "alias": "sc",
+      "aliases": ["sc", "soundcloud"],
       "description": "SoundCloud Search",
       "shortLabel": "SoundCloud",
       "urlTemplate": "https://soundcloud.com/search?q=%s",
@@ -246,7 +246,7 @@
     },
     {
       "id": "genius",
-      "alias": "ge",
+      "aliases": ["ge", "genius"],
       "description": "Genius Lyrics Search",
       "shortLabel": "Genius",
       "urlTemplate": "https://genius.com/search?q=%s",
@@ -256,7 +256,7 @@
     },
     {
       "id": "netflix",
-      "alias": "nf",
+      "aliases": ["n", "nf", "netflix"],
       "description": "Netflix Search",
       "shortLabel": "Netflix",
       "urlTemplate": "https://www.netflix.com/search?q=%s",
@@ -266,7 +266,7 @@
     },
     {
       "id": "imdb",
-      "alias": "imdb",
+      "aliases": ["imdb"],
       "description": "IMDb Search",
       "shortLabel": "IMDb",
       "urlTemplate": "https://www.imdb.com/find/?q=%s",
@@ -276,7 +276,7 @@
     },
     {
       "id": "twitch",
-      "alias": "tw",
+      "aliases": ["tw", "twitch"],
       "description": "Twitch Search",
       "shortLabel": "Twitch",
       "urlTemplate": "https://www.twitch.tv/search?term=%s",
@@ -286,7 +286,7 @@
     },
     {
       "id": "goodreads",
-      "alias": "gr",
+      "aliases": ["gr", "goodreads"],
       "description": "Goodreads Search",
       "shortLabel": "Goodreads",
       "urlTemplate": "https://www.goodreads.com/search?q=%s",
@@ -296,7 +296,7 @@
     },
     {
       "id": "x",
-      "alias": "x",
+      "aliases": ["x", "twitter"],
       "description": "X Search",
       "shortLabel": "X",
       "urlTemplate": "https://x.com/search?q=%s",
@@ -306,7 +306,7 @@
     },
     {
       "id": "bluesky",
-      "alias": "bs",
+      "aliases": ["bs", "bsky", "bluesky"],
       "description": "Bluesky Search",
       "shortLabel": "Bluesky",
       "urlTemplate": "https://bsky.app/search?q=%s",
@@ -316,7 +316,7 @@
     },
     {
       "id": "threads",
-      "alias": "th",
+      "aliases": ["th", "threads"],
       "description": "Threads Search",
       "shortLabel": "Threads",
       "urlTemplate": "https://www.threads.net/search?q=%s",
@@ -326,7 +326,7 @@
     },
     {
       "id": "facebook",
-      "alias": "fb",
+      "aliases": ["f", "fb", "facebook"],
       "description": "Facebook Search",
       "shortLabel": "Facebook",
       "urlTemplate": "https://www.facebook.com/search/top?q=%s",
@@ -336,7 +336,7 @@
     },
     {
       "id": "tiktok",
-      "alias": "tt",
+      "aliases": ["t", "tt", "tiktok"],
       "description": "TikTok Search",
       "shortLabel": "TikTok",
       "urlTemplate": "https://www.tiktok.com/search?q=%s",
@@ -346,7 +346,7 @@
     },
     {
       "id": "pinterest",
-      "alias": "pin",
+      "aliases": ["pin", "pinterest"],
       "description": "Pinterest Search",
       "shortLabel": "Pinterest",
       "urlTemplate": "https://www.pinterest.com/search/pins/?q=%s",
@@ -356,7 +356,7 @@
     },
     {
       "id": "github",
-      "alias": "gh",
+      "aliases": ["g", "gh", "github"],
       "description": "GitHub Search",
       "shortLabel": "GitHub",
       "urlTemplate": "https://github.com/search?q=%s",
@@ -366,7 +366,7 @@
     },
     {
       "id": "booking",
-      "alias": "bk",
+      "aliases": ["bk", "booking"],
       "description": "Booking.com Search",
       "shortLabel": "Booking.com",
       "urlTemplate": "https://www.booking.com/searchresults.html?ss=%s",
@@ -376,7 +376,7 @@
     },
     {
       "id": "waze",
-      "alias": "wz",
+      "aliases": ["wz", "waze"],
       "description": "Waze Navigate",
       "shortLabel": "Waze",
       "urlTemplate": "https://waze.com/ul?q=%s",
@@ -386,7 +386,7 @@
     },
     {
       "id": "google_translate",
-      "alias": "tr",
+      "aliases": ["tr", "translate"],
       "description": "Google Translate",
       "shortLabel": "Translate",
       "urlTemplate": "https://translate.google.com/?sl=auto&text=%s",
@@ -396,7 +396,7 @@
     },
     {
       "id": "kagi",
-      "alias": "kg",
+      "aliases": ["k", "kg", "kagi"],
       "description": "Kagi Search",
       "shortLabel": "Kagi",
       "urlTemplate": "https://kagi.com/search?q=%s",
@@ -406,7 +406,7 @@
     },
     {
       "id": "ecosia",
-      "alias": "eco",
+      "aliases": ["eco", "ecosia"],
       "description": "Ecosia Search",
       "shortLabel": "Ecosia",
       "urlTemplate": "https://www.ecosia.org/search?q=%s",
@@ -416,7 +416,7 @@
     },
     {
       "id": "brave_search",
-      "alias": "br",
+      "aliases": ["br", "brave"],
       "description": "Brave Search",
       "shortLabel": "Brave",
       "urlTemplate": "https://search.brave.com/search?q=%s",
@@ -426,7 +426,7 @@
     },
     {
       "id": "copilot",
-      "alias": "co",
+      "aliases": ["co", "copilot"],
       "description": "Ask Copilot",
       "shortLabel": "Copilot",
       "urlTemplate": "https://copilot.microsoft.com/?q=%s",
@@ -436,12 +436,242 @@
     },
     {
       "id": "le_chat",
-      "alias": "mi",
+      "aliases": ["mi", "lechat"],
       "description": "Ask Le Chat",
       "shortLabel": "Le Chat",
       "urlTemplate": "https://chat.mistral.ai/chat?q=%s",
       "apps": ["ai.mistral.chat"],
       "color": "#FA520F",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "google_drive",
+      "aliases": ["d", "dr", "drive"],
+      "description": "Google Drive Search",
+      "shortLabel": "Drive",
+      "urlTemplate": "https://drive.google.com/drive/search?q=%s",
+      "apps": ["com.google.android.apps.docs"],
+      "color": "#1FA463",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "google_news",
+      "aliases": ["gn", "news"],
+      "description": "Google News Search",
+      "shortLabel": "News",
+      "urlTemplate": "https://news.google.com/search?q=%s",
+      "apps": ["com.google.android.apps.magazines"],
+      "color": "#4285F4",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "quora",
+      "aliases": ["q", "qu", "quora"],
+      "description": "Quora Search",
+      "shortLabel": "Quora",
+      "urlTemplate": "https://www.quora.com/search?q=%s",
+      "apps": ["com.quora.android"],
+      "color": "#B92B27",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "medium",
+      "aliases": ["md", "medium"],
+      "description": "Medium Search",
+      "shortLabel": "Medium",
+      "urlTemplate": "https://medium.com/search?q=%s",
+      "apps": ["com.medium.reader"],
+      "color": "#000000",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "temu",
+      "aliases": ["te", "temu"],
+      "description": "Temu Search",
+      "shortLabel": "Temu",
+      "urlTemplate": "https://www.temu.com/search_result.html?search_key=%s",
+      "apps": ["com.einnovation.temu"],
+      "color": "#FB7701",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "target",
+      "aliases": ["tg", "target"],
+      "description": "Target Search",
+      "shortLabel": "Target",
+      "urlTemplate": "https://www.target.com/s?searchTerm=%s",
+      "apps": ["com.target.ui"],
+      "color": "#CC0000",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "bestbuy",
+      "aliases": ["bb", "bestbuy"],
+      "description": "Best Buy Search",
+      "shortLabel": "Best Buy",
+      "urlTemplate": "https://www.bestbuy.com/site/searchpage.jsp?st=%s",
+      "apps": ["com.bestbuy.android"],
+      "color": "#0046BE",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "flipkart",
+      "aliases": ["fk", "flipkart"],
+      "description": "Flipkart Search",
+      "shortLabel": "Flipkart",
+      "urlTemplate": "https://www.flipkart.com/search?q=%s",
+      "apps": ["com.flipkart.android"],
+      "color": "#2874F0",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "tripadvisor",
+      "aliases": ["ta", "tripadvisor"],
+      "description": "Tripadvisor Search",
+      "shortLabel": "Tripadvisor",
+      "urlTemplate": "https://www.tripadvisor.com/Search?q=%s",
+      "apps": ["com.tripadvisor.tripadvisor"],
+      "color": "#34E0A1",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "yelp",
+      "aliases": ["ye", "yelp"],
+      "description": "Yelp Search",
+      "shortLabel": "Yelp",
+      "urlTemplate": "https://www.yelp.com/search?find_desc=%s",
+      "apps": ["com.yelp.android"],
+      "color": "#D32323",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "allrecipes",
+      "aliases": ["ar", "allrecipes"],
+      "description": "Allrecipes Search",
+      "shortLabel": "Allrecipes",
+      "urlTemplate": "https://www.allrecipes.com/search?q=%s",
+      "apps": ["com.allrecipes.spinner.free"],
+      "color": "#E04F1A",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "steam",
+      "aliases": ["st", "steam"],
+      "description": "Steam Store Search",
+      "shortLabel": "Steam",
+      "urlTemplate": "https://store.steampowered.com/search/?term=%s",
+      "apps": ["com.valvesoftware.android.steam.community"],
+      "color": "#1B2838",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "apple_music",
+      "aliases": ["amu", "applemusic"],
+      "description": "Apple Music Search",
+      "shortLabel": "Apple Music",
+      "urlTemplate": "https://music.apple.com/search?term=%s",
+      "apps": ["com.apple.android.music"],
+      "color": "#FA243C",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "tidal",
+      "aliases": ["ti", "tidal"],
+      "description": "Tidal Search",
+      "shortLabel": "Tidal",
+      "urlTemplate": "https://tidal.com/search?q=%s",
+      "apps": ["com.aspiro.tidal"],
+      "color": "#000000",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "disney_plus",
+      "aliases": ["dp", "disney"],
+      "description": "Disney+ Search",
+      "shortLabel": "Disney+",
+      "urlTemplate": "https://www.disneyplus.com/search?q=%s",
+      "apps": ["com.disney.disneyplus"],
+      "color": "#113CCF",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "vimeo",
+      "aliases": ["v", "vi", "vimeo"],
+      "description": "Vimeo Search",
+      "shortLabel": "Vimeo",
+      "urlTemplate": "https://vimeo.com/search?q=%s",
+      "apps": ["com.vimeo.android.videoapp"],
+      "color": "#1AB7EA",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "imgur",
+      "aliases": ["img", "imgur"],
+      "description": "Imgur Search",
+      "shortLabel": "Imgur",
+      "urlTemplate": "https://imgur.com/search?q=%s",
+      "apps": ["com.imgur.mobile"],
+      "color": "#1BB76E",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "qwant",
+      "aliases": ["qw", "qwant"],
+      "description": "Qwant Search",
+      "shortLabel": "Qwant",
+      "urlTemplate": "https://www.qwant.com/?q=%s",
+      "apps": ["com.qwant.liberty"],
+      "color": "#5C97FF",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "grok",
+      "aliases": ["gk", "grok"],
+      "description": "Ask Grok",
+      "shortLabel": "Grok",
+      "urlTemplate": "https://grok.com/?q=%s",
+      "apps": ["ai.x.grok"],
+      "color": "#000000",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "wolfram_alpha",
+      "aliases": ["wa", "wolfram"],
+      "description": "Wolfram Alpha",
+      "shortLabel": "Wolfram",
+      "urlTemplate": "https://www.wolframalpha.com/input?i=%s",
+      "apps": ["com.wolfram.android.alpha"],
+      "color": "#DD1100",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "indeed",
+      "aliases": ["ind", "indeed"],
+      "description": "Indeed Jobs Search",
+      "shortLabel": "Indeed",
+      "urlTemplate": "https://www.indeed.com/jobs?q=%s",
+      "apps": ["com.indeed.android.jobsearch"],
+      "color": "#2164F3",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "coursera",
+      "aliases": ["cs", "coursera"],
+      "description": "Coursera Search",
+      "shortLabel": "Coursera",
+      "urlTemplate": "https://www.coursera.org/search?query=%s",
+      "apps": ["org.coursera.android"],
+      "color": "#0056D2",
+      "onlyWhenInstalled": true
+    },
+    {
+      "id": "udemy",
+      "aliases": ["ud", "udemy"],
+      "description": "Udemy Search",
+      "shortLabel": "Udemy",
+      "urlTemplate": "https://www.udemy.com/courses/search/?q=%s",
+      "apps": ["com.udemy.android"],
+      "color": "#A435F0",
       "onlyWhenInstalled": true
     }
   ]
