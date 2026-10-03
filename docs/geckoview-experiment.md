@@ -312,3 +312,26 @@ Validation: all thirteen Gecko emulator scenarios passed. Both Gecko and debug u
 (445 tests each, three skipped each), as did full `spotlessCheck`, both app builds, and the Gecko
 instrumentation build. Download and keyboard screenshots were inspected. Physical DigiD account
 authentication and Xiaomi-specific behavior still require confirmation on the phone.
+
+## Experimental build 11
+
+- Give the six most recently visible Gecko sessions high retention priority. Hidden sessions remain
+  inactive for rendering; returning to home or another tab no longer drops all pages straight to
+  default process priority. Older sessions return to default priority and closing a page releases
+  its hint. This is a bounded retention preference, not a guarantee against Android reclamation.
+- In-process downloads and webpage exports now show an ongoing Android notification with the
+  filename and determinate/indeterminate progress. The same notification becomes complete or
+  failed; tapping it opens Downloads. Completion does not launch an APK installer automatically.
+- Request Android notification permission once when the user starts a download. Denial does not
+  stop the download. Use a quiet Downloads channel and avoid duplicate DownloadManager completion
+  notifications for these imported files. Normal DownloadManager transfers retain system handling.
+- Throttle progress posts and hide filenames from public lock-screen notification content.
+- [Browser API audit](browser-api-audit.md) records the current Gecko capability and integration gaps.
+
+Validation: both regular and Gecko unit suites report 447 tests, no failures/errors, three skipped;
+spotlessCheck and both APK builds pass. All 15 Android 15 ARM64 emulator scenarios pass. The new
+retention scenario checks repeated home/two-tab switches preserve volatile JavaScript state and
+cause no extra document loads. Download coverage checks progress, stable notification identity,
+completion, and opening Downloads. Existing killed-process recovery and animation scenarios pass.
+Xiaomi memory retention remains unverified because no physical phone was connected. Downloads
+still do not resume after process death; these notifications do not add a foreground transfer service.

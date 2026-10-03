@@ -132,6 +132,7 @@ internal suspend fun downloadFromPage(
   val fromPage = isPageDownload(url)
   pendingPageDownloads[key] =
     PageDownloadProgress(if (fromPage) "Preparing export…" else "Preparing download…", null)
+  val notification = DownloadNotification(context, key, pendingPageDownloads.getValue(key).name)
   if (!quiet) Toast.makeText(context, "Preparing download…", Toast.LENGTH_SHORT).show()
   try {
     check(fromPage || url.startsWith("https://") || url.startsWith("http://"))
@@ -225,6 +226,7 @@ internal suspend fun downloadFromPage(
       withContext(Dispatchers.IO) { target.appendBytes(bytes) }
       offset = end
       updatePageDownload(key, name, offset.toFloat() / size)
+      notification.progress(name, offset.toFloat() / size)
     }
     val id =
       withContext(Dispatchers.IO) {
@@ -236,11 +238,12 @@ internal suspend fun downloadFromPage(
           type,
           target.path,
           size,
-          true,
+          false,
         )
       }
     registered = true
     completePageDownload(key, id, name, size)
+    notification.complete(name)
     Toast.makeText(context, "Downloaded $name", Toast.LENGTH_LONG).show()
   } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
     if (!quiet)
@@ -258,6 +261,7 @@ internal suspend fun downloadFromPage(
         .show()
   } finally {
     withContext(NonCancellable + Dispatchers.Main) {
+      if (!registered) notification.failed()
       finishPageDownload(key)
       // No waiting: a destroyed/navigated WebView may no longer invoke evaluation callbacks.
       runCatching { view.evaluateJavascript("delete window[$quotedKey]", null) }

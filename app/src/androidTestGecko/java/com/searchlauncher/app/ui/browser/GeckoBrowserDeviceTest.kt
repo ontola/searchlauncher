@@ -51,6 +51,12 @@ class GeckoBrowserDeviceTest {
 
   @Before
   fun start() {
+    if (android.os.Build.VERSION.SDK_INT >= 33) {
+      instrumentation.uiAutomation.grantRuntimePermission(
+        context.packageName,
+        android.Manifest.permission.POST_NOTIFICATIONS,
+      )
+    }
     server = ServerSocket(0)
     origin = "http://localhost:${server.localPort}"
     thread(isDaemon = true) {
@@ -465,6 +471,84 @@ class GeckoBrowserDeviceTest {
         "pm set-app-links --package $testPackage 0 handoff.searchlauncher.test"
       )
     }
+  }
+
+  @Test
+  fun recentTabsKeepTheirLiveDocumentAcrossHomeAndOtherTabs() {
+    prepareHome()
+    var firstId = 0L
+    instrumentation.runOnMainSync { firstId = BrowserTabStore.tabs!!.active.id }
+    tap("Remember in memory")
+    waitFor("memory-set")
+    val initialLoads = reports.count { it.startsWith("/report?engine:") }
+    context.startActivity(BrowserActivity.createIntent(context, "$origin/second"))
+    eventually { reports.count { it.startsWith("/report?engine:") } == initialLoads + 1 }
+    var secondId = 0L
+    instrumentation.runOnMainSync { secondId = BrowserTabStore.tabs!!.active.id }
+    repeat(4) {
+      instrumentation.runOnMainSync { BrowserTabTasks.openHome(context) }
+      assertNotNull(device.wait(Until.findObject(By.desc("Settings")), 10000))
+      instrumentation.runOnMainSync { BrowserTabTasks.open(context, firstId) }
+      tap("Read memory")
+      val count = it + 1
+      eventually { reports.count { it == "/report?memory-present" } == count }
+      instrumentation.runOnMainSync { BrowserTabTasks.open(context, secondId) }
+      assertNotNull(device.wait(Until.findObject(By.text("Read memory")), 10000))
+    }
+    assertEquals(
+      "Tab switches must not reload either document",
+      initialLoads + 1,
+      reports.count { it.startsWith("/report?engine:") },
+    )
+  }
+
+  @Test
+  fun downloadNotificationKeepsItsIdentityAndOpensDownloads() {
+    val manager = context.getSystemService(NotificationManager::class.java)
+    // Earlier fixture notifications would collapse this transfer into an automatic group.
+    manager.cancelAll()
+    context.startActivity(BrowserActivity.createIntent(context, "$origin/download"))
+    val name = "direct-${server.localPort}.bin"
+    eventually {
+      manager.activeNotifications.any {
+        it.notification.extras.getString("android.title") == name &&
+          it.notification.extras.getInt("android.progress") in 1..99
+      }
+    }
+    val active =
+      manager.activeNotifications.first {
+        it.notification.extras.getString("android.title") == name
+      }
+    assertTrue(active.isOngoing)
+    assertEquals(100, active.notification.extras.getInt("android.progressMax"))
+    assertTrue(device.openNotification())
+    val progressNotification =
+      device.wait(Until.findObject(By.text(name).pkg("com.android.systemui")), 10000)
+    assertNotNull(progressNotification)
+    SystemClock.sleep(300)
+    saveScreenshot("notification-progress")
+    progressNotification!!.click()
+    assertNotNull(device.wait(Until.findObject(By.text("Downloads")), 10000))
+    releaseDownload.countDown()
+    eventually {
+      manager.activeNotifications.any {
+        it.tag == active.tag &&
+          it.id == active.id &&
+          it.notification.extras.getString("android.text") == "Download complete" &&
+          !it.isOngoing
+      }
+    }
+    val complete = manager.activeNotifications.first { it.tag == active.tag && it.id == active.id }
+    assertEquals(0, complete.notification.extras.getInt("android.progressMax"))
+    assertTrue(device.openNotification())
+    val completedNotification =
+      device.wait(Until.findObject(By.text(name).pkg("com.android.systemui")), 10000)
+    assertNotNull(completedNotification)
+    SystemClock.sleep(300)
+    saveScreenshot("notification-complete")
+    completedNotification!!.click()
+    assertNotNull(device.wait(Until.findObject(By.text("Downloads")), 10000))
+    tap("Done")
   }
 
   @Test
@@ -1007,6 +1091,8 @@ class GeckoBrowserDeviceTest {
           <button onclick="notify()">Notify me</button>
           <button onclick="localStorage.setItem('fixture','saved');report('storage-written')">Store data</button>
           <button onclick="report(localStorage.getItem('fixture')==='saved'?'storage-present':'storage-missing')">Read data</button>
+          <button onclick="window.volatileMarker=true;report('memory-set')">Remember in memory</button>
+          <button onclick="report(window.volatileMarker?'memory-present':'memory-missing')">Read memory</button>
           <button onclick="history.pushState({},'','/next');report('route-changed')">Next route</button>
           <script>
           function report(s){fetch('/report?'+encodeURIComponent(s))}

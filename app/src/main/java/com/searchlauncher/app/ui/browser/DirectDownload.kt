@@ -43,6 +43,7 @@ internal fun startDirectDownload(
   val appContext = context.applicationContext
   val key = "__searchlauncher_direct_" + UUID.randomUUID().toString().replace("-", "")
   pendingPageDownloads[key] = PageDownloadProgress("Preparing download…", null)
+  val notification = DownloadNotification(context, key, "Preparing download…")
   Toast.makeText(appContext, "Preparing download…", Toast.LENGTH_SHORT).show()
   directDownloadScope.launch {
     var file: File? = null
@@ -94,7 +95,10 @@ internal fun startDirectDownload(
                   if (written - reported >= 512 * 1024) {
                     reported = written
                     val fraction = if (total > 0) written.toFloat() / total else null
-                    withContext(Dispatchers.Main) { updatePageDownload(key, name, fraction) }
+                    withContext(Dispatchers.Main) {
+                      updatePageDownload(key, name, fraction)
+                      notification.progress(name, fraction)
+                    }
                   }
                 }
               }
@@ -109,7 +113,7 @@ internal fun startDirectDownload(
                 type,
                 target.path,
                 written,
-                true,
+                false,
               )
             Triple(id, name, written)
           } finally {
@@ -118,8 +122,10 @@ internal fun startDirectDownload(
         }
       registered = true
       completePageDownload(key, saved.first, saved.second, saved.third)
+      notification.complete(saved.second)
       Toast.makeText(appContext, "Downloaded ${saved.second}", Toast.LENGTH_LONG).show()
     } catch (error: Exception) {
+      notification.failed()
       Toast.makeText(appContext, error.message ?: "Download failed", Toast.LENGTH_LONG).show()
     } finally {
       finishPageDownload(key)

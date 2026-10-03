@@ -327,6 +327,7 @@ internal class GeckoPage(
   }
 
   fun setVisible(visible: Boolean) {
+    if (visible) GeckoEnvironment.retainRecent(session)
     if (session.isOpen) session.setActive(visible)
   }
 
@@ -471,6 +472,7 @@ internal class GeckoPage(
     recoveryJob?.cancel()
     scrollCapture?.cancel()
     favicons?.close()
+    GeckoEnvironment.releaseRecent(session)
     session.close()
   }
 

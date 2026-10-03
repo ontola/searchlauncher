@@ -26,6 +26,7 @@ internal fun saveGeckoDownload(context: Context, response: WebResponse) {
   val name = downloadFileName(response.uri, header("Content-Disposition"), type)
   val total = header("Content-Length")?.toLongOrNull()
   pendingPageDownloads[key] = PageDownloadProgress(name, null)
+  val notification = DownloadNotification(context, key, name)
   geckoDownloadScope.launch {
     var target: File? = null
     var saved = false
@@ -51,6 +52,10 @@ internal fun saveGeckoDownload(context: Context, response: WebResponse) {
                 if (bytes - reported >= 512 * 1024) {
                   reported = bytes
                   withContext(Dispatchers.Main) {
+                    notification.progress(
+                      name,
+                      total?.takeIf { it > 0 }?.let { bytes.toFloat() / it },
+                    )
                     updatePageDownload(
                       key,
                       name,
@@ -64,12 +69,16 @@ internal fun saveGeckoDownload(context: Context, response: WebResponse) {
         // The stream can be decompressed by Gecko, so Content-Length is only a progress hint.
         val manager = app.getSystemService(DownloadManager::class.java)
         val id =
-          manager.addCompletedDownload(name, "Gecko download", false, type, file.path, bytes, true)
+          manager.addCompletedDownload(name, "Gecko download", false, type, file.path, bytes, false)
         saved = true
-        withContext(Dispatchers.Main) { completePageDownload(key, id, name, bytes) }
+        withContext(Dispatchers.Main) {
+          completePageDownload(key, id, name, bytes)
+          notification.complete(name)
+        }
       }
       Toast.makeText(app, "Downloaded $name", Toast.LENGTH_LONG).show()
     } catch (error: Exception) {
+      notification.failed()
       Toast.makeText(app, error.message ?: "Download failed", Toast.LENGTH_LONG).show()
     } finally {
       withContext(Dispatchers.IO) {

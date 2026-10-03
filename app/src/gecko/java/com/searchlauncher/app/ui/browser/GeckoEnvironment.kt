@@ -67,6 +67,26 @@ internal object GeckoEnvironment {
     )
   }
 
+  // Visibility controls rendering/timers; priority controls how readily Android reclaims a page.
+  // Keep a bounded working set protected when the user switches tabs or returns to the launcher.
+  private val recentSessions = linkedSetOf<GeckoSession>()
+
+  fun retainRecent(session: GeckoSession) {
+    recentSessions.remove(session)
+    recentSessions.add(session)
+    session.setPriorityHint(GeckoSession.PRIORITY_HIGH)
+    while (recentSessions.size > 6) {
+      val oldest = recentSessions.first()
+      recentSessions.remove(oldest)
+      oldest.setPriorityHint(GeckoSession.PRIORITY_DEFAULT)
+    }
+  }
+
+  fun releaseRecent(session: GeckoSession) {
+    recentSessions.remove(session)
+    session.setPriorityHint(GeckoSession.PRIORITY_DEFAULT)
+  }
+
   fun take(id: Long): GeckoSession? = sessions.remove(id)
 
   // The opener must return an unopened session to Gecko, which loads it and preserves
