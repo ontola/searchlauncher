@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="fonts/fonts.css" rel="stylesheet">
+<style id="base">
+  html,body{margin:0;background:#000}
+  #stage{position:relative;width:1920px;height:1080px;overflow:hidden;font-family:"Space Grotesk",sans-serif}
+  .layer{position:absolute;inset:0}
+  .abs{position:absolute}
+  .logo svg{width:100%;height:100%}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script type="module">
+  import { PHONE_CSS } from "./lib.js";
+  const style = document.createElement("style");
+  style.textContent = PHONE_CSS;
+  document.head.appendChild(style);
+  const name = new URLSearchParams(location.search).get("scene") || "a";
+  const scene = await import(`./scene-${name}.js`);
+  if (scene.CSS) {
+    const s = document.createElement("style");
+    s.textContent = scene.CSS;
+    document.head.appendChild(s);
+  }
+  const stage = document.getElementById("stage");
+  window.DURATION = scene.DURATION;
+  window.renderAt = (t) => { stage.innerHTML = scene.render(t); };
+  await Promise.all(["400 16px Roboto","500 16px Roboto","700 16px Roboto","700 16px 'Space Grotesk'","600 16px 'Space Grotesk'","500 16px 'Space Grotesk'","400 16px 'Source Sans 3'","600 16px 'Source Sans 3'"].map((f) => document.fonts.load(f)));
+  await document.fonts.ready;
+  window.renderAt(Number(new URLSearchParams(location.search).get("t") || 0));
+  // Live preview loop when opened in a browser without ?static
+  if (!new URLSearchParams(location.search).has("static")) {
+    const t0 = performance.now();
+    const loop = () => { window.renderAt(((performance.now() - t0) / 1000) % scene.DURATION); requestAnimationFrame(loop); };
+    requestAnimationFrame(loop);
+  }
+  window.READY = true;
+</script>
+</body>
+</html>

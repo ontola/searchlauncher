@@ -1,0 +1,4 @@
+/* Latin subsets of Space Grotesk, Source Sans 3 and Roboto (SIL Open Font License), from Google Fonts. */
+@font-face{font-family:"Space Grotesk";font-weight:300 700;src:url(SpaceGrotesk.woff2) format("woff2")}
+@font-face{font-family:"Source Sans 3";font-weight:200 900;src:url(SourceSans3.woff2) format("woff2")}
+@font-face{font-family:"Roboto";font-weight:100 900;src:url(Roboto.woff2) format("woff2")}
