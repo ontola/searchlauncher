@@ -1,6 +1,6 @@
 // The full demo video in direction B (bright and bouncy): light paper background,
 // the phone in the middle, and whatever it finds pops out around it as cards.
-import { prog, lerp, easeOut, easeOut5, easeIn, easeInOut, spring, typing, phoneScreen, camera, RESULTS, LOGO, clamp, page, CLOCK, calendarWidget, APP_LIST, appIcon } from "./lib.js";
+import { prog, lerp, easeOut, easeOut5, easeIn, easeInOut, spring, typing, phoneScreen, camera, RESULTS, LOGO, clamp, page, CLOCK, calendarWidget, APP_LIST, appIcon, drawerLayout, scrollerY } from "./lib.js";
 
 // Beats are written in "design seconds" and played back slower, so the whole video breathes a bit.
 const STRETCH = 1.2;
@@ -168,19 +168,31 @@ export function render(real) {
     });
   } else if (t < 21.6) {
     // 6. Built-in keyboard, already up; swipe up for the app drawer
-    st = { mode: "home", drawerP: easeOut5(prog(t, 20.0, 20.4)), touch: swipe(t, 19.95, 20.3, 180, 720, 180, 480) };
+    // open the drawer, show a few apps, then scrub the A-Z scroller from C down to S
+    const { items, height, letters } = drawerLayout();
+    const scrub = slide(t, 21.0, 21.4);
+    const sTop = items.find((it) => it.head === "S").y;
+    const drawerScroll = Math.min(sTop, height - 760) * scrub;
+    const li = Math.round(lerp(0, letters.indexOf("S"), scrub));
+    const scrubTouch = swipe(t, 21.0, 21.4, 346, scrollerY(0, letters.length), 346, scrollerY(letters.indexOf("S"), letters.length));
+    st = {
+      mode: "home",
+      drawerP: easeOut5(prog(t, 20.0, 20.4)),
+      drawerScroll,
+      drawerLetter: t > 20.92 && t < 21.55 ? letters[li] : null,
+      touch: swipe(t, 19.95, 20.3, 180, 720, 180, 480) || scrubTouch,
+    };
     caps += caption(t, "The keyboard is <em>already up</em>.", 18.1, 19.7);
-    caps += caption(t, "Swipe up for <em>all your apps</em>.", 19.8, 21.4);
+    caps += caption(t, "Swipe up for <em>all your apps</em>, A to Z.", 19.8, 21.45);
     const kx = [17, 50, 83, 116, 149, 182];
     [["S", 330, 640, -6, 1], ["E", 480, 560, 4, 0], ["A", 630, 680, -3, 1], ["R", 1290, 640, 5, 0], ["C", 1440, 560, -4, 2], ["H", 1590, 680, 6, 1]].forEach(([c, x, y, rot, row], k) => {
       extra += fly(t, { start: 18.4 + k * 0.07, back: 19.55 + k * 0.02, from: [kx[k] + 20, 560 + row * 55], to: [x, y], rot, scale: 1.3, w: 100, h: 110, html: `<div class="keycap">${c.toLowerCase()}</div>` });
     });
-    const spots = [[420, 330], [600, 470], [380, 600], [590, 760], [1340, 330], [1520, 470], [1330, 620], [1530, 770]];
-    spots.forEach(([x, y], k) => {
-      const idx = [0, 4, 7, 9, 13, 15, 1, 10][k];
-      const key = APP_LIST[idx][1];
-      const col = idx % 4, row = Math.floor(idx / 4);
-      extra += fly(t, { start: 20.5 + k * 0.05, back: 21.3 + k * 0.01, from: [45 + col * 85, 80 + row * 90], to: [x, y], rot: (k % 2 ? 1 : -1) * 6, scale: 1, w: 96, h: 96, html: `<div class="appi">${appIcon(key, 96)}</div>` });
+    const spots = [[420, 330], [600, 470], [380, 620], [1340, 330], [1520, 470], [1330, 620]];
+    const shown = items.filter((it) => it.key && it.y < 700).slice(0, spots.length);
+    shown.forEach((it, k) => {
+      const [x, y] = spots[k];
+      extra += fly(t, { start: 20.45 + k * 0.05, back: 20.85 + k * 0.01, from: [37, 40 + it.y + 28], to: [x, y], rot: (k % 2 ? 1 : -1) * 6, scale: 1, w: 96, h: 96, html: `<div class="appi">${appIcon(it.key, 96)}</div>` });
     });
   } else {
     // 7. Your home screen: widgets and swipeable wallpapers

@@ -285,7 +285,41 @@ export function calendarWidget() {
 }
 export const CLOCK = clockWidget;
 
-// state: { wallX, widgetP, drawerP, touch, kb, t }
+// The app drawer as the app draws it: an alphabetical list with sticky letter headers and an
+// A-Z fast scroller on the right. Positions are in drawer coordinates (list starts at y=40).
+const DRAWER_TOP = 40, ROW_H = 56, HEAD_H = 34;
+export function drawerLayout() {
+  const items = [];
+  let y = 0, last = "";
+  for (const [name, key] of APPS) {
+    if (name[0] !== last) {
+      last = name[0];
+      items.push({ head: last, y });
+      y += HEAD_H;
+    }
+    items.push({ name, key, y });
+    y += ROW_H;
+  }
+  return { items, height: y, letters: [...new Set(APPS.map(([n]) => n[0]))] };
+}
+// Phone-space centre of the fast scroller letter at index i.
+export const scrollerY = (i, n) => 70 + (i * (700 - 70)) / (n - 1);
+function drawerHTML(top, scroll, active) {
+  const { items, letters } = drawerLayout();
+  const list = items
+    .map((it) =>
+      it.head
+        ? `<div class="dhead" style="top:${DRAWER_TOP + it.y - scroll}px">${it.head}</div>`
+        : `<div class="drow" style="top:${DRAWER_TOP + it.y - scroll}px">${appIcon(it.key, 38)}<b>${it.name}</b><div class="dots">⋮</div></div>`
+    )
+    .join("");
+  const idx = letters
+    .map((l, i) => `<span class="${l === active ? "on" : ""}" style="top:${scrollerY(i, letters.length) - 8}px">${l}</span>`)
+    .join("");
+  return `<div class="drawer" style="top:${top}px"><div class="dlist">${list}</div><div class="didx">${idx}</div></div>`;
+}
+
+// state: { wallX, widgetP, drawerP, drawerScroll, drawerLetter, touch, kb, t }
 function homeScreen(s) {
   const wx = s.wallX || 0;
   const walls = WALLS.map((w, i) => `<div class="wall" style="background:${w};transform:translateX(${(i - wx) * 360}px)"></div>`).join("");
@@ -295,9 +329,7 @@ function homeScreen(s) {
        <div class="wcal" style="transform:scale(${wp});opacity:${clamp(wp * 2)}">${calendarWidget()}</div>`
     : "";
   const dp = s.drawerP || 0;
-  const drawer = dp > 0
-    ? `<div class="drawer" style="top:${lerp(800, 36, dp)}px"><div class="dgrab"></div>${APPS.map(([n, k]) => `<div class="app">${appIcon(k, 50)}<span>${n}</span></div>`).join("")}</div>`
-    : "";
+  const drawer = dp > 0 ? drawerHTML(lerp(800, 0, dp), s.drawerScroll || 0, s.drawerLetter) : "";
   return `<div class="screen">${walls}${widgets}
     <div class="status"><span>9:41</span><span>▾ ▮</span></div>
     <div class="chips">${favRow()}</div>
@@ -390,10 +422,15 @@ export const PHONE_CSS = `
 .calh{display:flex;justify-content:space-between;font-size:15px;margin-bottom:6px}
 .calg{display:grid;grid-template-columns:repeat(7,1fr);gap:3px 0;text-align:center;font-size:12px;color:#c4c9cd}
 .calg .today{background:#7fd3a8;color:#0c2a1c;border-radius:50%;font-weight:700}
-.drawer{position:absolute;left:0;right:0;bottom:0;background:rgba(22,26,24,.97);border-radius:28px 28px 0 0;display:grid;grid-template-columns:repeat(4,1fr);align-content:start;gap:18px 0;padding:40px 10px 0;z-index:10}
-.dgrab{position:absolute;left:50%;top:12px;width:40px;height:4px;margin-left:-20px;border-radius:2px;background:#666}
-.app{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11.5px;color:#dfe3e6}
-.app i{width:50px;height:50px;border-radius:50%;font-style:normal;font-weight:700;font-size:20px;color:#fff;display:flex;align-items:center;justify-content:center}
+.drawer{position:absolute;left:0;right:0;height:800px;background:#121514;z-index:10;overflow:hidden}
+.dlist{position:absolute;left:0;right:28px;top:0;bottom:0;overflow:hidden}
+.dhead{position:absolute;left:0;right:0;height:34px;padding-left:18px;display:flex;align-items:center;font-size:16px;font-weight:500;color:#7fd3a8;background:#1b201e}
+.drow{position:absolute;left:0;right:0;height:56px;display:flex;align-items:center;gap:16px;padding:0 14px 0 18px;color:#e8eaed}
+.drow b{flex:1;font-weight:500;font-size:16px}
+.drow .dots{color:#9aa0a6;font-size:18px}
+.didx{position:absolute;right:0;top:0;width:28px;bottom:0}
+.didx span{position:absolute;left:0;width:28px;height:16px;text-align:center;font-size:11px;font-weight:500;color:#7fd3a8}
+.didx span.on{color:#0c2a1c;background:#7fd3a8;border-radius:8px;transform:scale(1.5)}
 `;
 
 // Place a 360x800 phone so that phone-point (cx,cy) lands at stage point (x,y) at scale s.
