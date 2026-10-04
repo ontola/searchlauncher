@@ -13,10 +13,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import com.searchlauncher.app.SearchLauncherApp
 import kotlin.coroutines.resume
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import org.mozilla.geckoview.AllowOrDeny
@@ -43,6 +46,7 @@ internal class GeckoPage(
     suppliedSession
       ?: GeckoSession(GeckoSessionSettings.Builder().usePrivateMode(privateMode).build())
   private val favicons = if (privateMode) null else GeckoFavicons(activity, tab, session)
+  private val appearance = GeckoAppearance(activity, tab, session)
   var view: GeckoView? = null
   var loading by mutableStateOf(false)
   var progress by mutableStateOf(0)
@@ -56,6 +60,8 @@ internal class GeckoPage(
   private var failedUrl: String? = null
   private var captureRunning = false
   private var scrollCapture: Job? = null
+  private var touching = false
+  private var previewDirty = false
   private var navigationGeneration = 0
   private var loadGeneration = 0
   private val captureCallbacks = mutableListOf<() -> Unit>()
@@ -70,12 +76,7 @@ internal class GeckoPage(
     session.scrollDelegate =
       object : GeckoSession.ScrollDelegate {
         override fun onScrollChanged(session: GeckoSession, scrollX: Int, scrollY: Int) {
-          scrollCapture?.cancel()
-          scrollCapture =
-            activity.lifecycleScope.launch {
-              delay(200)
-              capture()
-            }
+          schedulePreview()
         }
       }
     session.selectionActionDelegate = org.mozilla.geckoview.BasicSelectionActionDelegate(activity)
@@ -85,6 +86,8 @@ internal class GeckoPage(
           if (awaitingInitialLocation && url == "about:blank") return
           if (Uri.parse(tab.url).host != Uri.parse(url).host) tab.favicon = null
           tab.url = url
+          tab.themeColorArgb = null
+          tab.pageBackgroundArgb = android.graphics.Color.WHITE
           navigationGeneration++
           tab.pageDrawn = false
           loading = true
@@ -101,7 +104,7 @@ internal class GeckoPage(
           loading = false
           if (success) {
             recordHistory()
-            view?.postOnAnimation { capture() }
+            schedulePreview()
           }
         }
 
@@ -126,7 +129,7 @@ internal class GeckoPage(
           if (awaitingInitialLocation) return
           tab.pageDrawn = true
           if (tab.url != "about:blank") hasRenderedDocument = true
-          view?.postOnAnimation { capture() }
+          schedulePreview()
         }
 
         override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) {
@@ -330,6 +333,10 @@ internal class GeckoPage(
 
   fun setVisible(visible: Boolean) {
     if (visible) GeckoEnvironment.retainRecent(session)
+    else {
+      touching = false
+      scrollCapture?.cancel()
+    }
     if (session.isOpen) session.setActive(visible)
   }
 
@@ -382,8 +389,7 @@ internal class GeckoPage(
   private fun preparePage(ready: () -> Unit) {
     GeckoAdBlocking.prepare(activity) {
       if (session.isOpen) {
-        if (favicons != null) GeckoEnvironment.attachIcons(activity, session, favicons, ready)
-        else ready()
+        GeckoEnvironment.attachMetadata(activity, session, favicons, appearance, ready)
       }
     }
   }
@@ -402,6 +408,38 @@ internal class GeckoPage(
     else session.loadUri(initialUrl)
   }
 
+  /**
+   * Observe without consuming: Gecko still owns scrolling, pinch zoom, links and text selection.
+   */
+  fun onTouch(event: android.view.MotionEvent) {
+    when (event.actionMasked) {
+      android.view.MotionEvent.ACTION_DOWN -> {
+        touching = true
+        scrollCapture?.cancel()
+      }
+      android.view.MotionEvent.ACTION_UP,
+      android.view.MotionEvent.ACTION_CANCEL -> {
+        touching = false
+        if (previewDirty) schedulePreview()
+      }
+    }
+  }
+
+  private fun schedulePreview() {
+    previewDirty = true
+    scrollCapture?.cancel()
+    if (touching || closed || privateMode) return
+    scrollCapture =
+      activity.lifecycleScope.launch {
+        // A paused finger is not an idle page. Fling scroll callbacks also postpone this work.
+        delay(500)
+        if (!touching && activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+          previewDirty = false
+          capture()
+        }
+      }
+  }
+
   /** Capture while visible, before another window/overlay can suspend the compositor. */
   suspend fun captureBeforeTransition() {
     withTimeoutOrNull(500) {
@@ -417,7 +455,9 @@ internal class GeckoPage(
       return
     }
     val currentView = view
-    if (privateMode || !tab.pageDrawn || currentView?.isShown != true || !session.isOpen) {
+    if (
+      closed || privateMode || !tab.pageDrawn || currentView?.isShown != true || !session.isOpen
+    ) {
       onComplete()
       return
     }
@@ -435,18 +475,40 @@ internal class GeckoPage(
         .capturePixels()
         .accept(
           { bitmap ->
-            if (bitmap != null) {
-              if (generation == navigationGeneration && currentView.isShown && tab.pageDrawn) {
-                val width = bitmap.width.coerceAtMost(540)
-                val height =
-                  (bitmap.height.toFloat() * width / bitmap.width).toInt().coerceAtLeast(1)
-                val preview =
-                  android.graphics.Bitmap.createScaledBitmap(bitmap, width, height, true)
-                tab.snapshot = preview
-                if (preview !== bitmap) bitmap.recycle()
-              } else bitmap.recycle()
+            if (bitmap == null) complete()
+            else {
+              // Pixel readback is asynchronous, but resizing used to run on the UI thread.
+              // Keep bitmap ownership explicit even if navigation/destruction cancels the job.
+              activity.lifecycleScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                var preview: android.graphics.Bitmap? = null
+                var adopted = false
+                try {
+                  withContext(Dispatchers.Default) {
+                    val width = bitmap.width.coerceAtMost(540)
+                    val height =
+                      (bitmap.height.toFloat() * width / bitmap.width).toInt().coerceAtLeast(1)
+                    preview =
+                      android.graphics.Bitmap.createScaledBitmap(bitmap, width, height, true)
+                  }
+                  if (
+                    !closed &&
+                      generation == navigationGeneration &&
+                      currentView.isShown &&
+                      tab.pageDrawn
+                  ) {
+                    if (touching) schedulePreview()
+                    else {
+                      tab.snapshot = preview
+                      adopted = true
+                    }
+                  }
+                } finally {
+                  if (!adopted && preview !== bitmap) preview?.recycle()
+                  if (!adopted || preview !== bitmap) bitmap.recycle()
+                  complete()
+                }
+              }
             }
-            complete()
           },
           { failure ->
             android.util.Log.w("GeckoPreview", "Could not capture tab preview", failure)

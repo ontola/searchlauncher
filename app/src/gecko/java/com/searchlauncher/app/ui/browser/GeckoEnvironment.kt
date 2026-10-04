@@ -40,10 +40,11 @@ internal object GeckoEnvironment {
           }
       }
 
-  fun attachIcons(
+  fun attachMetadata(
     context: Context,
     session: GeckoSession,
-    delegate: GeckoFavicons,
+    delegate: GeckoFavicons?,
+    appearance: GeckoAppearance,
     ready: () -> Unit,
   ) {
     val runtime = runtime(context)
@@ -51,12 +52,22 @@ internal object GeckoEnvironment {
       iconExtension
         ?: runtime.webExtensionController
           .ensureBuiltIn("resource://android/assets/site-icons/", "site-icons@searchlauncher.eu")
+          .then { installed ->
+            runtime.webExtensionController.setAllowedInPrivateBrowsing(installed!!, true)
+          }
           .also { iconExtension = it }
     extension.accept(
       { installed ->
         if (session.isOpen) {
-          if (installed != null)
-            session.webExtensionController.setMessageDelegate(installed, delegate, "site_icons")
+          if (installed != null) {
+            if (delegate != null)
+              session.webExtensionController.setMessageDelegate(installed, delegate, "site_icons")
+            session.webExtensionController.setMessageDelegate(
+              installed,
+              appearance,
+              "page_appearance",
+            )
+          }
           ready()
         }
       },

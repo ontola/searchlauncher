@@ -59,7 +59,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -2224,6 +2224,7 @@ internal fun BrowserScreen(
           barColor = chromeBarColor,
           barContentColor = chromeBarContentColor,
           onOpenSearch = { onOpenSearch(false, pageBackground.toArgb(), "") },
+          onCopyUrl = { copyUrl(context, webView?.url ?: activeTab.url) },
           onTabDragStart = tabDragStart,
           onTabDrag = tabDrag,
           onTabDragEnd = tabDragEnd,
@@ -2541,6 +2542,7 @@ private fun BrowserLauncherChrome(
   barColor: Color,
   barContentColor: Color,
   onOpenSearch: () -> Unit,
+  onCopyUrl: () -> Unit,
   onTabDragStart: () -> Unit,
   onTabDrag: (PointerInputChange, Float) -> Unit,
   onTabDragEnd: () -> Unit,
@@ -2657,9 +2659,11 @@ private fun BrowserLauncherChrome(
             .heightIn(min = 32.dp)
             // No ripple: a highlight would outline the bar as its own element instead of a
             // seamless part of the bottom section.
-            .clickable(
+            .combinedClickable(
               interactionSource = remember { MutableInteractionSource() },
               indication = null,
+              onLongClickLabel = "Copy URL",
+              onLongClick = onCopyUrl,
               onClick = onOpenSearch,
             ),
         contentAlignment = Alignment.CenterStart,

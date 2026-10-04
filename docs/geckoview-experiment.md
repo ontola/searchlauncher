@@ -43,11 +43,13 @@ that SDK 37.0 is newer than its tested SDK; AAR compatibility checks remain enab
 this is not evidence of receiving a server's push after the browser process exits. A production
 push transport/subscription service needs to be chosen, provisioned, integrated and tested.
 
-The WebAuthn API is exposed, but successful registration/login with Proton Pass and KeePassDX
-has not been established. An engine change does not automatically grant a password provider's
-browser trust or make restricted OAuth providers accept this app.
+Passkey creation and two subsequent sign-ins with KeePassDX 4.5.5 were verified on Android 15
+using build 14 and WebAuthn.io, after explicitly trusting the installed Gecko package/certificate
+in KeePassDX. Proton Pass remains blocked by its privileged-browser allowlist. An engine change
+does not automatically grant provider browser trust or make restricted OAuth providers accept
+this app. See [passkey setup and verification](webauthn.md#experimental-gecko-build).
 
-This is a compatibility prototype, not full UI parity: page-derived toolbar colors, private popup windows, PiP/background media,
+This is a compatibility prototype, not full UI parity: private popup windows, PiP/background media,
 site-specific JavaScript/cookie/ad-block controls, and aggregate storage sizes are not yet ported.
 The browser uses Gecko's defaults for those engine settings; existing WebView settings are not
 silently claimed to apply. The global Website storage panel explains the missing size reporting;
@@ -401,3 +403,36 @@ This confirms the reproduced request-time crash is fixed, not successful registr
 Proton Pass or KeePassDX. No physical phone was connected during verification.
 
 Android contract: https://developer.android.com/reference/android/credentials/PrepareGetCredentialResponse#hasCredentialResults(java.lang.String)
+
+
+### Real-provider follow-up, 2026-10-03
+
+On the Android 15 Phone_A35 emulator, the distributed experimental build 14 completed a real
+WebAuthn.io registration through KeePassDX 4.5.5, followed by two server-accepted authentications.
+The second authentication reopened and unlocked the saved vault. This used the actual provider
+APK and an HTTPS server, not a mock provider or the abort-only regression fixture.
+
+Before adding `com.searchlauncher.app.gecko` to KeePassDX's **Privileged apps**, registration
+appeared successful but authentication failed with `Could not verify authentication signature`.
+After explicitly trusting the installed package/certificate and registering a fresh test account,
+WebAuthn.io displayed `You're logged in!` on both authentication attempts. The browser APK was
+unchanged during this comparison.
+
+Proton's vendored privileged-browser list and the live Google list inspected on this date contain
+neither SearchLauncher package. Proton validates browser origins against its bundled list, so
+KeePassDX success does not establish Proton compatibility. Physical Xiaomi devices, private tabs,
+other relying parties, and conditional passkey autofill are outside this verification.
+
+
+## Experimental build 15 — 2026-10-04
+
+- Browser bars follow website theme/background colors, including dark NOS pages with a stale white
+  theme-color declaration. Color changes animate together over 140 ms.
+- Hold the browser address/search bar to copy the full current URL.
+- Automatic previews wait until touch/scrolling settles, with bitmap resizing off the UI thread.
+- Added functional browser API and tab stress tests, plus passkey-provider setup documentation.
+
+See [appearance frame checks](gecko-browser-appearance.md), [scroll validation](gecko-scroll-preview-audit.md),
+and [the browser audit](browser-stress-test-2026-10-03.md). These changes were emulator-tested;
+physical Xiaomi performance remains unverified. Website upload, website sharing, and passkey
+cancellation issues documented by the audit are not fixed in this build.

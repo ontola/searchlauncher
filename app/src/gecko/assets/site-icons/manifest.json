@@ -1,13 +1,29 @@
 {
   "manifest_version": 2,
-  "name": "SearchLauncher site icons",
-  "version": "1.0",
-  "browser_specific_settings": { "gecko": { "id": "site-icons@searchlauncher.eu" } },
-  "permissions": ["geckoViewAddons", "nativeMessaging", "nativeMessagingFromContent"],
-  "content_scripts": [{
-    "matches": ["http://*/*", "https://*/*"],
-    "js": ["icons.js"],
-    "run_at": "document_end",
-    "all_frames": false
-  }]
+  "name": "SearchLauncher page metadata",
+  "version": "1.1",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "site-icons@searchlauncher.eu"
+    }
+  },
+  "permissions": [
+    "geckoViewAddons",
+    "nativeMessaging",
+    "nativeMessagingFromContent"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "icons.js",
+        "appearance.js"
+      ],
+      "run_at": "document_end",
+      "all_frames": false
+    }
+  ]
 }

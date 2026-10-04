@@ -49,6 +49,8 @@ class GeckoBrowserDeviceTest {
   private val downloadBytes = ByteArray(1024 * 1024 + 123) { (it % 251).toByte() }
   private val releaseIcon = java.util.concurrent.CountDownLatch(1)
 
+  @get:org.junit.Rule val testName = org.junit.rules.TestName()
+
   @Before
   fun start() {
     if (android.os.Build.VERSION.SDK_INT >= 33) {
@@ -80,7 +82,396 @@ class GeckoBrowserDeviceTest {
     releaseDownload.countDown()
     releaseReload.countDown()
     releaseRestore.countDown()
+    device.dumpWindowHierarchy(
+      java.io.File(context.getExternalFilesDir(null), "browser-audit-${testName.methodName}.xml")
+    )
+    saveScreenshot("audit-${testName.methodName}")
     server.close()
+    java.io
+      .File(context.getExternalFilesDir(null), "browser-audit-${testName.methodName}.txt")
+      .writeText(reports.joinToString("\n"))
+  }
+
+  @Test
+  fun browserFrameFollowsWebsiteThemeAndBackground() {
+    var oldScheme = 0
+    instrumentation.runOnMainSync {
+      val runtimeSettings = GeckoEnvironment.runtime(context).settings
+      oldScheme = runtimeSettings.preferredColorScheme
+      runtimeSettings.preferredColorScheme =
+        org.mozilla.geckoview.GeckoRuntimeSettings.COLOR_SCHEME_DARK
+    }
+    fun frame(expected: Int, name: String) {
+      eventually {
+        var matches = false
+        instrumentation.runOnMainSync {
+          matches = BrowserTabStore.tabs!!.active.frameColorArgb == expected
+        }
+        matches
+      }
+      SystemClock.sleep(350)
+      val shot = saveScreenshot("theme-$name")
+      val bitmap = android.graphics.BitmapFactory.decodeFile(shot.absolutePath)
+      // Avoid clock/icons: sample the bar edges, including the actual OS navigation area.
+      for (point in listOf(8 to 24, 8 to bitmap.height - 160, 8 to bitmap.height - 24)) {
+        val actual = bitmap.getPixel(point.first, point.second)
+        assertEquals("$name frame pixel at $point", expected, actual)
+      }
+      bitmap.recycle()
+      instrumentation.runOnMainSync {
+        val activity =
+          ActivityLifecycleMonitorRegistry.getInstance()
+            .getActivitiesInStage(Stage.RESUMED)
+            .filterIsInstance<BrowserActivity>()
+            .single()
+        val controller =
+          androidx.core.view.WindowCompat.getInsetsController(
+            activity.window,
+            activity.window.decorView,
+          )
+        val light = androidx.core.graphics.ColorUtils.calculateLuminance(expected) > 0.18
+        assertEquals("Readable status icons", light, controller.isAppearanceLightStatusBars)
+        assertEquals("Readable navigation icons", light, controller.isAppearanceLightNavigationBars)
+      }
+    }
+    try {
+      context.startActivity(BrowserActivity.createIntent(context, "$origin/appearance"))
+      waitFor("appearance-ready")
+      frame(Color.rgb(38, 50, 56), "dark-meta")
+      instrumentation.runOnMainSync {
+        GeckoEnvironment.runtime(context).settings.preferredColorScheme =
+          org.mozilla.geckoview.GeckoRuntimeSettings.COLOR_SCHEME_LIGHT
+      }
+      frame(Color.rgb(242, 233, 221), "light-meta")
+      instrumentation.runOnMainSync {
+        GeckoEnvironment.runtime(context).settings.preferredColorScheme =
+          org.mozilla.geckoview.GeckoRuntimeSettings.COLOR_SCHEME_DARK
+      }
+      frame(Color.rgb(38, 50, 56), "dark-meta-return")
+      tap("Use body color")
+      frame(Color.rgb(32, 32, 32), "body-fallback")
+      tap("Use stale white theme")
+      frame(Color.rgb(32, 32, 32), "stale-white-meta")
+      tap("Use new theme")
+      frame(Color.rgb(34, 51, 68), "dynamic-meta")
+      tap("Use body color")
+      frame(Color.rgb(32, 32, 32), "theme-removed")
+      tap("Animate themes")
+      waitFor("appearance-animation-done", 15000)
+      frame(Color.rgb(32, 32, 32), "animation-done")
+      var darkTab = 0L
+      instrumentation.runOnMainSync { darkTab = BrowserTabStore.tabs!!.active.id }
+      context.startActivity(BrowserActivity.createIntent(context, "$origin/"))
+      frame(Color.WHITE, "unstyled-light-page")
+      instrumentation.runOnMainSync { BrowserTabTasks.open(context, darkTab) }
+      frame(Color.rgb(32, 32, 32), "dark-tab-return")
+    } finally {
+      instrumentation.runOnMainSync {
+        GeckoEnvironment.runtime(context).settings.preferredColorScheme = oldScheme
+      }
+    }
+  }
+
+  @Test
+  fun holdingAddressCopiesFullCurrentUrlWithoutOpeningSearch() {
+    val url = "$origin/?copy=full%20address#fragment"
+    context.startActivity(BrowserActivity.createIntent(context, url))
+    eventually {
+      var correct = false
+      instrumentation.runOnMainSync { correct = BrowserTabStore.tabs!!.active.url == url }
+      correct
+    }
+    val label = com.searchlauncher.app.util.displayPageAddress(url)
+    val address = device.wait(Until.findObject(By.text(label)), 10000)
+    assertNotNull("Current address must be visible", address)
+    address!!.longClick()
+    eventually {
+      var copied = false
+      instrumentation.runOnMainSync {
+        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+        copied = clipboard.primaryClip?.getItemAt(0)?.text?.toString() == url
+      }
+      copied
+    }
+    assertNotNull("Long press must stay in the browser", device.findObject(By.desc("Browser menu")))
+    instrumentation.runOnMainSync {
+      assertTrue(
+        "Holding the address must not open the launcher search",
+        ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED).any {
+          it is BrowserActivity
+        },
+      )
+    }
+    // Android's clipboard preview temporarily covers the bar. Ordinary tapping is exercised
+    // independently by browserSearchUsesTheHomeKeyboardAndReturnsToThePage.
+  }
+
+  @Test
+  fun scrollWorkloadAudit() {
+    context.startActivity(BrowserActivity.createIntent(context, "$origin/scroll-audit"))
+    waitFor("scroll-ready")
+    SystemClock.sleep(1500)
+    val prefs = context.getSharedPreferences("gecko-tabs", android.content.Context.MODE_PRIVATE)
+    val writes = java.util.concurrent.atomic.AtomicInteger()
+    val listener =
+      android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key?.startsWith("state:") == true) writes.incrementAndGet()
+      }
+    prefs.registerOnSharedPreferenceChangeListener(listener)
+    try {
+      val width = device.displayWidth
+      val height = device.displayHeight
+      repeat(12) { index ->
+        val bottom = height * 3 / 4
+        val top = height / 4
+        if (index < 6) device.swipe(width / 2, bottom, width / 2, top, 35)
+        else device.swipe(width / 2, top, width / 2, bottom, 35)
+        SystemClock.sleep(80)
+      }
+      reports += "scroll-audit:writesDuringGestures=${writes.get()}"
+      SystemClock.sleep(1800)
+      reports += "scroll-audit:writesIncludingIdle=${writes.get()}"
+      assertTrue("Page must actually scroll", reports.any { it.contains("scrolled:") })
+      var oldPreview: android.graphics.Bitmap? = null
+      instrumentation.runOnMainSync { oldPreview = BrowserTabStore.tabs!!.active.snapshot }
+      val downAt = SystemClock.uptimeMillis()
+      fun touch(action: Int, y: Float) {
+        val event =
+          android.view.MotionEvent.obtain(
+            downAt,
+            SystemClock.uptimeMillis(),
+            action,
+            width / 2f,
+            y,
+            0,
+          )
+        event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+        try {
+          assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true))
+        } finally {
+          event.recycle()
+        }
+      }
+      val startY = height * 0.7f
+      touch(android.view.MotionEvent.ACTION_DOWN, startY)
+      try {
+        repeat(12) { step ->
+          touch(android.view.MotionEvent.ACTION_MOVE, startY - (step + 1) * 25)
+          SystemClock.sleep(16)
+        }
+        SystemClock.sleep(600)
+        instrumentation.runOnMainSync {
+          assertSame(
+            "Do not replace the preview while a scroll finger is held down",
+            oldPreview,
+            BrowserTabStore.tabs!!.active.snapshot,
+          )
+        }
+      } finally {
+        touch(android.view.MotionEvent.ACTION_UP, startY - 300)
+      }
+      eventually {
+        var refreshed = false
+        instrumentation.runOnMainSync {
+          refreshed = BrowserTabStore.tabs!!.active.snapshot !== oldPreview
+        }
+        refreshed
+      }
+      saveScreenshot("scroll-audit")
+    } finally {
+      prefs.unregisterOnSharedPreferenceChangeListener(listener)
+    }
+  }
+
+  @Test
+  fun browserApiOperationsAndHardwareAvailability() {
+    context.startActivity(BrowserActivity.createIntent(context, "$origin/api/core"))
+    waitFor("api-core-complete", 45000)
+    val results = reports.filter { it.contains("api-result:") }
+    assertEquals("Every functional probe must finish", 16, results.size)
+    assertTrue("Functional API failures: $results", results.none { it.contains("\"ok\":false") })
+    assertTrue(reports.any { it.contains("api-capabilities:") && it.contains("\"secure\":true") })
+    saveScreenshot("api-core")
+  }
+
+  @Test
+  fun locationDenialAndGrantedCoordinates() {
+    for (permission in
+      listOf(
+        android.Manifest.permission.ACCESS_COARSE_LOCATION,
+        android.Manifest.permission.ACCESS_FINE_LOCATION,
+      )) {
+      instrumentation.uiAutomation.grantRuntimePermission(context.packageName, permission)
+    }
+    context.startActivity(BrowserActivity.createIntent(context, "$origin/api/location"))
+    waitFor("api-ready:location")
+    tap("Get location")
+    assertNotNull(device.wait(Until.findObject(By.textContains("access your location")), 10000))
+    device.findObject(By.res("android:id/button2")).click()
+    waitFor("geo-error:1", 20000)
+    assertFalse(reports.any { it.contains("geo-success:") })
+    reports.clear()
+    context.startActivity(
+      BrowserActivity.createIntent(
+        context,
+        "${origin.replace("localhost", "127.0.0.1")}/api/location",
+      )
+    )
+    waitFor("api-ready:location")
+    tap("Get location")
+    assertNotNull(device.wait(Until.findObject(By.textContains("access your location")), 10000))
+    device.findObject(By.res("android:id/button1")).click()
+    waitFor("geo-success:", 25000)
+    val value =
+      org.json.JSONObject(
+        reports.first { it.contains("geo-success:") }.substringAfter("geo-success:")
+      )
+    assertEquals("Simulated GPS latitude", 52.370216, value.getDouble("latitude"), 0.01)
+    assertEquals("Simulated GPS longitude", 4.895168, value.getDouble("longitude"), 0.01)
+    saveScreenshot("location-allowed")
+  }
+
+  @Test
+  fun cameraMicrophoneDenialCaptureAndTrackRelease() {
+    for (permission in
+      listOf(android.Manifest.permission.CAMERA, android.Manifest.permission.RECORD_AUDIO)) {
+      instrumentation.uiAutomation.grantRuntimePermission(context.packageName, permission)
+    }
+    context.startActivity(BrowserActivity.createIntent(context, "$origin/api/media"))
+    waitFor("api-ready:media")
+    tap("Start camera and microphone")
+    assertNotNull(
+      device.wait(Until.findObject(By.textContains("use your camera and microphone")), 10000)
+    )
+    device.findObject(By.res("android:id/button2")).click()
+    waitFor("media-error:NotAllowedError")
+    assertFalse(reports.any { it.contains("media-success:") })
+    reports.clear()
+    context.startActivity(
+      BrowserActivity.createIntent(context, "${origin.replace("localhost", "127.0.0.1")}/api/media")
+    )
+    waitFor("api-ready:media")
+    tap("Start camera and microphone")
+    assertNotNull(
+      device.wait(Until.findObject(By.textContains("use your camera and microphone")), 10000)
+    )
+    device.findObject(By.res("android:id/button1")).click()
+    waitFor("media-stopped:true", 25000)
+    assertTrue(
+      reports.any { it.contains("media-success:") && it.contains("audio") && it.contains("video") }
+    )
+    saveScreenshot("media-capture")
+  }
+
+  @Test
+  fun fileUploadReturnsTheChosenBytes() {
+    val resolver = context.contentResolver
+    val name = "browser-upload-${server.localPort}.txt"
+    val uri =
+      resolver.insert(
+        android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+        android.content.ContentValues().apply {
+          put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name)
+          put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+          put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Download")
+        },
+      )!!
+    try {
+      resolver.openOutputStream(uri)!!.use {
+        it.write("Chosen file bytes ${server.localPort}".toByteArray())
+      }
+      context.startActivity(BrowserActivity.createIntent(context, "$origin/api/upload"))
+      waitFor("api-ready:upload")
+      val input =
+        device.wait(Until.findObject(By.desc("Choose test file")), 10000)
+          ?: device.wait(Until.findObject(By.text("Browse…")), 3000)
+      assertNotNull("Website file input", input)
+      input!!.click()
+      val picked = device.wait(Until.findObject(By.text(name)), 10000)
+      assertNotNull("The Android document picker must show the test file", picked)
+      device.waitForIdle()
+      picked!!.click()
+      device.waitForIdle()
+      device.findObject(By.res("com.google.android.documentsui:id/action_menu_select"))?.click()
+      waitFor("upload:$name:Chosen file bytes ${server.localPort}")
+      saveScreenshot("file-upload")
+    } finally {
+      device.dumpWindowHierarchy(
+        java.io.File(context.getExternalFilesDir(null), "browser-upload-final.xml")
+      )
+      saveScreenshot("upload-final")
+      resolver.delete(uri, null, null)
+    }
+  }
+
+  @Test
+  fun clipboardRoundTripAndWebsiteShareOutcome() {
+    context.startActivity(BrowserActivity.createIntent(context, "$origin/api/clipboard"))
+    waitFor("api-ready:clipboard")
+    tap("Copy test text")
+    waitFor("clipboard-written")
+    tap("Paste test text")
+    val paste = device.wait(Until.findObject(By.text("Paste")), 3000)
+    paste?.click()
+    waitFor("clipboard-read:SearchLauncher clipboard fixture")
+    tap("Share test text")
+    // Audit a known integration gap without mistaking API exposure for a working sharesheet.
+    eventually { reports.any { it.contains("share-success") || it.contains("share-error:") } }
+    saveScreenshot("clipboard-share")
+  }
+
+  @Test
+  fun stressTabsReloadStorageAndCleanup() {
+    val processId = android.os.Process.myPid()
+    val ownedTabs = mutableListOf<Pair<Long, Int>>()
+    val timings = mutableListOf<Long>()
+    fun openAndCheck(tabId: Long, number: Int) {
+      val started = SystemClock.uptimeMillis()
+      val before = reports.count { it.contains("stress-check:$number:") }
+      instrumentation.runOnMainSync { BrowserTabTasks.open(context, tabId) }
+      tap("Check tab $number")
+      eventually(30000) { reports.count { it.contains("stress-check:$number:") } > before }
+      assertTrue(reports.last { it.contains("stress-check:$number:") }.endsWith(":true"))
+      timings += SystemClock.uptimeMillis() - started
+    }
+    try {
+      repeat(12) { number ->
+        context.startActivity(
+          BrowserActivity.createIntent(context, "$origin/api/stress?id=$number")
+        )
+        waitFor("stress-loaded:$number:", 30000)
+        instrumentation.runOnMainSync { ownedTabs += BrowserTabStore.tabs!!.active.id to number }
+      }
+      repeat(3) { round ->
+        for ((tabId, number) in if (round % 2 == 0) ownedTabs.reversed() else ownedTabs) {
+          openAndCheck(tabId, number)
+          if (round == 1) {
+            val before = reports.count { it.contains("stress-loaded:$number:") }
+            tap("Reload tab $number")
+            eventually(30000) { reports.count { it.contains("stress-loaded:$number:") } > before }
+            assertTrue(
+              reports.last { it.contains("stress-loaded:$number:") }.endsWith("restored=true")
+            )
+          }
+        }
+        reports +=
+          "stress-memory-round-$round:" +
+            device.executeShellCommand("dumpsys meminfo ${context.packageName}")
+      }
+      assertEquals("Browser process survives all tab cycles", processId, android.os.Process.myPid())
+      reports += "stress-summary:tabs=12,switches=36,reloads=12,checkMs=$timings"
+    } finally {
+      instrumentation.runOnMainSync {
+        ownedTabs.forEach { (id, _) ->
+          BrowserTabTasks.close(context, id)
+          BrowserTabStore.close(id)
+        }
+      }
+    }
+    context.startActivity(BrowserActivity.createIntent(context, "$origin/api/core"))
+    waitFor("api-core-complete", 45000)
+    assertFalse(reports.any { it.contains("api-result:") && it.contains("\"ok\":false") })
+    reports += "stress-cleanup:responsive"
   }
 
   @Test
@@ -1094,7 +1485,40 @@ class GeckoBrowserDeviceTest {
     socket.use {
       val reader = it.getInputStream().bufferedReader()
       val path = reader.readLine()?.split(' ')?.getOrNull(1) ?: return
-      while (!reader.readLine().isNullOrEmpty()) {}
+      val headers = mutableMapOf<String, String>()
+      while (true) {
+        val header = reader.readLine()?.takeIf { it.isNotEmpty() } ?: break
+        headers[header.substringBefore(':').lowercase()] = header.substringAfter(':').trim()
+      }
+      if (path == "/socket") {
+        val key = headers["sec-websocket-key"] ?: return
+        val accept =
+          android.util.Base64.encodeToString(
+            java.security.MessageDigest.getInstance("SHA-1")
+              .digest((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").toByteArray()),
+            android.util.Base64.NO_WRAP,
+          )
+        val output = it.getOutputStream()
+        output.write(
+          ("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: $accept\r\n\r\n")
+            .toByteArray()
+        )
+        output.flush()
+        val input = java.io.DataInputStream(it.getInputStream())
+        input.readUnsignedByte()
+        val frame = input.readUnsignedByte()
+        val length = frame and 127
+        if (length !in 1..125) return
+        val mask = ByteArray(4)
+        if (frame and 128 != 0) input.readFully(mask)
+        val data = ByteArray(length)
+        input.readFully(data)
+        for (index in data.indices) data[index] =
+          (data[index].toInt() xor mask[index % 4].toInt()).toByte()
+        output.write(byteArrayOf(0x81.toByte(), length.toByte()) + data)
+        output.flush()
+        return
+      }
       if (path == "/restored") {
         reports += "restore-waiting"
         releaseRestore.await(30, java.util.concurrent.TimeUnit.SECONDS)
@@ -1150,6 +1574,32 @@ class GeckoBrowserDeviceTest {
             reports += "ad-server-hit"
             "ad resource"
           }
+          path.startsWith("/api/") ->
+            instrumentation.context.assets.open("browser-api-fixture.html").bufferedReader().use {
+              it.readText()
+            }
+          path == "/appearance" ->
+            """<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
+            <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f2e9dd">
+            <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#263238">
+            <style>html{color-scheme:light dark}body{margin:0;padding:24px;background:#f8f8fa;color:#202020;font:22px sans-serif;min-height:100vh;box-sizing:border-box}button{display:block;font:inherit;padding:20px;margin:16px 0} @media(prefers-color-scheme:dark){body{background:#202020;color:white}}</style>
+            <h1>Website appearance</h1><p>Browser bars follow this page's theme.</p>
+            <button onclick="clearTheme()">Use body color</button><button onclick="theme('#223344')">Use new theme</button>
+            <button onclick="theme('#ffffff')">Use stale white theme</button><button onclick="animateThemes()">Animate themes</button>
+            <iframe src="/appearance-frame" style="display:none"></iframe>
+            <script>
+            function clearTheme(){document.querySelectorAll('meta[name=theme-color]').forEach(m=>m.remove())}
+            function theme(color){clearTheme();const m=document.createElement('meta');m.name='theme-color';m.content=color;document.head.append(m)}
+            function animateThemes(){theme('#202020');setTimeout(()=>theme('#223344'),1000);setTimeout(()=>theme('#202020'),2200);setTimeout(()=>{document.body.style.background='#f8f8fa';document.body.style.color='#202020';theme('#eeeeee')},3400);setTimeout(()=>{document.body.style.background='#202020';document.body.style.color='white';theme('#202020')},4600);setTimeout(()=>fetch('/report?appearance-animation-done'),5600)}
+            fetch('/report?appearance-ready');</script>"""
+          path == "/appearance-frame" ->
+            "<meta name='theme-color' content='#ff00ff'><body style='background:#ff00ff'>Iframe must not color browser bars</body>"
+          path == "/scroll-audit" ->
+            """<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{background:white;color:black;font:20px sans-serif}article{padding:24px;margin:10px;background:#def;border-radius:12px}header{position:sticky;top:0;background:white}</style><header>Scroll workload</header><main></main><script>
+            const main=document.querySelector('main');for(let i=0;i<200;i++){const row=document.createElement('article');row.textContent='Article '+i+' '+('Scrollable content and links. '.repeat(20));main.append(row)}
+            for(let i=0;i<80;i++)history.pushState({data:'x'.repeat(1024)},'', '#entry'+i);
+            let sent=false;addEventListener('scroll',()=>{if(!sent&&scrollY>200){sent=true;fetch('/report?scrolled:'+scrollY)}},{passive:true});fetch('/report?scroll-ready');
+            </script>"""
           path == "/passkeys" ->
             """<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Passkey fixture</title>
             <style>body{font:22px sans-serif}button{font:inherit;padding:24px;display:block;margin:20px}</style>

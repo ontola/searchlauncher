@@ -10,10 +10,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -77,9 +79,14 @@ internal object BrowserEngine {
     val localTab = remember { BrowserTab(navigationRequest?.url ?: "about:blank") }
     val tab = if (privateMode) localTab else pinnedTabId?.let(BrowserTabStore::tab) ?: return
     val page = remember(tab.id) { GeckoPage(activity, tab, privateMode, onClose) }
-    val frameColor = Color(tab.frameColorArgb)
+    val frameColor by
+      animateColorAsState(
+        Color(tab.frameColorArgb),
+        animationSpec = tween(140),
+        label = "browser frame color",
+      )
     val frameContentColor =
-      if (frameColor.luminance() > 0.5f) Color(0xFF1C1B1F) else Color(0xFFEDE8EE)
+      if (frameColor.luminance() > 0.18f) Color(0xFF1C1B1F) else Color(0xFFEDE8EE)
     val menuColors =
       MenuDefaults.itemColors(
         textColor = frameContentColor,
@@ -189,7 +196,7 @@ internal object BrowserEngine {
         derivedStateOf { swipe.inMotion && swipe.offset < 0f && swipe.neighbour(1) == null }
       }
     val systemBarColor = if (page.showDownloads) MaterialTheme.colorScheme.surface else frameColor
-    LaunchedEffect(systemBarColor) {
+    DisposableEffect(activity) {
       // Keep the window configuration stable during a drag. The opaque page panel covers
       // the wallpaper except where the incoming home preview is being revealed.
       activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
@@ -197,11 +204,14 @@ internal object BrowserEngine {
       activity.window.setBackgroundDrawable(
         android.graphics.drawable.ColorDrawable(AndroidColor.TRANSPARENT)
       )
-      activity.window.navigationBarColor = systemBarColor.toArgb()
       activity.window.isNavigationBarContrastEnforced = false
+      onDispose {}
+    }
+    LaunchedEffect(systemBarColor) {
+      activity.window.navigationBarColor = systemBarColor.toArgb()
       WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
-        isAppearanceLightStatusBars = systemBarColor.luminance() > 0.5f
-        isAppearanceLightNavigationBars = systemBarColor.luminance() > 0.5f
+        isAppearanceLightStatusBars = systemBarColor.luminance() > 0.18f
+        isAppearanceLightNavigationBars = systemBarColor.luminance() > 0.18f
       }
     }
     LaunchedEffect(page.fullscreen) {
@@ -253,6 +263,10 @@ internal object BrowserEngine {
                 it.setBackgroundColor(AndroidColor.WHITE)
                 it.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
                 it.setSession(page.session)
+                it.setOnTouchListener { _, event ->
+                  page.onTouch(event)
+                  false
+                }
                 // Paint Gecko's compositor surface, not only the FrameLayout behind it.
                 it.coverUntilFirstPaint(AndroidColor.WHITE)
                 page.view = it
@@ -321,15 +335,24 @@ internal object BrowserEngine {
             }
             Box(
               modifier =
-                Modifier.weight(1f).heightIn(min = 32.dp).clickable(
-                  interactionSource =
-                    remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                  indication = null,
-                ) {
-                  // Opening search must not wait up to 500 ms for a compositor screenshot.
-                  page.capture()
-                  onOpenSearch(false, tab.frameColorArgb, "")
-                },
+                Modifier.weight(1f)
+                  .heightIn(min = 32.dp)
+                  .combinedClickable(
+                    interactionSource =
+                      remember {
+                        androidx.compose.foundation.interaction.MutableInteractionSource()
+                      },
+                    indication = null,
+                    onLongClickLabel = "Copy URL",
+                    onLongClick = {
+                      com.searchlauncher.app.util.SystemUtils.copyUrlToClipboard(activity, tab.url)
+                    },
+                    onClick = {
+                      // Opening search must not wait up to 500 ms for a compositor screenshot.
+                      page.capture()
+                      onOpenSearch(false, tab.frameColorArgb, "")
+                    },
+                  ),
               contentAlignment = androidx.compose.ui.Alignment.CenterStart,
             ) {
               Text(

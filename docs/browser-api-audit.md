@@ -1,7 +1,8 @@
 # Browser API audit — Gecko experiment
 
 Checked 3 October 2026 against experimental build 10, GeckoView 157 on Android 15 ARM64.
-The build 11 changes do not change these API integrations. This describes the Gecko experiment,
+Build 14 was retested on 3 October 2026 with functional API probes and device stress tests;
+see [the detailed results](browser-stress-test-2026-10-03.md). This describes the Gecko experiment,
 not the regular Android WebView build.
 
 A secure localhost page checked the actual installed engine. “Exposed” below means the API exists;
@@ -14,7 +15,7 @@ it is not a claim that every permission, operating-system integration, or third-
 | Broadcast Channel | Verified: two channels exchanged a message. |
 | Screen Wake Lock | Verified: acquired and released a screen lock. |
 | Page Visibility | Exposed. Hidden tabs are marked inactive. |
-| Clipboard | Read/write API exposed; Gecko's selection delegate supplies clipboard permission UI. Clipboard operations not tested in this audit. |
+| Clipboard | Read/write API exposed; Gecko's selection delegate supplies clipboard permission UI. Build 14 verified a clipboard write/read round trip. |
 | Web Speech | Speech recognition is absent. Speech synthesis is exposed; spoken output not verified. |
 | Battery Status | Not exposed. |
 | Network Information | Not exposed. |
@@ -28,13 +29,15 @@ it is not a claim that every permission, operating-system integration, or third-
 | WebOTP | Not exposed. |
 | Contact Picker | Not exposed. Native launcher contact search does not expose contacts to websites. |
 | Barcode Detection | Not exposed. A website may implement scanning using camera access and a JavaScript library. |
-| Geolocation | Exposed; site permission and Android permission handling implemented. Not location-tested in this audit. |
+| Geolocation | Exposed; site permission and Android permission handling implemented. Build 14 verified site denial and granted coordinates using mocked GPS; physical GPS and the Android runtime permission dialog were not tested. |
 | Notifications | Local website/service-worker notifications are implemented and covered by an emulator test. Remote Web Push delivery is not configured, even though `PushManager` exists. |
 
 ## Filesystem
 
-- Ordinary website file uploads use Android's document picker (single/multiple files). Folder
-  upload requests are currently dismissed.
+- Ordinary website file uploads open Android's document picker, but build 14 failed the
+  single-file Downloads selection test: Gecko rejected the returned path and the website received
+  no file. Do not count opening the picker as successful upload support. Folder upload requests
+  are currently dismissed.
 - Downloads and JavaScript exports are implemented.
 - Origin Private File System (OPFS) works: creating, writing, reading, and deleting a file were
   verified. This is private website storage, not access to arbitrary user folders.
@@ -48,8 +51,9 @@ engine support or a substantial, origin-aware native bridge with device selectio
 
 ## Priorities
 
-The actionable host-integration gaps are website sharing and remote Web Push. Continue testing
-real passkey providers separately. Hardware APIs and unrestricted filesystem pickers are larger
+The actionable host-integration gaps are file uploads, website sharing, passkey prompt
+cancellation, and remote Web Push. Build 14 left the KeePassDX credential picker open after a
+JavaScript request was aborted; this is separate from successful registration/sign-in support. Hardware APIs and unrestricted filesystem pickers are larger
 engine/platform compatibility decisions.
 
 ## References
