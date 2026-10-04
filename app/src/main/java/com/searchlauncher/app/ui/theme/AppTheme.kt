@@ -21,6 +21,7 @@ fun SearchLauncherTheme(
   darkThemeMode: Int = 0, // 0: System, 1: Light, 2: Dark
   chroma: Float = 50f,
   isOled: Boolean = false,
+  manageSystemBars: Boolean = true,
   content: @Composable () -> Unit,
 ) {
   val useDarkTheme =
@@ -36,7 +37,7 @@ fun SearchLauncherTheme(
     }
 
   val view = LocalView.current
-  if (!view.isInEditMode) {
+  if (manageSystemBars && !view.isInEditMode) {
     SideEffect {
       val window = (view.context as Activity).window
       // Force navigation bar color to be transparent to let edge-to-edge work

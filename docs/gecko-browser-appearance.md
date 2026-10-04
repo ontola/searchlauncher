@@ -47,3 +47,46 @@ animation timing across devices. Capture cadence varies; this is not a physical-
 Evidence is in `build/browser-appearance-2026-10-04/` (Git-ignored): `theme-final.mp4`,
 `theme-slow.mp4` (3x slower excerpt), `frame-colors.csv`, `frame-summary.json`, inspected PNGs,
 `nos-dark-chrome.png`, and instrumentation outputs. Build and `spotlessCheck` passed.
+
+
+## Follow-up: app theme settings and header fallback (experimental 16)
+
+The earlier checks set Gecko's runtime preference directly, with Android in dark mode. That did
+not exercise SearchLauncher's persisted Dark/OLED setting against a light Android configuration.
+The expanded device scenario reproduces the mismatch on published experimental 15: the first
+website document reports `prefers-color-scheme: dark = false` despite the app preference.
+
+Gecko now reads the persisted app preference before loading a document, observes live changes,
+and receives Android configuration changes through the runtime's `configurationChanged` API.
+System, Light and Dark have distinct mappings; OLED remains an app-surface setting rather than
+rewriting a site's own CSS. The browser activity opts out of the generic app theme's system-bar
+SideEffect, so that recompositions cannot overwrite page-dependent icon contrast.
+
+Tweakers does not currently declare a theme-color in its HTML or web manifest. When there is no
+valid theme declaration, the metadata bridge can use the solid background of a broad main header
+or navigation element near the document top. Article headers, dialog contents and gradients are
+excluded. Explicit metadata wins. The selected header is retained through scrolling so hiding a
+sticky header does not make the browser bars switch to white. No scroll listener or image pixel
+sampling is introduced. The metadata extension version is 1.2.
+
+The expanded test changes the actual DataStore preferences and Android night mode. It covers the
+first document, forced Dark against system Light, forced Light against system Dark, live System
+mode changes, OLED recomposition over a white page, a red navigation header, explicit-theme
+precedence, and returning to a retained dark tab. It checks rendered bar backgrounds and Android
+icon-mode flags. Optional `-e liveAppearance true` additionally opens NOS and Tweakers with the app
+forced Dark/OLED while Android is Light. These are emulator checks, not physical Xiaomi results.
+
+
+Three-button emulator limitation: the Android 15 Google image's Pixel taskbar forces its own
+background icon palette (`mOnTaskbarBackgroundNavButtonColorOverride=1`) even when both the app
+and SystemUI report the correct light/dark navigation mode. Thus OS glyph pixels can still be dim
+on dark or red bars in that configuration. Enabling contrast enforcement and making the window
+navigation color transparent did not change that override; neither workaround was retained.
+This does not establish the same platform behavior on Xiaomi. The app's conflicting theme
+SideEffect is fixed, but physical-device navigation-icon contrast still needs confirmation.
+
+
+Final checks: `spotlessCheck` passed; `testDebugUnitTest` reported 449 tests, zero failures/errors,
+and 3 skipped. Device appearance (with live NOS/Tweakers), favicon propagation and private storage
+passed 3/3. Live bar colors were NOS `#202020` and Tweakers `#a11236`. Evidence and the old-build
+failure are saved in `build/browser-appearance-2026-10-04/fix16/` (Git-ignored).

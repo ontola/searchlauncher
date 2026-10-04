@@ -2,6 +2,8 @@
 (() => {
   let last = "";
   let timer;
+  let header;
+  let headerObserver;
   const mediaQueries = new Map();
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = 1;
@@ -15,6 +17,37 @@
       mediaQueries.set(query, media);
     }
     return mediaQueries.get(query).matches;
+  }
+  function headerTheme() {
+    // No pixel sampling, network request or scroll listener. Only a broad, solid main header
+    // near the document top can supply a fallback; article headers and overlays cannot.
+    if (!header || !header.isConnected) {
+      headerObserver?.disconnect();
+      header = [...document.querySelectorAll('header, nav, [role="banner"]')].find(element => {
+        if (element.closest('article, main, aside, footer, dialog, [role="dialog"]')) return false;
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const top = rect.top + (style.position === "fixed" ? 0 : scrollY);
+        if (top < -1 || top > 180 || rect.width < innerWidth * 0.85 ||
+          rect.height < 32 || rect.height > 180 || style.visibility !== "visible" ||
+          Number(style.opacity) < 1 || style.backgroundImage !== "none") return false;
+        ctx.clearRect(0, 0, 1, 1);
+        ctx.fillStyle = style.backgroundColor;
+        ctx.fillRect(0, 0, 1, 1);
+        return ctx.getImageData(0, 0, 1, 1).data[3] === 255;
+      });
+      if (header) {
+        headerObserver = new MutationObserver(schedule);
+        headerObserver.observe(header, { attributes: true, attributeFilter: ["class", "style"] });
+      }
+    }
+    if (!header) return null;
+    const style = getComputedStyle(header);
+    if (style.backgroundImage !== "none" || style.display === "none") return null;
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = style.backgroundColor;
+    ctx.fillRect(0, 0, 1, 1);
+    return ctx.getImageData(0, 0, 1, 1).data[3] === 255 ? hex() : null;
   }
   function report() {
     // CSS Canvas also covers pages using color-scheme without an explicit body background.
@@ -33,6 +66,7 @@
     }
     const background = hex();
     let theme = null;
+    let declaredTheme = false;
     const usedQueries = new Set(["(prefers-color-scheme: dark)"]);
     // Keep listening to all declared media queries, not only the currently matching tag.
     const metas = [...document.querySelectorAll('meta[name="theme-color" i]')];
@@ -53,6 +87,7 @@
       ctx.fillStyle = color;
       ctx.fillRect(0, 0, 1, 1);
       theme = hex();
+      declaredTheme = true;
       // Some sites (including NOS) keep a generic white theme-color in their dark layout.
       // Honor explicit media-qualified colors, but don't put white chrome around a dark page.
       const channels = background.match(/[0-9a-f]{2}/g).map(value => {
@@ -63,6 +98,7 @@
       if (!meta.media && theme === "#ffffff" && luminance < 0.18) theme = null;
       break;
     }
+    if (!declaredTheme) theme = headerTheme();
     for (const [query, media] of mediaQueries) {
       if (!usedQueries.has(query)) {
         media.removeEventListener("change", schedule);

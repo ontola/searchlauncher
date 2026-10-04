@@ -215,7 +215,8 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
       val darkMode by preference(PreferencesKeys.DARK_MODE, 0)
       val isOled by preference(PreferencesKeys.OLED_MODE, false)
 
-      SearchLauncherTheme(themeColor, darkMode, themeSaturation, isOled) {
+      // Browser chrome owns icon contrast according to the actual page, not the app palette.
+      SearchLauncherTheme(themeColor, darkMode, themeSaturation, isOled, manageSystemBars = false) {
         BrowserEngine.Content(
           navigationRequest = navigationRequest,
           privateMode = isPrivateMode,

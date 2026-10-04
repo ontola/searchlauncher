@@ -36,18 +36,18 @@ internal class BrowserTab(initialUrl: String, restoredId: Long? = null) {
   /** The colour the page itself is painted on, which is what shows through any gap in it. */
   var pageBackgroundArgb by mutableIntStateOf(android.graphics.Color.WHITE)
   /**
-   * The colour the site asks the browser's own furniture to wear, from `<meta name="theme-color">`,
-   * or null when it asks for nothing. Kept apart from [pageBackgroundArgb] because the two are
-   * genuinely different answers: a site is perfectly entitled to a dark toolbar over a white page,
-   * and painting the page's canvas in the toolbar's colour would show through every load gap.
+   * The browser bar colour from `<meta name="theme-color">`, or Gecko's main-header fallback when
+   * the page declares none. Kept apart from [pageBackgroundArgb] because the two are genuinely
+   * different answers: a site is perfectly entitled to a dark toolbar over a white page, and
+   * painting the page's canvas in the toolbar's colour would show through every load gap.
    */
   var themeColorArgb by mutableStateOf<Int?>(null)
 
   /**
    * What the browser paints around the page — the bars above and below it, and the fill behind a
-   * preview. The site's own theme colour when it names one, which is what Chrome tints its toolbar
-   * and status bar with; otherwise the page's background, so a page that says nothing still gets
-   * furniture that belongs to it rather than a fixed grey.
+   * preview. The site's declared or inferred theme colour; otherwise the page's background, so a
+   * page with neither a theme declaration nor a suitable header still gets furniture that belongs
+   * to it rather than a fixed grey.
    */
   val frameColorArgb: Int
     get() = themeColorArgb ?: pageBackgroundArgb

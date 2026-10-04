@@ -53,6 +53,8 @@ class GeckoBrowserDeviceTest {
 
   @Before
   fun start() {
+    device.wakeUp()
+    device.executeShellCommand("wm dismiss-keyguard")
     if (android.os.Build.VERSION.SDK_INT >= 33) {
       instrumentation.uiAutomation.grantRuntimePermission(
         context.packageName,
@@ -94,13 +96,18 @@ class GeckoBrowserDeviceTest {
 
   @Test
   fun browserFrameFollowsWebsiteThemeAndBackground() {
-    var oldScheme = 0
-    instrumentation.runOnMainSync {
-      val runtimeSettings = GeckoEnvironment.runtime(context).settings
-      oldScheme = runtimeSettings.preferredColorScheme
-      runtimeSettings.preferredColorScheme =
-        org.mozilla.geckoview.GeckoRuntimeSettings.COLOR_SCHEME_DARK
+    val original = runBlocking { context.dataStore.data.first() }
+    val originalNight = device.executeShellCommand("cmd uimode night").contains("yes")
+    fun appTheme(mode: Int, oled: Boolean = true) {
+      runBlocking {
+        context.dataStore.edit {
+          it[PreferencesKeys.DARK_MODE] = mode
+          it[PreferencesKeys.OLED_MODE] = oled
+        }
+      }
     }
+    device.executeShellCommand("cmd uimode night no")
+    appTheme(2)
     fun frame(expected: Int, name: String) {
       eventually {
         var matches = false
@@ -138,15 +145,15 @@ class GeckoBrowserDeviceTest {
       context.startActivity(BrowserActivity.createIntent(context, "$origin/appearance"))
       waitFor("appearance-ready")
       frame(Color.rgb(38, 50, 56), "dark-meta")
-      instrumentation.runOnMainSync {
-        GeckoEnvironment.runtime(context).settings.preferredColorScheme =
-          org.mozilla.geckoview.GeckoRuntimeSettings.COLOR_SCHEME_LIGHT
-      }
+      waitFor("appearance-first-dark:true")
+      device.executeShellCommand("cmd uimode night yes")
+      appTheme(1)
       frame(Color.rgb(242, 233, 221), "light-meta")
-      instrumentation.runOnMainSync {
-        GeckoEnvironment.runtime(context).settings.preferredColorScheme =
-          org.mozilla.geckoview.GeckoRuntimeSettings.COLOR_SCHEME_DARK
-      }
+      appTheme(0)
+      frame(Color.rgb(38, 50, 56), "system-dark")
+      device.executeShellCommand("cmd uimode night no")
+      frame(Color.rgb(242, 233, 221), "system-light")
+      appTheme(2)
       frame(Color.rgb(38, 50, 56), "dark-meta-return")
       tap("Use body color")
       frame(Color.rgb(32, 32, 32), "body-fallback")
@@ -163,12 +170,62 @@ class GeckoBrowserDeviceTest {
       instrumentation.runOnMainSync { darkTab = BrowserTabStore.tabs!!.active.id }
       context.startActivity(BrowserActivity.createIntent(context, "$origin/"))
       frame(Color.WHITE, "unstyled-light-page")
+      // Force parent theme recompositions while page colors stay unchanged.
+      appTheme(2, false)
+      frame(Color.WHITE, "light-page-oled-off")
+      appTheme(2, true)
+      frame(Color.WHITE, "light-page-oled-on")
+      context.startActivity(BrowserActivity.createIntent(context, "$origin/header-theme"))
+      frame(Color.rgb(170, 18, 57), "red-header")
+      tap("Add explicit theme")
+      frame(Color.rgb(34, 51, 68), "meta-overrides-header")
       instrumentation.runOnMainSync { BrowserTabTasks.open(context, darkTab) }
       frame(Color.rgb(32, 32, 32), "dark-tab-return")
-    } finally {
-      instrumentation.runOnMainSync {
-        GeckoEnvironment.runtime(context).settings.preferredColorScheme = oldScheme
+      // Explicit opt-in keeps changing external sites out of the deterministic test suite.
+      if (InstrumentationRegistry.getArguments().getString("liveAppearance") == "true") {
+        for (host in listOf("nos.nl", "tweakers.net")) {
+          context.startActivity(BrowserActivity.createIntent(context, "https://$host/"))
+          var actual = Color.WHITE
+          eventually(30000) {
+            var loaded = false
+            instrumentation.runOnMainSync {
+              val tab = BrowserTabStore.tabs!!.active
+              actual = tab.frameColorArgb
+              loaded = Uri.parse(tab.url).host == host && tab.pageDrawn && actual != Color.WHITE
+            }
+            loaded
+          }
+          SystemClock.sleep(3000)
+          instrumentation.runOnMainSync { actual = BrowserTabStore.tabs!!.active.frameColorArgb }
+          if (host == "nos.nl") {
+            assertTrue(
+              "NOS must honor app dark mode",
+              androidx.core.graphics.ColorUtils.calculateLuminance(actual) < 0.18,
+            )
+          } else {
+            assertTrue(
+              "Tweakers bars must use its red header",
+              Color.red(actual) > 100 &&
+                Color.red(actual) > 2 * Color.green(actual) &&
+                Color.red(actual) > 2 * Color.blue(actual),
+            )
+          }
+          frame(actual, "live-$host")
+          reports.add("live-theme:$host:${Integer.toHexString(actual)}")
+        }
       }
+    } finally {
+      runBlocking {
+        context.dataStore.edit {
+          original[PreferencesKeys.DARK_MODE]?.let { value ->
+            it[PreferencesKeys.DARK_MODE] = value
+          } ?: it.remove(PreferencesKeys.DARK_MODE)
+          original[PreferencesKeys.OLED_MODE]?.let { value ->
+            it[PreferencesKeys.OLED_MODE] = value
+          } ?: it.remove(PreferencesKeys.OLED_MODE)
+        }
+      }
+      device.executeShellCommand("cmd uimode night ${if (originalNight) "yes" else "no"}")
     }
   }
 
@@ -1591,7 +1648,13 @@ class GeckoBrowserDeviceTest {
             function clearTheme(){document.querySelectorAll('meta[name=theme-color]').forEach(m=>m.remove())}
             function theme(color){clearTheme();const m=document.createElement('meta');m.name='theme-color';m.content=color;document.head.append(m)}
             function animateThemes(){theme('#202020');setTimeout(()=>theme('#223344'),1000);setTimeout(()=>theme('#202020'),2200);setTimeout(()=>{document.body.style.background='#f8f8fa';document.body.style.color='#202020';theme('#eeeeee')},3400);setTimeout(()=>{document.body.style.background='#202020';document.body.style.color='white';theme('#202020')},4600);setTimeout(()=>fetch('/report?appearance-animation-done'),5600)}
+            fetch('/report?appearance-first-dark:'+matchMedia('(prefers-color-scheme:dark)').matches);
             fetch('/report?appearance-ready');</script>"""
+          path == "/header-theme" ->
+            """<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
+            <style>body{margin:0;background:white;color:black;font:22px sans-serif}nav{height:64px;background:#aa1239;color:white;width:100%}button{margin:24px;padding:16px;font:inherit}</style>
+            <nav>Main navigation</nav><button onclick="const m=document.createElement('meta');m.name='theme-color';m.content='#223344';document.head.append(m)">Add explicit theme</button>
+            <article><header style="background:#00ff00">Article header must not color the browser</header></article>"""
           path == "/appearance-frame" ->
             "<meta name='theme-color' content='#ff00ff'><body style='background:#ff00ff'>Iframe must not color browser bars</body>"
           path == "/scroll-audit" ->

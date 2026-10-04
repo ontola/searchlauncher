@@ -387,9 +387,12 @@ internal class GeckoPage(
   }
 
   private fun preparePage(ready: () -> Unit) {
-    GeckoAdBlocking.prepare(activity) {
-      if (session.isOpen) {
-        GeckoEnvironment.attachMetadata(activity, session, favicons, appearance, ready)
+    activity.lifecycleScope.launch {
+      GeckoEnvironment.prepareAppearance(activity)
+      GeckoAdBlocking.prepare(activity) {
+        if (session.isOpen && !closed) {
+          GeckoEnvironment.attachMetadata(activity, session, favicons, appearance, ready)
+        }
       }
     }
   }
