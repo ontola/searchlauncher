@@ -6,10 +6,15 @@ import android.os.Environment
 import android.widget.Toast
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import org.mozilla.geckoview.WebResponse
 
@@ -30,6 +35,12 @@ internal fun saveGeckoDownload(context: Context, response: WebResponse) {
   geckoDownloadScope.launch {
     var target: File? = null
     var saved = false
+    // Gecko's read wait swallows interrupts, and close() does not wake it. Set a short
+    // deadline before interrupting so the awakened read exits, then close the network stream.
+    val control =
+      PageDownloadControl.attach(key, beforeCancel = { response.setReadTimeoutMillis(1) }) {
+        response.body?.close()
+      }
     try {
       withContext(Dispatchers.IO) {
         check(response.statusCode == 0 || response.statusCode in 200..299) {
@@ -45,7 +56,8 @@ internal fun saveGeckoDownload(context: Context, response: WebResponse) {
             file.outputStream().use { output ->
               val buffer = ByteArray(64 * 1024)
               while (true) {
-                val count = input.read(buffer)
+                currentCoroutineContext().ensureActive()
+                val count = runInterruptible { input.read(buffer) }
                 if (count < 0) break
                 output.write(buffer, 0, count)
                 bytes += count
@@ -68,27 +80,43 @@ internal fun saveGeckoDownload(context: Context, response: WebResponse) {
           }
         // The stream can be decompressed by Gecko, so Content-Length is only a progress hint.
         val manager = app.getSystemService(DownloadManager::class.java)
-        val id =
-          manager.addCompletedDownload(name, "Gecko download", false, type, file.path, bytes, false)
-        saved = true
-        withContext(Dispatchers.Main) {
-          completePageDownload(key, id, name, bytes)
-          notification.complete(name)
-        }
+        control.complete(
+          name,
+          bytes,
+          register = {
+            manager.addCompletedDownload(
+              name,
+              "Gecko download",
+              false,
+              type,
+              file.path,
+              bytes,
+              false,
+            )
+          },
+          onRegistered = { saved = true },
+        )
+        withContext(Dispatchers.Main) { notification.complete(name) }
       }
       Toast.makeText(app, "Downloaded $name", Toast.LENGTH_LONG).show()
     } catch (error: Exception) {
-      notification.failed()
-      Toast.makeText(app, error.message ?: "Download failed", Toast.LENGTH_LONG).show()
-    } finally {
-      withContext(Dispatchers.IO) {
-        runCatching { response.body?.close() }
-        if (!saved) {
-          target?.delete()
-          target?.parentFile?.delete()
-        }
+      if (control.cancelled) notification.cancel()
+      else if (error is CancellationException) throw error
+      else {
+        notification.failed()
+        Toast.makeText(app, error.message ?: "Download failed", Toast.LENGTH_LONG).show()
       }
-      finishPageDownload(key)
+    } finally {
+      withContext(NonCancellable) {
+        withContext(Dispatchers.IO) {
+          runCatching { response.body?.close() }
+          if (!saved) {
+            target?.delete()
+            target?.parentFile?.delete()
+          }
+        }
+        finishPageDownload(key)
+      }
     }
   }
 }

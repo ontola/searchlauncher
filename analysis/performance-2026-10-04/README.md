@@ -58,3 +58,29 @@ trace_processor -q analysis/performance-2026-10-04/latency.sql search.perfetto-t
 Full traces remain outside Git in `/tmp/search-{baseline,candidate}-final.perfetto-trace`.
 The original 32 MB buffer with scheduler events overwrote early samples; those partial runs
 are not used in the table.
+
+
+## Further work: experimental 23
+
+The keyboard previously created four independent color animation states for every key. It now
+shares those four states for the whole keyboard and keeps the text-input callback current without
+capturing a new callback in every letter key. Themed-icon resolution and conversion now remain
+in one IO block; resolution already dispatched internally, so this removes an extra handoff rather
+than fixing synchronous PackageManager I/O. Icon-loading trace spans now use async tracing because
+they include suspension. Their earlier long synchronous spans were not evidence of blocking I/O.
+
+Matched 12-query runs on the same emulator, without screen recording: first-draw median 38.23 ms
+on build 22 versus 36.71 ms with shared keyboard animation state; worst samples 176.67 and
+154.59 ms. These small runs show only a modest difference and cannot establish a general hardware
+speedup. Raw samples are in `gecko22.csv` and `shared-keyboard.csv` (first 12 rows only).
+
+Separately, the first result no longer fades in: its text is fully opaque on its first draw.
+Other new rows retain a stagger, shortened from 180 ms + up to 64 ms delay to 100 ms + up to
+48 ms delay. Placement and disappearance animations remain intact. This improves time to a
+readable result without pretending the animation duration was repository search latency.
+
+The final UI recording (`/tmp/search23-final.mp4`) was inspected for typing, clearing, and the
+home/browser result transitions; its profiling run is not compared with non-recorded timings.
+The clear assertion now waits for the accessibility text update and disappearing row instead of
+assuming an asynchronous `setText` action has completed immediately. Earlier failures had no
+remaining result in the subsequently captured screenshot/hierarchy.

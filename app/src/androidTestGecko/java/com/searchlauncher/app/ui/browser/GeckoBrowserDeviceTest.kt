@@ -1215,6 +1215,60 @@ class GeckoBrowserDeviceTest {
   }
 
   @Test
+  fun cancellingDownloadStopsStreamAndRemovesPartialFile() {
+    val name = "direct-${server.localPort}.bin"
+    context.startActivity(BrowserActivity.createIntent(context, "$origin/download"))
+    assertActiveTransferCanBeCancelled(name)
+  }
+
+  @Test
+  fun cancellingDirectHttpDownloadRemovesPartialFile() {
+    val name = "direct-${server.localPort}.bin"
+    instrumentation.runOnMainSync { startDirectDownload(context, "$origin/download", null, null) }
+    context.startActivity(
+      Intent(context, DownloadsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    )
+    assertActiveTransferCanBeCancelled(name)
+  }
+
+  private fun assertActiveTransferCanBeCancelled(name: String) {
+    assertNotNull(device.wait(Until.findObject(By.text("Downloads")), 15000))
+    eventually {
+      var active = false
+      instrumentation.runOnMainSync {
+        active =
+          pendingPageDownloads.values.any {
+            it.name == name && it.fraction != null && it.onCancel != null
+          }
+      }
+      active
+    }
+    val root = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)!!
+    assertTrue(root.walkTopDown().any { it.isFile && it.name == name })
+    saveScreenshot("download-cancel-button")
+    device.wait(Until.findObject(By.text("Cancel")), 10000)!!.click()
+    eventually(10000) {
+      var active = false
+      instrumentation.runOnMainSync { active = pendingPageDownloads.values.any { it.name == name } }
+      !active && root.walkTopDown().none { it.isFile && it.name == name }
+    }
+    assertFalse(
+      context.getSystemService(NotificationManager::class.java).activeNotifications.any {
+        it.notification.extras.getString("android.title") == name
+      }
+    )
+    releaseDownload.countDown()
+    SystemClock.sleep(500)
+    assertFalse(
+      readBrowserDownloads(context.getSystemService(DownloadManager::class.java)).any {
+        it.name == name
+      }
+    )
+    assertFalse(device.hasObject(By.text(name)))
+    saveScreenshot("download-cancelled")
+  }
+
+  @Test
   fun downloadCompletionKeepsTheNewestCardAtTheTop() {
     context.startActivity(BrowserActivity.createIntent(context, "$origin/download"))
     val name = "direct-${server.localPort}.bin"
@@ -1335,8 +1389,9 @@ class GeckoBrowserDeviceTest {
     assertNotNull(device.wait(Until.findObject(By.text("Settings")), 10000))
     assertEquals("set", device.findObject(By.clazz("android.widget.EditText"))!!.text)
     device.findObject(By.clazz("android.widget.EditText"))!!.text = ""
-    SystemClock.sleep(500)
-    assertFalse(device.hasObject(By.text("Settings")))
+    assertNotNull(device.wait(Until.findObject(By.clazz("android.widget.EditText").text("")), 3000))
+    // Accessibility can briefly retain the disappearing row even after it stops painting.
+    assertTrue(device.wait(Until.gone(By.text("Settings")), 3000))
     saveScreenshot("search-latency-audit")
   }
 
@@ -2068,8 +2123,12 @@ class GeckoBrowserDeviceTest {
         output.write(downloadBytes, 0, 768 * 1024)
         output.flush()
         releaseDownload.await(45, java.util.concurrent.TimeUnit.SECONDS)
-        output.write(downloadBytes, 768 * 1024, downloadBytes.size - 768 * 1024)
-        output.flush()
+        try {
+          output.write(downloadBytes, 768 * 1024, downloadBytes.size - 768 * 1024)
+          output.flush()
+        } catch (_: java.net.SocketException) {
+          reports += "download-client-disconnected"
+        }
         return
       }
       var mime = "text/html"

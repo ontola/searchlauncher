@@ -262,6 +262,19 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
             onOpenWith = { requestOpen(item, chooser = true) },
             onShowInFiles = ::showInFiles,
             onDelete = { deleteTarget = item },
+            onCancel = {
+              if (row.progress != null) {
+                pendingPageDownloads[row.key.removePrefix("page:")]?.onCancel?.invoke()
+              } else
+                scope.launch {
+                  val removed =
+                    withContext(Dispatchers.IO) {
+                      runCatching { manager.remove(item.id) }.getOrDefault(0)
+                    }
+                  if (removed > 0) downloads = downloads.filterNot { it.id == item.id }
+                  else openError = "Couldn’t cancel this download. Try again."
+                }
+            },
           )
         }
         when {
@@ -311,6 +324,7 @@ private fun DownloadCard(
   onOpenWith: () -> Unit,
   onShowInFiles: () -> Unit,
   onDelete: () -> Unit,
+  onCancel: () -> Unit,
 ) {
   val context = LocalContext.current
   var menu by remember { mutableStateOf(false) }
@@ -320,14 +334,16 @@ private fun DownloadCard(
     else if (item.total > 0) ((item.bytes.toDouble() / item.total) * 100).toInt().coerceIn(0, 100)
     else null
   val status =
-    when (item.status) {
-      DownloadManager.STATUS_SUCCESSFUL -> "Complete"
-      DownloadManager.STATUS_FAILED ->
-        downloadFailureReason(item.reason)?.let { "Download failed: $it" } ?: "Download failed"
-      DownloadManager.STATUS_PAUSED -> "Waiting for connection"
-      DownloadManager.STATUS_PENDING -> "Queued"
-      else -> percent?.let { "Downloading · $it%" } ?: "Downloading"
-    }
+    if (pageProgress?.cancelling == true) "Cancelling…"
+    else
+      when (item.status) {
+        DownloadManager.STATUS_SUCCESSFUL -> "Complete"
+        DownloadManager.STATUS_FAILED ->
+          downloadFailureReason(item.reason)?.let { "Download failed: $it" } ?: "Download failed"
+        DownloadManager.STATUS_PAUSED -> "Waiting for connection"
+        DownloadManager.STATUS_PENDING -> "Queued"
+        else -> percent?.let { "Downloading · $it%" } ?: "Downloading"
+      }
   DownloadCardLayout(
     name = item.name,
     status = status,
@@ -360,7 +376,7 @@ private fun DownloadCard(
               text = { Text(if (item.active) "Cancel download" else "Delete") },
               onClick = {
                 menu = false
-                onDelete()
+                if (item.active) onCancel() else onDelete()
               },
             )
           }
@@ -382,6 +398,13 @@ private fun DownloadCard(
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
+    if (item.active)
+      OutlinedButton(
+        onClick = onCancel,
+        enabled = pageProgress == null || pageProgress.onCancel != null,
+      ) {
+        Text("Cancel")
+      }
     if (complete)
       FilledTonalButton(onClick = onOpen) {
         Text(if (item.name.endsWith(".apk", true)) "Install APK" else "Open file")

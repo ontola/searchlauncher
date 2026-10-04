@@ -436,3 +436,26 @@ See [appearance frame checks](gecko-browser-appearance.md), [scroll validation](
 and [the browser audit](browser-stress-test-2026-10-03.md). These changes were emulator-tested;
 physical Xiaomi performance remains unverified. Website upload, website sharing, and passkey
 cancellation issues documented by the audit are not fixed in this build.
+
+
+## Experimental 23: cancel active downloads
+
+Active download cards have a visible Cancel button. DownloadManager-owned transfers use its
+remove API; Gecko streams, direct HTTP transfers and webpage exports expose cancellable jobs.
+Cancellation removes the partial file and ongoing notification, without showing a failure toast.
+WebView fetches use an AbortController so cancellation also stops the page-side request.
+
+Completion first disables cancellation, then registers the completed file and publishes the
+stable row in a non-cancellable block. A late stale Cancel callback cannot delete the completed
+file. Cleanup is also non-cancellable through the final progress-row removal.
+
+GeckoInputStream in the pinned Gecko version swallows InterruptedException in its read wait,
+and close does not notify that wait. Cancellation shortens the response read timeout before
+interrupting the read and closes the response off the UI thread. This avoids waiting for the
+normal 30-second timeout when the server stalls; normal downloads keep their original timeout.
+
+Device tests pause a server after sending partial data, cancel from the real Downloads screen,
+and verify that the partial file, progress row and notification disappear before the server is
+released. Both Gecko and direct HTTP paths pass. A normal-completion regression also passes and
+retains the newest card's position. The test server tolerates the expected disconnected socket.
+WebView JS export cancellation and DownloadManager cancellation are not separately device-tested.

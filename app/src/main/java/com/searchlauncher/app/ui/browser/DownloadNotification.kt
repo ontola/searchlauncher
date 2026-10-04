@@ -81,6 +81,11 @@ internal class DownloadNotification(context: Context, private val key: String, n
     )
   }
 
+  fun cancel() {
+    latest = null
+    manager.cancel("download:$key", 1)
+  }
+
   fun failed() {
     show(builder().setContentText("Download failed").setAutoCancel(true))
   }

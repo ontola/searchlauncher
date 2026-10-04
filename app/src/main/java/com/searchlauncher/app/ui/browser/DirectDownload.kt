@@ -10,9 +10,13 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -48,10 +52,13 @@ internal fun startDirectDownload(
   directDownloadScope.launch {
     var file: File? = null
     var registered = false
+    val activeConnection = java.util.concurrent.atomic.AtomicReference<HttpURLConnection?>()
+    val control = PageDownloadControl.attach(key) { activeConnection.get()?.disconnect() }
     try {
       val saved =
         withContext(Dispatchers.IO) {
-          val connection = URL(url).openConnection() as HttpURLConnection
+          val connection =
+            (URL(url).openConnection() as HttpURLConnection).also { activeConnection.set(it) }
           try {
             connection.instanceFollowRedirects = true
             connection.connectTimeout = 30_000
@@ -88,6 +95,7 @@ internal fun startDirectDownload(
               target.outputStream().use { output ->
                 val buffer = ByteArray(64 * 1024)
                 while (true) {
+                  currentCoroutineContext().ensureActive()
                   val read = input.read(buffer)
                   if (read < 0) break
                   output.write(buffer, 0, read)
@@ -105,37 +113,47 @@ internal fun startDirectDownload(
             }
             check(total < 0 || written == total) { "Download failed: the connection dropped" }
             val manager = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            val id =
-              manager.addCompletedDownload(
-                name,
-                Uri.parse(url).host ?: "Download",
-                false,
-                type,
-                target.path,
-                written,
-                false,
-              )
-            Triple(id, name, written)
+            control.complete(
+              name,
+              written,
+              register = {
+                manager.addCompletedDownload(
+                  name,
+                  Uri.parse(url).host ?: "Download",
+                  false,
+                  type,
+                  target.path,
+                  written,
+                  false,
+                )
+              },
+              onRegistered = { registered = true },
+            )
+            name
           } finally {
             connection.disconnect()
           }
         }
-      registered = true
-      completePageDownload(key, saved.first, saved.second, saved.third)
-      notification.complete(saved.second)
-      Toast.makeText(appContext, "Downloaded ${saved.second}", Toast.LENGTH_LONG).show()
+      notification.complete(saved)
+      Toast.makeText(appContext, "Downloaded $saved", Toast.LENGTH_LONG).show()
     } catch (error: Exception) {
-      notification.failed()
-      Toast.makeText(appContext, error.message ?: "Download failed", Toast.LENGTH_LONG).show()
+      if (control.cancelled) notification.cancel()
+      else if (error is CancellationException) throw error
+      else {
+        notification.failed()
+        Toast.makeText(appContext, error.message ?: "Download failed", Toast.LENGTH_LONG).show()
+      }
     } finally {
-      finishPageDownload(key)
-      if (!registered)
-        withContext(Dispatchers.IO) {
-          file?.let {
-            it.delete()
-            it.parentFile?.delete()
+      withContext(NonCancellable) {
+        if (!registered)
+          withContext(Dispatchers.IO) {
+            file?.let {
+              it.delete()
+              it.parentFile?.delete()
+            }
           }
-        }
+        finishPageDownload(key)
+      }
     }
   }
 }

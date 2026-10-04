@@ -2264,11 +2264,15 @@ fun SearchScreen(
                               else Modifier
                             )
                             .animateItem(
+                              // The actionable first match must be readable on its first frame.
+                              // Keep the quick stagger for the remaining rows.
                               fadeInSpec =
-                                tween(
-                                  durationMillis = 180,
-                                  delayMillis = (index * 16).coerceAtMost(64),
-                                ),
+                                if (index == 0) null
+                                else
+                                  tween(
+                                    durationMillis = 100,
+                                    delayMillis = (index * 12).coerceAtMost(48),
+                                  ),
                               placementSpec = tween(durationMillis = 140),
                               fadeOutSpec = tween(durationMillis = 90),
                             ),
