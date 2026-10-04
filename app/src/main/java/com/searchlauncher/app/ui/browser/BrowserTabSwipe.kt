@@ -10,6 +10,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -284,6 +286,13 @@ internal fun BrowserTabSwipePreview(
           }
           .background(Color(tab.frameColorArgb))
     ) {
+      val toolbar = tab.chromeSnapshot
+      val toolbarHeight =
+        if (toolbar != null)
+          with(androidx.compose.ui.platform.LocalDensity.current) {
+            (state.viewportWidthPx.toFloat() * toolbar.height / toolbar.width).toDp()
+          }
+        else chromeHeight + BROWSER_CHROME_SPACING
       tab.snapshot?.takeUnless(Bitmap::isRecycled)?.let { snapshot ->
         Image(
           bitmap = snapshot.asImageBitmap(),
@@ -292,12 +301,24 @@ internal fun BrowserTabSwipePreview(
             Modifier.fillMaxSize()
               .statusBarsPadding()
               .navigationBarsPadding()
-              .padding(bottom = chromeHeight + BROWSER_CHROME_SPACING),
+              .padding(bottom = toolbarHeight),
           // Matched by width from the top rather than zoomed or stretched to fit, so a capture of
           // a different height — taken behind the keyboard, or before a rotation — keeps its
           // proportions instead of snapping back to shape when the browser takes over.
           alignment = Alignment.TopCenter,
           contentScale = ContentScale.FillWidth,
+        )
+      }
+      if (toolbar != null) {
+        Image(
+          toolbar,
+          contentDescription = null,
+          modifier =
+            Modifier.align(Alignment.BottomCenter)
+              .navigationBarsPadding()
+              .fillMaxWidth()
+              .height(toolbarHeight),
+          contentScale = ContentScale.FillBounds,
         )
       }
     }

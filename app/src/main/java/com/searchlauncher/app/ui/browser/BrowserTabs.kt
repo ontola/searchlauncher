@@ -53,6 +53,8 @@ internal class BrowserTab(initialUrl: String, restoredId: Long? = null) {
     get() = themeColorArgb ?: pageBackgroundArgb
 
   var snapshot by mutableStateOf<Bitmap?>(null)
+  // The actual toolbar (including optional favorites), captured while settled for home swipes.
+  var chromeSnapshot by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
   /** Site icon as the WebView reported it, shown next to the tab's address in the overview. */
   var favicon by mutableStateOf<Bitmap?>(null)
   /**

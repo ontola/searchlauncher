@@ -48,6 +48,9 @@ internal class GeckoPage(
   private val favicons = if (privateMode) null else GeckoFavicons(activity, tab, session)
   private val appearance = GeckoAppearance(activity, tab, session)
   var view: GeckoView? = null
+  var awaitingPaint by mutableStateOf(true)
+    private set
+
   var loading by mutableStateOf(false)
   var progress by mutableStateOf(0)
   var canGoBack by mutableStateOf(false)
@@ -124,8 +127,24 @@ internal class GeckoPage(
           activity.publishTaskDescription(title, tab.favicon, tab.frameColorArgb)
         }
 
+        override fun onPaintStatusReset(session: GeckoSession) {
+          awaitingPaint = true
+          tab.pageDrawn = false
+        }
+
+        override fun onFirstComposite(session: GeckoSession) {
+          // Resuming an already rendered document can reuse its layers without another FCP.
+          // FIRST_PAINT is also the signal GeckoView uses to remove coverUntilFirstPaint.
+          if (hasRenderedDocument && !loading && !awaitingInitialLocation) {
+            awaitingPaint = false
+            tab.pageDrawn = true
+            schedulePreview()
+          }
+        }
+
         override fun onFirstContentfulPaint(session: GeckoSession) {
           if (awaitingInitialLocation) return
+          awaitingPaint = false
           tab.pageDrawn = true
           if (tab.url != "about:blank") hasRenderedDocument = true
           schedulePreview()

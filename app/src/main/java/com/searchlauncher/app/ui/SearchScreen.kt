@@ -1652,7 +1652,24 @@ fun SearchScreen(
     darkThemeMode = darkMode,
     chroma = themeSaturation,
     isOled = isOled,
+    manageSystemBars = chromeBarColor == null,
   ) {
+    val baseColors = MaterialTheme.colorScheme
+    val keyboardColors =
+      remember(chromeBarColor, baseColors) {
+        chromeBarColor?.let {
+          com.searchlauncher.app.ui.theme.browserKeyboardColors(it, baseColors)
+        } ?: baseColors
+      }
+    if (chromeBarColor != null && !view.isInEditMode) {
+      androidx.compose.runtime.SideEffect {
+        val window = (view.context as android.app.Activity).window
+        val controller = androidx.core.view.WindowCompat.getInsetsController(window, view)
+        val light = chromeBarColor.luminance() > 0.179f
+        controller.isAppearanceLightStatusBars = light
+        controller.isAppearanceLightNavigationBars = light
+      }
+    }
     // Ramped rather than applied outright, so the dim arrives together with the window blur behind
     // it instead of snapping on a frame before it.
     val backdropDim = remember { Animatable(if (chromeBarColor != null) 0f else 1f) }
@@ -2693,108 +2710,112 @@ fun SearchScreen(
         Modifier.align(Alignment.BottomCenter)
           .fillMaxWidth()
           .windowInsetsBottomHeight(WindowInsets.navigationBars)
-          .background(MaterialTheme.colorScheme.surface)
+          .background(keyboardColors.surface)
       )
       if (builtInKeyboardVisible) {
-        com.searchlauncher.app.ui.components.HomeSearchKeyboard(
-          modifier =
-            Modifier.align(Alignment.BottomCenter)
-              .then(homeSwipeOffset)
-              .then(keyboardEntranceOffset)
-              .navigationBarsPadding()
-              .fillMaxWidth()
-              .height(builtInKeyboardHeight),
-          onText = {
-            if (
-              it == " " && pendingSpaceShortcut != null && spacePillBounds[pressedSpaceHalf] != null
-            ) {
-              flightSource = spacePillBounds[pressedSpaceHalf]
-              searchPillBounds = null
-              flyingShortcut = pendingSpaceShortcut
-            }
-            updateSearchField(textFieldValue.insertKeyboardText(it))
-          },
-          onBackspace = {
-            if (displayQuery.isEmpty() && activeShortcut != null) onQueryChange("")
-            else updateSearchField(textFieldValue.deleteKeyboardText())
-          },
-          onGo = ::submitSearch,
-          onHomeSwipe =
-            if (keyboardGesturesEnabled && query.isEmpty() && onOpenBrowserContext == null) {
-              { swipe ->
-                when (swipe) {
-                  com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Up -> {
-                    scope.launch {
-                      onboardingManager.markStepComplete(OnboardingStep.SwipeAppDrawer)
+        MaterialTheme(colorScheme = keyboardColors) {
+          com.searchlauncher.app.ui.components.HomeSearchKeyboard(
+            modifier =
+              Modifier.align(Alignment.BottomCenter)
+                .then(homeSwipeOffset)
+                .then(keyboardEntranceOffset)
+                .navigationBarsPadding()
+                .fillMaxWidth()
+                .height(builtInKeyboardHeight),
+            onText = {
+              if (
+                it == " " &&
+                  pendingSpaceShortcut != null &&
+                  spacePillBounds[pressedSpaceHalf] != null
+              ) {
+                flightSource = spacePillBounds[pressedSpaceHalf]
+                searchPillBounds = null
+                flyingShortcut = pendingSpaceShortcut
+              }
+              updateSearchField(textFieldValue.insertKeyboardText(it))
+            },
+            onBackspace = {
+              if (displayQuery.isEmpty() && activeShortcut != null) onQueryChange("")
+              else updateSearchField(textFieldValue.deleteKeyboardText())
+            },
+            onGo = ::submitSearch,
+            onHomeSwipe =
+              if (keyboardGesturesEnabled && query.isEmpty() && onOpenBrowserContext == null) {
+                { swipe ->
+                  when (swipe) {
+                    com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Up -> {
+                      scope.launch {
+                        onboardingManager.markStepComplete(OnboardingStep.SwipeAppDrawer)
+                      }
+                      onOpenAppDrawer()
                     }
-                    onOpenAppDrawer()
+                    com.searchlauncher.app.ui.components.KeyboardHomeSwipe.DownLeft -> {
+                      onShadeSwipeDown(isLeft = true)
+                    }
+                    com.searchlauncher.app.ui.components.KeyboardHomeSwipe.DownRight -> {
+                      onShadeSwipeDown(isLeft = false)
+                    }
+                    com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Left ->
+                      keyboardWallpaperSwipe++
+                    com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Right ->
+                      keyboardWallpaperSwipe--
                   }
-                  com.searchlauncher.app.ui.components.KeyboardHomeSwipe.DownLeft -> {
-                    onShadeSwipeDown(isLeft = true)
-                  }
-                  com.searchlauncher.app.ui.components.KeyboardHomeSwipe.DownRight -> {
-                    onShadeSwipeDown(isLeft = false)
-                  }
-                  com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Left ->
-                    keyboardWallpaperSwipe++
-                  com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Right ->
-                    keyboardWallpaperSwipe--
+                }
+              } else null,
+            gesturesEnabled = keyboardGesturesEnabled && query.isNotEmpty(),
+            onMoveCursor = { textFieldValue = textFieldValue.moveKeyboardCursor(it) },
+            cancelMomentumKey = resultTouchSequence,
+            onKeyboardTouch = {
+              // Stop a direct-touch fling before keyboard deltas can move the same list.
+              scope.launch(start = CoroutineStart.UNDISPATCHED) { listState.stopScroll() }
+            },
+            onResultSwipeStart = { selectedEngineId = null },
+            onResultFling = { velocity ->
+              // Participate in the list scroll mutex, so a new touch cancels this fling natively.
+              listState.scroll { with(resultFlingBehavior) { performFling(velocity) } }
+            },
+            onScrollResults = { pixels -> listState.dispatchRawDelta(pixels) },
+            shortcutHints = if (query.isEmpty()) keyboardShortcutHints else emptyMap(),
+            spaceShortcutLabel = pendingSpaceShortcut?.let { it.shortLabel ?: it.description },
+            onSpaceShortcutPressed = { pressedSpaceHalf = it },
+            spaceShortcutContent =
+              pendingSpaceShortcut?.let { shortcut ->
+                { half ->
+                  ShortcutSearchPill(
+                    shortcut,
+                    Modifier.onGloballyPositioned { spacePillBounds[half] = it.boundsInRoot() },
+                  )
+                }
+              },
+            goTarget = {
+              val selectedSearchResult =
+                searchResults.getOrNull(keyboardSelectedIndex) ?: searchResults.firstOrNull()
+              var selectedResultIcon by
+                remember(
+                  selectedSearchResult?.id,
+                  selectedSearchResult?.namespace,
+                  selectedSearchResult?.icon,
+                ) {
+                  mutableStateOf(selectedSearchResult?.icon)
+                }
+              LaunchedEffect(selectedSearchResult, useBuiltInKeyboard) {
+                if (useBuiltInKeyboard && selectedResultIcon == null) {
+                  selectedSearchResult?.let { selectedResultIcon = searchRepository.loadIcon(it) }
                 }
               }
-            } else null,
-          gesturesEnabled = keyboardGesturesEnabled && query.isNotEmpty(),
-          onMoveCursor = { textFieldValue = textFieldValue.moveKeyboardCursor(it) },
-          cancelMomentumKey = resultTouchSequence,
-          onKeyboardTouch = {
-            // Stop a direct-touch fling before keyboard deltas can move the same list.
-            scope.launch(start = CoroutineStart.UNDISPATCHED) { listState.stopScroll() }
-          },
-          onResultSwipeStart = { selectedEngineId = null },
-          onResultFling = { velocity ->
-            // Participate in the list scroll mutex, so a new touch cancels this fling natively.
-            listState.scroll { with(resultFlingBehavior) { performFling(velocity) } }
-          },
-          onScrollResults = { pixels -> listState.dispatchRawDelta(pixels) },
-          shortcutHints = if (query.isEmpty()) keyboardShortcutHints else emptyMap(),
-          spaceShortcutLabel = pendingSpaceShortcut?.let { it.shortLabel ?: it.description },
-          onSpaceShortcutPressed = { pressedSpaceHalf = it },
-          spaceShortcutContent =
-            pendingSpaceShortcut?.let { shortcut ->
-              { half ->
-                ShortcutSearchPill(
-                  shortcut,
-                  Modifier.onGloballyPositioned { spacePillBounds[half] = it.boundsInRoot() },
-                )
-              }
-            },
-          goTarget = {
-            val selectedSearchResult =
-              searchResults.getOrNull(keyboardSelectedIndex) ?: searchResults.firstOrNull()
-            var selectedResultIcon by
-              remember(
-                selectedSearchResult?.id,
-                selectedSearchResult?.namespace,
-                selectedSearchResult?.icon,
-              ) {
-                mutableStateOf(selectedSearchResult?.icon)
-              }
-            LaunchedEffect(selectedSearchResult, useBuiltInKeyboard) {
-              if (useBuiltInKeyboard && selectedResultIcon == null) {
-                selectedSearchResult?.let { selectedResultIcon = searchRepository.loadIcon(it) }
-              }
-            }
 
-            com.searchlauncher.app.ui.components.KeyboardGoTarget(
-              icon =
-                rememberThemedIconBitmap(
-                  selectedResultIcon,
-                  (selectedSearchResult as? SearchResult.App)?.packageName,
-                ),
-              description =
-                selectedSearchResult?.let { "Go: ${it.title}" } ?: "Go: open search result",
-            )
-          },
-        )
+              com.searchlauncher.app.ui.components.KeyboardGoTarget(
+                icon =
+                  rememberThemedIconBitmap(
+                    selectedResultIcon,
+                    (selectedSearchResult as? SearchResult.App)?.packageName,
+                  ),
+                description =
+                  selectedSearchResult?.let { "Go: ${it.title}" } ?: "Go: open search result",
+              )
+            },
+          )
+        }
       }
       flyingShortcut?.let { shortcut ->
         val source = flightSource

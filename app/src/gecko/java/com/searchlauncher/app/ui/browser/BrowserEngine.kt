@@ -25,12 +25,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -106,6 +110,25 @@ internal object BrowserEngine {
           activity.dataStore.data.map { it[PreferencesKeys.BROWSER_SHOW_FAVORITES] ?: false }
         }
         .collectAsState(initial = false)
+    val chromeLayer = rememberGraphicsLayer()
+    var chromeSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    val tabCount = BrowserTabStore.tabs?.items?.size ?: 1
+    LaunchedEffect(
+      tab.url,
+      frameColor,
+      showFavorites,
+      tabCount,
+      chromeSize,
+      websiteKeyboardVisible,
+    ) {
+      if (
+        !privateMode && !websiteKeyboardVisible && chromeSize.width > 0 && chromeSize.height > 0
+      ) {
+        // Capture the settled toolbar, never during the swipe or on every animation frame.
+        kotlinx.coroutines.delay(100)
+        tab.chromeSnapshot = chromeLayer.toImageBitmap()
+      }
+    }
     var menu by remember { mutableStateOf(false) }
     var overview by remember { mutableStateOf(false) }
     var find by remember { mutableStateOf(false) }
@@ -286,6 +309,11 @@ internal object BrowserEngine {
                 }
               },
           )
+          if (page.awaitingPaint && page.error == null && !overview && !page.showDownloads) {
+            // Retain the same page preview used by home until Gecko has painted on resume.
+            // Swap directly; a fade would expose the compositor's temporary white surface.
+            GeckoTabPreview(tab, Modifier.fillMaxSize())
+          }
           page.error?.let { message ->
             Surface(Modifier.fillMaxSize()) {
               Column(Modifier.padding(24.dp)) {
@@ -317,267 +345,284 @@ internal object BrowserEngine {
           )
         }
         if (!page.fullscreen && showLauncherChrome && !websiteKeyboardVisible) {
-          if (showFavorites && !privateMode)
-            GeckoFavoritesStrip(
-              onOpenSearch = { query -> onOpenSearch(false, tab.frameColorArgb, query) },
-              modifier = Modifier.geckoChromeSwipe(swipe),
-            )
-          SearchChromeBar(
-            isIndexing = false,
-            color = frameColor,
-            contentColor = frameContentColor,
-            tonalElevation = 0.dp,
-            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp).geckoChromeSwipe(swipe),
-          ) {
-            if (privateMode) {
-              Icon(Icons.Default.VisibilityOff, "Private browsing", modifier = Modifier.size(20.dp))
-              Spacer(Modifier.width(8.dp))
-            }
-            Box(
-              modifier =
-                Modifier.weight(1f)
-                  .heightIn(min = 32.dp)
-                  .combinedClickable(
-                    interactionSource =
-                      remember {
-                        androidx.compose.foundation.interaction.MutableInteractionSource()
-                      },
-                    indication = null,
-                    onLongClickLabel = "Copy URL",
-                    onLongClick = {
-                      com.searchlauncher.app.util.SystemUtils.copyUrlToClipboard(activity, tab.url)
-                    },
-                    onClick = {
-                      // Opening search must not wait up to 500 ms for a compositor screenshot.
-                      page.capture()
-                      onOpenSearch(false, tab.frameColorArgb, "")
-                    },
-                  ),
-              contentAlignment = androidx.compose.ui.Alignment.CenterStart,
-            ) {
-              Text(
-                displayPageAddress(tab.url).ifBlank { "Search anything…" },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodyLarge,
-              )
-            }
-            IconButton(
-              onClick = {
-                page.capture()
-                onOpenSearch(true, tab.frameColorArgb, "")
-              },
-              modifier = Modifier.size(36.dp),
-            ) {
-              Icon(Icons.Default.Mic, "Voice search")
-            }
-            if (!privateMode)
-              BrowserTabsButton(
-                tabCount = BrowserTabStore.tabs?.items?.size ?: 1,
-                onClick = {
-                  scope.launch {
-                    page.captureBeforeTransition()
-                    overview = true
-                  }
-                },
-              )
-            Box {
-              IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.MoreVert, "Browser menu")
+          Column(
+            Modifier.fillMaxWidth()
+              .background(frameColor)
+              .onSizeChanged { chromeSize = it }
+              .drawWithContent {
+                chromeLayer.record { this@drawWithContent.drawContent() }
+                drawLayer(chromeLayer)
               }
-              DropdownMenu(
-                expanded = menu,
-                onDismissRequest = { menu = false },
-                modifier = Modifier.heightIn(max = minOf(420.dp, screenHeight * 0.6f)),
-                containerColor = frameColor,
+          ) {
+            if (showFavorites && !privateMode)
+              GeckoFavoritesStrip(
+                onOpenSearch = { query -> onOpenSearch(false, tab.frameColorArgb, query) },
+                modifier = Modifier.geckoChromeSwipe(swipe),
+              )
+            SearchChromeBar(
+              isIndexing = false,
+              color = frameColor,
+              contentColor = frameContentColor,
+              tonalElevation = 0.dp,
+              modifier = Modifier.padding(top = 8.dp, bottom = 4.dp).geckoChromeSwipe(swipe),
+            ) {
+              if (privateMode) {
+                Icon(
+                  Icons.Default.VisibilityOff,
+                  "Private browsing",
+                  modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+              }
+              Box(
+                modifier =
+                  Modifier.weight(1f)
+                    .heightIn(min = 32.dp)
+                    .combinedClickable(
+                      interactionSource =
+                        remember {
+                          androidx.compose.foundation.interaction.MutableInteractionSource()
+                        },
+                      indication = null,
+                      onLongClickLabel = "Copy URL",
+                      onLongClick = {
+                        com.searchlauncher.app.util.SystemUtils.copyUrlToClipboard(
+                          activity,
+                          tab.url,
+                        )
+                      },
+                      onClick = {
+                        // Opening search must not wait up to 500 ms for a compositor screenshot.
+                        page.capture()
+                        onOpenSearch(false, tab.frameColorArgb, "")
+                      },
+                    ),
+                contentAlignment = androidx.compose.ui.Alignment.CenterStart,
               ) {
-                fun run(action: () -> Unit) {
-                  menu = false
-                  action()
+                Text(
+                  displayPageAddress(tab.url).ifBlank { "Search anything…" },
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                  style = MaterialTheme.typography.bodyLarge,
+                )
+              }
+              IconButton(
+                onClick = {
+                  page.capture()
+                  onOpenSearch(true, tab.frameColorArgb, "")
+                },
+                modifier = Modifier.size(36.dp),
+              ) {
+                Icon(Icons.Default.Mic, "Voice search")
+              }
+              if (!privateMode)
+                BrowserTabsButton(
+                  tabCount = BrowserTabStore.tabs?.items?.size ?: 1,
+                  onClick = {
+                    scope.launch {
+                      page.captureBeforeTransition()
+                      overview = true
+                    }
+                  },
+                )
+              Box {
+                IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
+                  Icon(Icons.Default.MoreVert, "Browser menu")
                 }
-                DropdownMenuItem(
-                  text = { Text("Back") },
-                  leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) },
-                  colors = menuColors,
-                  enabled = page.canGoBack,
-                  onClick = { run { page.session.goBack() } },
-                )
-                DropdownMenuItem(
-                  text = { Text("Forward") },
-                  leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null) },
-                  colors = menuColors,
-                  enabled = page.canGoForward,
-                  onClick = { run { page.session.goForward() } },
-                )
-                DropdownMenuItem(
-                  text = { Text("Reload") },
-                  leadingIcon = { Icon(Icons.Default.Refresh, null) },
-                  colors = menuColors,
-                  onClick = { run { page.reload() } },
-                )
-                DropdownMenuItem(
-                  text = { Text("New tab") },
-                  leadingIcon = { Icon(Icons.Default.Add, null) },
-                  colors = menuColors,
-                  onClick = {
-                    run {
-                      if (privateMode) page.session.loadUri("about:blank")
-                      else
-                        activity.startActivity(
-                          BrowserActivity.createIntent(activity, "about:blank")
-                        )
-                    }
-                  },
-                )
-                DropdownMenuItem(
-                  text = { Text("Close tab") },
-                  leadingIcon = { Icon(Icons.Default.Close, null) },
-                  colors = menuColors,
-                  onClick = { run { activity.finishAndRemoveTask() } },
-                )
-                DropdownMenuItem(
-                  text = { Text("Home") },
-                  leadingIcon = { Icon(Icons.Default.Home, null) },
-                  colors = menuColors,
-                  onClick = { run { goHome() } },
-                )
-                DropdownMenuItem(
-                  text = { Text("Downloads") },
-                  leadingIcon = { Icon(Icons.Default.Download, null) },
-                  colors = menuColors,
-                  onClick = { run { page.showDownloads = true } },
-                )
-                DropdownMenuItem(
-                  text = { Text("Find in page") },
-                  leadingIcon = { Icon(Icons.Default.Search, null) },
-                  colors = menuColors,
-                  onClick = { run { find = !find } },
-                )
-                DropdownMenuItem(
-                  text = { Text(if (tab.desktopMode) "Mobile site" else "Desktop site") },
-                  leadingIcon = { Icon(Icons.Default.Computer, null) },
-                  colors = menuColors,
-                  onClick = {
-                    run {
-                      tab.desktopMode = !tab.desktopMode
-                      page.session.settings.userAgentMode =
-                        if (tab.desktopMode) GeckoSessionSettings.USER_AGENT_MODE_DESKTOP
-                        else GeckoSessionSettings.USER_AGENT_MODE_MOBILE
-                      page.session.settings.viewportMode =
-                        if (tab.desktopMode) GeckoSessionSettings.VIEWPORT_MODE_DESKTOP
-                        else GeckoSessionSettings.VIEWPORT_MODE_MOBILE
-                      page.session.reload()
-                    }
-                  },
-                )
-                if (!privateMode) {
+                DropdownMenu(
+                  expanded = menu,
+                  onDismissRequest = { menu = false },
+                  modifier = Modifier.heightIn(max = minOf(420.dp, screenHeight * 0.6f)),
+                  containerColor = frameColor,
+                ) {
+                  fun run(action: () -> Unit) {
+                    menu = false
+                    action()
+                  }
                   DropdownMenuItem(
-                    text = { Text("Save bookmark") },
-                    leadingIcon = { Icon(Icons.Default.BookmarkAdd, null) },
+                    text = { Text("Back") },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) },
+                    colors = menuColors,
+                    enabled = page.canGoBack,
+                    onClick = { run { page.session.goBack() } },
+                  )
+                  DropdownMenuItem(
+                    text = { Text("Forward") },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null) },
+                    colors = menuColors,
+                    enabled = page.canGoForward,
+                    onClick = { run { page.session.goForward() } },
+                  )
+                  DropdownMenuItem(
+                    text = { Text("Reload") },
+                    leadingIcon = { Icon(Icons.Default.Refresh, null) },
+                    colors = menuColors,
+                    onClick = { run { page.reload() } },
+                  )
+                  DropdownMenuItem(
+                    text = { Text("New tab") },
+                    leadingIcon = { Icon(Icons.Default.Add, null) },
                     colors = menuColors,
                     onClick = {
                       run {
-                        scope.launch {
-                          val repository =
-                            (activity.application as SearchLauncherApp).searchRepositoryOrNull
-                          val saved = repository?.saveBookmark(tab.url, tab.title) == true
-                          Toast.makeText(
-                              activity,
-                              if (saved) "Bookmark saved" else "Could not save bookmark",
-                              Toast.LENGTH_SHORT,
-                            )
-                            .show()
-                        }
-                      }
-                    },
-                  )
-                  DropdownMenuItem(
-                    text = { Text("Favorite website") },
-                    leadingIcon = { Icon(Icons.Default.Star, null) },
-                    colors = menuColors,
-                    onClick = {
-                      run {
-                        scope.launch {
-                          (activity.application as SearchLauncherApp)
-                            .searchRepositoryOrNull
-                            ?.saveAndFavoriteBookmark(tab.url, tab.title)
-                        }
-                      }
-                    },
-                  )
-                }
-                DropdownMenuItem(
-                  text = { Text("Share") },
-                  leadingIcon = { Icon(Icons.Default.Share, null) },
-                  colors = menuColors,
-                  onClick = {
-                    run {
-                      activity.startActivity(
-                        Intent.createChooser(
-                          Intent(Intent.ACTION_SEND)
-                            .setType("text/plain")
-                            .putExtra(Intent.EXTRA_TEXT, tab.url),
-                          "Share page",
-                        )
-                      )
-                    }
-                  },
-                )
-                DropdownMenuItem(
-                  text = { Text("Clear this site's data") },
-                  leadingIcon = { Icon(Icons.Default.DeleteOutline, null) },
-                  colors = menuColors,
-                  onClick = {
-                    run {
-                      val host = Uri.parse(tab.url).host
-                      if (host != null)
-                        NativeAlertDialog.Builder(activity)
-                          .setTitle("Clear data for $host?")
-                          .setMessage(
-                            "This signs you out and removes this site's stored data and permissions."
+                        if (privateMode) page.session.loadUri("about:blank")
+                        else
+                          activity.startActivity(
+                            BrowserActivity.createIntent(activity, "about:blank")
                           )
-                          .setNegativeButton("Cancel", null)
-                          .setPositiveButton("Clear") { _, _ ->
-                            GeckoEnvironment.runtime(activity)
-                              .storageController
-                              .clearDataFromHost(host, StorageController.ClearFlags.ALL)
-                              .accept(
-                                { page.session.reload() },
-                                {
-                                  Toast.makeText(
-                                      activity,
-                                      "Could not clear site data",
-                                      Toast.LENGTH_LONG,
-                                    )
-                                    .show()
-                                },
-                              )
-                          }
-                          .show()
-                    }
-                  },
-                )
-                if (!privateMode)
-                  DropdownMenuItem(
-                    text = { Text(if (showFavorites) "Hide favorites" else "Show favorites") },
-                    leadingIcon = { Icon(Icons.Default.StarOutline, null) },
-                    colors = menuColors,
-                    onClick = {
-                      run {
-                        scope.launch {
-                          activity.dataStore.edit {
-                            it[PreferencesKeys.BROWSER_SHOW_FAVORITES] = !showFavorites
-                          }
-                        }
                       }
                     },
                   )
-                DropdownMenuItem(
-                  text = { Text("About this experiment") },
-                  leadingIcon = { Icon(Icons.Default.Info, null) },
-                  colors = menuColors,
-                  onClick = { run { showInfo = true } },
-                )
+                  DropdownMenuItem(
+                    text = { Text("Close tab") },
+                    leadingIcon = { Icon(Icons.Default.Close, null) },
+                    colors = menuColors,
+                    onClick = { run { activity.finishAndRemoveTask() } },
+                  )
+                  DropdownMenuItem(
+                    text = { Text("Home") },
+                    leadingIcon = { Icon(Icons.Default.Home, null) },
+                    colors = menuColors,
+                    onClick = { run { goHome() } },
+                  )
+                  DropdownMenuItem(
+                    text = { Text("Downloads") },
+                    leadingIcon = { Icon(Icons.Default.Download, null) },
+                    colors = menuColors,
+                    onClick = { run { page.showDownloads = true } },
+                  )
+                  DropdownMenuItem(
+                    text = { Text("Find in page") },
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    colors = menuColors,
+                    onClick = { run { find = !find } },
+                  )
+                  DropdownMenuItem(
+                    text = { Text(if (tab.desktopMode) "Mobile site" else "Desktop site") },
+                    leadingIcon = { Icon(Icons.Default.Computer, null) },
+                    colors = menuColors,
+                    onClick = {
+                      run {
+                        tab.desktopMode = !tab.desktopMode
+                        page.session.settings.userAgentMode =
+                          if (tab.desktopMode) GeckoSessionSettings.USER_AGENT_MODE_DESKTOP
+                          else GeckoSessionSettings.USER_AGENT_MODE_MOBILE
+                        page.session.settings.viewportMode =
+                          if (tab.desktopMode) GeckoSessionSettings.VIEWPORT_MODE_DESKTOP
+                          else GeckoSessionSettings.VIEWPORT_MODE_MOBILE
+                        page.session.reload()
+                      }
+                    },
+                  )
+                  if (!privateMode) {
+                    DropdownMenuItem(
+                      text = { Text("Save bookmark") },
+                      leadingIcon = { Icon(Icons.Default.BookmarkAdd, null) },
+                      colors = menuColors,
+                      onClick = {
+                        run {
+                          scope.launch {
+                            val repository =
+                              (activity.application as SearchLauncherApp).searchRepositoryOrNull
+                            val saved = repository?.saveBookmark(tab.url, tab.title) == true
+                            Toast.makeText(
+                                activity,
+                                if (saved) "Bookmark saved" else "Could not save bookmark",
+                                Toast.LENGTH_SHORT,
+                              )
+                              .show()
+                          }
+                        }
+                      },
+                    )
+                    DropdownMenuItem(
+                      text = { Text("Favorite website") },
+                      leadingIcon = { Icon(Icons.Default.Star, null) },
+                      colors = menuColors,
+                      onClick = {
+                        run {
+                          scope.launch {
+                            (activity.application as SearchLauncherApp)
+                              .searchRepositoryOrNull
+                              ?.saveAndFavoriteBookmark(tab.url, tab.title)
+                          }
+                        }
+                      },
+                    )
+                  }
+                  DropdownMenuItem(
+                    text = { Text("Share") },
+                    leadingIcon = { Icon(Icons.Default.Share, null) },
+                    colors = menuColors,
+                    onClick = {
+                      run {
+                        activity.startActivity(
+                          Intent.createChooser(
+                            Intent(Intent.ACTION_SEND)
+                              .setType("text/plain")
+                              .putExtra(Intent.EXTRA_TEXT, tab.url),
+                            "Share page",
+                          )
+                        )
+                      }
+                    },
+                  )
+                  DropdownMenuItem(
+                    text = { Text("Clear this site's data") },
+                    leadingIcon = { Icon(Icons.Default.DeleteOutline, null) },
+                    colors = menuColors,
+                    onClick = {
+                      run {
+                        val host = Uri.parse(tab.url).host
+                        if (host != null)
+                          NativeAlertDialog.Builder(activity)
+                            .setTitle("Clear data for $host?")
+                            .setMessage(
+                              "This signs you out and removes this site's stored data and permissions."
+                            )
+                            .setNegativeButton("Cancel", null)
+                            .setPositiveButton("Clear") { _, _ ->
+                              GeckoEnvironment.runtime(activity)
+                                .storageController
+                                .clearDataFromHost(host, StorageController.ClearFlags.ALL)
+                                .accept(
+                                  { page.session.reload() },
+                                  {
+                                    Toast.makeText(
+                                        activity,
+                                        "Could not clear site data",
+                                        Toast.LENGTH_LONG,
+                                      )
+                                      .show()
+                                  },
+                                )
+                            }
+                            .show()
+                      }
+                    },
+                  )
+                  if (!privateMode)
+                    DropdownMenuItem(
+                      text = { Text(if (showFavorites) "Hide favorites" else "Show favorites") },
+                      leadingIcon = { Icon(Icons.Default.StarOutline, null) },
+                      colors = menuColors,
+                      onClick = {
+                        run {
+                          scope.launch {
+                            activity.dataStore.edit {
+                              it[PreferencesKeys.BROWSER_SHOW_FAVORITES] = !showFavorites
+                            }
+                          }
+                        }
+                      },
+                    )
+                  DropdownMenuItem(
+                    text = { Text("About this experiment") },
+                    leadingIcon = { Icon(Icons.Default.Info, null) },
+                    colors = menuColors,
+                    onClick = { run { showInfo = true } },
+                  )
+                }
               }
             }
           }

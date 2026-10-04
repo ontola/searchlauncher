@@ -1288,6 +1288,49 @@ class GeckoBrowserDeviceTest {
   }
 
   @Test
+  fun browserKeyboardUsesSiteColors() {
+    prepareHome()
+    for ((path, color) in listOf("/header-theme" to Color.rgb(170, 18, 57), "/" to Color.WHITE)) {
+      context.startActivity(BrowserActivity.createIntent(context, "$origin$path"))
+      eventually {
+        var ready = false
+        instrumentation.runOnMainSync {
+          ready = BrowserTabStore.tabs!!.active.frameColorArgb == color
+        }
+        ready
+      }
+      device
+        .wait(
+          Until.findObject(By.text(com.searchlauncher.app.util.displayPageAddress("$origin$path"))),
+          15000,
+        )!!
+        .click()
+      val q = device.wait(Until.findObject(By.desc("q")), 10000)!!.visibleBounds
+      assertNotNull(device.wait(Until.findObject(By.desc("Space")), 10000))
+      SystemClock.sleep(400)
+      val bitmap =
+        android.graphics.BitmapFactory.decodeFile(
+          saveScreenshot("keyboard-site-$color").absolutePath
+        )
+      // Outer keyboard gutter and OS navigation strip must use the exact website color.
+      assertEquals(color, bitmap.getPixel(1, q.centerY()))
+      assertEquals(color, bitmap.getPixel(8, bitmap.height - 24))
+      val key = bitmap.getPixel(q.left + 12, q.centerY())
+      if (color != Color.WHITE) {
+        assertTrue("Keys must keep the website hue", Color.red(key) > Color.green(key) * 2)
+      }
+      bitmap.recycle()
+      device.findObject(By.desc("q"))!!.click()
+      assertEquals(
+        "q",
+        device.wait(Until.findObject(By.clazz("android.widget.EditText")), 10000)!!.text,
+      )
+      device.pressBack()
+      assertNotNull(device.wait(Until.findObject(By.desc("Browser menu")), 10000))
+    }
+  }
+
+  @Test
   fun browserSearchUsesTheHomeKeyboardAndReturnsToThePage() {
     prepareHome()
     device.wait(Until.findObject(By.text(origin.removePrefix("http://"))), 15000)!!.click()
@@ -1443,11 +1486,11 @@ class GeckoBrowserDeviceTest {
         Color.red(sample) > 220 && Color.green(sample) > 220,
       )
       if (it > 0) {
-        // This part of the fixture is plain white. A stale task screenshot can fade the
+        // Below the fixture buttons is plain white. A stale task screenshot can fade the
         // home keyboard over this otherwise empty viewport during the final handover.
         var homePixels = 0
         var samples = 0
-        for (y in chrome.height * 3 / 4 until chrome.height * 17 / 20 step 8) {
+        for (y in chrome.height * 86 / 100 until chrome.height * 89 / 100 step 4) {
           for (x in chrome.width / 5 until chrome.width * 4 / 5 step 8) {
             val pixel = chrome.getPixel(x, y)
             samples++
@@ -1461,6 +1504,15 @@ class GeckoBrowserDeviceTest {
         )
       }
       chrome.recycle()
+      eventually {
+        var painted = false
+        instrumentation.runOnMainSync { painted = BrowserTabStore.tab(tabId)?.pageDrawn == true }
+        painted
+      }
+      // The first-paint cover must release the live page after every return.
+      val reads = reports.count { it.contains("memory-missing") }
+      tap("Read memory")
+      eventually { reports.count { it.contains("memory-missing") } > reads }
       button.click()
       device.wait(Until.findObject(By.text("Close all")), 10000)
       var hasColoredPreview = false
@@ -1529,6 +1581,66 @@ class GeckoBrowserDeviceTest {
       )
       assertNotNull("Home search bar must be visible", homeSettings)
       val homeBar = homeSettings!!.visibleBounds
+      if (it == 0) {
+        var toolbar: android.graphics.Bitmap? = null
+        var navBottom = 0
+        instrumentation.runOnMainSync {
+          toolbar = BrowserTabStore.tab(tabId)!!.chromeSnapshot?.asAndroidBitmap()
+          val home =
+            ActivityLifecycleMonitorRegistry.getInstance()
+              .getActivitiesInStage(Stage.RESUMED)
+              .filterIsInstance<MainActivity>()
+              .single()
+          navBottom =
+            home.window.decorView.rootWindowInsets
+              .getInsets(android.view.WindowInsets.Type.navigationBars())
+              .bottom
+        }
+        assertNotNull("Home swipe needs the actual browser toolbar", toolbar)
+        val down = SystemClock.uptimeMillis()
+        fun touch(action: Int, x: Float) {
+          val event =
+            android.view.MotionEvent.obtain(
+              down,
+              SystemClock.uptimeMillis(),
+              action,
+              x,
+              homeBar.centerY().toFloat(),
+              0,
+            )
+          instrumentation.uiAutomation.injectInputEvent(event, true)
+          event.recycle()
+        }
+        touch(android.view.MotionEvent.ACTION_DOWN, device.displayWidth * 0.1f)
+        repeat(12) { step ->
+          touch(
+            android.view.MotionEvent.ACTION_MOVE,
+            device.displayWidth * (0.1f + (step + 1) * 0.06f),
+          )
+          SystemClock.sleep(16)
+        }
+        SystemClock.sleep(100)
+        val partial =
+          android.graphics.BitmapFactory.decodeFile(
+            saveScreenshot("home-to-tab-held-toolbar").absolutePath
+          )
+        var ink = 0
+        for (y in
+          partial.height - navBottom - toolbar!!.height + 8 until
+            partial.height - navBottom - 8 step
+            2) for (x in 4 until partial.width * 2 / 3 step 2) {
+          val pixel = partial.getPixel(x, y)
+          if (Color.red(pixel) < 150 && Color.green(pixel) < 150 && Color.blue(pixel) < 150) ink++
+        }
+        partial.recycle()
+        // Cancel this held gesture, then perform the ordinary full handoff below.
+        touch(android.view.MotionEvent.ACTION_CANCEL, device.displayWidth * 0.82f)
+        SystemClock.sleep(600)
+        assertTrue(
+          "Preview toolbar must visibly contain address/buttons, not an empty strip ($ink)",
+          ink > 40,
+        )
+      }
       // Return with the actual home chrome gesture, not a programmatic tab launch.
       device.swipe(
         device.displayWidth / 5,

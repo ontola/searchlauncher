@@ -110,3 +110,25 @@ status, address, and navigation bars matched red before the document, before the
 and after load. The same test checks a white page on the same host and changing hosts.
 The existing `browserFrameFollowsWebsiteThemeAndBackground` regression also passed.
 These are emulator checks; physical Xiaomi behavior still needs confirmation.
+
+
+## Experimental 19: keyboard and home swipe
+
+The browser search keyboard now derives its surface, key shades, pressed states and
+label contrast from the browser bar color. The keyboard navigation inset uses the
+same surface. Ordinary home search retains the launcher theme.
+
+Home-to-last-tab previews capture the actual browser toolbar, including its address,
+controls and optional favorites. Its measured height reserves the page viewport;
+the launcher search bar height is only a fallback before a toolbar is captured.
+The returning Gecko activity keeps the page preview until content paint, or the
+first compositor paint when resuming an already rendered document. There is no fade.
+Cached documents may not emit another first-contentful-paint event on resume, so
+waiting exclusively for that event leaves a stale cover.
+
+Validation on the Android 15 ARM64 emulator: red and white browser keyboards passed
+pixel checks; four browser/home round trips passed toolbar visibility, snapshot and
+live page interaction checks. A 30 fps frame extraction across a handoff showed
+continuous content, with no blank page frame. This is emulator evidence, not Xiaomi
+hardware validation. Full Spotless check passed; 450 unit tests reported no failures
+(3 skipped), including palette contrast across 4096 colors in light and dark themes.
