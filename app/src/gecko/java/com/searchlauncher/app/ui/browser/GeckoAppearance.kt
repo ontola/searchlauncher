@@ -13,6 +13,18 @@ internal class GeckoAppearance(
   private val tab: BrowserTab,
   private val session: GeckoSession,
 ) : WebExtension.MessageDelegate {
+  // Track this independently of tab.url: navigation callers may update that before Gecko starts.
+  private var documentHost = Uri.parse(tab.url).host?.lowercase()
+
+  fun onNavigation(url: String) {
+    val host = Uri.parse(url).host?.lowercase()
+    if (host == null || host != documentHost) {
+      tab.themeColorArgb = null
+      tab.pageBackgroundArgb = Color.WHITE
+    }
+    documentHost = host
+  }
+
   override fun onMessage(
     nativeApp: String,
     message: Any,

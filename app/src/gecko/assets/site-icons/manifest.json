@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "SearchLauncher page metadata",
-  "version": "1.2",
+  "version": "1.3",
   "browser_specific_settings": {
     "gecko": {
       "id": "site-icons@searchlauncher.eu"

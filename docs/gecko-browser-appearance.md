@@ -90,3 +90,23 @@ Final checks: `spotlessCheck` passed; `testDebugUnitTest` reported 449 tests, ze
 and 3 skipped. Device appearance (with live NOS/Tweakers), favicon propagation and private storage
 passed 3/3. Live bar colors were NOS `#202020` and Tweakers `#a11236`. Evidence and the old-build
 failure are saved in `build/browser-appearance-2026-10-04/fix16/` (Git-ignored).
+
+
+## Same-domain navigation (experimental 18)
+
+Keep the previous page background and chrome theme while navigating within the same
+host, including reloads. Track the appearance host separately from `tab.url`, which may
+already contain the destination by the time Gecko announces navigation. Both page-start
+and location-change callbacks apply the rule so cross-host redirects reset the old color.
+
+The appearance bridge waits for document load before publishing its initial colors,
+avoiding transient white styles while an asynchronous stylesheet loads. Once loaded,
+a new theme or genuinely unthemed white page still updates normally. Live color-scheme
+and theme changes remain supported.
+
+`browserFrameKeepsColorThroughSameHostNavigation` delays both the next document and its
+stylesheet. On Phone_A35, all 81 sampled display frames retained red; screenshots of the
+status, address, and navigation bars matched red before the document, before the CSS,
+and after load. The same test checks a white page on the same host and changing hosts.
+The existing `browserFrameFollowsWebsiteThemeAndBackground` regression also passed.
+These are emulator checks; physical Xiaomi behavior still needs confirmation.

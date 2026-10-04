@@ -50,6 +50,9 @@
     return ctx.getImageData(0, 0, 1, 1).data[3] === 255 ? hex() : null;
   }
   function report() {
+    // Keep the previous document's color while CSS is still arriving. In particular, async
+    // stylesheets can leave an otherwise themed page temporarily white at document_end.
+    if (document.readyState !== "complete") return;
     // CSS Canvas also covers pages using color-scheme without an explicit body background.
     const probe = document.createElement("span");
     probe.style.cssText = "display:none;color:Canvas";
@@ -120,7 +123,7 @@
     attributeFilter: ["content", "media", "name", "href", "rel", "disabled", "class", "style"]
   });
   watchMedia("(prefers-color-scheme: dark)");
-  for (const event of ["pageshow", "popstate", "hashchange", "resize"]) addEventListener(event, schedule);
+  for (const event of ["load", "pageshow", "popstate", "hashchange", "resize"]) addEventListener(event, schedule);
   // External stylesheets may finish after document_end.
   document.addEventListener("load", event => { if (event.target.tagName === "LINK") schedule(); }, true);
   document.addEventListener("transitionend", event => {

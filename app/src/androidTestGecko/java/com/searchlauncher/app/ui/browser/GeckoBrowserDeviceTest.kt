@@ -47,6 +47,8 @@ class GeckoBrowserDeviceTest {
   private val releaseReload = java.util.concurrent.CountDownLatch(1)
   private val releaseDownload = java.util.concurrent.CountDownLatch(1)
   private val downloadBytes = ByteArray(1024 * 1024 + 123) { (it % 251).toByte() }
+  private val releaseThemeDocument = java.util.concurrent.CountDownLatch(1)
+  private val releaseThemeStyle = java.util.concurrent.CountDownLatch(1)
   private val releaseIcon = java.util.concurrent.CountDownLatch(1)
 
   @get:org.junit.Rule val testName = org.junit.rules.TestName()
@@ -80,6 +82,8 @@ class GeckoBrowserDeviceTest {
 
   @After
   fun stop() {
+    releaseThemeDocument.countDown()
+    releaseThemeStyle.countDown()
     releaseIcon.countDown()
     releaseDownload.countDown()
     releaseReload.countDown()
@@ -161,6 +165,90 @@ class GeckoBrowserDeviceTest {
     } finally {
       instrumentation.runOnMainSync { session.mediaSessionDelegate = null }
     }
+  }
+
+  @Test
+  fun browserFrameKeepsColorThroughSameHostNavigation() {
+    val red = Color.rgb(170, 18, 57)
+    lateinit var session: org.mozilla.geckoview.GeckoSession
+    fun findGecko(view: android.view.View): org.mozilla.geckoview.GeckoView? {
+      if (view is org.mozilla.geckoview.GeckoView) return view
+      if (view is android.view.ViewGroup) {
+        for (i in 0 until view.childCount) findGecko(view.getChildAt(i))?.let {
+          return it
+        }
+      }
+      return null
+    }
+    instrumentation.runOnMainSync {
+      val activity =
+        ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED).first {
+          it is BrowserActivity
+        }
+      session = findGecko(activity.window.decorView)!!.session!!
+      session.loadUri("$origin/header-theme")
+    }
+    fun awaitColor(expected: Int) {
+      eventually {
+        var matches = false
+        instrumentation.runOnMainSync {
+          matches = BrowserTabStore.tabs!!.active.frameColorArgb == expected
+        }
+        matches
+      }
+    }
+    fun assertBars(name: String) {
+      SystemClock.sleep(150)
+      val shot = android.graphics.BitmapFactory.decodeFile(saveScreenshot(name).absolutePath)
+      for ((x, y) in listOf(8 to 24, 8 to shot.height - 160, 8 to shot.height - 24)) {
+        assertEquals("$name bar at $x,$y", red, shot.getPixel(x, y))
+      }
+      shot.recycle()
+    }
+    awaitColor(red)
+    val colors = CopyOnWriteArrayList<Int>()
+    var recording = true
+    val frame =
+      object : android.view.Choreographer.FrameCallback {
+        override fun doFrame(time: Long) {
+          if (!recording) return
+          colors += BrowserTabStore.tabs!!.active.frameColorArgb
+          android.view.Choreographer.getInstance().postFrameCallback(this)
+        }
+      }
+    try {
+      instrumentation.runOnMainSync {
+        android.view.Choreographer.getInstance().postFrameCallback(frame)
+        session.loadUri("$origin/slow-theme")
+      }
+      waitFor("theme-document-waiting")
+      assertBars("same-host-waiting-document")
+      releaseThemeDocument.countDown()
+      waitFor("theme-style-waiting")
+      assertBars("same-host-waiting-style")
+      releaseThemeStyle.countDown()
+      waitFor("theme-navigation-loaded")
+      SystemClock.sleep(400)
+      assertBars("same-host-loaded")
+    } finally {
+      instrumentation.runOnMainSync {
+        recording = false
+        android.view.Choreographer.getInstance().removeFrameCallback(frame)
+      }
+    }
+    assertTrue(
+      "Every frame must retain the same-host color: $colors",
+      colors.isNotEmpty() && colors.all { it == red },
+    )
+    reports += "same-host-frames:${colors.size}:all-red"
+    // A fully loaded, genuinely unthemed page must still be able to change the bars to white.
+    instrumentation.runOnMainSync { session.loadUri("$origin/") }
+    awaitColor(Color.WHITE)
+    instrumentation.runOnMainSync { session.loadUri("$origin/header-theme") }
+    awaitColor(red)
+    // Don't carry the previous site's branding into a different host (including redirects).
+    instrumentation.runOnMainSync { session.loadUri("http://127.0.0.1:${server.localPort}/") }
+    awaitColor(Color.WHITE)
   }
 
   @Test
@@ -1645,6 +1733,23 @@ class GeckoBrowserDeviceTest {
         output.flush()
         return
       }
+      if (path == "/slow-theme") {
+        reports += "theme-document-waiting"
+        releaseThemeDocument.await(15, java.util.concurrent.TimeUnit.SECONDS)
+      }
+      if (path == "/slow-theme.css") {
+        reports += "theme-style-waiting"
+        releaseThemeStyle.await(15, java.util.concurrent.TimeUnit.SECONDS)
+        val css = "nav{background:#aa1239;color:white;height:56px;width:100%;}"
+        it
+          .getOutputStream()
+          .write(
+            ("HTTP/1.1 200 OK\r\nContent-Type: text/css\r\nContent-Length: ${css.length}\r\nConnection: close\r\n\r\n" +
+                css)
+              .toByteArray()
+          )
+        return
+      }
       if (path == "/restored") {
         reports += "restore-waiting"
         releaseRestore.await(30, java.util.concurrent.TimeUnit.SECONDS)
@@ -1719,6 +1824,16 @@ class GeckoBrowserDeviceTest {
             function animateThemes(){theme('#202020');setTimeout(()=>theme('#223344'),1000);setTimeout(()=>theme('#202020'),2200);setTimeout(()=>{document.body.style.background='#f8f8fa';document.body.style.color='#202020';theme('#eeeeee')},3400);setTimeout(()=>{document.body.style.background='#202020';document.body.style.color='white';theme('#202020')},4600);setTimeout(()=>fetch('/report?appearance-animation-done'),5600)}
             fetch('/report?appearance-first-dark:'+matchMedia('(prefers-color-scheme:dark)').matches);
             fetch('/report?appearance-ready');</script>"""
+          path == "/slow-theme" ->
+            """
+            <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+            <style>body{margin:0;background:white}</style>
+            <link rel="stylesheet" href="/slow-theme.css" media="print" onload="this.media='all'">
+            </head><body><nav>Main navigation</nav>Slow same-domain page
+            <script>addEventListener('load',()=>fetch('/report?theme-navigation-loaded'))</script>
+            </body></html>
+            """
+              .trimIndent()
           path == "/header-theme" ->
             """<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
             <style>body{margin:0;background:white;color:black;font:22px sans-serif}nav{height:64px;background:#aa1239;color:white;width:100%}button{margin:24px;padding:16px;font:inherit}</style>

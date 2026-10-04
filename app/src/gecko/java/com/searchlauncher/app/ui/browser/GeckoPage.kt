@@ -85,9 +85,8 @@ internal class GeckoPage(
         override fun onPageStart(session: GeckoSession, url: String) {
           if (awaitingInitialLocation && url == "about:blank") return
           if (Uri.parse(tab.url).host != Uri.parse(url).host) tab.favicon = null
+          appearance.onNavigation(url)
           tab.url = url
-          tab.themeColorArgb = null
-          tab.pageBackgroundArgb = android.graphics.Color.WHITE
           navigationGeneration++
           tab.pageDrawn = false
           loading = true
@@ -193,6 +192,7 @@ internal class GeckoPage(
             // Gecko announces its empty startup document before load/restore commits.
             if (awaitingInitialLocation && url == "about:blank") return
             awaitingInitialLocation = false
+            appearance.onNavigation(url)
             if (Uri.parse(tab.url).host != Uri.parse(url).host) tab.favicon = null
             tab.url = url
             if (tab.favicon == null) favicons?.restoreCached()
