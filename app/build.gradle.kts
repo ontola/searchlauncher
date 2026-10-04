@@ -27,6 +27,9 @@ val buildDate = runGit("log", "-1", "--format=%cs").ifEmpty { "unknown" }
 val releaseKeyStorePath = System.getenv("SIGNING_KEY_STORE_PATH") ?: "upload.jks"
 val releaseKeyStoreFile = file(releaseKeyStorePath)
 val hasReleaseSigning = releaseKeyStoreFile.exists()
+// In-process instrumentation accesses app internals and needs an unshrunk diagnostic build.
+// Shipped Gecko APKs always use the optimized default; performance/ drives those externally.
+val geckoDebug = providers.gradleProperty("geckoDebug").map(String::toBoolean).getOrElse(false)
 
 android {
   namespace = "com.searchlauncher.app"
@@ -39,7 +42,7 @@ android {
     // F-Droid greps these two literals out of this file to notice new release tags, so
     // they have to stay plain literals and be bumped in the commit that gets tagged. The series
     // starts at 250 to clear 242, the highest the old commit-count scheme ever shipped.
-    versionCode = 296
+    versionCode = 297
     versionName = "0.0.51"
 
     buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
@@ -68,11 +71,17 @@ android {
       versionNameSuffix = "-debug"
     }
     create("gecko") {
-      initWith(getByName("debug"))
+      // Experimental refers to the engine, not to debug-mode UI performance. Keep the
+      // existing signing identity so installs upgrade in place, but optimize like release.
+      isDebuggable = geckoDebug
+      isMinifyEnabled = !geckoDebug
+      isShrinkResources = !geckoDebug
+      signingConfig = signingConfigs.getByName("debug")
+      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       applicationIdSuffix = ".gecko"
-      versionNameSuffix = "-gecko-experimental.23"
+      versionNameSuffix = "-gecko-experimental.24"
       ndk { abiFilters += "arm64-v8a" }
-      matchingFallbacks += listOf("debug")
+      matchingFallbacks += listOf("release")
     }
     release {
       // Always on, and deliberately not behind a property. F-Droid builds a plain
@@ -152,7 +161,8 @@ dependencies {
   implementation("androidx.appsearch:appsearch:1.1.0")
   implementation("androidx.appsearch:appsearch-local-storage:1.1.0")
   implementation("androidx.appsearch:appsearch-platform-storage:1.1.0")
-  implementation("androidx.test:core-ktx:1.7.0")
+  testImplementation("androidx.test:core-ktx:1.7.0")
+  androidTestImplementation("androidx.test:core-ktx:1.7.0")
   kapt("androidx.appsearch:appsearch-compiler:1.1.0")
 
   // Coroutines

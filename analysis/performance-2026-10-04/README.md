@@ -84,3 +84,66 @@ home/browser result transitions; its profiling run is not compared with non-reco
 The clear assertion now waits for the accessibility text update and disappearing row instead of
 assuming an asynchronous `setText` action has completed immediately. Earlier failures had no
 remaining result in the subsequently captured screenshot/hierarchy.
+
+
+## Optimized Gecko build: experimental 24
+
+The shipped experimental build still inherited `debug`: no R8 optimization, resource shrinking,
+or release-mode runtime. Gecko now defaults to non-debuggable, optimized builds, keeping its
+existing package and signing identity for in-place upgrades. Android test core was accidentally
+an application dependency; it is now confined to unit/instrumentation tests. Gecko's bundled
+consumer rules preserve its JNI/reflection entry points. Shell profiling remains available.
+This follows [Android's Compose performance guidance](https://developer.android.com/develop/ui/compose/performance).
+
+The new `performance` module runs UIAutomator in its own process, against an unchanged installed
+APK. Unlike the earlier combined home/browser audit, this comparison types twelve isolated
+`s`, `c`, `w` queries on home only, clearing between queries. Same Android 15 ARM64 60 Hz
+emulator and app data; no recording or build running during either measurement. Candidate was
+measured first, then the previously shipped Gecko23 APK (0d335eb) was installed over it. Small
+sequential samples, not a physical-device or statistically controlled 120 Hz benchmark.
+
+| Metric | Shipped debug Gecko23 | Optimized candidate |
+| --- | ---: | ---: |
+| Input callback to first result draw, median (12 samples) | 39.45 ms | 20.01 ms |
+| Input callback to first result draw, worst | 101.24 ms | 27.24 ms |
+| Repository search, median | 1.98 ms | 0.95 ms |
+| Main-thread frame duration, p95 during result transitions | 39.08 ms | 9.72 ms |
+| Main-thread frame duration, worst during result transitions | 93.21 ms | 24.01 ms |
+
+Frame duration here is the outer `Choreographer#doFrame` CPU slice in the first 300 ms after
+each query (141 baseline / 151 optimized frames). Nested resync spans are excluded. It is not
+GPU completion or display presentation. First-result timing starts after touch handling, at
+the input callback, and ends at the draw callback, not at presentation. These isolated queries
+start from an empty list, avoiding an old row's draw being mistaken for new query results.
+See `gecko24-{debug,release}.csv`, corresponding `-frames.csv`, and `typing-frames.sql`.
+
+The separate `continuousTyping` test touches keyboard keys about 100 ms apart to type
+`settings`, `camera`, and `clock`, deletes each word, and repeats three times. Both APKs passed
+all word/clear assertions. Overall gfxinfo jank was similar (roughly 6% in each run), so this
+is evidence of faster query transitions, not a demonstrated elimination of sustained animation
+jank. `gecko24-continuous.csv` retains the per-word process totals, without double-counting the
+per-window totals repeated by gfxinfo. The emulator has few indexed apps and no realistic
+contact corpus; physical Xiaomi measurements are still needed.
+
+The optimized APK also passed external browser navigation, reload, and completed-download UI
+checks. Internal instrumentation initially failed because R8 removes APIs only used by the
+in-process test runner; the new performance harness avoids modifying the measured app. Existing
+internal tests can use `-PgeckoDebug=true -PtestBuildType=gecko`; do not use that diagnostic APK
+for performance claims or publishing. No animation timings or gesture delays changed in this build.
+
+### Run the external tests
+
+```sh
+./gradlew assembleGecko :performance:assembleGecko
+adb install -r app/build/outputs/apk/gecko/app-gecko.apk
+adb install -r performance/build/outputs/apk/gecko/performance-gecko.apk
+adb shell am instrument -w \
+  com.searchlauncher.performance/androidx.test.runner.AndroidJUnitRunner
+```
+
+Complete onboarding and enable the built-in keyboard beforehand; leave animations enabled.
+For timing, run just `TypingPerformanceTest#firstResultLatency` with a 22-second Perfetto
+recording, using the same categories as above. Wait for Perfetto to finish before pulling its
+file (an early pull can be empty). Raw traces and continuous gfxinfo dumps are in
+`/tmp/search24-{debug,release}.perfetto-trace` and `/tmp/search24-{debug,release}-typing.txt`.
+Do not run screen recording or builds concurrently with timing measurements.

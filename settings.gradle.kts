@@ -19,3 +19,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "SearchLauncher"
 include(":app")
+
+include(":performance")

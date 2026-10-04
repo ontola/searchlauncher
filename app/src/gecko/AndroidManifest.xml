@@ -3,6 +3,7 @@
        Android throws in its asynchronous callback without this normal permission. -->
   <uses-permission android:name="android.permission.CREDENTIAL_MANAGER_QUERY_CANDIDATE_CREDENTIALS" />
   <application android:allowBackup="false" tools:replace="android:allowBackup">
+    <profileable android:shell="true" />
     <activity android:name=".ui.browser.BrowserActivity" android:taskAffinity="${applicationId}.browser" android:theme="@style/Theme.SearchLauncher.GeckoBrowser" tools:replace="android:taskAffinity,android:theme" />
     <activity android:name=".ui.browser.PrivateBrowserActivity" android:taskAffinity="${applicationId}.incognito" android:theme="@style/Theme.SearchLauncher.GeckoBrowser" tools:replace="android:taskAffinity,android:theme" />
     <activity android:name=".ui.browser.GeckoNotificationActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
