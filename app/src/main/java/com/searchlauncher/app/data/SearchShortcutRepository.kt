@@ -62,9 +62,10 @@ class SearchShortcutRepository(context: Context) {
   }
 
   /**
-   * Appends the [DefaultShortcuts.installableShortcuts] whose app is now installed. One the user
-   * removed stays removed, and one whose key is already taken is left out rather than making the
-   * key ambiguous.
+   * Appends the [DefaultShortcuts.installableShortcuts] whose app is now installed. Each gets the
+   * first of its keys that is still free, so it stays as short as this phone allows; once saved,
+   * that key does not change. One the user removed stays removed, and one whose every key is taken
+   * is left out rather than making a key ambiguous.
    */
   private fun adoptInstalledApps(items: List<SearchShortcut>): List<SearchShortcut> {
     val dismissed = dismissedIds()
@@ -75,10 +76,14 @@ class SearchShortcutRepository(context: Context) {
         .filter { entry ->
           entry.shortcut.id !in ids &&
             entry.shortcut.id !in dismissed &&
-            entry.packages.any(::isInstalled) &&
-            aliases.add(entry.shortcut.alias.lowercase())
+            entry.packages.any(::isInstalled)
         }
-        .map { it.shortcut }
+        .mapNotNull { entry ->
+          val alias =
+            entry.aliases.firstOrNull { it.lowercase() !in aliases } ?: return@mapNotNull null
+          aliases.add(alias.lowercase())
+          entry.shortcut.copy(alias = alias)
+        }
     return if (adopted.isEmpty()) items else items + adopted
   }
 
