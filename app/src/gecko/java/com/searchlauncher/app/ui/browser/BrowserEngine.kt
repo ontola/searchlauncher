@@ -49,6 +49,7 @@ import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.components.SearchChromeBar
 import com.searchlauncher.app.ui.dataStore
+import com.searchlauncher.app.ui.theme.rememberBrowserSurfaceColors
 import com.searchlauncher.app.util.displayPageAddress
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -89,11 +90,12 @@ internal object BrowserEngine {
         label = "browser frame color",
       )
     val frameContentColor = browserChromeContentColor(frameColor)
-    val disabledContentColor = browserChromeDisabledColor(frameColor, frameContentColor)
+    val menuScheme = rememberBrowserSurfaceColors(Color(tab.frameColorArgb))
+    val disabledContentColor = browserChromeDisabledColor(menuScheme.surface, menuScheme.onSurface)
     val menuColors =
       MenuDefaults.itemColors(
-        textColor = frameContentColor,
-        leadingIconColor = frameContentColor,
+        textColor = menuScheme.onSurface,
+        leadingIconColor = menuScheme.onSurface,
         disabledTextColor = disabledContentColor,
         disabledLeadingIconColor = disabledContentColor,
       )
@@ -428,199 +430,202 @@ internal object BrowserEngine {
                 IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
                   Icon(Icons.Default.MoreVert, "Browser menu")
                 }
-                DropdownMenu(
-                  expanded = menu,
-                  onDismissRequest = { menu = false },
-                  modifier = Modifier.heightIn(max = minOf(420.dp, screenHeight * 0.6f)),
-                  containerColor = frameColor,
-                ) {
-                  fun run(action: () -> Unit) {
-                    menu = false
-                    action()
-                  }
-                  DropdownMenuItem(
-                    text = { Text("Back") },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) },
-                    colors = menuColors,
-                    enabled = page.canGoBack,
-                    onClick = { run { page.session.goBack() } },
-                  )
-                  DropdownMenuItem(
-                    text = { Text("Forward") },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null) },
-                    colors = menuColors,
-                    enabled = page.canGoForward,
-                    onClick = { run { page.session.goForward() } },
-                  )
-                  DropdownMenuItem(
-                    text = { Text("Reload") },
-                    leadingIcon = { Icon(Icons.Default.Refresh, null) },
-                    colors = menuColors,
-                    onClick = { run { page.reload() } },
-                  )
-                  DropdownMenuItem(
-                    text = { Text("New tab") },
-                    leadingIcon = { Icon(Icons.Default.Add, null) },
-                    colors = menuColors,
-                    onClick = {
-                      run {
-                        if (privateMode) page.session.loadUri("about:blank")
-                        else
-                          activity.startActivity(
-                            BrowserActivity.createIntent(activity, "about:blank")
-                          )
-                      }
-                    },
-                  )
-                  DropdownMenuItem(
-                    text = { Text("Close tab") },
-                    leadingIcon = { Icon(Icons.Default.Close, null) },
-                    colors = menuColors,
-                    onClick = { run { activity.finishAndRemoveTask() } },
-                  )
-                  DropdownMenuItem(
-                    text = { Text("Home") },
-                    leadingIcon = { Icon(Icons.Default.Home, null) },
-                    colors = menuColors,
-                    onClick = { run { goHome() } },
-                  )
-                  DropdownMenuItem(
-                    text = { Text("Downloads") },
-                    leadingIcon = { Icon(Icons.Default.Download, null) },
-                    colors = menuColors,
-                    onClick = { run { page.showDownloads = true } },
-                  )
-                  DropdownMenuItem(
-                    text = { Text("Find in page") },
-                    leadingIcon = { Icon(Icons.Default.Search, null) },
-                    colors = menuColors,
-                    onClick = { run { find = !find } },
-                  )
-                  DropdownMenuItem(
-                    text = { Text(if (tab.desktopMode) "Mobile site" else "Desktop site") },
-                    leadingIcon = { Icon(Icons.Default.Computer, null) },
-                    colors = menuColors,
-                    onClick = {
-                      run {
-                        tab.desktopMode = !tab.desktopMode
-                        page.session.settings.userAgentMode =
-                          if (tab.desktopMode) GeckoSessionSettings.USER_AGENT_MODE_DESKTOP
-                          else GeckoSessionSettings.USER_AGENT_MODE_MOBILE
-                        page.session.settings.viewportMode =
-                          if (tab.desktopMode) GeckoSessionSettings.VIEWPORT_MODE_DESKTOP
-                          else GeckoSessionSettings.VIEWPORT_MODE_MOBILE
-                        page.session.reload()
-                      }
-                    },
-                  )
-                  if (!privateMode) {
+                MaterialTheme(colorScheme = menuScheme) {
+                  DropdownMenu(
+                    expanded = menu,
+                    onDismissRequest = { menu = false },
+                    modifier = Modifier.heightIn(max = minOf(420.dp, screenHeight * 0.6f)),
+                    containerColor = menuScheme.surface,
+                    tonalElevation = 0.dp,
+                  ) {
+                    fun run(action: () -> Unit) {
+                      menu = false
+                      action()
+                    }
                     DropdownMenuItem(
-                      text = { Text("Save bookmark") },
-                      leadingIcon = { Icon(Icons.Default.BookmarkAdd, null) },
+                      text = { Text("Back") },
+                      leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) },
+                      colors = menuColors,
+                      enabled = page.canGoBack,
+                      onClick = { run { page.session.goBack() } },
+                    )
+                    DropdownMenuItem(
+                      text = { Text("Forward") },
+                      leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowForward, null) },
+                      colors = menuColors,
+                      enabled = page.canGoForward,
+                      onClick = { run { page.session.goForward() } },
+                    )
+                    DropdownMenuItem(
+                      text = { Text("Reload") },
+                      leadingIcon = { Icon(Icons.Default.Refresh, null) },
+                      colors = menuColors,
+                      onClick = { run { page.reload() } },
+                    )
+                    DropdownMenuItem(
+                      text = { Text("New tab") },
+                      leadingIcon = { Icon(Icons.Default.Add, null) },
                       colors = menuColors,
                       onClick = {
                         run {
-                          scope.launch {
-                            val repository =
-                              (activity.application as SearchLauncherApp).searchRepositoryOrNull
-                            val saved = repository?.saveBookmark(tab.url, tab.title) == true
-                            Toast.makeText(
-                                activity,
-                                if (saved) "Bookmark saved" else "Could not save bookmark",
-                                Toast.LENGTH_SHORT,
-                              )
-                              .show()
-                          }
-                        }
-                      },
-                    )
-                    DropdownMenuItem(
-                      text = { Text("Favorite website") },
-                      leadingIcon = { Icon(Icons.Default.Star, null) },
-                      colors = menuColors,
-                      onClick = {
-                        run {
-                          scope.launch {
-                            (activity.application as SearchLauncherApp)
-                              .searchRepositoryOrNull
-                              ?.saveAndFavoriteBookmark(tab.url, tab.title)
-                          }
-                        }
-                      },
-                    )
-                  }
-                  DropdownMenuItem(
-                    text = { Text("Share") },
-                    leadingIcon = { Icon(Icons.Default.Share, null) },
-                    colors = menuColors,
-                    onClick = {
-                      run {
-                        activity.startActivity(
-                          Intent.createChooser(
-                            Intent(Intent.ACTION_SEND)
-                              .setType("text/plain")
-                              .putExtra(Intent.EXTRA_TEXT, tab.url),
-                            "Share page",
-                          )
-                        )
-                      }
-                    },
-                  )
-                  DropdownMenuItem(
-                    text = { Text("Clear this site's data") },
-                    leadingIcon = { Icon(Icons.Default.DeleteOutline, null) },
-                    colors = menuColors,
-                    onClick = {
-                      run {
-                        val host = Uri.parse(tab.url).host
-                        if (host != null)
-                          NativeAlertDialog.Builder(activity)
-                            .setTitle("Clear data for $host?")
-                            .setMessage(
-                              "This signs you out and removes this site's stored data and permissions."
+                          if (privateMode) page.session.loadUri("about:blank")
+                          else
+                            activity.startActivity(
+                              BrowserActivity.createIntent(activity, "about:blank")
                             )
-                            .setNegativeButton("Cancel", null)
-                            .setPositiveButton("Clear") { _, _ ->
-                              GeckoEnvironment.runtime(activity)
-                                .storageController
-                                .clearDataFromHost(host, StorageController.ClearFlags.ALL)
-                                .accept(
-                                  { page.session.reload() },
-                                  {
-                                    Toast.makeText(
-                                        activity,
-                                        "Could not clear site data",
-                                        Toast.LENGTH_LONG,
-                                      )
-                                      .show()
-                                  },
-                                )
-                            }
-                            .show()
-                      }
-                    },
-                  )
-                  if (!privateMode)
-                    DropdownMenuItem(
-                      text = { Text(if (showFavorites) "Hide favorites" else "Show favorites") },
-                      leadingIcon = { Icon(Icons.Default.StarOutline, null) },
-                      colors = menuColors,
-                      onClick = {
-                        run {
-                          scope.launch {
-                            activity.dataStore.edit {
-                              it[PreferencesKeys.BROWSER_SHOW_FAVORITES] = !showFavorites
-                            }
-                          }
                         }
                       },
                     )
-                  DropdownMenuItem(
-                    text = { Text("About this experiment") },
-                    leadingIcon = { Icon(Icons.Default.Info, null) },
-                    colors = menuColors,
-                    onClick = { run { showInfo = true } },
-                  )
+                    DropdownMenuItem(
+                      text = { Text("Close tab") },
+                      leadingIcon = { Icon(Icons.Default.Close, null) },
+                      colors = menuColors,
+                      onClick = { run { activity.finishAndRemoveTask() } },
+                    )
+                    DropdownMenuItem(
+                      text = { Text("Home") },
+                      leadingIcon = { Icon(Icons.Default.Home, null) },
+                      colors = menuColors,
+                      onClick = { run { goHome() } },
+                    )
+                    DropdownMenuItem(
+                      text = { Text("Downloads") },
+                      leadingIcon = { Icon(Icons.Default.Download, null) },
+                      colors = menuColors,
+                      onClick = { run { page.showDownloads = true } },
+                    )
+                    DropdownMenuItem(
+                      text = { Text("Find in page") },
+                      leadingIcon = { Icon(Icons.Default.Search, null) },
+                      colors = menuColors,
+                      onClick = { run { find = !find } },
+                    )
+                    DropdownMenuItem(
+                      text = { Text(if (tab.desktopMode) "Mobile site" else "Desktop site") },
+                      leadingIcon = { Icon(Icons.Default.Computer, null) },
+                      colors = menuColors,
+                      onClick = {
+                        run {
+                          tab.desktopMode = !tab.desktopMode
+                          page.session.settings.userAgentMode =
+                            if (tab.desktopMode) GeckoSessionSettings.USER_AGENT_MODE_DESKTOP
+                            else GeckoSessionSettings.USER_AGENT_MODE_MOBILE
+                          page.session.settings.viewportMode =
+                            if (tab.desktopMode) GeckoSessionSettings.VIEWPORT_MODE_DESKTOP
+                            else GeckoSessionSettings.VIEWPORT_MODE_MOBILE
+                          page.session.reload()
+                        }
+                      },
+                    )
+                    if (!privateMode) {
+                      DropdownMenuItem(
+                        text = { Text("Save bookmark") },
+                        leadingIcon = { Icon(Icons.Default.BookmarkAdd, null) },
+                        colors = menuColors,
+                        onClick = {
+                          run {
+                            scope.launch {
+                              val repository =
+                                (activity.application as SearchLauncherApp).searchRepositoryOrNull
+                              val saved = repository?.saveBookmark(tab.url, tab.title) == true
+                              Toast.makeText(
+                                  activity,
+                                  if (saved) "Bookmark saved" else "Could not save bookmark",
+                                  Toast.LENGTH_SHORT,
+                                )
+                                .show()
+                            }
+                          }
+                        },
+                      )
+                      DropdownMenuItem(
+                        text = { Text("Favorite website") },
+                        leadingIcon = { Icon(Icons.Default.Star, null) },
+                        colors = menuColors,
+                        onClick = {
+                          run {
+                            scope.launch {
+                              (activity.application as SearchLauncherApp)
+                                .searchRepositoryOrNull
+                                ?.saveAndFavoriteBookmark(tab.url, tab.title)
+                            }
+                          }
+                        },
+                      )
+                    }
+                    DropdownMenuItem(
+                      text = { Text("Share") },
+                      leadingIcon = { Icon(Icons.Default.Share, null) },
+                      colors = menuColors,
+                      onClick = {
+                        run {
+                          activity.startActivity(
+                            Intent.createChooser(
+                              Intent(Intent.ACTION_SEND)
+                                .setType("text/plain")
+                                .putExtra(Intent.EXTRA_TEXT, tab.url),
+                              "Share page",
+                            )
+                          )
+                        }
+                      },
+                    )
+                    DropdownMenuItem(
+                      text = { Text("Clear this site's data") },
+                      leadingIcon = { Icon(Icons.Default.DeleteOutline, null) },
+                      colors = menuColors,
+                      onClick = {
+                        run {
+                          val host = Uri.parse(tab.url).host
+                          if (host != null)
+                            NativeAlertDialog.Builder(activity)
+                              .setTitle("Clear data for $host?")
+                              .setMessage(
+                                "This signs you out and removes this site's stored data and permissions."
+                              )
+                              .setNegativeButton("Cancel", null)
+                              .setPositiveButton("Clear") { _, _ ->
+                                GeckoEnvironment.runtime(activity)
+                                  .storageController
+                                  .clearDataFromHost(host, StorageController.ClearFlags.ALL)
+                                  .accept(
+                                    { page.session.reload() },
+                                    {
+                                      Toast.makeText(
+                                          activity,
+                                          "Could not clear site data",
+                                          Toast.LENGTH_LONG,
+                                        )
+                                        .show()
+                                    },
+                                  )
+                              }
+                              .show()
+                        }
+                      },
+                    )
+                    if (!privateMode)
+                      DropdownMenuItem(
+                        text = { Text(if (showFavorites) "Hide favorites" else "Show favorites") },
+                        leadingIcon = { Icon(Icons.Default.StarOutline, null) },
+                        colors = menuColors,
+                        onClick = {
+                          run {
+                            scope.launch {
+                              activity.dataStore.edit {
+                                it[PreferencesKeys.BROWSER_SHOW_FAVORITES] = !showFavorites
+                              }
+                            }
+                          }
+                        },
+                      )
+                    DropdownMenuItem(
+                      text = { Text("About this experiment") },
+                      leadingIcon = { Icon(Icons.Default.Info, null) },
+                      colors = menuColors,
+                      onClick = { run { showInfo = true } },
+                    )
+                  }
                 }
               }
             }

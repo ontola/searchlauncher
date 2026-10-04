@@ -136,6 +136,7 @@ import com.searchlauncher.app.ui.components.FavoritesRow
 import com.searchlauncher.app.ui.components.SearchChromeBar
 import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
+import com.searchlauncher.app.ui.theme.rememberBrowserSurfaceColors
 import com.searchlauncher.app.util.SystemUtils
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -1480,86 +1481,89 @@ internal fun BrowserScreen(
   // Single overflow-menu definition shared by the full chrome bar and the minimal pill, so both
   // stay wired identically (including the open-on-broadcast request from the search overlay).
   val browserOverflowMenu: @Composable () -> Unit = {
-    BrowserOverflowButton(
-      desktopMode = activeTab.desktopMode,
-      showFavorites = showFavorites,
-      hasPreviousTab = activeIndex > 0,
-      hasNextTab = activeIndex < tabs.items.lastIndex,
-      menuColor = chromeBarColor,
-      menuContentColor = chromeBarContentColor,
-      openRequest = browserMenuRequest,
-      onOpenRequestConsumed = onBrowserMenuShown,
-      onReload = { webView?.reload() },
-      onShare = { shareUrl(context, webView?.url ?: activeTab.url, webView?.title) },
-      onCopyUrl = { copyUrl(context, webView?.url ?: activeTab.url) },
-      onSaveBookmark =
-        searchRepository?.let {
-          {
-            val url = (webView?.url ?: activeTab.url).takeUnless { it.isBlank() }
-            if (url == null || url == "about:blank") {
-              Toast.makeText(context, "Nothing to bookmark", Toast.LENGTH_SHORT).show()
-            } else {
-              // Confirm the title first; saving happens when the dialog is accepted.
-              bookmarkDraft =
-                BookmarkDraft(url = url, title = webView?.title ?: activeTab.title ?: "")
-            }
-          }
-        },
-      onToggleSiteFavorite =
-        if (privateMode) null
-        else {
-          {
-            val url =
-              (webView?.url ?: activeTab.url).takeUnless { it.isBlank() || it == "about:blank" }
-            if (url == null) {
-              Toast.makeText(context, "Nothing to favorite", Toast.LENGTH_SHORT).show()
-            } else {
-              val pinned = pinnedFavoritesForSite(url, favorites, treatFavoritedSitesAsApps)
-              if (pinned.isNotEmpty()) {
-                favoritesRepository?.removeKeys(pinned.map { it.favoriteKey })
-                Toast.makeText(context, "Removed from Favorites", Toast.LENGTH_SHORT).show()
+    val menuScheme = rememberBrowserSurfaceColors(pageBackground)
+    MaterialTheme(colorScheme = menuScheme) {
+      BrowserOverflowButton(
+        desktopMode = activeTab.desktopMode,
+        showFavorites = showFavorites,
+        hasPreviousTab = activeIndex > 0,
+        hasNextTab = activeIndex < tabs.items.lastIndex,
+        menuColor = menuScheme.surface,
+        menuContentColor = menuScheme.onSurface,
+        openRequest = browserMenuRequest,
+        onOpenRequestConsumed = onBrowserMenuShown,
+        onReload = { webView?.reload() },
+        onShare = { shareUrl(context, webView?.url ?: activeTab.url, webView?.title) },
+        onCopyUrl = { copyUrl(context, webView?.url ?: activeTab.url) },
+        onSaveBookmark =
+          searchRepository?.let {
+            {
+              val url = (webView?.url ?: activeTab.url).takeUnless { it.isBlank() }
+              if (url == null || url == "about:blank") {
+                Toast.makeText(context, "Nothing to bookmark", Toast.LENGTH_SHORT).show()
               } else {
-                coroutineScope.launch {
-                  val saved =
-                    searchRepository?.saveAndFavoriteBookmark(
-                      url,
-                      webView?.title ?: activeTab.title,
-                    ) == true
-                  Toast.makeText(
-                      context,
-                      if (saved) "Added to Favorites" else "Could not add to Favorites",
-                      Toast.LENGTH_SHORT,
-                    )
-                    .show()
+                // Confirm the title first; saving happens when the dialog is accepted.
+                bookmarkDraft =
+                  BookmarkDraft(url = url, title = webView?.title ?: activeTab.title ?: "")
+              }
+            }
+          },
+        onToggleSiteFavorite =
+          if (privateMode) null
+          else {
+            {
+              val url =
+                (webView?.url ?: activeTab.url).takeUnless { it.isBlank() || it == "about:blank" }
+              if (url == null) {
+                Toast.makeText(context, "Nothing to favorite", Toast.LENGTH_SHORT).show()
+              } else {
+                val pinned = pinnedFavoritesForSite(url, favorites, treatFavoritedSitesAsApps)
+                if (pinned.isNotEmpty()) {
+                  favoritesRepository?.removeKeys(pinned.map { it.favoriteKey })
+                  Toast.makeText(context, "Removed from Favorites", Toast.LENGTH_SHORT).show()
+                } else {
+                  coroutineScope.launch {
+                    val saved =
+                      searchRepository?.saveAndFavoriteBookmark(
+                        url,
+                        webView?.title ?: activeTab.title,
+                      ) == true
+                    Toast.makeText(
+                        context,
+                        if (saved) "Added to Favorites" else "Could not add to Favorites",
+                        Toast.LENGTH_SHORT,
+                      )
+                      .show()
+                  }
                 }
               }
             }
+          },
+        siteIsFavorite =
+          pinnedFavoritesForSite(activeTab.url, favorites, treatFavoritedSitesAsApps).isNotEmpty(),
+        onToggleDesktopMode = {
+          webView?.let { view ->
+            activeTab.desktopMode = !activeTab.desktopMode
+            view.setDesktopMode(activeTab.desktopMode, phoneUserAgent)
+            view.reload()
           }
         },
-      siteIsFavorite =
-        pinnedFavoritesForSite(activeTab.url, favorites, treatFavoritedSitesAsApps).isNotEmpty(),
-      onToggleDesktopMode = {
-        webView?.let { view ->
-          activeTab.desktopMode = !activeTab.desktopMode
-          view.setDesktopMode(activeTab.desktopMode, phoneUserAgent)
-          view.reload()
-        }
-      },
-      onOpenDownloads = { showDownloads = true },
-      onFindInPage = { showFindInPage = true },
-      onPageSettings = { showPageSettings = true },
-      onToggleFavorites = {
-        coroutineScope.launch {
-          context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.BROWSER_SHOW_FAVORITES] = !showFavorites
+        onOpenDownloads = { showDownloads = true },
+        onFindInPage = { showFindInPage = true },
+        onPageSettings = { showPageSettings = true },
+        onToggleFavorites = {
+          coroutineScope.launch {
+            context.dataStore.edit { preferences ->
+              preferences[PreferencesKeys.BROWSER_SHOW_FAVORITES] = !showFavorites
+            }
           }
-        }
-      },
-      onNewTab = ::createTab,
-      onCloseTab = ::closeActiveTab,
-      onPreviousTab = { animateToAdjacentTab(-1) },
-      onNextTab = { animateToAdjacentTab(1) },
-    )
+        },
+        onNewTab = ::createTab,
+        onCloseTab = ::closeActiveTab,
+        onPreviousTab = { animateToAdjacentTab(-1) },
+        onNextTab = { animateToAdjacentTab(1) },
+      )
+    }
   }
 
   // Read the same way the launcher reads it, straight off disk, so the stand-in below reserves

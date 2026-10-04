@@ -1343,31 +1343,72 @@ class GeckoBrowserDeviceTest {
   @Test
   fun browserMenuContrastOnSiteColors() {
     prepareHome()
-    for (hex in listOf("0283eb", "767676", "aa1239", "ffffff", "000000")) {
-      val path = "/contrast-$hex"
-      val background = Color.parseColor("#$hex")
-      context.startActivity(BrowserActivity.createIntent(context, "$origin$path"))
-      eventually {
-        var ready = false
-        instrumentation.runOnMainSync {
-          ready = BrowserTabStore.tabs!!.active.frameColorArgb == background
+    val original = runBlocking { context.dataStore.data.first() }
+    try {
+      for ((mode, oled) in listOf(2 to true, 2 to false, 1 to false)) {
+        runBlocking {
+          context.dataStore.edit {
+            it[PreferencesKeys.DARK_MODE] = mode
+            it[PreferencesKeys.OLED_MODE] = oled
+            it[PreferencesKeys.THEME_SATURATION] = 50f
+          }
         }
-        ready
+        for (hex in listOf("0283eb", "767676", "aa1239", "ffffff", "000000")) {
+          val path = "/contrast-$hex"
+          val background = Color.parseColor("#$hex")
+          context.startActivity(BrowserActivity.createIntent(context, "$origin$path"))
+          eventually {
+            var ready = false
+            instrumentation.runOnMainSync {
+              ready = BrowserTabStore.tabs!!.active.frameColorArgb == background
+            }
+            ready
+          }
+          device.wait(Until.findObject(By.desc("Browser menu")), 10000)!!.click()
+          val label = device.wait(Until.findObject(By.text("Reload")), 10000)!!.visibleBounds
+          SystemClock.sleep(250)
+          val bitmap =
+            android.graphics.BitmapFactory.decodeFile(
+              saveScreenshot("contrast-$mode-$oled-$hex").absolutePath
+            )
+          val palette =
+            com.searchlauncher.app.ui.theme.browserSearchColors(
+              androidx.compose.ui.graphics.Color(background),
+              mode == 2,
+              50f,
+              oled,
+            )
+          assertEquals(
+            "Menu must use the same surface as results",
+            palette.surface.toArgb(),
+            bitmap.getPixel(label.left, label.top - 4),
+          )
+          assertEquals(
+            "Toolbar must retain the site color",
+            background,
+            bitmap.getPixel(1, bitmap.height - 1),
+          )
+          var matchingPixels = 0
+          for (y in label.top until label.bottom) for (x in label.left until label.right) {
+            if (bitmap.getPixel(x, y) == palette.onSurface.toArgb()) matchingPixels++
+          }
+          assertTrue("Menu must paint readable text on $hex", matchingPixels > 8)
+          bitmap.recycle()
+          device.pressBack()
+        }
       }
-      device.wait(Until.findObject(By.desc("Browser menu")), 10000)!!.click()
-      val label = device.wait(Until.findObject(By.text("Reload")), 10000)!!.visibleBounds
-      SystemClock.sleep(250)
-      val bitmap =
-        android.graphics.BitmapFactory.decodeFile(saveScreenshot("contrast-$hex").absolutePath)
-      val foreground = browserChromeContentColor(androidx.compose.ui.graphics.Color(background))
-      val expected = foreground.toArgb()
-      var matchingPixels = 0
-      for (y in label.top until label.bottom) for (x in label.left until label.right) {
-        if (bitmap.getPixel(x, y) == expected) matchingPixels++
+    } finally {
+      runBlocking {
+        context.dataStore.edit {
+          original[PreferencesKeys.DARK_MODE]?.let { v -> it[PreferencesKeys.DARK_MODE] = v }
+            ?: it.remove(PreferencesKeys.DARK_MODE)
+          original[PreferencesKeys.OLED_MODE]?.let { v -> it[PreferencesKeys.OLED_MODE] = v }
+            ?: it.remove(PreferencesKeys.OLED_MODE)
+          original[PreferencesKeys.THEME_SATURATION]?.let { v ->
+            it[PreferencesKeys.THEME_SATURATION] = v
+          } ?: it.remove(PreferencesKeys.THEME_SATURATION)
+        }
       }
-      assertTrue("Menu must paint the contrast-checked text on $hex", matchingPixels > 8)
-      bitmap.recycle()
-      device.pressBack()
     }
   }
 

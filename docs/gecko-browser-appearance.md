@@ -167,3 +167,19 @@ alpha compositing. A real Gecko emulator scenario opens blue, gray, red, white a
 opens the menu, and checks that the screenshot contains the expected foreground pixels in the
 Reload label. All five passed, and blue/gray/red screenshots were inspected. These are emulator
 checks, not a claim of physical Xiaomi validation.
+
+
+## Follow-up: dropdown uses the results palette (experimental 22)
+
+Browser overflow menus now reuse the exact site-derived surface/onSurface pair from search
+results. The app theme provides its resolved light/dark mode, chroma and OLED preference, so
+menus need no additional preference reads or inferred brightness rules. A site contributes hue;
+light mode stays pale, dark mode stays dark, and OLED uses black. Menu tonal elevation is zero
+to keep its surface identical to the results panel. Toolbar colors continue to come from the site.
+The shared palette is applied to both Gecko and WebView menus. Gecko's disabled actions retain
+the contrast-aware opacity introduced in 21.
+
+The Gecko device scenario covers five site colors in light, dark and OLED modes (15 cases),
+checking exact menu surface pixels, painted text, and unchanged toolbar background pixels.
+Dark-blue, OLED-blue and light-red screenshots were visually inspected. Formatting and the
+full debug unit suite passed. Physical Xiaomi and WebView UI validation remain unverified.
