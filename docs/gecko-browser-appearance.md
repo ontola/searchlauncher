@@ -147,3 +147,23 @@ Validation: emulator screenshots and pixel checks passed for red and white sites
 OLED and light modes, with a query and search results visible. Unit coverage checks subdued
 surfaces, neutral sites, OLED black and readable key/selection states. Full formatting and
 unit checks passed; Xiaomi hardware has not been checked.
+
+
+## Follow-up: measured foreground contrast (experimental 21)
+
+The fixed luminance cutoff could choose a soft dark gray below 4.5:1 on vivid blue. Browser
+text/icons now compare actual foreground/background contrast on every animated background color.
+The softer palette is retained when it meets 4.5:1; otherwise black or white is chosen by maximum
+contrast. Android system-icon mode uses the same black-versus-white comparison. This is shared
+with the WebView browser path. Disabled Gecko menu actions use enough opacity to reach 3:1 and
+remain subdued; their previous fixed 38% opacity was barely visible on some site colors.
+
+For the user's screenshot's sampled blue (#0283EB), old dark gray is 4.44:1, white is 3.85:1,
+and black is 5.45:1. Therefore the corrected foreground here is black, not white. The site's
+own content and its chosen theme color are preserved.
+
+Unit checks cover 4,096 RGB colors plus 282 intermediate animation colors, including disabled
+alpha compositing. A real Gecko emulator scenario opens blue, gray, red, white and black pages,
+opens the menu, and checks that the screenshot contains the expected foreground pixels in the
+Reload label. All five passed, and blue/gray/red screenshots were inspected. These are emulator
+checks, not a claim of physical Xiaomi validation.

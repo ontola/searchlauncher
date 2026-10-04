@@ -39,7 +39,7 @@ android {
     // F-Droid greps these two literals out of this file to notice new release tags, so
     // they have to stay plain literals and be bumped in the commit that gets tagged. The series
     // starts at 250 to clear 242, the highest the old commit-count scheme ever shipped.
-    versionCode = 293
+    versionCode = 294
     versionName = "0.0.51"
 
     buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
@@ -70,7 +70,7 @@ android {
     create("gecko") {
       initWith(getByName("debug"))
       applicationIdSuffix = ".gecko"
-      versionNameSuffix = "-gecko-experimental.20"
+      versionNameSuffix = "-gecko-experimental.21"
       ndk { abiFilters += "arm64-v8a" }
       matchingFallbacks += listOf("debug")
     }

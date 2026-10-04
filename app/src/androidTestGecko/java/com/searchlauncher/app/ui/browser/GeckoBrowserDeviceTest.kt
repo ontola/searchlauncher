@@ -8,6 +8,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.SystemClock
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.datastore.preferences.core.edit
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -1288,6 +1289,89 @@ class GeckoBrowserDeviceTest {
   }
 
   @Test
+  fun firstResultLatencyAudit() {
+    prepareHome()
+    val app = context.applicationContext as SearchLauncherApp
+    eventually(30000) { app.searchRepository.isInitialized.value }
+    context.startActivity(
+      Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    )
+    device.wait(Until.findObject(By.clazz("android.widget.EditText")), 10000)!!.text = ""
+    assertNotNull(device.wait(Until.findObject(By.desc("Settings")), 10000))
+    fun typeAndClear() {
+      repeat(6) { round ->
+        val key = device.wait(Until.findObject(By.text(listOf("s", "c", "w")[round % 3])), 10000)!!
+        key.click()
+        SystemClock.sleep(500)
+        assertEquals(
+          listOf("s", "c", "w")[round % 3],
+          device.findObject(By.clazz("android.widget.EditText"))!!.text,
+        )
+        device.pressKeyCode(android.view.KeyEvent.KEYCODE_DEL)
+        SystemClock.sleep(500)
+        assertEquals("", device.findObject(By.clazz("android.widget.EditText"))!!.text)
+      }
+    }
+    typeAndClear()
+    context.startActivity(BrowserActivity.createIntent(context, "$origin/header-theme"))
+    device
+      .wait(
+        Until.findObject(
+          By.text(com.searchlauncher.app.util.displayPageAddress("$origin/header-theme"))
+        ),
+        15000,
+      )!!
+      .click()
+    assertNotNull(device.wait(Until.findObject(By.desc("Space")), 10000))
+    typeAndClear()
+    // A burst must replace/cancel earlier work; a clear must not be undone by an old result.
+    device.pressKeyCodes(
+      intArrayOf(
+        android.view.KeyEvent.KEYCODE_S,
+        android.view.KeyEvent.KEYCODE_E,
+        android.view.KeyEvent.KEYCODE_T,
+      )
+    )
+    assertNotNull(device.wait(Until.findObject(By.text("Settings")), 10000))
+    assertEquals("set", device.findObject(By.clazz("android.widget.EditText"))!!.text)
+    device.findObject(By.clazz("android.widget.EditText"))!!.text = ""
+    SystemClock.sleep(500)
+    assertFalse(device.hasObject(By.text("Settings")))
+    saveScreenshot("search-latency-audit")
+  }
+
+  @Test
+  fun browserMenuContrastOnSiteColors() {
+    prepareHome()
+    for (hex in listOf("0283eb", "767676", "aa1239", "ffffff", "000000")) {
+      val path = "/contrast-$hex"
+      val background = Color.parseColor("#$hex")
+      context.startActivity(BrowserActivity.createIntent(context, "$origin$path"))
+      eventually {
+        var ready = false
+        instrumentation.runOnMainSync {
+          ready = BrowserTabStore.tabs!!.active.frameColorArgb == background
+        }
+        ready
+      }
+      device.wait(Until.findObject(By.desc("Browser menu")), 10000)!!.click()
+      val label = device.wait(Until.findObject(By.text("Reload")), 10000)!!.visibleBounds
+      SystemClock.sleep(250)
+      val bitmap =
+        android.graphics.BitmapFactory.decodeFile(saveScreenshot("contrast-$hex").absolutePath)
+      val foreground = browserChromeContentColor(androidx.compose.ui.graphics.Color(background))
+      val expected = foreground.toArgb()
+      var matchingPixels = 0
+      for (y in label.top until label.bottom) for (x in label.left until label.right) {
+        if (bitmap.getPixel(x, y) == expected) matchingPixels++
+      }
+      assertTrue("Menu must paint the contrast-checked text on $hex", matchingPixels > 8)
+      bitmap.recycle()
+      device.pressBack()
+    }
+  }
+
+  @Test
   fun browserKeyboardUsesSiteColors() {
     prepareHome()
     val original = runBlocking { context.dataStore.data.first() }
@@ -1983,6 +2067,8 @@ class GeckoBrowserDeviceTest {
             </body></html>
             """
               .trimIndent()
+          path.startsWith("/contrast-") ->
+            "<meta name='theme-color' content='#${path.removePrefix("/contrast-")}'><body>Browser contrast fixture</body>"
           path == "/header-theme" ->
             """<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
             <style>body{margin:0;background:white;color:black;font:22px sans-serif}nav{height:64px;background:#aa1239;color:white;width:100%}button{margin:24px;padding:16px;font:inherit}</style>

@@ -30,7 +30,6 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -89,14 +88,14 @@ internal object BrowserEngine {
         animationSpec = tween(140),
         label = "browser frame color",
       )
-    val frameContentColor =
-      if (frameColor.luminance() > 0.18f) Color(0xFF1C1B1F) else Color(0xFFEDE8EE)
+    val frameContentColor = browserChromeContentColor(frameColor)
+    val disabledContentColor = browserChromeDisabledColor(frameColor, frameContentColor)
     val menuColors =
       MenuDefaults.itemColors(
         textColor = frameContentColor,
         leadingIconColor = frameContentColor,
-        disabledTextColor = frameContentColor.copy(alpha = 0.38f),
-        disabledLeadingIconColor = frameContentColor.copy(alpha = 0.38f),
+        disabledTextColor = disabledContentColor,
+        disabledLeadingIconColor = disabledContentColor,
       )
     val swipe = rememberGeckoChromeSwipe(page, privateMode)
     fun goHome() {
@@ -233,8 +232,8 @@ internal object BrowserEngine {
     LaunchedEffect(systemBarColor) {
       activity.window.navigationBarColor = systemBarColor.toArgb()
       WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
-        isAppearanceLightStatusBars = systemBarColor.luminance() > 0.18f
-        isAppearanceLightNavigationBars = systemBarColor.luminance() > 0.18f
+        isAppearanceLightStatusBars = browserChromeUsesDarkIcons(systemBarColor)
+        isAppearanceLightNavigationBars = browserChromeUsesDarkIcons(systemBarColor)
       }
     }
     LaunchedEffect(page.fullscreen) {

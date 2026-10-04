@@ -86,7 +86,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
@@ -1331,7 +1330,7 @@ internal fun BrowserScreen(
 
   LaunchedEffect(animatedPageBackground) {
     (context as ComponentActivity).let { activity ->
-      val isLightBackground = animatedPageBackground.luminance() > 0.5f
+      val isLightBackground = browserChromeUsesDarkIcons(animatedPageBackground)
       activity.window.navigationBarColor = animatedPageBackground.toArgb()
       activity.window.isNavigationBarContrastEnforced = false
       // The onCreate attempt at this cannot work on a cold start: the tab store is adopted from
@@ -1476,8 +1475,7 @@ internal fun BrowserScreen(
   }
 
   val chromeBarColor = animatedPageBackground
-  val chromeBarContentColor =
-    if (chromeBarColor.luminance() > 0.5f) Color(0xFF1C1B1F) else Color(0xFFEDE8EE)
+  val chromeBarContentColor = browserChromeContentColor(chromeBarColor)
 
   // Single overflow-menu definition shared by the full chrome bar and the minimal pill, so both
   // stay wired identically (including the open-on-broadcast request from the search overlay).

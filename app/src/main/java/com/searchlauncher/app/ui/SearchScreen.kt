@@ -154,9 +154,12 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -194,6 +197,9 @@ fun SearchScreen(
    */
   riseWithKeyboard: Boolean = false,
 ) {
+  // Keep input delivery independent of the composition/layout triggered by the same key.
+  val searchRequests = remember { MutableStateFlow(query) }
+  SideEffect { searchRequests.value = query } // External edits, shortcut activation and clear.
   var fetchedSearchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
   var keyboardSelectedIndex by remember { mutableIntStateOf(0) }
   var isLoading by remember { mutableStateOf(false) }
@@ -1080,10 +1086,13 @@ fun SearchScreen(
   }
 
   fun updateSearchField(newValue: androidx.compose.ui.text.input.TextFieldValue) {
-    textFieldValue = newValue
-    onQueryChange(
-      if (activeShortcut != null) "${activeShortcut.alias} ${newValue.text}" else newValue.text
-    )
+    traceSection("SL:SearchScreen.updateQuery") {
+      textFieldValue = newValue
+      val request =
+        if (activeShortcut != null) "${activeShortcut.alias} ${newValue.text}" else newValue.text
+      searchRequests.value = request
+      onQueryChange(request)
+    }
   }
 
   // The keys that start a shortcut, drawn beside the rows that search inside an app: the
@@ -1223,101 +1232,112 @@ fun SearchScreen(
   }
 
   LaunchedEffect(
-    query,
+    searchRequests,
     suggestionsEnabled,
     isIndexing,
     resultsRefreshTick,
     privateSpaceSnapshot,
     fallbackSearchShortcuts,
   ) {
-    traceAsyncSection("SL:SearchScreen.queryEffect") {
-      searchRepository.noteInteractiveSearch(query)
-      if (query.isEmpty()) {
-        fetchedSearchResults = emptyList()
-        isFallbackMode = false
-      } else {
-        searchRepository
-          .searchAppUpdates(
-            query,
-            limit = LIVE_SEARCH_RESULT_LIMIT,
-            includeSuggestions = suggestionsEnabled,
-            includeSearchShortcuts = true,
-          )
-          .catch { emit(emptyList()) }
-          .collect { results ->
-            currentCoroutineContext().ensureActive()
-
-            // Always append search shortcuts to the end of the results
-            // Keep this small in the live typing path; richer actions can load after selection.
-            val shortcuts =
-              fallbackSearchShortcuts.take(
-                if (results.isEmpty()) FALLBACK_SEARCH_SHORTCUT_LIMIT
-                else LIVE_SEARCH_SHORTCUT_LIMIT
+    withContext(Dispatchers.Default) {
+      searchRequests.collectLatest { query ->
+        traceAsyncSection("SL:SearchScreen.queryEffect") {
+          searchRepository.noteInteractiveSearch(query)
+          if (query.isEmpty()) {
+            withContext(Dispatchers.Main.immediate) {
+              if (searchRequests.value == query) {
+                fetchedSearchResults = emptyList()
+                isFallbackMode = false
+              }
+            }
+          } else {
+            searchRepository
+              .searchAppUpdates(
+                query,
+                limit = LIVE_SEARCH_RESULT_LIMIT,
+                includeSuggestions = suggestionsEnabled,
+                includeSearchShortcuts = true,
               )
-            currentCoroutineContext().ensureActive()
+              .catch { emit(emptyList()) }
+              .collect { results ->
+                withContext(Dispatchers.Main.immediate) publish@{
+                  currentCoroutineContext().ensureActive()
+                  if (searchRequests.value != query) return@publish
 
-            val baseResults =
-              traceSection("SL:SearchScreen.mergeResults") {
-                val downloadAction = createDownloadsResult(context, query)
-                val defaultActions = listOf(createSnippetFallbackResult(context, query))
-                val resultKeys = results.map { it.stableListKey }.toSet()
-                val fallbackResults =
-                  (shortcuts + defaultActions).filter { !resultKeys.contains(it.stableListKey) }
-                (listOfNotNull(downloadAction) + results + fallbackResults).distinctBy {
-                  it.stableListKey
+                  // Always append search shortcuts to the end of the results
+                  // Keep this small in the live typing path; richer actions can load after
+                  // selection.
+                  val shortcuts =
+                    fallbackSearchShortcuts.take(
+                      if (results.isEmpty()) FALLBACK_SEARCH_SHORTCUT_LIMIT
+                      else LIVE_SEARCH_SHORTCUT_LIMIT
+                    )
+                  currentCoroutineContext().ensureActive()
+
+                  val baseResults =
+                    traceSection("SL:SearchScreen.mergeResults") {
+                      val downloadAction = createDownloadsResult(context, query)
+                      val defaultActions = listOf(createSnippetFallbackResult(context, query))
+                      val resultKeys = results.map { it.stableListKey }.toSet()
+                      val fallbackResults =
+                        (shortcuts + defaultActions).filter {
+                          !resultKeys.contains(it.stableListKey)
+                        }
+                      (listOfNotNull(downloadAction) + results + fallbackResults).distinctBy {
+                        it.stableListKey
+                      }
+                    }
+                  isFallbackMode = results.isEmpty()
+
+                  // Keep the old snapshot searchable during indexing; only show an indexing
+                  // row when there are no results.
+                  val resultsWithIndexing =
+                    if (isIndexing && baseResults.isEmpty()) {
+                      listOf(SearchResult.IndexingIndicator()) + baseResults
+                    } else {
+                      baseResults
+                    }
+
+                  // Do not mistake a dashed phone number for a subtraction and hide its contact.
+                  if (
+                    MathEvaluator.isExpression(query) && !MathEvaluator.looksLikePhoneNumber(query)
+                  ) {
+                    val eval = MathEvaluator.evaluate(query)
+                    if (eval != null) {
+                      // Round to avoid long decimals if possible, or show as is
+                      val formattedResult =
+                        if (eval % 1.0 == 0.0) eval.toLong().toString() else eval.toString()
+                      val calcResult =
+                        SearchResult.Content(
+                          id = "calculator_result",
+                          namespace = "calculator",
+                          title = formattedResult,
+                          subtitle = "Calculation result (Tap to copy)",
+                          icon =
+                            searchRepository.getColoredSearchIcon(
+                              themeColor.toLong() and 0xFFFFFFFFL,
+                              "=",
+                            ),
+                          packageName = "android",
+                          deepLink = "calculator://copy?text=$formattedResult",
+                        )
+                      fetchedSearchResults =
+                        if (MathEvaluator.isUnambiguouslyArithmetic(query)) {
+                          // An explicit sum must not drag in contacts sharing its digits.
+                          listOf(calcResult)
+                        } else {
+                          (listOf(calcResult) + resultsWithIndexing).distinctBy { it.stableListKey }
+                        }
+                    } else {
+                      fetchedSearchResults = resultsWithIndexing
+                    }
+                  } else {
+                    fetchedSearchResults = resultsWithIndexing
+                  }
                 }
               }
-            isFallbackMode = results.isEmpty()
-
-            // Only surface the indexing row when there are no live results to show. Background
-            // rebuilds keep the previous snapshot searchable and swap when ready.
-            val resultsWithIndexing =
-              if (isIndexing && baseResults.isEmpty()) {
-                listOf(SearchResult.IndexingIndicator()) + baseResults
-              } else {
-                baseResults
-              }
-
-            // Calculator injection, except for the numbers that only parse as sums by accident: a
-            // phone number typed with dashes is a subtraction to the evaluator, and answering it
-            // puts
-            // a meaningless total above the contact that was being looked for.
-            if (MathEvaluator.isExpression(query) && !MathEvaluator.looksLikePhoneNumber(query)) {
-              val eval = MathEvaluator.evaluate(query)
-              if (eval != null) {
-                // Round to avoid long decimals if possible, or show as is
-                val formattedResult =
-                  if (eval % 1.0 == 0.0) eval.toLong().toString() else eval.toString()
-                val calcResult =
-                  SearchResult.Content(
-                    id = "calculator_result",
-                    namespace = "calculator",
-                    title = formattedResult,
-                    subtitle = "Calculation result (Tap to copy)",
-                    icon =
-                      searchRepository.getColoredSearchIcon(
-                        themeColor.toLong() and 0xFFFFFFFFL,
-                        "=",
-                      ),
-                    packageName = "android",
-                    deepLink = "calculator://copy?text=$formattedResult",
-                  )
-                fetchedSearchResults =
-                  if (MathEvaluator.isUnambiguouslyArithmetic(query)) {
-                    // Contacts are indexed on their phone numbers, so a query like "1234*56" drags
-                    // in
-                    // whoever happens to share those digits. Nothing but the sum can be meant here.
-                    listOf(calcResult)
-                  } else {
-                    (listOf(calcResult) + resultsWithIndexing).distinctBy { it.stableListKey }
-                  }
-              } else {
-                fetchedSearchResults = resultsWithIndexing
-              }
-            } else {
-              fetchedSearchResults = resultsWithIndexing
-            }
           }
+        }
       }
     }
   }
@@ -2229,7 +2249,12 @@ fun SearchScreen(
                         // Stable identity lets Compose move surviving rows rather than replay
                         // their entrance on each query. Placement animation excludes scroll deltas.
                         modifier =
-                          Modifier.zIndex(if (index == keyboardSelectedIndex) 1f else 0f)
+                          Modifier.drawWithContent {
+                              if (index == 0)
+                                traceSection("SL:SearchScreen.drawFirstResult") { drawContent() }
+                              else drawContent()
+                            }
+                            .zIndex(if (index == keyboardSelectedIndex) 1f else 0f)
                             .then(
                               if (index == keyboardSelectedIndex)
                                 Modifier.background(
