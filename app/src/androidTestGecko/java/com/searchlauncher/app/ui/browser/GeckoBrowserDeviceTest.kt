@@ -1290,43 +1290,80 @@ class GeckoBrowserDeviceTest {
   @Test
   fun browserKeyboardUsesSiteColors() {
     prepareHome()
-    for ((path, color) in listOf("/header-theme" to Color.rgb(170, 18, 57), "/" to Color.WHITE)) {
-      context.startActivity(BrowserActivity.createIntent(context, "$origin$path"))
-      eventually {
-        var ready = false
-        instrumentation.runOnMainSync {
-          ready = BrowserTabStore.tabs!!.active.frameColorArgb == color
+    val original = runBlocking { context.dataStore.data.first() }
+    try {
+      for ((mode, oled) in listOf(2 to true, 2 to false, 1 to false)) {
+        runBlocking {
+          context.dataStore.edit {
+            it[PreferencesKeys.DARK_MODE] = mode
+            it[PreferencesKeys.OLED_MODE] = oled
+          }
         }
-        ready
+        for ((path, color) in
+          listOf("/header-theme" to Color.rgb(170, 18, 57), "/" to Color.WHITE)) {
+          context.startActivity(BrowserActivity.createIntent(context, "$origin$path"))
+          eventually {
+            var ready = false
+            instrumentation.runOnMainSync {
+              ready = BrowserTabStore.tabs!!.active.frameColorArgb == color
+            }
+            ready
+          }
+          device
+            .wait(
+              Until.findObject(
+                By.text(com.searchlauncher.app.util.displayPageAddress("$origin$path"))
+              ),
+              15000,
+            )!!
+            .click()
+          val q = device.wait(Until.findObject(By.desc("q")), 10000)!!.visibleBounds
+          assertNotNull(device.wait(Until.findObject(By.desc("Space")), 10000))
+          device.findObject(By.desc("s"))!!.click()
+          device.findObject(By.desc("e"))!!.click()
+          assertEquals(
+            "se",
+            device.wait(Until.findObject(By.clazz("android.widget.EditText")), 10000)!!.text,
+          )
+          SystemClock.sleep(600)
+          val bitmap =
+            android.graphics.BitmapFactory.decodeFile(
+              saveScreenshot("keyboard-tint-$mode-$oled-$color").absolutePath
+            )
+          val surface = bitmap.getPixel(1, q.centerY())
+          assertEquals(surface, bitmap.getPixel(8, bitmap.height - 24))
+          if (oled) assertEquals(Color.BLACK, surface)
+          val key = bitmap.getPixel(q.left + 12, q.centerY())
+          if (mode == 2) {
+            assertTrue(
+              "Dark mode must stay dark even on a white/red site",
+              Color.red(surface) < 40 && Color.green(surface) < 40 && Color.blue(surface) < 40,
+            )
+            assertTrue(
+              "Resting keys must stay dark",
+              Color.red(key) < 90 && Color.green(key) < 90 && Color.blue(key) < 90,
+            )
+            if (color != Color.WHITE)
+              assertTrue("Keys should carry a subtle red tint", Color.red(key) > Color.green(key))
+          } else
+            assertTrue(
+              "Light mode should stay light",
+              Color.red(surface) > 230 && Color.green(surface) > 230 && Color.blue(surface) > 230,
+            )
+          bitmap.recycle()
+          device.pressBack()
+          assertNotNull(device.wait(Until.findObject(By.desc("Browser menu")), 10000))
+        }
       }
-      device
-        .wait(
-          Until.findObject(By.text(com.searchlauncher.app.util.displayPageAddress("$origin$path"))),
-          15000,
-        )!!
-        .click()
-      val q = device.wait(Until.findObject(By.desc("q")), 10000)!!.visibleBounds
-      assertNotNull(device.wait(Until.findObject(By.desc("Space")), 10000))
-      SystemClock.sleep(400)
-      val bitmap =
-        android.graphics.BitmapFactory.decodeFile(
-          saveScreenshot("keyboard-site-$color").absolutePath
-        )
-      // Outer keyboard gutter and OS navigation strip must use the exact website color.
-      assertEquals(color, bitmap.getPixel(1, q.centerY()))
-      assertEquals(color, bitmap.getPixel(8, bitmap.height - 24))
-      val key = bitmap.getPixel(q.left + 12, q.centerY())
-      if (color != Color.WHITE) {
-        assertTrue("Keys must keep the website hue", Color.red(key) > Color.green(key) * 2)
+    } finally {
+      runBlocking {
+        context.dataStore.edit {
+          original[PreferencesKeys.DARK_MODE]?.let { v -> it[PreferencesKeys.DARK_MODE] = v }
+            ?: it.remove(PreferencesKeys.DARK_MODE)
+          original[PreferencesKeys.OLED_MODE]?.let { v -> it[PreferencesKeys.OLED_MODE] = v }
+            ?: it.remove(PreferencesKeys.OLED_MODE)
+        }
       }
-      bitmap.recycle()
-      device.findObject(By.desc("q"))!!.click()
-      assertEquals(
-        "q",
-        device.wait(Until.findObject(By.clazz("android.widget.EditText")), 10000)!!.text,
-      )
-      device.pressBack()
-      assertNotNull(device.wait(Until.findObject(By.desc("Browser menu")), 10000))
     }
   }
 

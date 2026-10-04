@@ -1653,21 +1653,16 @@ fun SearchScreen(
     chroma = themeSaturation,
     isOled = isOled,
     manageSystemBars = chromeBarColor == null,
+    browserSiteColor = chromeBarColor,
   ) {
-    val baseColors = MaterialTheme.colorScheme
-    val keyboardColors =
-      remember(chromeBarColor, baseColors) {
-        chromeBarColor?.let {
-          com.searchlauncher.app.ui.theme.browserKeyboardColors(it, baseColors)
-        } ?: baseColors
-      }
+    val searchColors = MaterialTheme.colorScheme
     if (chromeBarColor != null && !view.isInEditMode) {
       androidx.compose.runtime.SideEffect {
         val window = (view.context as android.app.Activity).window
         val controller = androidx.core.view.WindowCompat.getInsetsController(window, view)
         val light = chromeBarColor.luminance() > 0.179f
         controller.isAppearanceLightStatusBars = light
-        controller.isAppearanceLightNavigationBars = light
+        controller.isAppearanceLightNavigationBars = searchColors.surface.luminance() > 0.179f
       }
     }
     // Ramped rather than applied outright, so the dim arrives together with the window blur behind
@@ -2161,27 +2156,9 @@ fun SearchScreen(
           // Keep the empty list measured so the first query is an insertion too.
           // An unplaced empty panel neither paints nor intercepts wallpaper gestures.
           run {
-            // When opened from the browser, the results panel takes the page color like the rest
-            // of the chrome. SearchResultItem reads onSurface/onSurfaceVariant from the theme, so
-            // override those locally for contrast on arbitrary page colors. The selection highlight
-            // is chosen against this pair, so the theme's container colour is not painted under
-            // text that was picked for the page.
-            val resultsColor = chromeBarColor ?: MaterialTheme.colorScheme.surface
-            val resultsContentColor =
-              chromeBarColor?.let {
-                if (it.luminance() > 0.5f) Color(0xFF1C1B1F) else Color(0xFFEDE8EE)
-              } ?: MaterialTheme.colorScheme.onSurface
-            val resultsColorScheme =
-              if (chromeBarColor != null) {
-                MaterialTheme.colorScheme.copy(
-                  surface = resultsColor,
-                  surfaceVariant = resultsColor,
-                  onSurface = resultsContentColor,
-                  onSurfaceVariant = resultsContentColor.copy(alpha = 0.8f),
-                )
-              } else {
-                MaterialTheme.colorScheme
-              }
+            val resultsColor = MaterialTheme.colorScheme.surface
+            val resultsContentColor = MaterialTheme.colorScheme.onSurface
+            val resultsColorScheme = MaterialTheme.colorScheme
             MaterialTheme(colorScheme = resultsColorScheme) {
               Surface(
                 modifier =
@@ -2504,11 +2481,8 @@ fun SearchScreen(
                     // the tab's own window opens onto it without a transition of its own.
                     onOpenLastTab = { BrowserTabTasks.openNewestTab(context) },
                   ),
-              color = chromeBarColor ?: MaterialTheme.colorScheme.surface,
-              contentColor =
-                chromeBarColor?.let {
-                  if (it.luminance() > 0.5f) Color(0xFF1C1B1F) else Color(0xFFEDE8EE)
-                } ?: MaterialTheme.colorScheme.onSurface,
+              color = MaterialTheme.colorScheme.surface,
+              contentColor = MaterialTheme.colorScheme.onSurface,
               // As a browser overlay the bar floats over the page, which may be the exact same
               // color — a shadow keeps it readable as its own layer.
               shadowElevation = if (chromeBarColor != null) 8.dp else 0.dp,
@@ -2710,10 +2684,10 @@ fun SearchScreen(
         Modifier.align(Alignment.BottomCenter)
           .fillMaxWidth()
           .windowInsetsBottomHeight(WindowInsets.navigationBars)
-          .background(keyboardColors.surface)
+          .background(searchColors.surface)
       )
       if (builtInKeyboardVisible) {
-        MaterialTheme(colorScheme = keyboardColors) {
+        MaterialTheme(colorScheme = searchColors) {
           com.searchlauncher.app.ui.components.HomeSearchKeyboard(
             modifier =
               Modifier.align(Alignment.BottomCenter)

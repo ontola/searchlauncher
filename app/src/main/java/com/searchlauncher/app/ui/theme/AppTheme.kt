@@ -22,6 +22,7 @@ fun SearchLauncherTheme(
   chroma: Float = 50f,
   isOled: Boolean = false,
   manageSystemBars: Boolean = true,
+  browserSiteColor: Color? = null,
   content: @Composable () -> Unit,
 ) {
   val useDarkTheme =
@@ -32,8 +33,9 @@ fun SearchLauncherTheme(
     }
 
   val colorScheme =
-    remember(themeColor, useDarkTheme, chroma, isOled) {
-      schemeFromUserColor(themeColor, useDarkTheme, chroma, isOled)
+    remember(themeColor, useDarkTheme, chroma, isOled, browserSiteColor) {
+      browserSiteColor?.let { browserSearchColors(it, useDarkTheme, chroma, isOled) }
+        ?: schemeFromUserColor(themeColor, useDarkTheme, chroma, isOled)
     }
 
   val view = LocalView.current

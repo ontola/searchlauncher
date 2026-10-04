@@ -132,3 +132,18 @@ live page interaction checks. A 30 fps frame extraction across a handoff showed
 continuous content, with no blank page frame. This is emulator evidence, not Xiaomi
 hardware validation. Full Spotless check passed; 450 unit tests reported no failures
 (3 skipped), including palette contrast across 4096 colors in light and dark themes.
+
+
+## Experimental 20: subtle site tint, preserved theme mode
+
+Replaces build 19's literal website-color fills with the existing tonal theme generator.
+The site supplies the hue with chroma capped at 24 (and bounded by the site's own chroma
+and the user's saturation preference). Search results, the input and the keyboard all
+share this palette. Dark/light mode still determines brightness; OLED surfaces stay black.
+The browser page's own toolbar color remains unchanged. Navigation icons contrast against
+the search surface rather than the website color.
+
+Validation: emulator screenshots and pixel checks passed for red and white sites in dark,
+OLED and light modes, with a query and search results visible. Unit coverage checks subdued
+surfaces, neutral sites, OLED black and readable key/selection states. Full formatting and
+unit checks passed; Xiaomi hardware has not been checked.
