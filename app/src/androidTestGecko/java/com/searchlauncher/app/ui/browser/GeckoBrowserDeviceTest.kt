@@ -94,6 +94,75 @@ class GeckoBrowserDeviceTest {
       .writeText(reports.joinToString("\n"))
   }
 
+  /** Opt in with -e liveRtl true; use a fresh installation to cover first-use provisioning. */
+  @Test
+  fun protectedRtlVideoPlaysAndReloads() {
+    org.junit.Assume.assumeTrue(
+      InstrumentationRegistry.getArguments().getString("liveRtl") == "true"
+    )
+    lateinit var session: org.mozilla.geckoview.GeckoSession
+    fun findGecko(view: android.view.View): org.mozilla.geckoview.GeckoView? {
+      if (view is org.mozilla.geckoview.GeckoView) return view
+      if (view is android.view.ViewGroup) {
+        for (i in 0 until view.childCount) findGecko(view.getChildAt(i))?.let {
+          return it
+        }
+      }
+      return null
+    }
+    val positions = CopyOnWriteArrayList<Double>()
+    var playingMedia: org.mozilla.geckoview.MediaSession? = null
+    instrumentation.runOnMainSync {
+      val activity =
+        ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED).first {
+          it is BrowserActivity
+        }
+      session = findGecko(activity.window.decorView)!!.session!!
+      session.mediaSessionDelegate =
+        object : org.mozilla.geckoview.MediaSession.Delegate {
+          override fun onPositionState(
+            gecko: org.mozilla.geckoview.GeckoSession,
+            media: org.mozilla.geckoview.MediaSession,
+            state: org.mozilla.geckoview.MediaSession.PositionState,
+          ) {
+            playingMedia = media
+            positions += state.position
+            reports += "rtl-position:${state.position}/${state.duration}"
+          }
+        }
+      session.loadUri(
+        "https://www.rtl.nl/nieuws/video/video/a5214320-3ada-4f92-8c01-5ef1d5db39fa/ai-ontspoort-staat-de-stopknop-veldhoven"
+      )
+    }
+    try {
+      repeat(2) { attempt ->
+        eventually(45000) {
+          device.findObject(By.text("Alles weigeren"))?.click()
+          device.findObject(By.text(java.util.regex.Pattern.compile("(?i)allow")))?.let {
+            it.click()
+            true
+          } ?: false
+        }
+        // RTL's canvas player exposes no accessible play button. Position verified on Phone_A35.
+        SystemClock.sleep(3000)
+        device.click(device.displayWidth / 2, device.displayHeight * 26 / 100)
+        eventually(45000) { positions.any { it > 0.0 } }
+        SystemClock.sleep(6000)
+        // PositionState is event-driven, not a ticking clock. Pausing requests a fresh position.
+        instrumentation.runOnMainSync { playingMedia!!.pause() }
+        eventually { positions.any { it >= 3.0 } }
+        assertFalse(device.hasObject(By.textContains("PLAYBACK_VIDEO_DECODING_ERROR")))
+        saveScreenshot("rtl-playing-$attempt")
+        if (attempt == 0) {
+          instrumentation.runOnMainSync { session.reload() }
+          positions.clear()
+        }
+      }
+    } finally {
+      instrumentation.runOnMainSync { session.mediaSessionDelegate = null }
+    }
+  }
+
   @Test
   fun browserFrameFollowsWebsiteThemeAndBackground() {
     val original = runBlocking { context.dataStore.data.first() }

@@ -10,6 +10,12 @@ import android.os.Build
 import android.widget.EditText
 import android.widget.LinearLayout
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoSession
@@ -26,6 +32,7 @@ internal class GeckoPrompts(
 ) : PromptDelegate {
   private val dialogs = mutableSetOf<AlertDialog>()
   private var closed = false
+  private val permissionScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
   private fun confirm(message: String, reply: (Boolean) -> Unit) {
     if (closed || activity.isFinishing) {
@@ -297,6 +304,35 @@ internal class GeckoPrompts(
                 ) == PackageManager.PERMISSION_GRANTED
               )
             }
+          } else if (
+            allowed &&
+              permission.permission == PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS
+          ) {
+            permissionScope.launch {
+              var ready = false
+              try {
+                GeckoProtectedMedia.prepare()
+                ready = true
+              } catch (cancelled: CancellationException) {
+                throw cancelled
+              } catch (failure: Exception) {
+                // Don't log provisioning URLs/responses or device identifiers.
+                android.util.Log.w(
+                  "GeckoProtectedMedia",
+                  "Protected media unavailable: ${failure.javaClass.simpleName}",
+                )
+                if (!closed) {
+                  android.widget.Toast.makeText(
+                      activity,
+                      "Could not prepare protected video playback. Please try again.",
+                      android.widget.Toast.LENGTH_LONG,
+                    )
+                    .show()
+                }
+              } finally {
+                finish(ready && !closed)
+              }
+            }
           } else finish(allowed)
         }
         return result
@@ -336,6 +372,7 @@ internal class GeckoPrompts(
 
   fun close() {
     closed = true
+    permissionScope.cancel()
     dialogs.toList().forEach { it.dismiss() }
     dialogs.clear()
   }
