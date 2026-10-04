@@ -118,6 +118,105 @@ class TypingPerformanceTest {
   }
 
   @Test
+  fun navigationBarTracksSwipeAndCancellation() {
+    home()
+    SystemClock.sleep(500)
+    val homeColor = navigationColor("home")
+    // Reuse the deterministic browser fixture setup; it leaves a fresh tab available.
+    optimizedBrowserNavigationAndDownload()
+    device.wait(Until.findObject(By.text("Done")), 5000)!!.click()
+    val browserBar = device.wait(Until.findObject(By.desc("Browser menu")), 5000)!!.visibleBounds
+    SystemClock.sleep(300)
+    val browserColor = navigationColor("browser")
+    assertTrue(
+      "Fixture and home must have different colors",
+      colorDistance(homeColor, browserColor) > 25,
+    )
+
+    fun exercise(start: Float, direction: Float, y: Int, from: Int, to: Int, prefix: String) {
+      val width = device.displayWidth.toFloat()
+      val down = SystemClock.uptimeMillis()
+      fun touch(action: Int, x: Float) {
+        val event =
+          MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x * width, y.toFloat(), 0)
+            .apply { source = InputDevice.SOURCE_TOUCHSCREEN }
+        try {
+          assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true))
+        } finally {
+          event.recycle()
+        }
+        SystemClock.sleep(100)
+      }
+      touch(MotionEvent.ACTION_DOWN, start)
+      try {
+        touch(MotionEvent.ACTION_MOVE, start + direction * 0.18f)
+        val early = navigationColor("$prefix-early")
+        touch(MotionEvent.ACTION_MOVE, start + direction * 0.40f)
+        val middle = navigationColor("$prefix-middle")
+        assertTrue("Color must move before releasing the swipe", colorDistance(from, early) > 5)
+        assertTrue(
+          "Color must continue blending",
+          colorDistance(from, middle) > colorDistance(from, early),
+        )
+        assertTrue("Halfway must not snap to destination", colorDistance(middle, to) > 5)
+        touch(MotionEvent.ACTION_MOVE, start + direction * 0.10f)
+        val reversed = navigationColor("$prefix-reversed")
+        assertTrue(
+          "Reversing must restore the source color",
+          colorDistance(from, reversed) < colorDistance(from, middle),
+        )
+        touch(MotionEvent.ACTION_MOVE, start)
+      } finally {
+        touch(MotionEvent.ACTION_UP, start)
+      }
+      SystemClock.sleep(500)
+      assertTrue(
+        "Cancelled swipe restores its color",
+        colorDistance(from, navigationColor("$prefix-cancelled")) < 4,
+      )
+    }
+    exercise(0.80f, -1f, browserBar.centerY(), browserColor, homeColor, "to-home")
+    device.swipe(
+      device.displayWidth * 8 / 10,
+      browserBar.centerY(),
+      device.displayWidth / 10,
+      browserBar.centerY(),
+      40,
+    )
+    assertNotNull(device.wait(Until.findObject(By.desc("Settings")), 10000))
+    SystemClock.sleep(500)
+    assertTrue(colorDistance(homeColor, navigationColor("home-committed")) < 4)
+    val homeBar = device.findObject(By.clazz("android.widget.EditText"))!!.visibleBounds
+    exercise(0.20f, 1f, homeBar.centerY(), homeColor, browserColor, "to-tab")
+    device.swipe(
+      device.displayWidth / 5,
+      homeBar.centerY(),
+      device.displayWidth * 9 / 10,
+      homeBar.centerY(),
+      40,
+    )
+    assertNotNull(device.wait(Until.findObject(By.desc("Browser menu")), 10000))
+    SystemClock.sleep(500)
+    assertTrue(colorDistance(browserColor, navigationColor("tab-committed")) < 4)
+  }
+
+  private fun navigationColor(label: String): Int {
+    val file = File(instrumentation.context.getExternalFilesDir(null), "nav-$label.png")
+    assertTrue(device.takeScreenshot(file))
+    val bitmap = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+    return try {
+      bitmap.getPixel(bitmap.width / 2, bitmap.height - 8)
+    } finally {
+      bitmap.recycle()
+    }
+  }
+
+  private fun colorDistance(a: Int, b: Int): Int =
+    kotlin.math.abs(android.graphics.Color.red(a) - android.graphics.Color.red(b)) +
+      kotlin.math.abs(android.graphics.Color.green(a) - android.graphics.Color.green(b)) +
+      kotlin.math.abs(android.graphics.Color.blue(a) - android.graphics.Color.blue(b))
+
+  @Test
   fun continuousTyping() {
     home()
     val words = listOf("settings", "camera", "clock")

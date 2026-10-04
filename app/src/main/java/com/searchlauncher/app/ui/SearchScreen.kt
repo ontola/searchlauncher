@@ -1676,6 +1676,11 @@ fun SearchScreen(
     browserSiteColor = chromeBarColor,
   ) {
     val searchColors = MaterialTheme.colorScheme
+    SideEffect {
+      if (browserTabSwipeEnabled && isActive) {
+        com.searchlauncher.app.ui.browser.HomeSwipePreview.navigationBarColor = searchColors.surface
+      }
+    }
     if (chromeBarColor != null && !view.isInEditMode) {
       androidx.compose.runtime.SideEffect {
         val window = (view.context as android.app.Activity).window
@@ -2709,12 +2714,21 @@ fun SearchScreen(
         }
       }
       // Edge-to-edge windows otherwise reveal the wallpaper beneath the OS navigation controls.
-      Box(
-        Modifier.align(Alignment.BottomCenter)
-          .fillMaxWidth()
-          .windowInsetsBottomHeight(WindowInsets.navigationBars)
-          .background(searchColors.surface)
-      )
+      com.searchlauncher.app.ui.browser.SwipeNavigationBar(
+        modifier = Modifier.align(Alignment.BottomCenter),
+        manageWindow = browserTabSwipeEnabled && isActive,
+      ) {
+        val destination =
+          browserTabSwipe.tab?.let { Color(it.frameColorArgb) } ?: searchColors.surface
+        androidx.compose.ui.graphics.lerp(
+          searchColors.surface,
+          destination,
+          (browserTabSwipe.offsetPx / browserTabSwipe.viewportWidthPx.coerceAtLeast(1)).coerceIn(
+            0f,
+            1f,
+          ),
+        )
+      }
       if (builtInKeyboardVisible) {
         MaterialTheme(colorScheme = searchColors) {
           com.searchlauncher.app.ui.components.HomeSearchKeyboard(

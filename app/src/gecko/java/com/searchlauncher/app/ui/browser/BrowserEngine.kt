@@ -31,7 +31,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -232,10 +231,8 @@ internal object BrowserEngine {
       onDispose {}
     }
     LaunchedEffect(systemBarColor) {
-      activity.window.navigationBarColor = systemBarColor.toArgb()
       WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
         isAppearanceLightStatusBars = browserChromeUsesDarkIcons(systemBarColor)
-        isAppearanceLightNavigationBars = browserChromeUsesDarkIcons(systemBarColor)
       }
     }
     LaunchedEffect(page.fullscreen) {
@@ -668,6 +665,26 @@ internal object BrowserEngine {
       }
       AnimatedVisibility(visible = page.showDownloads, enter = fadeIn(), exit = fadeOut()) {
         BrowserDownloadsScreen(onDismiss = page::dismissDownloads)
+      }
+      if (!page.fullscreen) {
+        val homeNavigationColor =
+          HomeSwipePreview.navigationBarColor ?: MaterialTheme.colorScheme.surface
+        SwipeNavigationBar(modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter)) {
+          val direction = if (swipe.offset < 0f) 1 else -1
+          val neighbour = swipe.neighbour(direction)
+          val destination =
+            when {
+              !swipe.inMotion || page.showDownloads -> systemBarColor
+              neighbour != null -> Color(neighbour.frameColorArgb)
+              direction == 1 -> homeNavigationColor
+              else -> systemBarColor
+            }
+          androidx.compose.ui.graphics.lerp(
+            systemBarColor,
+            destination,
+            (kotlin.math.abs(swipe.offset) / swipe.widthPx.coerceAtLeast(1)).coerceIn(0f, 1f),
+          )
+        }
       }
       if (showInfo)
         AlertDialog(
