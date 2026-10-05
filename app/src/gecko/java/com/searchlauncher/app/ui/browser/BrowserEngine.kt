@@ -627,6 +627,10 @@ internal object BrowserEngine {
               }
             }
           }
+        } else if (!page.fullscreen && !websiteKeyboardVisible && !inPictureInPicture) {
+          // The translucent search overlay hides these controls. Keep the page viewport stable:
+          // resizing it here exposes an unpainted white strip while the keyboard slides upward.
+          Spacer(Modifier.height(with(density) { chromeSize.height.toDp() }))
         }
       }
       if (overview && !privateMode) {

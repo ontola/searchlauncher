@@ -447,20 +447,11 @@ fun SearchScreen(
       }
     }
 
-  val themeColor by
-    remember {
-        context.dataStore.data.map { it[PreferencesKeys.THEME_COLOR] ?: 0xFF5E6D4E.toInt() }
-      }
-      .collectAsState(initial = 0xFF5E6D4E.toInt())
-  val themeSaturation by
-    remember { context.dataStore.data.map { it[PreferencesKeys.THEME_SATURATION] ?: 50f } }
-      .collectAsState(initial = 50f)
-  val darkMode by
-    remember { context.dataStore.data.map { it[PreferencesKeys.DARK_MODE] ?: 0 } }
-      .collectAsState(initial = 0)
-  val isOled by
-    remember { context.dataStore.data.map { it[PreferencesKeys.OLED_MODE] ?: false } }
-      .collectAsState(initial = false)
+  val appearance = com.searchlauncher.app.ui.theme.rememberThemePreferences() ?: return
+  val themeColor = appearance.color
+  val themeSaturation = appearance.saturation
+  val darkMode = appearance.darkMode
+  val isOled = appearance.oled
   val showWidgetsSetting by
     remember { context.dataStore.data.map { it[PreferencesKeys.SHOW_WIDGETS] ?: true } }
       .collectAsState(initial = true)

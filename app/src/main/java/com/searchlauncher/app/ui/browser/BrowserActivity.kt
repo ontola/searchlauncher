@@ -210,10 +210,12 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     enableEdgeToEdge()
 
     setContent {
-      val themeColor by preference(PreferencesKeys.THEME_COLOR, 0xFF5E6D4E.toInt())
-      val themeSaturation by preference(PreferencesKeys.THEME_SATURATION, 50f)
-      val darkMode by preference(PreferencesKeys.DARK_MODE, 0)
-      val isOled by preference(PreferencesKeys.OLED_MODE, false)
+      val appearance =
+        com.searchlauncher.app.ui.theme.rememberThemePreferences() ?: return@setContent
+      val themeColor = appearance.color
+      val themeSaturation = appearance.saturation
+      val darkMode = appearance.darkMode
+      val isOled = appearance.oled
 
       // Browser chrome owns icon contrast according to the actual page, not the app palette.
       SearchLauncherTheme(themeColor, darkMode, themeSaturation, isOled, manageSystemBars = false) {
