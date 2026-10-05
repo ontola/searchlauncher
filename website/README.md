@@ -46,6 +46,6 @@ Propagation is often minutes, sometimes up to 24–48h. Then click **DNS check**
 ## Current media
 
 The homepage uses web-sized WebP exports of `marketing/captures/v0.0.39/phone`
-and the actual-interaction promo `marketing/out/video/searchlauncher-promo-v3.mp4`.
-The MP4 is self-hosted with `preload="none"`; the YouTube link is an optional alternative.
+and the motion graphics demo rendered by `marketing/video` (`node render.mjs full`), re-encoded
+for the web with ffmpeg at CRF 25. The MP4 is self-hosted with `preload="none"`.
 `assets/social-preview.jpg` comes from the current store feature graphic.
