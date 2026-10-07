@@ -108,10 +108,7 @@ class InstalledWebAppTest {
     fun open(url: String) {
       context.startActivity(
         Intent(Intent.ACTION_VIEW, Uri.parse(url))
-          .setClassName(
-            "com.searchlauncher.app.gecko",
-            "com.searchlauncher.app.ui.browser.BrowserActivity",
-          )
+          .setClassName(targetBrowserPackage, "com.searchlauncher.app.ui.browser.BrowserActivity")
           .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       )
     }
@@ -119,7 +116,7 @@ class InstalledWebAppTest {
       device.wakeUp()
       device.executeShellCommand("wm dismiss-keyguard")
       device.executeShellCommand(
-        "pm grant com.searchlauncher.app.gecko android.permission.POST_NOTIFICATIONS"
+        "pm grant $targetBrowserPackage android.permission.POST_NOTIFICATIONS"
       )
       open("$origin/app/start")
       waitFor("Browser document loaded") { reports.any { it.endsWith("/browser") } }
@@ -167,10 +164,10 @@ class InstalledWebAppTest {
         File(context.getExternalFilesDir(null), "pwa-$display-notification-return.png")
       )
       // The favorite must launch as an app even after the browser process has gone away.
-      device.executeShellCommand("am force-stop com.searchlauncher.app.gecko")
+      device.executeShellCommand("am force-stop $targetBrowserPackage")
       context.startActivity(
         Intent()
-          .setClassName("com.searchlauncher.app.gecko", "com.searchlauncher.app.ui.MainActivity")
+          .setClassName(targetBrowserPackage, "com.searchlauncher.app.ui.MainActivity")
           .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       )
       device.wait(Until.hasObject(By.desc(name)), 15000)
@@ -181,7 +178,7 @@ class InstalledWebAppTest {
       tap("Mode $display")
       assertFalse(device.hasObject(By.desc("Browser menu")))
       // Reopen the browser document, then its persisted installation. No duplicate install flow.
-      device.executeShellCommand("am force-stop com.searchlauncher.app.gecko")
+      device.executeShellCommand("am force-stop $targetBrowserPackage")
       open("$origin/app/start")
       tap("Mode browser")
       device.wait(Until.findObject(By.desc("Browser menu")), 10000)!!.click()

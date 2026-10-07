@@ -26,6 +26,11 @@ jobs:
           distribution: "temurin"
           cache: "gradle"
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install browser compile SDK
+        run: sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
       - name: Check code formatting
@@ -72,6 +77,12 @@ jobs:
           name: searchlauncher-apks
           path: artifacts/*.apk
 
+      - name: Upload obfuscation mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: searchlauncher-mapping
+          path: app/build/outputs/mapping/release/mapping.txt
+
       - name: Upload App Bundle
         if: startsWith(github.ref, 'refs/tags/v') && env.SIGNING_KEY_STORE_BASE64 != ''
         uses: actions/upload-artifact@v4
@@ -92,10 +103,12 @@ jobs:
           name: searchlauncher-apks
           path: .
 
+      - uses: actions/checkout@v4
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: "*.apk"
+          body_path: docs/releases/${{ github.ref_name }}.md
           overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

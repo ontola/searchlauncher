@@ -1,0 +1,6 @@
+A new browser powered by Gecko, the Firefox engine.
+• Smoother scrolling, faster search and better tab switching.
+• Install supported websites as apps from the browser menu.
+• Improved downloads with progress notifications and cancellation.
+• Better fullscreen video, site colors and favicon backups.
+Your favorites and settings stay. Website sign-ins may need to be repeated after the engine change. Website notifications work while the browser runs; background push is not yet supported.

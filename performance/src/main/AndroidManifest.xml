@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.INTERNET" />
-  <queries><package android:name="com.searchlauncher.app.gecko" /></queries>
+  <queries>
+    <package android:name="com.searchlauncher.app.gecko" />
+    <package android:name="com.searchlauncher.app" />
+    <package android:name="com.searchlauncher.app.debug" />
+  </queries>
 </manifest>

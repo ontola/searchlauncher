@@ -71,10 +71,7 @@ class FullscreenBrowserTest {
       device.executeShellCommand("wm dismiss-keyguard")
       context.startActivity(
         Intent(Intent.ACTION_VIEW, Uri.parse("http://localhost:${server.localPort}/"))
-          .setClassName(
-            "com.searchlauncher.app.gecko",
-            "com.searchlauncher.app.ui.browser.BrowserActivity",
-          )
+          .setClassName(targetBrowserPackage, "com.searchlauncher.app.ui.browser.BrowserActivity")
           .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       )
       for (label in listOf("Site fullscreen", "Video fullscreen")) {

@@ -24,7 +24,7 @@ import org.junit.runner.RunWith
 class TypingPerformanceTest {
   private val instrumentation = InstrumentationRegistry.getInstrumentation()
   private val device = UiDevice.getInstance(instrumentation)
-  private val pkg = "com.searchlauncher.app.gecko"
+  private val pkg = targetBrowserPackage
 
   private fun home() {
     device.wakeUp()

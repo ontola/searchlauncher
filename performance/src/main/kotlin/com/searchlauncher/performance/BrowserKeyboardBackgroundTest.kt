@@ -81,10 +81,7 @@ class BrowserKeyboardBackgroundTest {
       device.executeShellCommand("wm dismiss-keyguard")
       context.startActivity(
         Intent(Intent.ACTION_VIEW, Uri.parse("http://localhost:${server.localPort}/"))
-          .setClassName(
-            "com.searchlauncher.app.gecko",
-            "com.searchlauncher.app.ui.browser.BrowserActivity",
-          )
+          .setClassName(targetBrowserPackage, "com.searchlauncher.app.ui.browser.BrowserActivity")
           .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       )
       assertNotNull(device.wait(Until.findObject(By.clazz("android.widget.EditText")), 15000))

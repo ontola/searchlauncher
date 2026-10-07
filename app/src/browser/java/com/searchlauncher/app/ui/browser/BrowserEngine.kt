@@ -706,7 +706,7 @@ internal object BrowserEngine {
                         },
                       )
                     DropdownMenuItem(
-                      text = { Text("About this experiment") },
+                      text = { Text("About this browser") },
                       leadingIcon = { Icon(Icons.Default.Info, null) },
                       colors = menuColors,
                       onClick = { run { showInfo = true } },
@@ -782,10 +782,10 @@ internal object BrowserEngine {
       if (showInfo)
         AlertDialog(
           onDismissRequest = { showInfo = false },
-          title = { Text("SearchLauncher Gecko") },
+          title = { Text("SearchLauncher browser") },
           text = {
             Text(
-              "Experimental Firefox engine (GeckoView 157). Separate app and website data.\n\nLocal website notifications are supported while Gecko is running. Remote push delivery is not configured.\n\nPasskey providers, background media, full gesture parity, and storage size reporting still need validation or integration."
+              "Powered by GeckoView 157, the Firefox browser engine.\n\nLocal website notifications are supported while Gecko is running. Remote push delivery is not configured.\n\nPasskey availability depends on your credential provider. Per-site storage totals and background push are not yet supported."
             )
           },
           confirmButton = { TextButton(onClick = { showInfo = false }) { Text("Done") } },

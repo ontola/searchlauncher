@@ -1,3 +1,15 @@
+# Gecko integration history
+
+**As of 0.1.0, Gecko is the production browser.** All variants share `app/src/browser` and use
+SurfaceView by default. `assembleRelease` / `bundleRelease` build `com.searchlauncher.app`;
+`assembleGecko` retains the separate `com.searchlauncher.app.gecko` testing identity.
+The sections below record the earlier experiment and its validation history; references to
+WebView release builds or `app/src/gecko/java` describe that historical state.
+
+Production upgrade notes are in the root README. Website cookies/sessions do not migrate from
+WebView; launcher bookmarks, favorites and settings remain in the production app's data store.
+Remote Web Push remains unconfigured.
+
 # GeckoView experiment
 
 SearchLauncher Gecko is an isolated Android build using GeckoView 157.0.20260924084938.

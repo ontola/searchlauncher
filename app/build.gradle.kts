@@ -30,9 +30,9 @@ val hasReleaseSigning = releaseKeyStoreFile.exists()
 // In-process instrumentation accesses app internals and needs an unshrunk diagnostic build.
 // Shipped Gecko APKs always use the optimized default; performance/ drives those externally.
 val geckoDebug = providers.gradleProperty("geckoDebug").map(String::toBoolean).getOrElse(false)
-// Opt-in A/B build; keep the shipped backend until device scrolling and transitions are verified.
+// SurfaceView is the validated default; an override remains available for renderer comparisons.
 val geckoSurfaceView =
-  providers.gradleProperty("geckoSurfaceView").map(String::toBoolean).getOrElse(false)
+  providers.gradleProperty("geckoSurfaceView").map(String::toBoolean).getOrElse(true)
 
 android {
   namespace = "com.searchlauncher.app"
@@ -42,14 +42,17 @@ android {
     applicationId = "com.searchlauncher.app"
     minSdk = 29
     targetSdk = 36
+    // Gecko ships these architectures; do not produce an x86 slice without a browser engine.
+    ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64") }
     // F-Droid greps these two literals out of this file to notice new release tags, so
     // they have to stay plain literals and be bumped in the commit that gets tagged. The series
     // starts at 250 to clear 242, the highest the old commit-count scheme ever shipped.
-    versionCode = 302
-    versionName = "0.0.51"
+    versionCode = 303
+    versionName = "0.1.0"
 
     buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
     buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")
+    buildConfigField("boolean", "GECKO_SURFACE_VIEW", geckoSurfaceView.toString())
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     vectorDrawables { useSupportLibrary = true }
@@ -82,8 +85,7 @@ android {
       signingConfig = signingConfigs.getByName("debug")
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       applicationIdSuffix = ".gecko"
-      versionNameSuffix = "-gecko-experimental.29" + if (geckoSurfaceView) "-surface-test" else ""
-      buildConfigField("boolean", "GECKO_SURFACE_VIEW", geckoSurfaceView.toString())
+      versionNameSuffix = "-gecko"
       ndk { abiFilters += "arm64-v8a" }
       matchingFallbacks += listOf("release")
     }
@@ -104,8 +106,11 @@ android {
     }
   }
   sourceSets {
-    getByName("debug").java.srcDir("src/webview/java")
-    getByName("release").java.srcDir("src/webview/java")
+    getByName("main") {
+      java.srcDir("src/browser/java")
+      assets.srcDir("src/browser/assets")
+      res.srcDir("src/browser/res")
+    }
   }
   testBuildType = providers.gradleProperty("testBuildType").getOrElse("debug")
   compileOptions {
@@ -142,8 +147,8 @@ spotless {
 }
 
 dependencies {
-  // Pinned stable engine; only the separate experimental APK bundles Gecko.
-  "geckoImplementation"("org.mozilla.geckoview:geckoview:157.0.20260924084938")
+  // All app variants use the same pinned browser engine.
+  implementation("org.mozilla.geckoview:geckoview:157.0.20260924084938")
   implementation("androidx.core:core-ktx:1.17.0")
   implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
   implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
