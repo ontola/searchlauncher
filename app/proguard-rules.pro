@@ -4,3 +4,7 @@
 
 # Keep AppSearch entities
 -keep @androidx.appsearch.annotation.Document class * { *; }
+
+# AppSearch loads generated converters by class name and invokes their no-arg constructor.
+# Keeping the annotated document alone leaves that constructor removable in optimized builds.
+-keep class ** implements androidx.appsearch.app.DocumentClassFactory { *; }

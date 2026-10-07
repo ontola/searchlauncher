@@ -82,6 +82,12 @@ internal object BrowserEngine {
     val localTab = remember { BrowserTab(navigationRequest?.url ?: "about:blank") }
     val tab = if (privateMode) localTab else pinnedTabId?.let(BrowserTabStore::tab) ?: return
     val page = remember(tab.id) { GeckoPage(activity, tab, privateMode, onClose) }
+    val appMode = page.inAppScope
+    val immersive = page.fullscreen || (appMode && tab.installedApp?.display == "fullscreen")
+    LaunchedEffect(tab.installedApp, appMode) {
+      page.session.settings.displayMode = page.appDisplayMode()
+      if (appMode) tab.chromeSnapshot = null
+    }
     val frameColor by
       animateColorAsState(
         Color(tab.frameColorArgb),
@@ -235,9 +241,9 @@ internal object BrowserEngine {
         isAppearanceLightStatusBars = browserChromeUsesDarkIcons(systemBarColor)
       }
     }
-    LaunchedEffect(page.fullscreen) {
+    LaunchedEffect(immersive) {
       val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-      if (page.fullscreen) {
+      if (immersive) {
         controller.systemBarsBehavior =
           WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         controller.hide(WindowInsetsCompat.Type.systemBars())
@@ -271,17 +277,21 @@ internal object BrowserEngine {
         Modifier.fillMaxSize()
           .graphicsLayer { translationX = swipe.offset }
           .background(frameColor)
-          .windowInsetsPadding(if (page.fullscreen) WindowInsets(0) else WindowInsets.safeDrawing)
+          .windowInsetsPadding(if (immersive) WindowInsets(0) else WindowInsets.safeDrawing)
           .imePadding()
       ) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        Box(Modifier.weight(1f).fillMaxWidth().background(Color(tab.pageBackgroundArgb))) {
           AndroidView(
             factory = { context ->
               GeckoView(context).also {
                 // TextureView participates in the app's composition: it follows horizontal
                 // transforms and does not punch SurfaceView holes through a home transition.
-                it.setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW)
-                it.setBackgroundColor(AndroidColor.WHITE)
+                // SurfaceView is Gecko's constructor default. Keep that original surface and
+                // its registered lifecycle callbacks when testing the direct rendering path.
+                if (!com.searchlauncher.app.BuildConfig.GECKO_SURFACE_VIEW) {
+                  it.setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW)
+                }
+                it.setBackgroundColor(tab.pageBackgroundArgb)
                 it.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
                 it.setSession(page.session)
                 it.setOnTouchListener { _, event ->
@@ -289,11 +299,20 @@ internal object BrowserEngine {
                   false
                 }
                 // Paint Gecko's compositor surface, not only the FrameLayout behind it.
-                it.coverUntilFirstPaint(AndroidColor.WHITE)
+                it.coverUntilFirstPaint(tab.pageBackgroundArgb)
                 page.view = it
               }
             },
             update = { view ->
+              // Resizing for the IME can expose the parent or unpainted compositor pixels.
+              // Use the document background, which may differ from its toolbar theme color.
+              val background = tab.pageBackgroundArgb
+              if (
+                (view.background as? android.graphics.drawable.ColorDrawable)?.color != background
+              ) {
+                view.setBackgroundColor(background)
+                page.session.compositorController.setClearColor(background)
+              }
               view.visibility =
                 if (overview || page.showDownloads || page.error != null) View.INVISIBLE
                 else View.VISIBLE
@@ -342,7 +361,7 @@ internal object BrowserEngine {
             modifier = Modifier.fillMaxWidth().padding(8.dp),
           )
         }
-        if (!page.fullscreen && showLauncherChrome && !websiteKeyboardVisible) {
+        if (!page.fullscreen && !appMode && showLauncherChrome && !websiteKeyboardVisible) {
           Column(
             Modifier.fillMaxWidth()
               .background(frameColor)
@@ -438,6 +457,76 @@ internal object BrowserEngine {
                     fun run(action: () -> Unit) {
                       menu = false
                       action()
+                    }
+                    val manifest = page.webAppManifest
+                    val installed = manifest?.let { InstalledWebApps.get(activity, it.id) }
+                    if (!privateMode && manifest != null) {
+                      DropdownMenuItem(
+                        text = { Text(if (installed == null) "Install app" else "Open app") },
+                        leadingIcon = { Icon(Icons.Default.AddToHomeScreen, null) },
+                        colors = menuColors,
+                        onClick = {
+                          run {
+                            if (installed != null) {
+                              activity.startActivity(
+                                InstalledWebApps.launchIntent(activity, installed)
+                              )
+                            } else {
+                              NativeAlertDialog.Builder(activity)
+                                .setTitle("Install ${manifest.name}?")
+                                .setMessage(
+                                  "${Uri.parse(manifest.startUrl).host}\n\nAdds an app to your favorites and opens it without the browser bar. Links outside the app show browser controls."
+                                )
+                                .setNegativeButton("Cancel", null)
+                                .setPositiveButton("Install") { _, _ ->
+                                  scope.launch {
+                                    val repository =
+                                      (activity.application as SearchLauncherApp)
+                                        .searchRepositoryOrNull
+                                    if (
+                                      repository?.saveAndFavoriteBookmark(
+                                        manifest.startUrl,
+                                        manifest.name,
+                                      ) == true
+                                    ) {
+                                      InstalledWebApps.save(activity, manifest)
+                                      activity.startActivity(
+                                        InstalledWebApps.launchIntent(activity, manifest)
+                                      )
+                                    } else
+                                      Toast.makeText(
+                                          activity,
+                                          "Could not install app. Please try again.",
+                                          Toast.LENGTH_LONG,
+                                        )
+                                        .show()
+                                  }
+                                }
+                                .show()
+                            }
+                          }
+                        },
+                      )
+                      if (installed != null)
+                        DropdownMenuItem(
+                          text = { Text("Remove app mode") },
+                          leadingIcon = { Icon(Icons.Default.DeleteOutline, null) },
+                          colors = menuColors,
+                          onClick = {
+                            run {
+                              NativeAlertDialog.Builder(activity)
+                                .setTitle("Remove ${installed.name} app mode?")
+                                .setMessage(
+                                  "Your favorite and website data will stay. The site will open as a normal browser tab."
+                                )
+                                .setNegativeButton("Cancel", null)
+                                .setPositiveButton("Remove") { _, _ ->
+                                  InstalledWebApps.remove(activity, installed)
+                                }
+                                .show()
+                            }
+                          },
+                        )
                     }
                     DropdownMenuItem(
                       text = { Text("Back") },
@@ -627,7 +716,7 @@ internal object BrowserEngine {
               }
             }
           }
-        } else if (!page.fullscreen && !websiteKeyboardVisible && !inPictureInPicture) {
+        } else if (!page.fullscreen && !appMode && !websiteKeyboardVisible && !inPictureInPicture) {
           // The translucent search overlay hides these controls. Keep the page viewport stable:
           // resizing it here exposes an unpainted white strip while the keyboard slides upward.
           Spacer(Modifier.height(with(density) { chromeSize.height.toDp() }))
@@ -670,7 +759,7 @@ internal object BrowserEngine {
       AnimatedVisibility(visible = page.showDownloads, enter = fadeIn(), exit = fadeOut()) {
         BrowserDownloadsScreen(onDismiss = page::dismissDownloads)
       }
-      if (!page.fullscreen) {
+      if (!immersive) {
         val homeNavigationColor =
           HomeSwipePreview.navigationBarColor ?: MaterialTheme.colorScheme.surface
         SwipeNavigationBar(modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter)) {

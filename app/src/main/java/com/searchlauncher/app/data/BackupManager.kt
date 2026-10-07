@@ -2,8 +2,12 @@ package com.searchlauncher.app.data
 
 import android.content.ComponentName
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
 import androidx.datastore.preferences.core.edit
 import com.searchlauncher.app.ui.dataStore
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -23,7 +27,10 @@ class BackupManager(
   private val searchRepository: SearchRepository,
 ) {
   companion object {
-    const val BACKUP_VERSION = 4
+    const val BACKUP_VERSION = 5
+    private const val FAVICON_SIZE = 192
+    private const val MAX_FAVICON_BYTES = 256 * 1024
+    private const val MAX_FAVICON_DIMENSION = 512
     private const val MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB limit
     private val WIDGET_DATASTORE_KEYS = setOf("widgets_data", "widget_ids")
   }
@@ -48,6 +55,18 @@ class BackupManager(
             writer.endObject()
           }
           writer.endArray()
+
+          // Icons live outside AppSearch. Include one cached image per bookmarked host, even
+          // when wallpapers are excluded; restoring a backup must not require visiting the sites.
+          writer.name("bookmarkFavicons").beginObject()
+          bookmarks
+            .distinctBy { faviconHost(it.url) }
+            .forEach { bookmark ->
+              val host = faviconHost(bookmark.url) ?: return@forEach
+              val icon = searchRepository.loadFavicon(bookmark.url) ?: return@forEach
+              encodeFavicon(icon)?.let { writer.name(host).value(it) }
+            }
+          writer.endObject()
 
           // 1. Export Snippets
           android.util.Log.d("BackupManager", "Exporting Snippets...")
@@ -224,6 +243,38 @@ class BackupManager(
       }
     }
 
+  private fun encodeFavicon(icon: Bitmap): String? {
+    if (icon.isRecycled) return null
+    // Memory-cached browser icons may be larger than the on-disk thumbnails.
+    val thumbnail = Bitmap.createScaledBitmap(icon, FAVICON_SIZE, FAVICON_SIZE, true)
+    try {
+      val bytes = ByteArrayOutputStream()
+      if (!thumbnail.compress(Bitmap.CompressFormat.PNG, 100, bytes)) return null
+      if (bytes.size() > MAX_FAVICON_BYTES) return null
+      return Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)
+    } finally {
+      if (thumbnail !== icon) thumbnail.recycle()
+    }
+  }
+
+  private fun decodeFavicon(encoded: String): Bitmap? {
+    // Bound both compressed data and decoded dimensions before allocating a bitmap.
+    if (encoded.length > ((MAX_FAVICON_BYTES + 2) / 3) * 4) return null
+    return runCatching {
+        val bytes = Base64.decode(encoded, Base64.DEFAULT)
+        if (bytes.size > MAX_FAVICON_BYTES) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (
+          bounds.outWidth !in 1..MAX_FAVICON_DIMENSION ||
+            bounds.outHeight !in 1..MAX_FAVICON_DIMENSION
+        )
+          return null
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+      }
+      .getOrNull()
+  }
+
   suspend fun importBackup(inputStream: InputStream): Result<ImportStats> =
     withContext(Dispatchers.IO) {
       try {
@@ -256,6 +307,25 @@ class BackupManager(
             "Could not restore bookmark: ${bookmark.title}"
           }
           bookmarksCount++
+        }
+
+        // Only restore images for imported bookmarks. Malformed optional artwork must not
+        // prevent the user's bookmarks and settings from being restored.
+        val favicons = backupData.optJSONObject("bookmarkFavicons")
+        if (favicons != null) {
+          bookmarks
+            .orEmpty()
+            .distinctBy { faviconHost(it.url) }
+            .forEach { bookmark ->
+              val host = faviconHost(bookmark.url) ?: return@forEach
+              val encoded = favicons.opt(host) as? String ?: return@forEach
+              val icon = decodeFavicon(encoded) ?: return@forEach
+              try {
+                searchRepository.saveFavicon(bookmark.url, icon)
+              } finally {
+                icon.recycle()
+              }
+            }
         }
 
         var snippetsCount = 0

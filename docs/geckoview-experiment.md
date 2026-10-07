@@ -28,6 +28,10 @@ that SDK 37.0 is newer than its tested SDK; AAR compatibility checks remain enab
 - Public popup sessions retain `window.opener`, rather than reloading the popup URL independently.
 - Back/forward, reload, find, text selection, sharing, bookmarks and website favorites.
 - Session-state snapshots for restoring public tabs through their recents task IDs.
+- Installed web apps: manifest discovery, an explicit Install app action, launch from favorites,
+  and standalone/fullscreen display modes. Browser controls return outside the manifest scope.
+  Long-press the favorite to open in the browser or remove app mode. Installation metadata survives
+  process death; it is currently local to this Gecko installation and is not included in backups.
 - Original-response download streaming into the existing Downloads history, including blob exports.
   These transfers survive leaving the browser activity, but have no process-death resume yet.
 - File selection, JavaScript dialogs, basic HTTP authentication, select controls, OS/site permissions,
@@ -35,7 +39,7 @@ that SDK 37.0 is newer than its tested SDK; AAR compatibility checks remain enab
 - Separate private sessions in the incognito process/profile; no private history or previews.
 - Per-host clear-data action through Gecko's storage controller.
 - Android display and dismissal of local/service-worker website notifications, with notification taps
-  forwarded to Gecko and a safe source-page fallback.
+  forwarded to Gecko and a safe source-page fallback. Installed app notifications return to the app task.
 
 ## Important boundaries
 
@@ -459,3 +463,28 @@ and verify that the partial file, progress row and notification disappear before
 released. Both Gecko and direct HTTP paths pass. A normal-completion regression also passes and
 retains the newest card's position. The test server tolerates the expected disconnected socket.
 WebView JS export cancellation and DownloadManager cancellation are not separately device-tested.
+
+## Installed web app validation (build 29)
+
+`InstalledWebAppsTest` checks manifest origin/path boundaries (including encoded dot segments),
+unsupported schemes/display modes, persistence, task reuse and removal.
+`performance/InstalledWebAppTest` drives the optimized APK with a real HTTP localhost manifest
+and service worker, for both standalone and fullscreen display modes. It installs through the
+browser menu, checks `matchMedia(display-mode)`, asserts painted pixels, follows an out-of-scope
+link and returns, posts a service-worker notification and handles its click, then force-stops the
+process and reopens through the home favorite and browser's Open app action.
+
+The live `https://app.atomic.place/` manifest is recognized as Atomic Data Browser (standalone,
+start URL `/`, scope `/`). Installation and the sign-in screen without browser controls were
+visually checked on the Android 35 ARM64 emulator. No Atomic account was created or signed in.
+`https://atomic.place/` is the marketing site and does not advertise that manifest.
+
+This does **not** add remote Web Push. The existing Gecko delegate deliberately declines remote
+subscriptions. A transport/subscription integration (for example UnifiedPush or provisioned FCM)
+and lifecycle testing remain necessary. Atomic's local source has a generated offline service
+worker, but no notification subscription/sending implementation was found in this investigation.
+
+An optimized-build regression surfaced during installation: R8 removed the generated AppSearch
+converter constructor, preventing the favorite from being saved. The ProGuard rules now retain
+DocumentClassFactory implementations used through reflection. PWA device checks exercise the real
+AppSearch write in the optimized build, rather than only an unshrunk instrumentation build.

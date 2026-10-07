@@ -376,6 +376,8 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     val url = intent.pageUrl()
     val tab =
       BrowserTabStore.ensureTab(requestedId, url?.let(::browserDestination) ?: "about:blank")
+    tab.installedApp =
+      InstalledWebApps.get(this, intent.getStringExtra(InstalledWebApps.EXTRA_APP_ID))
     tab.hasOwnTask = true
     tabId = tab.id
     return known == null && url != null

@@ -103,8 +103,10 @@ class GeckoNotificationActivity : ComponentActivity() {
       // A safe fallback also works if the originating tab or process has gone away.
       val source = notification.source
       if (source != null && Uri.parse(source).scheme in listOf("http", "https")) {
+        val app = InstalledWebApps.forUrl(this, source)
         val existing = BrowserTabStore.tabs?.items?.firstOrNull { it.url == source }
-        if (existing != null) BrowserTabTasks.open(this, existing.id)
+        if (app != null) startActivity(InstalledWebApps.launchIntent(this, app))
+        else if (existing != null) BrowserTabTasks.open(this, existing.id)
         else startActivity(BrowserActivity.createIntent(this, source))
       }
     }

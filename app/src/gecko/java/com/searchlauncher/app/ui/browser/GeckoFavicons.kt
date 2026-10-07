@@ -28,6 +28,11 @@ internal class GeckoFavicons(
   private var job: Job? = null
   private var requestKey: String? = null
 
+  fun onNavigation() {
+    job?.cancel()
+    requestKey = null
+  }
+
   fun restoreCached() {
     val url = tab.url
     activity.lifecycleScope.launch {

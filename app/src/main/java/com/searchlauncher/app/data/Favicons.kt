@@ -1,5 +1,6 @@
 package com.searchlauncher.app.data
 
+import android.graphics.Bitmap
 import java.net.URI
 
 /**
@@ -15,8 +16,17 @@ internal fun faviconCacheKey(host: String): String = "$FAVICON_KEY_PREFIX$host"
 /** Distinguishes favicons from app and shortcut icons, which share the same cache directory. */
 internal const val FAVICON_KEY_PREFIX = "favicon_"
 
-/**
- * How long a stored favicon is trusted before the next visit replaces it. Sites change their icon
- * rarely, so this only needs to be short enough that a change isn't cached forever.
- */
-internal const val FAVICON_MAX_AGE_MS = 30L * 24 * 60 * 60 * 1000
+/** Match the shared disk cache so size/config differences do not cause needless rewrites. */
+internal fun normalizedFavicon(icon: Bitmap): Bitmap? {
+  if (icon.isRecycled) return null
+  return runCatching {
+      val scaled = Bitmap.createScaledBitmap(icon, 192, 192, true)
+      try {
+        // Both browser engines retain ownership of their bitmap; never cache or recycle it.
+        scaled.copy(Bitmap.Config.ARGB_8888, false)
+      } finally {
+        if (scaled !== icon) scaled.recycle()
+      }
+    }
+    .getOrNull()
+}

@@ -32,6 +32,7 @@ internal class BrowserTab(initialUrl: String, restoredId: Long? = null) {
   val openedAtMs: Long = System.currentTimeMillis()
   var url by mutableStateOf(initialUrl)
   var title by mutableStateOf<String?>(null)
+  var installedApp by mutableStateOf<InstalledWebApp?>(null)
   var desktopMode by mutableStateOf(false)
   /** The colour the page itself is painted on, which is what shows through any gap in it. */
   var pageBackgroundArgb by mutableIntStateOf(android.graphics.Color.WHITE)

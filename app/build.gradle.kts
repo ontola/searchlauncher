@@ -30,6 +30,9 @@ val hasReleaseSigning = releaseKeyStoreFile.exists()
 // In-process instrumentation accesses app internals and needs an unshrunk diagnostic build.
 // Shipped Gecko APKs always use the optimized default; performance/ drives those externally.
 val geckoDebug = providers.gradleProperty("geckoDebug").map(String::toBoolean).getOrElse(false)
+// Opt-in A/B build; keep the shipped backend until device scrolling and transitions are verified.
+val geckoSurfaceView =
+  providers.gradleProperty("geckoSurfaceView").map(String::toBoolean).getOrElse(false)
 
 android {
   namespace = "com.searchlauncher.app"
@@ -42,7 +45,7 @@ android {
     // F-Droid greps these two literals out of this file to notice new release tags, so
     // they have to stay plain literals and be bumped in the commit that gets tagged. The series
     // starts at 250 to clear 242, the highest the old commit-count scheme ever shipped.
-    versionCode = 299
+    versionCode = 302
     versionName = "0.0.51"
 
     buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
@@ -79,7 +82,8 @@ android {
       signingConfig = signingConfigs.getByName("debug")
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       applicationIdSuffix = ".gecko"
-      versionNameSuffix = "-gecko-experimental.26"
+      versionNameSuffix = "-gecko-experimental.29" + if (geckoSurfaceView) "-surface-test" else ""
+      buildConfigField("boolean", "GECKO_SURFACE_VIEW", geckoSurfaceView.toString())
       ndk { abiFilters += "arm64-v8a" }
       matchingFallbacks += listOf("release")
     }

@@ -329,6 +329,30 @@ private fun WebPageMenuItems(
   onCloseMenu: () -> Unit,
 ) {
   if (!result.isWebPage) return
+  val context = LocalContext.current
+  val app =
+    (result as? SearchResult.Content)?.deepLink?.let {
+      com.searchlauncher.app.ui.browser.InstalledWebApps.forStartUrl(context, it)
+    }
+  if (app != null) {
+    DropdownMenuItem(
+      text = { Text("Open in browser") },
+      onClick = {
+        onCloseMenu()
+        context.startActivity(
+          com.searchlauncher.app.ui.browser.BrowserActivity.createIntent(context, app.startUrl)
+        )
+      },
+    )
+    DropdownMenuItem(
+      text = { Text("Remove app mode") },
+      onClick = {
+        onCloseMenu()
+        com.searchlauncher.app.ui.browser.InstalledWebApps.remove(context, app)
+      },
+      leadingIcon = { Icon(Icons.Default.Delete, null) },
+    )
+  }
   val isSavedBookmark = result.namespace == "web_saved"
 
   if (isSavedBookmark && onEditBookmark != null) {

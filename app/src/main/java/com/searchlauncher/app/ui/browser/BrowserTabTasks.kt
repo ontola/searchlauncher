@@ -51,6 +51,9 @@ internal object BrowserTabTasks {
   fun intentFor(context: Context, tabId: Long): Intent =
     Intent(context, BrowserActivity::class.java).apply {
       data = tabUri(tabId)
+      BrowserTabStore.tab(tabId)?.installedApp?.let {
+        putExtra(InstalledWebApps.EXTRA_APP_ID, it.id)
+      }
       addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
     }
 

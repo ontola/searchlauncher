@@ -77,7 +77,7 @@ class IconRepository(private val context: Context) {
     val file = File(getIconDir(), "${sanitizeId(id)}.png")
     if (!file.exists()) return null
     return try {
-      val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+      val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return null
       BitmapDrawable(context.resources, bitmap)
     } catch (e: Exception) {
       null

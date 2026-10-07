@@ -94,6 +94,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   @Volatile private var pauseIndexingUntilMs: Long = 0L
   /** Serializes durable-index rebuilds so load/rebuild never observe mid-wipe state. */
   private val indexWriteMutex = Mutex()
+  private val faviconWriteMutex = Mutex()
 
   private fun calculateCharMask(text: String): Long {
     return SearchRanker.calculateCharMask(text)
@@ -1603,26 +1604,29 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       val host = faviconHost(trimmedUrl) ?: return@withContext
       val cacheKey = faviconCacheKey(host)
 
-      // onReceivedIcon fires on every page load, so don't rewrite the same file for every page of
-      // a site; refresh only once the stored copy is old enough that the site may have changed it.
-      val cachedAge = iconRepository.diskAgeMillis(cacheKey)
-      if (cachedAge != null && cachedAge < FAVICON_MAX_AGE_MS) return@withContext
-
+      // A visit may redirect to another path on the bookmarked site. Icons are shared per host,
+      // so the history opt-out must not prevent that visit from repairing a saved favorite.
       val isBookmarked =
-        documentByNamespaceAndId.containsKey(
-          documentLookupKey("web_saved", savedBookmarkId(trimmedUrl))
-        )
+        documentSnapshot.any {
+          it.doc.namespace == "web_saved" && faviconHost(it.doc.intentUri.orEmpty()) == host
+        }
       if (!isBookmarked && !isWebHistoryEnabled()) return@withContext
 
-      // The WebView owns the bitmap it handed us and may recycle it; keep our own copy.
-      val ownedIcon = runCatching { icon.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
-      if (ownedIcon == null) return@withContext
-
-      val drawable = BitmapDrawable(context.resources, ownedIcon)
-      iconRepository.putMemory(cacheKey, drawable)
-      iconRepository.saveToDisk(cacheKey, drawable, force = true)
-      // Existing favorites/recents may already hold the fallback globe. Re-resolve their icons.
-      _indexUpdated.emit(Unit)
+      faviconWriteMutex.withLock {
+        // Compare the same pixels we persist, not the source dimensions or the file's age. A
+        // changed favicon should update immediately; repeated identical callbacks do no disk IO.
+        val ownedIcon = normalizedFavicon(icon) ?: return@withLock
+        val previous = loadFavicon(trimmedUrl)
+        if (previous != null && ownedIcon.sameAs(previous) && iconRepository.hasOnDisk(cacheKey)) {
+          ownedIcon.recycle()
+          return@withLock
+        }
+        val drawable = BitmapDrawable(context.resources, ownedIcon)
+        iconRepository.putMemory(cacheKey, drawable)
+        iconRepository.saveToDisk(cacheKey, drawable, force = true)
+        // Existing favorites/recents may already hold the fallback globe. Re-resolve their icons.
+        _indexUpdated.emit(Unit)
+      }
     }
 
   /** Cached only: restoring an open tab never makes an extra network request. */
@@ -2415,7 +2419,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     }
   }
 
-  private fun loadResultsFromCache(isFavorites: Boolean): List<SearchResult> {
+  internal fun loadResultsFromCache(isFavorites: Boolean): List<SearchResult> {
     val file = if (isFavorites) getFavoritesCacheFile() else getHistoryCacheFile()
     if (!file.exists()) return emptyList()
     return try {
@@ -2427,7 +2431,15 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         val ns = obj.getString("namespace")
         val title = obj.getString("title")
         val sub = obj.optString("subtitle", "").takeIf { it.isNotEmpty() }
-        val icon = iconRepository.loadFromDisk(id)
+        // Site icons are shared per host. An old per-result startup thumbnail may still be
+        // the globe (or a previous site logo), so prefer the current favicon on the first frame.
+        val siteIcon =
+          if (ns == "web_saved" || ns == "web_bookmarks") {
+            faviconHost(obj.optString("deepLink"))?.let {
+              iconRepository.loadFromDisk(faviconCacheKey(it))
+            }
+          } else null
+        val icon = siteIcon ?: iconRepository.loadFromDisk(id)
         val res =
           when (obj.getString("type")) {
             "App" ->

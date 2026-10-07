@@ -38,13 +38,19 @@ internal class GeckoPage(
 ) {
   private val saved by lazy { activity.getSharedPreferences("gecko-tabs", Context.MODE_PRIVATE) }
   private val initialUrl =
-    if (!privateMode && tab.url == "about:blank") saved.getString("url:${tab.id}", null) ?: tab.url
+    if (!privateMode && tab.url == "about:blank")
+      saved.getString("url:${tab.id}", null) ?: tab.installedApp?.startUrl ?: tab.url
     else tab.url
   private var awaitingInitialLocation = initialUrl != "about:blank"
   private val suppliedSession = GeckoEnvironment.take(tab.id)
   val session =
     suppliedSession
-      ?: GeckoSession(GeckoSessionSettings.Builder().usePrivateMode(privateMode).build())
+      ?: GeckoSession(
+        GeckoSessionSettings.Builder()
+          .usePrivateMode(privateMode)
+          .displayMode(appDisplayMode(initialUrl))
+          .build()
+      )
   private val favicons = if (privateMode) null else GeckoFavicons(activity, tab, session)
   private val appearance = GeckoAppearance(activity, tab, session)
   var view: GeckoView? = null
@@ -56,6 +62,12 @@ internal class GeckoPage(
   var canGoBack by mutableStateOf(false)
   var canGoForward by mutableStateOf(false)
   var fullscreen by mutableStateOf(false)
+  var webAppManifest by mutableStateOf<InstalledWebApp?>(null)
+    private set
+
+  val inAppScope: Boolean
+    get() = !privateMode && tab.installedApp?.contains(tab.url) == true
+
   var error by mutableStateOf<String?>(null)
   var showDownloads by mutableStateOf(false)
   private var closeDownloadTab = false
@@ -87,9 +99,12 @@ internal class GeckoPage(
       object : GeckoSession.ProgressDelegate {
         override fun onPageStart(session: GeckoSession, url: String) {
           if (awaitingInitialLocation && url == "about:blank") return
+          webAppManifest = null
+          favicons?.onNavigation()
           if (Uri.parse(tab.url).host != Uri.parse(url).host) tab.favicon = null
           appearance.onNavigation(url)
           tab.url = url
+          session.settings.displayMode = appDisplayMode(url)
           navigationGeneration++
           tab.pageDrawn = false
           loading = true
@@ -122,6 +137,10 @@ internal class GeckoPage(
       }
     session.contentDelegate =
       object : GeckoSession.ContentDelegate {
+        override fun onWebAppManifest(session: GeckoSession, manifest: org.json.JSONObject) {
+          if (!privateMode) webAppManifest = InstalledWebApp.fromManifest(manifest, tab.url)
+        }
+
         override fun onTitleChange(session: GeckoSession, title: String?) {
           tab.title = title
           activity.publishTaskDescription(title, tab.favicon, tab.frameColorArgb)
@@ -214,6 +233,7 @@ internal class GeckoPage(
             appearance.onNavigation(url)
             if (Uri.parse(tab.url).host != Uri.parse(url).host) tab.favicon = null
             tab.url = url
+            session.settings.displayMode = appDisplayMode(url)
             if (tab.favicon == null) favicons?.restoreCached()
             session.flushSessionState()
           }
@@ -305,6 +325,15 @@ internal class GeckoPage(
       }
   }
 
+  fun appDisplayMode(url: String = tab.url): Int {
+    val app = tab.installedApp?.takeIf { !privateMode && it.contains(url) }
+    return when (app?.display) {
+      "fullscreen" -> GeckoSessionSettings.DISPLAY_MODE_FULLSCREEN
+      "standalone" -> GeckoSessionSettings.DISPLAY_MODE_STANDALONE
+      else -> GeckoSessionSettings.DISPLAY_MODE_BROWSER
+    }
+  }
+
   fun reload() {
     if (error != null || !session.isOpen) retry()
     else if (!awaitingInitialLocation) session.reload()
@@ -378,7 +407,7 @@ internal class GeckoPage(
       view?.releaseSession()
       session.open(GeckoEnvironment.runtime(activity))
       view?.setSession(session)
-      view?.coverUntilFirstPaint(android.graphics.Color.WHITE)
+      view?.coverUntilFirstPaint(tab.pageBackgroundArgb)
       setVisible(activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
       preparePage {
         if (generation == loadGeneration) {
