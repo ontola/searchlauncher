@@ -11,6 +11,7 @@ object SearchRanker {
     usageStats: Map<String, Int>,
     queryUsageStats: Map<String, Int>,
     documentByNamespaceAndId: Map<String, SearchableDocument>,
+    favoriteKeys: Set<String> = emptySet(),
   ): List<Pair<SearchableDocument, Int>> {
     val candidates = mutableListOf<Pair<SearchableDocument, Int>>()
     val queryLower = query.lowercase().trim()
@@ -51,11 +52,18 @@ object SearchRanker {
           getQueryUsagePoints(queryUsageStats, usageQuery, doc.namespace, doc.id)
         val namespaceBoost = namespaceBoost(sdoc, queryLower, finalScore, queryUsagePoints)
         val usageBoost = usageBoost(globalUsage, queryUsagePoints)
+        val favoriteBoost =
+          if (
+            fuzzyScore >= RankingScores.FAVORITE_MIN_MATCH_SCORE &&
+              FavoriteKeys.of(doc.namespace, doc.id) in favoriteKeys
+          ) {
+            RankingScores.FAVORITE_BOOST
+          } else {
+            0
+          }
 
-        candidates.add(sdoc to (finalScore + namespaceBoost + usageBoost))
+        candidates.add(sdoc to (finalScore + namespaceBoost + usageBoost + favoriteBoost))
       }
-
-      if (candidates.size > MAX_CANDIDATES) break
     }
 
     addLearnedShortQueryContacts(
@@ -68,7 +76,9 @@ object SearchRanker {
       documentByNamespaceAndId = documentByNamespaceAndId,
     )
 
-    return candidates.sortedByDescending { it.second }
+    // Truncate only after scoring everything. The snapshot is ordered by namespace, so stopping at
+    // the first MAX_CANDIDATES matches let history and contacts crowd out saved sites on "a".
+    return candidates.sortedByDescending { it.second }.take(MAX_CANDIDATES)
   }
 
   fun calculateCharMask(text: String): Long {

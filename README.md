@@ -97,7 +97,7 @@ To add a site or app, add an entry there:
 ```json
 {
   "id": "etsy",
-  "alias": "et",
+  "aliases": ["et", "etsy"],
   "description": "Etsy Search",
   "shortLabel": "Etsy",
   "urlTemplate": "https://www.etsy.com/search?q=%s",
@@ -110,9 +110,9 @@ To add a site or app, add an entry there:
 - `urlTemplate` gets the query in place of `%s`. Web addresses work best: they open in the app when it claims the link, and in the built-in browser otherwise.
 - `apps` are the Android package names of the app. Its icon replaces the letter tile.
 - `onlyWhenInstalled` keeps the shortcut hidden until one of those apps is installed, so regional and niche apps are welcome. Leave it out only for shortcuts everyone should get.
-- `alias` must be unique. Prefer two or more letters, since a single letter also starts ordinary queries.
+- `aliases` are the keys to try, shortest first. When the app is installed, the shortcut gets the first key nobody else uses and keeps it. End with one that only this shortcut lists, such as its name. Skip words that start ordinary queries, like `a` or `i`.
 
-`./gradlew test` checks the file for duplicate ids and aliases, missing `%s` and bad colours.
+`./gradlew test` checks the file for duplicate ids, a missing last-resort key, missing `%s` and bad colours.
 
 ### Releasing
 
