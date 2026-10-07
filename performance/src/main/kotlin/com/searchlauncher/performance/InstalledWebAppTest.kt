@@ -159,13 +159,15 @@ class InstalledWebAppTest {
       waitFor("Notification click reached service worker") {
         reports.any { it.endsWith("/clicked") }
       }
-      tap("Mode $display")
+      assertTrue(
+        "Notification click must close the shade",
+        device.wait(Until.gone(By.res("com.android.systemui:id/notification_panel")), 5000),
+      )
+      device.wait(Until.hasObject(By.text("Mode $display")), 10000)
+      waitFor("Notification returns to a visibly painted app") { painted() }
       device.takeScreenshot(
         File(context.getExternalFilesDir(null), "pwa-$display-notification-return.png")
       )
-      // Keep a still-animating notification shade from covering the restarted launcher.
-      device.executeShellCommand("cmd statusbar collapse")
-      device.wait(Until.gone(By.res("com.android.systemui:id/notification_panel")), 5000)
       // The favorite must launch as an app even after the browser process has gone away.
       device.executeShellCommand("am force-stop $targetBrowserPackage")
       context.startActivity(
