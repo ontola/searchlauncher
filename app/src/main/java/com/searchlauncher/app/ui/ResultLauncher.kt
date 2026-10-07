@@ -84,6 +84,12 @@ class ResultLauncher(
    * that host, wherever it has since navigated. A miss opens a new tab.
    */
   private fun launchWebUrl(url: String, resumeBySite: Boolean) {
+    com.searchlauncher.app.ui.browser.InstalledWebApps.forStartUrl(context, url)?.let { app ->
+      context.startActivity(
+        com.searchlauncher.app.ui.browser.InstalledWebApps.launchIntent(context, app)
+      )
+      return
+    }
     val tabs = BrowserTabStore.tabs
     if (tabs != null) {
       val index =

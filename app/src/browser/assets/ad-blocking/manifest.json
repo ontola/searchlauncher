@@ -1,0 +1,8 @@
+{
+  "manifest_version": 2,
+  "name": "SearchLauncher ad filtering",
+  "version": "1.1",
+  "browser_specific_settings": { "gecko": { "id": "ad-blocking@searchlauncher.eu" } },
+  "permissions": ["geckoViewAddons", "nativeMessaging", "webRequest", "webRequestBlocking", "tabs", "<all_urls>"],
+  "background": { "scripts": ["blocking.js"] }
+}

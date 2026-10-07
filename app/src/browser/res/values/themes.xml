@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The Compose page panel and Gecko cover are opaque. Home swipes can reveal the system wallpaper without changing window surface configuration mid-gesture. -->
+    <style name="Theme.SearchLauncher.GeckoBrowser" parent="Theme.SearchLauncher.Browser">
+        <item name="android:windowShowWallpaper">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
+</resources>

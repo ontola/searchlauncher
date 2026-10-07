@@ -1,7 +1,6 @@
 plugins {
   id("com.android.application")
   id("org.jetbrains.kotlin.android")
-  id("com.google.devtools.ksp")
   id("org.jetbrains.kotlin.plugin.compose")
   id("kotlin-kapt")
   id("com.diffplug.spotless") version "6.25.0"
@@ -28,23 +27,32 @@ val buildDate = runGit("log", "-1", "--format=%cs").ifEmpty { "unknown" }
 val releaseKeyStorePath = System.getenv("SIGNING_KEY_STORE_PATH") ?: "upload.jks"
 val releaseKeyStoreFile = file(releaseKeyStorePath)
 val hasReleaseSigning = releaseKeyStoreFile.exists()
+// In-process instrumentation accesses app internals and needs an unshrunk diagnostic build.
+// Shipped Gecko APKs always use the optimized default; performance/ drives those externally.
+val geckoDebug = providers.gradleProperty("geckoDebug").map(String::toBoolean).getOrElse(false)
+// SurfaceView is the validated default; an override remains available for renderer comparisons.
+val geckoSurfaceView =
+  providers.gradleProperty("geckoSurfaceView").map(String::toBoolean).getOrElse(true)
 
 android {
   namespace = "com.searchlauncher.app"
-  compileSdk = 36
+  compileSdk = 37
 
   defaultConfig {
     applicationId = "com.searchlauncher.app"
     minSdk = 29
     targetSdk = 36
+    // Gecko ships these architectures; do not produce an x86 slice without a browser engine.
+    ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64") }
     // F-Droid greps these two literals out of this file to notice new release tags, so
     // they have to stay plain literals and be bumped in the commit that gets tagged. The series
     // starts at 250 to clear 242, the highest the old commit-count scheme ever shipped.
-    versionCode = 289
-    versionName = "0.0.51"
+    versionCode = 303
+    versionName = "0.1.0"
 
     buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
     buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")
+    buildConfigField("boolean", "GECKO_SURFACE_VIEW", geckoSurfaceView.toString())
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     vectorDrawables { useSupportLibrary = true }
@@ -68,6 +76,19 @@ android {
       // installs can be told apart there as well as by their name.
       versionNameSuffix = "-debug"
     }
+    create("gecko") {
+      // Experimental refers to the engine, not to debug-mode UI performance. Keep the
+      // existing signing identity so installs upgrade in place, but optimize like release.
+      isDebuggable = geckoDebug
+      isMinifyEnabled = !geckoDebug
+      isShrinkResources = !geckoDebug
+      signingConfig = signingConfigs.getByName("debug")
+      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+      applicationIdSuffix = ".gecko"
+      versionNameSuffix = "-gecko"
+      ndk { abiFilters += "arm64-v8a" }
+      matchingFallbacks += listOf("release")
+    }
     release {
       // Always on, and deliberately not behind a property. F-Droid builds a plain
       // `assembleRelease`, so anything only our CI passes would make its APK differ from the
@@ -84,11 +105,18 @@ android {
       }
     }
   }
+  sourceSets {
+    getByName("main") {
+      java.srcDir("src/browser/java")
+      assets.srcDir("src/browser/assets")
+      res.srcDir("src/browser/res")
+    }
+  }
+  testBuildType = providers.gradleProperty("testBuildType").getOrElse("debug")
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
   }
-  kotlinOptions { jvmTarget = "17" }
   buildFeatures {
     compose = true
     buildConfig = true
@@ -104,6 +132,8 @@ android {
   packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
 }
 
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+
 spotless {
   kotlin {
     target("**/*.kt")
@@ -117,6 +147,8 @@ spotless {
 }
 
 dependencies {
+  // All app variants use the same pinned browser engine.
+  implementation("org.mozilla.geckoview:geckoview:157.0.20260924084938")
   implementation("androidx.core:core-ktx:1.17.0")
   implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
   implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
@@ -138,7 +170,8 @@ dependencies {
   implementation("androidx.appsearch:appsearch:1.1.0")
   implementation("androidx.appsearch:appsearch-local-storage:1.1.0")
   implementation("androidx.appsearch:appsearch-platform-storage:1.1.0")
-  implementation("androidx.test:core-ktx:1.7.0")
+  testImplementation("androidx.test:core-ktx:1.7.0")
+  androidTestImplementation("androidx.test:core-ktx:1.7.0")
   kapt("androidx.appsearch:appsearch-compiler:1.1.0")
 
   // Coroutines
@@ -154,6 +187,7 @@ dependencies {
   // The search shortcut list is JSON, and plain JVM tests would otherwise hit android.jar's stubs.
   testImplementation("org.json:json:20240303")
   androidTestImplementation("androidx.test.ext:junit:1.3.0")
+  androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
   androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
   androidTestImplementation(platform("androidx.compose:compose-bom:2025.11.00"))
   androidTestImplementation("androidx.compose.ui:ui-test-junit4")

@@ -62,12 +62,28 @@ Android app that lets you search everything on your phone and on the web, and op
   - Calendar (optional, for events in the next week)
   - Individual files (optional, selected through Android’s file picker)
 
+## Browser upgrade in 0.1.0
+
+The integrated browser now uses GeckoView, the Firefox engine, with SurfaceView rendering.
+Supported websites can be installed from **Browser menu → Install app** and launched from
+favorites without the browser bar. Long-press the favorite to open in a normal tab or remove app
+mode. Sites requesting standalone mode keep Android's system bars; fullscreen apps hide them.
+
+Favorites, bookmarks and launcher settings stay in place when updating the production app.
+WebView cookies, open-page sessions and website storage are not transferred to Gecko, so you may
+need to sign in again. The separate SearchLauncher Gecko testing app remains a separate install;
+use export/import to transfer its launcher data if needed.
+
+Website notifications work while Gecko is running. Remote Web Push after the browser process
+closes is not configured. Passkey support depends on the credential provider's browser policy;
+per-site storage totals and private popup windows remain unsupported.
+
 ## Building
 
 ### Prerequisites
 
 - JDK 17 (LTS, is recommended for Android development)
-- Android SDK with API 36
+- Android SDK with API 37 (CI uses JDK 21; the app targets Java 17 bytecode)
 
 ### Build Instructions
 

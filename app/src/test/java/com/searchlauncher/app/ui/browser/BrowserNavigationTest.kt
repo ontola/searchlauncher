@@ -5,6 +5,12 @@ import org.junit.Test
 
 class BrowserNavigationTest {
   @Test
+  fun blankTabsNeverBecomeSearches() {
+    assertEquals("about:blank", browserDestination("about:blank"))
+    assertEquals("about:blank", browserDestination(" ABOUT:blank "))
+  }
+
+  @Test
   fun keepsHttpUrls() {
     assertEquals("https://example.com/page", browserDestination("https://example.com/page"))
     assertEquals("http://example.com", browserDestination("http://example.com"))

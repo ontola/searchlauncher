@@ -5,6 +5,14 @@
       wallpaper shows through the window. Copying that image would need storage or photos access.
     -->
     <style name="Theme.SearchLauncher" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- App-drawn browser handovers use the activity transition protocol with no effects.
+             That protocol also prevents a stale task-snapshot starting window appearing. -->
+        <item name="android:windowActivityTransitions">true</item>
+        <item name="android:windowEnterTransition">@null</item>
+        <item name="android:windowExitTransition">@null</item>
+        <item name="android:windowReenterTransition">@null</item>
+        <item name="android:windowReturnTransition">@null</item>
+        <item name="android:windowTransitionBackgroundFadeDuration">0</item>
         <item name="android:windowShowWallpaper">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
     </style>

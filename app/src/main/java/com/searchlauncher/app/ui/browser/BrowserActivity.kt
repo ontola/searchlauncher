@@ -59,7 +59,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -86,7 +86,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
@@ -126,7 +125,6 @@ import com.searchlauncher.app.data.mergeRecentsByTime
 import com.searchlauncher.app.data.pinnedFavoritesForSite
 import com.searchlauncher.app.ui.KeyShortcutHost
 import com.searchlauncher.app.ui.KeyShortcuts
-import com.searchlauncher.app.ui.MainActivity
 import com.searchlauncher.app.ui.MinIconSize
 import com.searchlauncher.app.ui.PipCapable
 import com.searchlauncher.app.ui.PreferencesKeys
@@ -138,6 +136,7 @@ import com.searchlauncher.app.ui.components.FavoritesRow
 import com.searchlauncher.app.ui.components.SearchChromeBar
 import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
+import com.searchlauncher.app.ui.theme.rememberBrowserSurfaceColors
 import com.searchlauncher.app.util.SystemUtils
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -184,7 +183,7 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
       val url = intent.pageUrl()?.let(::browserDestination) ?: "about:blank"
       val tab =
         BrowserTabStore.addBackgroundTab(url) { evicted -> BrowserTabTasks.close(this, evicted.id) }
-      startActivity(BrowserTabTasks.intentFor(this, tab.id))
+      BrowserTabTasks.open(this, tab.id)
       finish()
       return
     }
@@ -211,13 +210,16 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     enableEdgeToEdge()
 
     setContent {
-      val themeColor by preference(PreferencesKeys.THEME_COLOR, 0xFF5E6D4E.toInt())
-      val themeSaturation by preference(PreferencesKeys.THEME_SATURATION, 50f)
-      val darkMode by preference(PreferencesKeys.DARK_MODE, 0)
-      val isOled by preference(PreferencesKeys.OLED_MODE, false)
+      val appearance =
+        com.searchlauncher.app.ui.theme.rememberThemePreferences() ?: return@setContent
+      val themeColor = appearance.color
+      val themeSaturation = appearance.saturation
+      val darkMode = appearance.darkMode
+      val isOled = appearance.oled
 
-      SearchLauncherTheme(themeColor, darkMode, themeSaturation, isOled) {
-        BrowserScreen(
+      // Browser chrome owns icon contrast according to the actual page, not the app palette.
+      SearchLauncherTheme(themeColor, darkMode, themeSaturation, isOled, manageSystemBars = false) {
+        BrowserEngine.Content(
           navigationRequest = navigationRequest,
           privateMode = isPrivateMode,
           showLauncherChrome = !searchOverlayVisible && !inPictureInPicture,
@@ -374,6 +376,8 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     val url = intent.pageUrl()
     val tab =
       BrowserTabStore.ensureTab(requestedId, url?.let(::browserDestination) ?: "about:blank")
+    tab.installedApp =
+      InstalledWebApps.get(this, intent.getStringExtra(InstalledWebApps.EXTRA_APP_ID))
     tab.hasOwnTask = true
     tabId = tab.id
     return known == null && url != null
@@ -1286,11 +1290,11 @@ internal fun BrowserScreen(
       when (event) {
         Lifecycle.Event.ON_PAUSE -> captureActiveTabPreview()
         // A swipe out to the launcher parks the page off the edge and hands the launcher control
-        // partway through the settle, so that animation is still running as this arrives —
-        // cancelling it first is what stops it writing the off-screen offset back afterwards and
+        // partway through the settle. Keep that final frame through ON_STOP; when returning,
+        // cancel any remaining animation before it can write the off-screen offset back and
         // leaving the browser stuck behind a full-screen launcher stand-in that eats every touch.
         // Resuming resets again in case the browser was never fully stopped.
-        Lifecycle.Event.ON_STOP,
+        Lifecycle.Event.ON_START,
         Lifecycle.Event.ON_RESUME -> {
           settleJob?.cancel()
           tabDragOffsetPx = 0f
@@ -1331,7 +1335,7 @@ internal fun BrowserScreen(
 
   LaunchedEffect(animatedPageBackground) {
     (context as ComponentActivity).let { activity ->
-      val isLightBackground = animatedPageBackground.luminance() > 0.5f
+      val isLightBackground = browserChromeUsesDarkIcons(animatedPageBackground)
       activity.window.navigationBarColor = animatedPageBackground.toArgb()
       activity.window.isNavigationBarContrastEnforced = false
       // The onCreate attempt at this cannot work on a cold start: the tab store is adopted from
@@ -1476,92 +1480,94 @@ internal fun BrowserScreen(
   }
 
   val chromeBarColor = animatedPageBackground
-  val chromeBarContentColor =
-    if (chromeBarColor.luminance() > 0.5f) Color(0xFF1C1B1F) else Color(0xFFEDE8EE)
+  val chromeBarContentColor = browserChromeContentColor(chromeBarColor)
 
   // Single overflow-menu definition shared by the full chrome bar and the minimal pill, so both
   // stay wired identically (including the open-on-broadcast request from the search overlay).
   val browserOverflowMenu: @Composable () -> Unit = {
-    BrowserOverflowButton(
-      desktopMode = activeTab.desktopMode,
-      showFavorites = showFavorites,
-      hasPreviousTab = activeIndex > 0,
-      hasNextTab = activeIndex < tabs.items.lastIndex,
-      menuColor = chromeBarColor,
-      menuContentColor = chromeBarContentColor,
-      openRequest = browserMenuRequest,
-      onOpenRequestConsumed = onBrowserMenuShown,
-      onReload = { webView?.reload() },
-      onShare = { shareUrl(context, webView?.url ?: activeTab.url, webView?.title) },
-      onCopyUrl = { copyUrl(context, webView?.url ?: activeTab.url) },
-      onSaveBookmark =
-        searchRepository?.let {
-          {
-            val url = (webView?.url ?: activeTab.url).takeUnless { it.isBlank() }
-            if (url == null || url == "about:blank") {
-              Toast.makeText(context, "Nothing to bookmark", Toast.LENGTH_SHORT).show()
-            } else {
-              // Confirm the title first; saving happens when the dialog is accepted.
-              bookmarkDraft =
-                BookmarkDraft(url = url, title = webView?.title ?: activeTab.title ?: "")
-            }
-          }
-        },
-      onToggleSiteFavorite =
-        if (privateMode) null
-        else {
-          {
-            val url =
-              (webView?.url ?: activeTab.url).takeUnless { it.isBlank() || it == "about:blank" }
-            if (url == null) {
-              Toast.makeText(context, "Nothing to favorite", Toast.LENGTH_SHORT).show()
-            } else {
-              val pinned = pinnedFavoritesForSite(url, favorites, treatFavoritedSitesAsApps)
-              if (pinned.isNotEmpty()) {
-                favoritesRepository?.removeKeys(pinned.map { it.favoriteKey })
-                Toast.makeText(context, "Removed from Favorites", Toast.LENGTH_SHORT).show()
+    val menuScheme = rememberBrowserSurfaceColors(pageBackground)
+    MaterialTheme(colorScheme = menuScheme) {
+      BrowserOverflowButton(
+        desktopMode = activeTab.desktopMode,
+        showFavorites = showFavorites,
+        hasPreviousTab = activeIndex > 0,
+        hasNextTab = activeIndex < tabs.items.lastIndex,
+        menuColor = menuScheme.surface,
+        menuContentColor = menuScheme.onSurface,
+        openRequest = browserMenuRequest,
+        onOpenRequestConsumed = onBrowserMenuShown,
+        onReload = { webView?.reload() },
+        onShare = { shareUrl(context, webView?.url ?: activeTab.url, webView?.title) },
+        onCopyUrl = { copyUrl(context, webView?.url ?: activeTab.url) },
+        onSaveBookmark =
+          searchRepository?.let {
+            {
+              val url = (webView?.url ?: activeTab.url).takeUnless { it.isBlank() }
+              if (url == null || url == "about:blank") {
+                Toast.makeText(context, "Nothing to bookmark", Toast.LENGTH_SHORT).show()
               } else {
-                coroutineScope.launch {
-                  val saved =
-                    searchRepository?.saveAndFavoriteBookmark(
-                      url,
-                      webView?.title ?: activeTab.title,
-                    ) == true
-                  Toast.makeText(
-                      context,
-                      if (saved) "Added to Favorites" else "Could not add to Favorites",
-                      Toast.LENGTH_SHORT,
-                    )
-                    .show()
+                // Confirm the title first; saving happens when the dialog is accepted.
+                bookmarkDraft =
+                  BookmarkDraft(url = url, title = webView?.title ?: activeTab.title ?: "")
+              }
+            }
+          },
+        onToggleSiteFavorite =
+          if (privateMode) null
+          else {
+            {
+              val url =
+                (webView?.url ?: activeTab.url).takeUnless { it.isBlank() || it == "about:blank" }
+              if (url == null) {
+                Toast.makeText(context, "Nothing to favorite", Toast.LENGTH_SHORT).show()
+              } else {
+                val pinned = pinnedFavoritesForSite(url, favorites, treatFavoritedSitesAsApps)
+                if (pinned.isNotEmpty()) {
+                  favoritesRepository?.removeKeys(pinned.map { it.favoriteKey })
+                  Toast.makeText(context, "Removed from Favorites", Toast.LENGTH_SHORT).show()
+                } else {
+                  coroutineScope.launch {
+                    val saved =
+                      searchRepository?.saveAndFavoriteBookmark(
+                        url,
+                        webView?.title ?: activeTab.title,
+                      ) == true
+                    Toast.makeText(
+                        context,
+                        if (saved) "Added to Favorites" else "Could not add to Favorites",
+                        Toast.LENGTH_SHORT,
+                      )
+                      .show()
+                  }
                 }
               }
             }
+          },
+        siteIsFavorite =
+          pinnedFavoritesForSite(activeTab.url, favorites, treatFavoritedSitesAsApps).isNotEmpty(),
+        onToggleDesktopMode = {
+          webView?.let { view ->
+            activeTab.desktopMode = !activeTab.desktopMode
+            view.setDesktopMode(activeTab.desktopMode, phoneUserAgent)
+            view.reload()
           }
         },
-      siteIsFavorite =
-        pinnedFavoritesForSite(activeTab.url, favorites, treatFavoritedSitesAsApps).isNotEmpty(),
-      onToggleDesktopMode = {
-        webView?.let { view ->
-          activeTab.desktopMode = !activeTab.desktopMode
-          view.setDesktopMode(activeTab.desktopMode, phoneUserAgent)
-          view.reload()
-        }
-      },
-      onOpenDownloads = { showDownloads = true },
-      onFindInPage = { showFindInPage = true },
-      onPageSettings = { showPageSettings = true },
-      onToggleFavorites = {
-        coroutineScope.launch {
-          context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.BROWSER_SHOW_FAVORITES] = !showFavorites
+        onOpenDownloads = { showDownloads = true },
+        onFindInPage = { showFindInPage = true },
+        onPageSettings = { showPageSettings = true },
+        onToggleFavorites = {
+          coroutineScope.launch {
+            context.dataStore.edit { preferences ->
+              preferences[PreferencesKeys.BROWSER_SHOW_FAVORITES] = !showFavorites
+            }
           }
-        }
-      },
-      onNewTab = ::createTab,
-      onCloseTab = ::closeActiveTab,
-      onPreviousTab = { animateToAdjacentTab(-1) },
-      onNextTab = { animateToAdjacentTab(1) },
-    )
+        },
+        onNewTab = ::createTab,
+        onCloseTab = ::closeActiveTab,
+        onPreviousTab = { animateToAdjacentTab(-1) },
+        onNextTab = { animateToAdjacentTab(1) },
+      )
+    }
   }
 
   // Read the same way the launcher reads it, straight off disk, so the stand-in below reserves
@@ -1581,11 +1587,7 @@ internal fun BrowserScreen(
       .collectAsState(initial = null)
 
   fun returnToLauncher() {
-    context.startActivity(
-      Intent(context, MainActivity::class.java)
-        .putExtra(MainActivity.EXTRA_FOCUS_SEARCH, true)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
-    )
+    BrowserTabTasks.openHome(context)
   }
 
   // Tab-swipe handlers shared by the full chrome and the minimal pill.
@@ -2229,6 +2231,7 @@ internal fun BrowserScreen(
           barColor = chromeBarColor,
           barContentColor = chromeBarContentColor,
           onOpenSearch = { onOpenSearch(false, pageBackground.toArgb(), "") },
+          onCopyUrl = { copyUrl(context, webView?.url ?: activeTab.url) },
           onTabDragStart = tabDragStart,
           onTabDrag = tabDrag,
           onTabDragEnd = tabDragEnd,
@@ -2546,6 +2549,7 @@ private fun BrowserLauncherChrome(
   barColor: Color,
   barContentColor: Color,
   onOpenSearch: () -> Unit,
+  onCopyUrl: () -> Unit,
   onTabDragStart: () -> Unit,
   onTabDrag: (PointerInputChange, Float) -> Unit,
   onTabDragEnd: () -> Unit,
@@ -2662,9 +2666,11 @@ private fun BrowserLauncherChrome(
             .heightIn(min = 32.dp)
             // No ripple: a highlight would outline the bar as its own element instead of a
             // seamless part of the bottom section.
-            .clickable(
+            .combinedClickable(
               interactionSource = remember { MutableInteractionSource() },
               indication = null,
+              onLongClickLabel = "Copy URL",
+              onLongClick = onCopyUrl,
               onClick = onOpenSearch,
             ),
         contentAlignment = Alignment.CenterStart,

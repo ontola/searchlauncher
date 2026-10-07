@@ -10,9 +10,13 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -43,14 +47,18 @@ internal fun startDirectDownload(
   val appContext = context.applicationContext
   val key = "__searchlauncher_direct_" + UUID.randomUUID().toString().replace("-", "")
   pendingPageDownloads[key] = PageDownloadProgress("Preparing download…", null)
+  val notification = DownloadNotification(context, key, "Preparing download…")
   Toast.makeText(appContext, "Preparing download…", Toast.LENGTH_SHORT).show()
   directDownloadScope.launch {
     var file: File? = null
     var registered = false
+    val activeConnection = java.util.concurrent.atomic.AtomicReference<HttpURLConnection?>()
+    val control = PageDownloadControl.attach(key) { activeConnection.get()?.disconnect() }
     try {
       val saved =
         withContext(Dispatchers.IO) {
-          val connection = URL(url).openConnection() as HttpURLConnection
+          val connection =
+            (URL(url).openConnection() as HttpURLConnection).also { activeConnection.set(it) }
           try {
             connection.instanceFollowRedirects = true
             connection.connectTimeout = 30_000
@@ -87,6 +95,7 @@ internal fun startDirectDownload(
               target.outputStream().use { output ->
                 val buffer = ByteArray(64 * 1024)
                 while (true) {
+                  currentCoroutineContext().ensureActive()
                   val read = input.read(buffer)
                   if (read < 0) break
                   output.write(buffer, 0, read)
@@ -95,7 +104,8 @@ internal fun startDirectDownload(
                     reported = written
                     val fraction = if (total > 0) written.toFloat() / total else null
                     withContext(Dispatchers.Main) {
-                      pendingPageDownloads[key] = PageDownloadProgress(name, fraction)
+                      updatePageDownload(key, name, fraction)
+                      notification.progress(name, fraction)
                     }
                   }
                 }
@@ -103,33 +113,47 @@ internal fun startDirectDownload(
             }
             check(total < 0 || written == total) { "Download failed: the connection dropped" }
             val manager = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            manager.addCompletedDownload(
+            control.complete(
               name,
-              Uri.parse(url).host ?: "Download",
-              false,
-              type,
-              target.path,
               written,
-              true,
+              register = {
+                manager.addCompletedDownload(
+                  name,
+                  Uri.parse(url).host ?: "Download",
+                  false,
+                  type,
+                  target.path,
+                  written,
+                  false,
+                )
+              },
+              onRegistered = { registered = true },
             )
             name
           } finally {
             connection.disconnect()
           }
         }
-      registered = true
+      notification.complete(saved)
       Toast.makeText(appContext, "Downloaded $saved", Toast.LENGTH_LONG).show()
     } catch (error: Exception) {
-      Toast.makeText(appContext, error.message ?: "Download failed", Toast.LENGTH_LONG).show()
+      if (control.cancelled) notification.cancel()
+      else if (error is CancellationException) throw error
+      else {
+        notification.failed()
+        Toast.makeText(appContext, error.message ?: "Download failed", Toast.LENGTH_LONG).show()
+      }
     } finally {
-      pendingPageDownloads.remove(key)
-      if (!registered)
-        withContext(Dispatchers.IO) {
-          file?.let {
-            it.delete()
-            it.parentFile?.delete()
+      withContext(NonCancellable) {
+        if (!registered)
+          withContext(Dispatchers.IO) {
+            file?.let {
+              it.delete()
+              it.parentFile?.delete()
+            }
           }
-        }
+        finishPageDownload(key)
+      }
     }
   }
 }

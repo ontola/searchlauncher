@@ -78,8 +78,8 @@ fun rememberThemedIconBitmap(drawable: Drawable?, packageName: String? = null): 
       value =
         if (!themed) null
         else {
-          val source = ThemedIcons.resolveThemeable(context, drawable, packageName)
           withContext(Dispatchers.IO) {
+            val source = ThemedIcons.resolveThemeable(context, drawable, packageName)
             ThemedIcons.apply(source, background, foreground)?.toImageBitmap()
           }
         }

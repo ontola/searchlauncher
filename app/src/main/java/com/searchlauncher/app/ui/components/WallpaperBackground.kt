@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -76,6 +77,7 @@ import com.searchlauncher.app.ui.dataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -105,22 +107,28 @@ private fun pageShowing(images: List<Uri>, uriString: String?): Int {
 }
 
 @Composable
-private fun WallpaperPager(
+internal fun WallpaperPager(
   folderImages: List<Uri>,
   lastImageUriString: String?,
   contentModifier: Modifier,
   onPageChanged: (Uri) -> Unit,
   keyboardSwipeRequest: Int,
-) {
-  val context = LocalContext.current
-  // Only read when the state is first created, which is why this composable waits for the saved
-  // URI: the pager opens on the right image instead of correcting itself a frame later.
-  val pagerState =
+  pagerState: PagerState =
     rememberPagerState(
       initialPage = remember { pageShowing(folderImages, lastImageUriString) },
       pageCount = { Int.MAX_VALUE },
-    )
-
+    ),
+  onScrollInProgressChanged: (Boolean) -> Unit = {},
+) {
+  val context = LocalContext.current
+  val reportScrolling by androidx.compose.runtime.rememberUpdatedState(onScrollInProgressChanged)
+  LaunchedEffect(pagerState) {
+    try {
+      snapshotFlow { pagerState.isScrollInProgress }.collect { reportScrolling(it) }
+    } finally {
+      reportScrolling(false)
+    }
+  }
   var previousKeyboardSwipe by remember { mutableIntStateOf(keyboardSwipeRequest) }
   LaunchedEffect(keyboardSwipeRequest) {
     val delta = keyboardSwipeRequest - previousKeyboardSwipe
@@ -136,16 +144,23 @@ private fun WallpaperPager(
     val targetPage = pageShowing(folderImages, lastImageUriString)
     // Already showing the wanted image: the saved URI is rewritten whenever a page settles, and
     // that must not yank the pager back to the canonical page.
-    if (pagerState.currentPage % folderImages.size != targetPage % folderImages.size) {
+    if (
+      !pagerState.isScrollInProgress &&
+        pagerState.currentPage % folderImages.size != targetPage % folderImages.size
+    ) {
       pagerState.scrollToPage(targetPage)
     }
   }
 
   val currentOnPageChanged by androidx.compose.runtime.rememberUpdatedState(onPageChanged)
 
-  // Save current image URI when page changes
+  // currentPage switches at the halfway point, while the wallpaper is still moving. Publishing
+  // it then starts theme extraction and schedules a full-screen home-preview capture during the
+  // animation's tail. Only publish a settled selection; also ignore saved-URI echoes during a drag.
   LaunchedEffect(pagerState, folderImages) {
-    snapshotFlow { pagerState.currentPage }
+    snapshotFlow { if (pagerState.isScrollInProgress) null else pagerState.settledPage }
+      .filterNotNull()
+      .distinctUntilChanged()
       .collect { page ->
         val currentUri = folderImages[page % folderImages.size]
         currentOnPageChanged(currentUri)
@@ -186,6 +201,7 @@ fun WallpaperBackground(
   onTap: () -> Unit = {},
   onPageChanged: (Uri) -> Unit = {},
   keyboardSwipeRequest: Int = 0,
+  onScrollInProgressChanged: (Boolean) -> Unit = {},
   onSwipeDownLeft: () -> Unit = {},
   onSwipeDownRight: () -> Unit = {},
   savedUriResolved: Boolean = true,
@@ -287,6 +303,7 @@ fun WallpaperBackground(
         contentModifier = contentModifier,
         onPageChanged = onPageChanged,
         keyboardSwipeRequest = keyboardSwipeRequest,
+        onScrollInProgressChanged = onScrollInProgressChanged,
       )
     } else {
       // No custom images: the theme window is transparent with FLAG_SHOW_WALLPAPER, so the

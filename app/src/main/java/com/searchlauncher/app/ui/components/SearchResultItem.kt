@@ -36,6 +36,7 @@ import com.searchlauncher.app.data.ContactChatAction
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.rememberThemedIconBitmap
 import com.searchlauncher.app.ui.toImageBitmap
+import com.searchlauncher.app.util.traceAsyncSection
 import com.searchlauncher.app.util.traceSection
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -67,7 +68,7 @@ fun SearchResultItem(
   LaunchedEffect(result.id) {
     if (iconState == null && result !is SearchResult.IndexingIndicator) {
       iconState =
-        traceSection("SL:SearchResultItem.loadIcon:${result.namespace}") {
+        traceAsyncSection("SL:SearchResultItem.loadIcon:${result.namespace}") {
           searchRepository.loadIcon(result)
         }
     }

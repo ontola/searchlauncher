@@ -1,0 +1,65 @@
+# Browser API audit — Gecko experiment
+
+Checked 3 October 2026 against experimental build 10, GeckoView 157 on Android 15 ARM64.
+Build 14 was retested on 3 October 2026 with functional API probes and device stress tests;
+see [the detailed results](browser-stress-test-2026-10-03.md). This describes the Gecko experiment,
+not the regular Android WebView build.
+
+A secure localhost page checked the actual installed engine. “Exposed” below means the API exists;
+it is not a claim that every permission, operating-system integration, or third-party service works.
+
+| API from the article | Current status |
+| --- | --- |
+| Web Share | Exposed, but the app has no `onSharePrompt` handler. Website `navigator.share()` still needs Android sharesheet integration. Browser-menu Share is separate and implemented. |
+| Vibration | Not exposed. |
+| Broadcast Channel | Verified: two channels exchanged a message. |
+| Screen Wake Lock | Verified: acquired and released a screen lock. |
+| Page Visibility | Exposed. Hidden tabs are marked inactive. |
+| Clipboard | Read/write API exposed; Gecko's selection delegate supplies clipboard permission UI. Build 14 verified a clipboard write/read round trip. |
+| Web Speech | Speech recognition is absent. Speech synthesis is exposed; spoken output not verified. |
+| Battery Status | Not exposed. |
+| Network Information | Not exposed. |
+| Payment Request | Not exposed. |
+| Resize Observer | Exposed. |
+| Credential Management | `navigator.credentials` and WebAuthn `PublicKeyCredential` are exposed; `PasswordCredential` is absent. Provider compatibility is a separate issue. |
+| Screen Orientation | Orientation and lock methods exposed; actual locking not verified. |
+| Idle Detection | Not exposed. |
+| File System Access pickers | `showOpenFilePicker`, `showSaveFilePicker`, and `showDirectoryPicker` are absent. See filesystem details below. |
+| EyeDropper | Not exposed. |
+| WebOTP | Not exposed. |
+| Contact Picker | Not exposed. Native launcher contact search does not expose contacts to websites. |
+| Barcode Detection | Not exposed. A website may implement scanning using camera access and a JavaScript library. |
+| Geolocation | Exposed; site permission and Android permission handling implemented. Build 14 verified site denial and granted coordinates using mocked GPS; physical GPS and the Android runtime permission dialog were not tested. |
+| Notifications | Local website/service-worker notifications are implemented and covered by an emulator test. Remote Web Push delivery is not configured, even though `PushManager` exists. |
+
+## Filesystem
+
+- Ordinary website file uploads open Android's document picker, but build 14 failed the
+  single-file Downloads selection test: Gecko rejected the returned path and the website received
+  no file. Do not count opening the picker as successful upload support. Folder upload requests
+  are currently dismissed.
+- Downloads and JavaScript exports are implemented.
+- Origin Private File System (OPFS) works: creating, writing, reading, and deleting a file were
+  verified. This is private website storage, not access to arbitrary user folders.
+- The article's interactive File System Access picker API is unavailable in this Gecko build.
+
+## Bluetooth and other devices
+
+`navigator.bluetooth`, `navigator.usb`, `navigator.serial`, and `navigator.hid` are all absent.
+Adding an Android permission would not implement these web APIs. Supporting them would require
+engine support or a substantial, origin-aware native bridge with device selection and permission UI.
+
+## Priorities
+
+The actionable host-integration gaps are file uploads, website sharing, passkey prompt
+cancellation, and remote Web Push. Build 14 left the KeePassDX credential picker open after a
+JavaScript request was aborted; this is separate from successful registration/sign-in support. Hardware APIs and unrestricted filesystem pickers are larger
+engine/platform compatibility decisions.
+
+## References
+
+- [The 21-API article](https://dev.to/lingodotdev/21-native-browser-apis-you-might-not-have-used-before-1nbp)
+- [Mozilla: File System API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API)
+- [Mozilla: Web Bluetooth](https://developer.mozilla.org/en-US/docs/Web/API/Web_Bluetooth_API)
+- [GeckoView host delegates](https://firefox-source-docs.mozilla.org/mobile/android/geckoview/contributor/geckoview-architecture.html)
+- [GeckoView prompt callbacks](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/GeckoSession.PromptDelegate.html)

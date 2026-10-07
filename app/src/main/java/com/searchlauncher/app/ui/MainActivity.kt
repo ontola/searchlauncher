@@ -550,27 +550,13 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     }
 
     setContent {
-      val themeColor =
-        remember { dataStore.data.map { it[PreferencesKeys.THEME_COLOR] ?: 0xFF5E6D4E.toInt() } }
-          .collectAsState(initial = 0xFF5E6D4E.toInt())
-
-      val themeSaturation =
-        remember { dataStore.data.map { it[PreferencesKeys.THEME_SATURATION] ?: 50f } }
-          .collectAsState(initial = 50f)
-
-      val darkMode =
-        remember { dataStore.data.map { it[PreferencesKeys.DARK_MODE] ?: 0 } }
-          .collectAsState(initial = 0)
-
-      val isOled =
-        remember { dataStore.data.map { it[PreferencesKeys.OLED_MODE] ?: false } }
-          .collectAsState(initial = false)
-
+      val appearance =
+        com.searchlauncher.app.ui.theme.rememberThemePreferences() ?: return@setContent
       SearchLauncherTheme(
-        themeColor = themeColor.value,
-        darkThemeMode = darkMode.value,
-        chroma = themeSaturation.value,
-        isOled = isOled.value,
+        themeColor = appearance.color,
+        darkThemeMode = appearance.darkMode,
+        chroma = appearance.saturation,
+        isOled = appearance.oled,
       ) {
         val context = LocalContext.current
         val lastImageUriString by

@@ -7,6 +7,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
@@ -21,6 +22,8 @@ fun SearchLauncherTheme(
   darkThemeMode: Int = 0, // 0: System, 1: Light, 2: Dark
   chroma: Float = 50f,
   isOled: Boolean = false,
+  manageSystemBars: Boolean = true,
+  browserSiteColor: Color? = null,
   content: @Composable () -> Unit,
 ) {
   val useDarkTheme =
@@ -31,12 +34,13 @@ fun SearchLauncherTheme(
     }
 
   val colorScheme =
-    remember(themeColor, useDarkTheme, chroma, isOled) {
-      schemeFromUserColor(themeColor, useDarkTheme, chroma, isOled)
+    remember(themeColor, useDarkTheme, chroma, isOled, browserSiteColor) {
+      browserSiteColor?.let { browserSearchColors(it, useDarkTheme, chroma, isOled) }
+        ?: schemeFromUserColor(themeColor, useDarkTheme, chroma, isOled)
     }
 
   val view = LocalView.current
-  if (!view.isInEditMode) {
+  if (manageSystemBars && !view.isInEditMode) {
     SideEffect {
       val window = (view.context as Activity).window
       // Force navigation bar color to be transparent to let edge-to-edge work
@@ -49,7 +53,11 @@ fun SearchLauncherTheme(
     }
   }
 
-  MaterialTheme(colorScheme = colorScheme, content = content)
+  CompositionLocalProvider(
+    LocalBrowserSurfaceStyle provides BrowserSurfaceStyle(useDarkTheme, chroma, isOled)
+  ) {
+    MaterialTheme(colorScheme = colorScheme, content = content)
+  }
 }
 
 @android.annotation.SuppressLint("RestrictedApi")

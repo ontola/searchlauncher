@@ -46,6 +46,8 @@ internal fun tabIndexForNumberKey(ordinal: Int, tabCount: Int): Int? {
 }
 
 internal fun browserDestination(input: String): String {
+  // An internal empty tab is a destination, never a web search.
+  if (input.trim().equals("about:blank", ignoreCase = true)) return "about:blank"
   webAddressUrl(input)?.let {
     return it
   }

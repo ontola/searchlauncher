@@ -125,8 +125,9 @@ fun HomeSearchKeyboard(
   var capsLock by remember { mutableStateOf(false) }
   var symbols by remember { mutableStateOf(false) }
   var extraSymbols by remember { mutableStateOf(false) }
+  val typeText by rememberUpdatedState(onText)
   fun type(text: String) {
-    onText(if (shift || capsLock) text.uppercase() else text)
+    typeText(if (shift || capsLock) text.uppercase() else text)
     if (!capsLock) shift = false
   }
   val platformConfiguration = LocalViewConfiguration.current
@@ -251,7 +252,24 @@ fun HomeSearchKeyboard(
         }
       }
     }
-  CompositionLocalProvider(LocalViewConfiguration provides keyboardConfiguration) {
+  val colors = MaterialTheme.colorScheme
+  val dark = colors.surface.luminance() < colors.onSurface.luminance()
+  // Every key shares the palette. Do not create four animation controllers per key.
+  val keyColors =
+    KeyboardKeyColors(
+      animatedKeyboardColor(
+        if (dark) colors.surfaceColorAtElevation(3.dp) else colors.surfaceVariant
+      ),
+      animatedKeyboardColor(if (dark) colors.onSurface else colors.onSurfaceVariant),
+      animatedKeyboardColor(
+        if (dark) colors.surfaceColorAtElevation(6.dp) else colors.secondaryContainer
+      ),
+      animatedKeyboardColor(if (dark) colors.onSurface else colors.onSecondaryContainer),
+    )
+  CompositionLocalProvider(
+    LocalViewConfiguration provides keyboardConfiguration,
+    LocalKeyboardKeyColors provides keyColors,
+  ) {
     Surface(
       modifier.then(
         if (onHomeSwipe != null) homeSwipeInput else if (gesturesEnabled) swipeInput else Modifier
@@ -441,19 +459,11 @@ private fun KeyboardKey(
   alternatives: List<String> = emptyList(),
   onAlternative: (String) -> Unit = {},
 ) {
-  val colors = MaterialTheme.colorScheme
-  val dark = colors.surface.luminance() < colors.onSurface.luminance()
-  // Match SearchChromeBar's 3.dp tonal surface; the keyboard's base surface is a shade darker.
-  val restingColor =
-    animatedKeyboardColor(if (dark) colors.surfaceColorAtElevation(3.dp) else colors.surfaceVariant)
-  val restingContentColor =
-    animatedKeyboardColor(if (dark) colors.onSurface else colors.onSurfaceVariant)
-  val selectedColor =
-    animatedKeyboardColor(
-      if (dark) colors.surfaceColorAtElevation(6.dp) else colors.secondaryContainer
-    )
-  val selectedContentColor =
-    animatedKeyboardColor(if (dark) colors.onSurface else colors.onSecondaryContainer)
+  val colors = LocalKeyboardKeyColors.current
+  val restingColor = colors.resting
+  val restingContentColor = colors.restingContent
+  val selectedColor = colors.selected
+  val selectedContentColor = colors.selectedContent
   var heldSelection by remember { mutableStateOf<Int?>(null) }
   var gesturePressed by remember { mutableStateOf(false) }
   var keyCenterX by remember { mutableFloatStateOf(0f) }
@@ -663,3 +673,13 @@ private fun animatedKeyboardColor(target: Color): Color {
     )
   return color
 }
+
+private data class KeyboardKeyColors(
+  val resting: Color,
+  val restingContent: Color,
+  val selected: Color,
+  val selectedContent: Color,
+)
+
+private val LocalKeyboardKeyColors =
+  compositionLocalOf<KeyboardKeyColors> { error("Keyboard keys must be inside HomeSearchKeyboard") }

@@ -84,7 +84,15 @@ internal fun safePageDownloadName(name: String): String =
     .take(160)
     .takeUnless { it.isBlank() || it == "." || it == ".." } ?: "download"
 
-internal data class PageDownloadProgress(val name: String, val fraction: Float?)
+internal data class PageDownloadProgress(
+  val name: String,
+  val fraction: Float?,
+  val startedAt: Long = System.currentTimeMillis(),
+  val completed: BrowserDownload? = null,
+  val seenInHistory: Boolean = false,
+  val onCancel: (() -> Unit)? = null,
+  val cancelling: Boolean = false,
+)
 
 internal val pendingPageDownloads =
   androidx.compose.runtime.mutableStateMapOf<String, PageDownloadProgress>()
@@ -126,14 +134,17 @@ internal suspend fun downloadFromPage(
   val fromPage = isPageDownload(url)
   pendingPageDownloads[key] =
     PageDownloadProgress(if (fromPage) "Preparing export…" else "Preparing download…", null)
+  val notification = DownloadNotification(context, key, pendingPageDownloads.getValue(key).name)
+  val control = PageDownloadControl.attach(key)
   if (!quiet) Toast.makeText(context, "Preparing download…", Toast.LENGTH_SHORT).show()
   try {
     check(fromPage || url.startsWith("https://") || url.startsWith("http://"))
     view.scriptResult(
       """
       (() => {
-        const state = window[$quotedKey] = {ready:false};
-        fetch($quotedUrl, {cache: 'force-cache'}).then(r => {
+        const controller = new AbortController();
+        const state = window[$quotedKey] = {ready:false, abort: () => controller.abort()};
+        fetch($quotedUrl, {cache: 'force-cache', signal: controller.signal}).then(r => {
           if (!r.ok) throw new Error(r.status);
           return r.blob();
         }).then(blob => {
@@ -218,21 +229,27 @@ internal suspend fun downloadFromPage(
       check(bytes.size.toLong() == end - offset)
       withContext(Dispatchers.IO) { target.appendBytes(bytes) }
       offset = end
-      pendingPageDownloads[key] = PageDownloadProgress(name, offset.toFloat() / size)
+      updatePageDownload(key, name, offset.toFloat() / size)
+      notification.progress(name, offset.toFloat() / size)
     }
-    withContext(Dispatchers.IO) {
-      val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-      manager.addCompletedDownload(
-        name,
-        "Exported from a webpage",
-        false,
-        type,
-        target.path,
-        size,
-        true,
-      )
-    }
-    registered = true
+    control.complete(
+      name,
+      size,
+      register = {
+        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        manager.addCompletedDownload(
+          name,
+          "Exported from a webpage",
+          false,
+          type,
+          target.path,
+          size,
+          false,
+        )
+      },
+      onRegistered = { registered = true },
+    )
+    notification.complete(name)
     Toast.makeText(context, "Downloaded $name", Toast.LENGTH_LONG).show()
   } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
     if (!quiet)
@@ -250,9 +267,15 @@ internal suspend fun downloadFromPage(
         .show()
   } finally {
     withContext(NonCancellable + Dispatchers.Main) {
-      pendingPageDownloads.remove(key)
+      if (control.cancelled) notification.cancel() else if (!registered) notification.failed()
+      finishPageDownload(key)
       // No waiting: a destroyed/navigated WebView may no longer invoke evaluation callbacks.
-      runCatching { view.evaluateJavascript("delete window[$quotedKey]", null) }
+      runCatching {
+        view.evaluateJavascript(
+          "if(window[$quotedKey]){window[$quotedKey].abort();delete window[$quotedKey]}",
+          null,
+        )
+      }
     }
     if (!registered)
       withContext(NonCancellable + Dispatchers.IO) {

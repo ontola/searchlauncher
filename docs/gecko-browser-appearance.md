@@ -1,0 +1,185 @@
+# Gecko browser bar colors — 4 October 2026
+
+## Behavior
+
+Gecko previously left `BrowserTab.pageBackgroundArgb` at white and never populated its theme
+color. The webpage could honor dark mode while the search bar, status area and navigation area
+remained white. A top-level isolated content script now supplies computed document background and
+media-qualified theme-color metadata. The existing tab model drives all three bar backgrounds.
+
+The bridge validates session, top-level sender and current document URL. It handles live root/body
+attribute changes, stylesheet/meta changes, media-query changes, and page restoration. It does not
+listen to scrolling or sample website screenshot pixels. Private tabs get appearance metadata
+without enabling favicon disk caching. The existing metadata extension version is bumped to 1.1
+so installed builds update the content scripts.
+
+An unqualified pure-white theme-color over a dark page is treated as stale and falls back to the
+page background. NOS currently serves such a white declaration; blindly honoring it would leave
+this reported bug visible. Explicit media-qualified colors and other site theme colors are retained.
+New document loads clear the old document's colors; pages with no color styling retain a readable
+white default rather than inheriting a previous site's dark background.
+
+Browser colors transition together over 140 ms. Foreground text/icons switch at luminance 0.18,
+rather than 0.5, to avoid pale text on middle-gray animation frames. Window setup is applied once,
+not recreated on each color-animation frame. Android controls its own system-icon transition timing.
+
+## Device and visual checks
+
+Android 15 ARM64 emulator, locally built Gecko APK (not a published release):
+
+- Dark and light `prefers-color-scheme` theme-color variants; switch both directions while open.
+- Dynamic body fallback, inserted theme-color and removed theme-color.
+- Generic white theme-color over a dark document, reproducing the NOS declaration.
+- Embedded iframe with a magenta theme cannot recolor the top-level browser.
+- Fresh unstyled white page, followed by returning to the retained dark tab.
+- Exact screenshot pixels at status/search/navigation bar edges after each state settles, plus
+  status/navigation icon-mode assertions.
+- Favicon and private-storage regressions passed (2/2). Appearance scenario passed (1/1).
+- Live `https://nos.nl` rendered dark with dark top/bottom browser chrome; saved screenshot inspected.
+
+Recorded the actual emulator screen, decoded every recorded video frame and saved per-frame bar
+color samples. In the browser transition interval (2.6–18.3 s), all three sampled bar colors match
+on every recorded frame. Dark-to-dark transitions did not pass through white. Inspected intermediate
+frames visually; this revealed the weak foreground contrast and led to the luminance-threshold fix.
+Android's system glyphs have their own transition timing, so this is not a claim of identical glyph
+animation timing across devices. Capture cadence varies; this is not a physical-device FPS benchmark.
+
+Evidence is in `build/browser-appearance-2026-10-04/` (Git-ignored): `theme-final.mp4`,
+`theme-slow.mp4` (3x slower excerpt), `frame-colors.csv`, `frame-summary.json`, inspected PNGs,
+`nos-dark-chrome.png`, and instrumentation outputs. Build and `spotlessCheck` passed.
+
+
+## Follow-up: app theme settings and header fallback (experimental 16)
+
+The earlier checks set Gecko's runtime preference directly, with Android in dark mode. That did
+not exercise SearchLauncher's persisted Dark/OLED setting against a light Android configuration.
+The expanded device scenario reproduces the mismatch on published experimental 15: the first
+website document reports `prefers-color-scheme: dark = false` despite the app preference.
+
+Gecko now reads the persisted app preference before loading a document, observes live changes,
+and receives Android configuration changes through the runtime's `configurationChanged` API.
+System, Light and Dark have distinct mappings; OLED remains an app-surface setting rather than
+rewriting a site's own CSS. The browser activity opts out of the generic app theme's system-bar
+SideEffect, so that recompositions cannot overwrite page-dependent icon contrast.
+
+Tweakers does not currently declare a theme-color in its HTML or web manifest. When there is no
+valid theme declaration, the metadata bridge can use the solid background of a broad main header
+or navigation element near the document top. Article headers, dialog contents and gradients are
+excluded. Explicit metadata wins. The selected header is retained through scrolling so hiding a
+sticky header does not make the browser bars switch to white. No scroll listener or image pixel
+sampling is introduced. The metadata extension version is 1.2.
+
+The expanded test changes the actual DataStore preferences and Android night mode. It covers the
+first document, forced Dark against system Light, forced Light against system Dark, live System
+mode changes, OLED recomposition over a white page, a red navigation header, explicit-theme
+precedence, and returning to a retained dark tab. It checks rendered bar backgrounds and Android
+icon-mode flags. Optional `-e liveAppearance true` additionally opens NOS and Tweakers with the app
+forced Dark/OLED while Android is Light. These are emulator checks, not physical Xiaomi results.
+
+
+Three-button emulator limitation: the Android 15 Google image's Pixel taskbar forces its own
+background icon palette (`mOnTaskbarBackgroundNavButtonColorOverride=1`) even when both the app
+and SystemUI report the correct light/dark navigation mode. Thus OS glyph pixels can still be dim
+on dark or red bars in that configuration. Enabling contrast enforcement and making the window
+navigation color transparent did not change that override; neither workaround was retained.
+This does not establish the same platform behavior on Xiaomi. The app's conflicting theme
+SideEffect is fixed, but physical-device navigation-icon contrast still needs confirmation.
+
+
+Final checks: `spotlessCheck` passed; `testDebugUnitTest` reported 449 tests, zero failures/errors,
+and 3 skipped. Device appearance (with live NOS/Tweakers), favicon propagation and private storage
+passed 3/3. Live bar colors were NOS `#202020` and Tweakers `#a11236`. Evidence and the old-build
+failure are saved in `build/browser-appearance-2026-10-04/fix16/` (Git-ignored).
+
+
+## Same-domain navigation (experimental 18)
+
+Keep the previous page background and chrome theme while navigating within the same
+host, including reloads. Track the appearance host separately from `tab.url`, which may
+already contain the destination by the time Gecko announces navigation. Both page-start
+and location-change callbacks apply the rule so cross-host redirects reset the old color.
+
+The appearance bridge waits for document load before publishing its initial colors,
+avoiding transient white styles while an asynchronous stylesheet loads. Once loaded,
+a new theme or genuinely unthemed white page still updates normally. Live color-scheme
+and theme changes remain supported.
+
+`browserFrameKeepsColorThroughSameHostNavigation` delays both the next document and its
+stylesheet. On Phone_A35, all 81 sampled display frames retained red; screenshots of the
+status, address, and navigation bars matched red before the document, before the CSS,
+and after load. The same test checks a white page on the same host and changing hosts.
+The existing `browserFrameFollowsWebsiteThemeAndBackground` regression also passed.
+These are emulator checks; physical Xiaomi behavior still needs confirmation.
+
+
+## Experimental 19: keyboard and home swipe
+
+The browser search keyboard now derives its surface, key shades, pressed states and
+label contrast from the browser bar color. The keyboard navigation inset uses the
+same surface. Ordinary home search retains the launcher theme.
+
+Home-to-last-tab previews capture the actual browser toolbar, including its address,
+controls and optional favorites. Its measured height reserves the page viewport;
+the launcher search bar height is only a fallback before a toolbar is captured.
+The returning Gecko activity keeps the page preview until content paint, or the
+first compositor paint when resuming an already rendered document. There is no fade.
+Cached documents may not emit another first-contentful-paint event on resume, so
+waiting exclusively for that event leaves a stale cover.
+
+Validation on the Android 15 ARM64 emulator: red and white browser keyboards passed
+pixel checks; four browser/home round trips passed toolbar visibility, snapshot and
+live page interaction checks. A 30 fps frame extraction across a handoff showed
+continuous content, with no blank page frame. This is emulator evidence, not Xiaomi
+hardware validation. Full Spotless check passed; 450 unit tests reported no failures
+(3 skipped), including palette contrast across 4096 colors in light and dark themes.
+
+
+## Experimental 20: subtle site tint, preserved theme mode
+
+Replaces build 19's literal website-color fills with the existing tonal theme generator.
+The site supplies the hue with chroma capped at 24 (and bounded by the site's own chroma
+and the user's saturation preference). Search results, the input and the keyboard all
+share this palette. Dark/light mode still determines brightness; OLED surfaces stay black.
+The browser page's own toolbar color remains unchanged. Navigation icons contrast against
+the search surface rather than the website color.
+
+Validation: emulator screenshots and pixel checks passed for red and white sites in dark,
+OLED and light modes, with a query and search results visible. Unit coverage checks subdued
+surfaces, neutral sites, OLED black and readable key/selection states. Full formatting and
+unit checks passed; Xiaomi hardware has not been checked.
+
+
+## Follow-up: measured foreground contrast (experimental 21)
+
+The fixed luminance cutoff could choose a soft dark gray below 4.5:1 on vivid blue. Browser
+text/icons now compare actual foreground/background contrast on every animated background color.
+The softer palette is retained when it meets 4.5:1; otherwise black or white is chosen by maximum
+contrast. Android system-icon mode uses the same black-versus-white comparison. This is shared
+with the WebView browser path. Disabled Gecko menu actions use enough opacity to reach 3:1 and
+remain subdued; their previous fixed 38% opacity was barely visible on some site colors.
+
+For the user's screenshot's sampled blue (#0283EB), old dark gray is 4.44:1, white is 3.85:1,
+and black is 5.45:1. Therefore the corrected foreground here is black, not white. The site's
+own content and its chosen theme color are preserved.
+
+Unit checks cover 4,096 RGB colors plus 282 intermediate animation colors, including disabled
+alpha compositing. A real Gecko emulator scenario opens blue, gray, red, white and black pages,
+opens the menu, and checks that the screenshot contains the expected foreground pixels in the
+Reload label. All five passed, and blue/gray/red screenshots were inspected. These are emulator
+checks, not a claim of physical Xiaomi validation.
+
+
+## Follow-up: dropdown uses the results palette (experimental 22)
+
+Browser overflow menus now reuse the exact site-derived surface/onSurface pair from search
+results. The app theme provides its resolved light/dark mode, chroma and OLED preference, so
+menus need no additional preference reads or inferred brightness rules. A site contributes hue;
+light mode stays pale, dark mode stays dark, and OLED uses black. Menu tonal elevation is zero
+to keep its surface identical to the results panel. Toolbar colors continue to come from the site.
+The shared palette is applied to both Gecko and WebView menus. Gecko's disabled actions retain
+the contrast-aware opacity introduced in 21.
+
+The Gecko device scenario covers five site colors in light, dark and OLED modes (15 cases),
+checking exact menu surface pixels, painted text, and unchanged toolbar background pixels.
+Dark-blue, OLED-blue and light-red screenshots were visually inspected. Formatting and the
+full debug unit suite passed. Physical Xiaomi and WebView UI validation remain unverified.
