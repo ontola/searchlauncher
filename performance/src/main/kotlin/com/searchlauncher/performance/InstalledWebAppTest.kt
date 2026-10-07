@@ -163,6 +163,9 @@ class InstalledWebAppTest {
       device.takeScreenshot(
         File(context.getExternalFilesDir(null), "pwa-$display-notification-return.png")
       )
+      // Keep a still-animating notification shade from covering the restarted launcher.
+      device.executeShellCommand("cmd statusbar collapse")
+      device.wait(Until.gone(By.res("com.android.systemui:id/notification_panel")), 5000)
       // The favorite must launch as an app even after the browser process has gone away.
       device.executeShellCommand("am force-stop $targetBrowserPackage")
       context.startActivity(
@@ -170,8 +173,9 @@ class InstalledWebAppTest {
           .setClassName(targetBrowserPackage, "com.searchlauncher.app.ui.MainActivity")
           .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       )
-      device.wait(Until.hasObject(By.desc(name)), 15000)
       device.findObject(By.text("Got it"))?.click()
+      // An upgrade can restore a query, which hides the favorite bar.
+      device.wait(Until.findObject(By.clazz("android.widget.EditText")), 10000)!!.text = ""
       val favorite = device.wait(Until.findObject(By.desc(name)), 15000)
       assertNotNull("Installed app favorite", favorite)
       favorite!!.click()
