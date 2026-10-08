@@ -1,4 +1,4 @@
-Your home screen opens with a keyboard. One bar finds everything on your phone and everything on the web, and opens what you find in a browser that blocks ads.
+SearchLauncher is a keyboard-first Android launcher. Your home screen opens with a keyboard. One bar finds everything on your phone and everything on the web, and opens what you find in a browser that blocks ads.
 
 SEARCH ANYTHING
 Apps, app shortcuts, contacts, device settings, downloads, calendar events for the coming week, text snippets and your own custom actions. Ranking learns from what you pick, so the next time is faster.

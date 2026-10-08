@@ -9,6 +9,10 @@ drift:
 .venv/bin/python copy.py --check  # only check, change nothing
 ```
 
+Translations live in [`translations/`](translations/), one file per store locale, with the
+same three headings. `copy.py` writes each to its own fastlane folder. When a claim changes
+here, change it there too.
+
 Edit the fenced blocks below and nothing else — everything outside them is a note to
 whoever is editing. **Neither store renders Markdown**, so what is inside a block is
 literally what a reader sees: no `**bold**`, no `- ` bullets that you want rendered as
@@ -44,8 +48,11 @@ SearchLauncher
 Play allows 80 characters and shows it under the title. F-Droid calls it the summary and
 **its linter rejects a trailing full stop**, so do not add one.
 
+After the title, this is what Play's search weighs most, so it keeps the words people
+search for: "launcher" and "keyboard".
+
 ```
-Search apps, contacts and the web, and open results in an ad-free browser
+Keyboard-first launcher. Search apps, contacts and the web, browse without ads
 ```
 
 ## Full description
@@ -55,7 +62,7 @@ so someone scrolling the images and someone reading the text are told the same t
 the same sequence.
 
 ```
-Your home screen opens with a keyboard. One bar finds everything on your phone and everything on the web, and opens what you find in a browser that blocks ads.
+SearchLauncher is a keyboard-first Android launcher. Your home screen opens with a keyboard. One bar finds everything on your phone and everything on the web, and opens what you find in a browser that blocks ads.
 
 SEARCH ANYTHING
 Apps, app shortcuts, contacts, device settings, downloads, calendar events for the coming week, text snippets and your own custom actions. Ranking learns from what you pick, so the next time is faster.

@@ -6,6 +6,9 @@ F-Droid publishes fastlane/metadata/android/en-US/*.txt straight from the tag, a
 console fields are filled from the same text by hand. Keeping one source means the two
 cannot say different things about the same app.
 
+Translations in translations/<locale>.md use the same headings and land in
+fastlane/metadata/android/<locale>/, which F-Droid publishes as well.
+
     python3 copy.py           # write the files, checking the limits first
     python3 copy.py --check   # check only, write nothing
 
@@ -24,7 +27,9 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SOURCE = os.path.join(HERE, "store-copy.md")
-FASTLANE = os.path.join(HERE, "..", "fastlane", "metadata", "android", "en-US")
+TRANSLATIONS = os.path.join(HERE, "translations")
+METADATA = os.path.join(HERE, "..", "fastlane", "metadata", "android")
+FASTLANE = os.path.join(METADATA, "en-US")
 
 # heading in store-copy.md -> (file it becomes, character limit)
 FIELDS = {
@@ -90,14 +95,27 @@ def parse(text):
     return found
 
 
-def main():
-    check_only = "--check" in sys.argv
-    blocks = parse(open(SOURCE).read())
+def sources():
+    """(locale, Markdown file) for English and every translation."""
+    found = [("en-US", SOURCE)]
+    if os.path.isdir(TRANSLATIONS):
+        for name in sorted(os.listdir(TRANSLATIONS)):
+            if name.endswith(".md"):
+                found.append((name[:-3], os.path.join(TRANSLATIONS, name)))
+    return found
+
+
+def write_locale(locale, source, check_only):
+    blocks = parse(open(source).read())
+    folder = os.path.join(METADATA, locale)
+    if not check_only:
+        os.makedirs(folder, exist_ok=True)
 
     problems = []
-    for heading, (name, limit) in FIELDS.items():
+    for heading, (field, limit) in FIELDS.items():
+        name = f"{locale}/{field}"
         if heading not in blocks:
-            problems.append(f"{heading}: no fenced block under that heading")
+            problems.append(f"{name}: no fenced block under {heading!r}")
             continue
 
         value = blocks[heading]
@@ -105,10 +123,10 @@ def main():
             problems.append(f"{name}: {len(value)} characters, limit is {limit}")
 
         # F-Droid's linter rejects a summary that ends in punctuation.
-        if name == "short_description.txt" and value.endswith((".", "!", "?")):
+        if field == "short_description.txt" and value.endswith((".", "!", "?")):
             problems.append(f"{name}: ends with punctuation, F-Droid's linter refuses it")
 
-        path = os.path.join(FASTLANE, name)
+        path = os.path.join(folder, field)
         current = open(path).read() if os.path.exists(path) else None
         wanted = value + "\n"
 
@@ -121,6 +139,15 @@ def main():
             print(f"wrote {name}  ({len(value)}/{limit} characters)")
         else:
             print(f"{name} unchanged  ({len(value)}/{limit} characters)")
+    return problems
+
+
+def main():
+    check_only = "--check" in sys.argv
+
+    problems = []
+    for locale, source in sources():
+        problems += write_locale(locale, source, check_only)
 
     changelog_problems, notes = check_changelogs()
     problems += changelog_problems

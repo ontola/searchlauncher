@@ -1,0 +1,26 @@
+SearchLauncher ist ein Android-Launcher, der von der Tastatur ausgeht. Dein Startbildschirm öffnet sich mit einer Tastatur. Eine Leiste findet alles auf deinem Handy und alles im Web, und öffnet, was du findest, in einem Browser, der Werbung blockiert.
+
+ALLES DURCHSUCHEN
+Apps, App-Verknüpfungen, Kontakte, Geräteeinstellungen, Downloads, Termine der kommenden Woche, Textbausteine und eigene Aktionen. Die Reihenfolge lernt aus dem, was du auswählst, beim nächsten Mal geht es also schneller.
+
+IN APPS SUCHEN, NICHT NUR NACH APPS
+Tippe y für YouTube, m für Maps, w für Wikipedia und dann, was du suchst. Lege eine Verknüpfung für jede Website mit Such-URL an und gib ihr den Buchstaben, den du möchtest.
+
+EIN FELD, DAS VERSTEHT, WAS DU TIPPST
+Eine Rechnung bekommt ein Ergebnis, das du per Tipp kopierst. Eine Webadresse öffnet sich. "5m pasta" stellt einen Timer. Eine Telefonnummer kannst du anrufen, ihr schreiben oder als Kontakt speichern. Eine E-Mail-Adresse kannst du direkt anschreiben.
+
+EIN BROWSER OHNE WERBUNG
+Webergebnisse öffnen sich in der App, Werbung und Tracker werden standardmäßig blockiert. Wische die Suchleiste zur Seite, um zwischen Tabs zu wechseln, oder nach oben, um alle als Live-Vorschau zu sehen. Beides funktioniert auch vom Startbildschirm, deine Tabs sind also eine Geste entfernt, ohne erst einen Browser zu öffnen. Speichere eine Seite unter einem Titel deiner Wahl und finde besuchte Seiten über die Suchleiste wieder. Private Fenster, Datei-Uploads, Bild-in-Bild-Video und Tastenkürzel für Hardware-Tastaturen sind dabei.
+
+WENIGER ICONS, MEHR PLATZ FÜR WIDGETS
+Füge ein Widget hinzu, indem du seinen Namen tippst, ändere die Größe durch Ziehen und tippe auf das Hintergrundbild, um alle ein- oder auszublenden. Auf einem Tablet stehen sie in Spalten statt eines einzigen Widgets über die ganze Breite.
+
+GANZ NACH DEINEM GESCHMACK
+Wische durch deine eigenen Hintergrundbilder. Die Designfarbe kann dem Hintergrund hinter der Suchleiste folgen. Monochrome Icons sind optional. Dunkelmodus, ein echter Schwarz-Modus für OLED, eine Reihe Favoriten, Sprachsuche sowie Export und Import aller Einstellungen.
+
+Nutze es als Standard-Launcher oder als Widget auf deinem bisherigen Launcher.
+
+DATENSCHUTZ
+Standardmäßig wird nichts gesendet. Suchvorschläge sind optional, und wenn du sie einschaltest, geht deine Eingabe an den Anbieter, den die Verknüpfung nennt. Absturzberichte sind Opt-in. Kontakte und Termine werden auf deinem Gerät gelesen, um deine Eingabe zu beantworten, und nie hochgeladen. Die Sperrliste des Browsers stammt aus dem StevenBlack-hosts-Projekt.
+
+SearchLauncher ist kostenlos und Open Source: https://github.com/ontola/searchlauncher

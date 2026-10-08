@@ -1,0 +1,26 @@
+SearchLauncher is een Android launcher die draait om het toetsenbord. Je startscherm opent met een toetsenbord. Eén balk vindt alles op je telefoon en alles op het web, en opent wat je vindt in een browser die advertenties blokkeert.
+
+ZOEK ALLES
+Apps, app-snelkoppelingen, contacten, apparaatinstellingen, downloads, agenda-afspraken voor de komende week, tekstfragmenten en je eigen acties. De volgorde leert van wat je kiest, dus de volgende keer gaat het sneller.
+
+ZOEK IN APPS, NIET ALLEEN NAAR APPS
+Typ y voor YouTube, m voor Maps, w voor Wikipedia, en dan wat je zoekt. Voeg een snelkoppeling toe voor elke site met een zoek-URL, en geef hem de letter die je wilt.
+
+EEN VELD DAT SNAPT WAT JE TYPT
+Een som krijgt een antwoord dat je met een tik kopieert. Een webadres gaat open. "5m pasta" zet een timer. Een telefoonnummer kun je bellen, een bericht sturen of als contact opslaan. Een e-mailadres kun je meteen mailen.
+
+EEN BROWSER ZONDER RECLAME
+Webresultaten openen in de app, met advertenties en trackers standaard geblokkeerd. Veeg de zoekbalk opzij om tussen tabbladen te wisselen, of omhoog om ze allemaal als live voorbeeld te zien. Dat werkt ook vanaf het startscherm, dus je tabbladen zijn één gebaar weg zonder eerst een browser te openen. Bewaar een pagina onder een titel naar keuze, en vind bezochte pagina's terug via de zoekbalk. Privévensters, bestanden uploaden, beeld-in-beeld video en sneltoetsen voor een hardware toetsenbord zitten er allemaal in.
+
+MINDER ICONEN, MEER RUIMTE VOOR WIDGETS
+Voeg een widget toe door de naam te typen, pas het formaat aan door te slepen, en tik op de achtergrond om ze allemaal te tonen of te verbergen. Op een tablet staan ze in kolommen in plaats van één widget over het hele scherm.
+
+HELEMAAL VAN JOU
+Veeg door je eigen achtergronden. De themakleur kan de achtergrond achter de zoekbalk volgen. Monochrome iconen zijn optioneel. Donkere modus, een echt zwarte OLED modus, een rij favorieten, spraakzoeken, en export en import van alles wat je hebt ingesteld.
+
+Gebruik het als je standaard launcher, of als widget op de launcher die je al hebt.
+
+PRIVACY
+Standaard wordt er niets verstuurd. Zoeksuggesties zijn optioneel, en als je ze aanzet gaat wat je typt naar de dienst die de snelkoppeling noemt. Crashrapportage is opt-in. Contacten en agenda-afspraken worden op je toestel gelezen om antwoord te geven op wat je typt, en worden nooit geüpload. De blokkeerlijst van de browser komt van het StevenBlack hosts project.
+
+SearchLauncher is gratis en open source: https://github.com/ontola/searchlauncher

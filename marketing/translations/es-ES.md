@@ -1,0 +1,47 @@
+# Store copy: Español
+
+Traducción de [`../store-copy.md`](../store-copy.md). Mismas reglas: solo se publican los
+bloques, sin Markdown, y la descripción corta no termina en punto.
+
+## Title
+
+```
+SearchLauncher
+```
+
+## Short description
+
+```
+Launcher con teclado. Busca apps, contactos y la web, navega sin anuncios
+```
+
+## Full description
+
+```
+SearchLauncher es un launcher de Android pensado para el teclado. Tu pantalla de inicio se abre con un teclado. Una sola barra encuentra todo en tu móvil y todo en la web, y abre lo que encuentras en un navegador que bloquea anuncios.
+
+BUSCA CUALQUIER COSA
+Apps, accesos directos de apps, contactos, ajustes del dispositivo, descargas, eventos del calendario de la próxima semana, fragmentos de texto y tus propias acciones. El orden aprende de lo que eliges, así que la próxima vez es más rápido.
+
+BUSCA DENTRO DE LAS APPS, NO SOLO LAS APPS
+Escribe y para YouTube, m para Maps, w para Wikipedia y luego lo que buscas. Añade un acceso directo para cualquier web con URL de búsqueda y dale la letra que quieras.
+
+UN CAMPO QUE ENTIENDE LO QUE ESCRIBES
+Una operación da un resultado que copias con un toque. Una dirección web se abre. "5m pasta" pone un temporizador. Un número de teléfono ofrece llamar, enviar un mensaje o guardarlo como contacto. Un correo ofrece escribirle.
+
+UN NAVEGADOR SIN ANUNCIOS
+Los resultados web se abren en la app, con anuncios y rastreadores bloqueados por defecto. Desliza la barra de búsqueda a un lado para cambiar de pestaña, o hacia arriba para verlas todas en vista previa en vivo. Ambos gestos funcionan desde la pantalla de inicio, así que tus pestañas están a un gesto sin abrir antes un navegador. Guarda una página con el título que elijas y encuentra las páginas visitadas desde la barra de búsqueda. Ventanas privadas, subida de archivos, vídeo en imagen en imagen y atajos de teclado físico incluidos.
+
+MENOS ICONOS, MÁS SITIO PARA WIDGETS
+Añade un widget escribiendo su nombre, cambia su tamaño arrastrando y toca el fondo de pantalla para mostrarlos u ocultarlos todos. En una tableta se colocan en columnas en lugar de un solo widget estirado por toda la pantalla.
+
+A TU MANERA
+Desliza entre tus propios fondos de pantalla. El color del tema puede seguir al fondo detrás de la barra de búsqueda. Iconos monocromos opcionales. Modo oscuro, modo negro puro para OLED, una fila de favoritos, búsqueda por voz, y exportar e importar todo lo que has configurado.
+
+Úsalo como launcher predeterminado o como widget en el launcher que ya tienes.
+
+PRIVACIDAD
+Por defecto no se envía nada. Las sugerencias de búsqueda son opcionales; si las activas, lo que escribes va al servicio que indica el acceso directo. Los informes de fallos son opcionales. Los contactos y el calendario se leen en tu dispositivo para responder a lo que escribes y nunca se suben. La lista de bloqueo del navegador viene del proyecto StevenBlack hosts.
+
+SearchLauncher es gratis y de código abierto: https://github.com/ontola/searchlauncher
+```
