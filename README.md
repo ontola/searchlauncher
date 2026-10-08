@@ -6,6 +6,8 @@ Android app that lets you search everything on your phone and on the web, and op
 
 **Website:** [searchlauncher.eu](https://searchlauncher.eu/) (source in [`website/`](website/))
 
+[![Watch the 39 second demo](website/assets/promo-poster.jpg)](https://searchlauncher.eu/#demo)
+
 ## Features
 
 - **Built-in home keyboard** - Home search opens with its own QWERTY keyboard, without waiting for the system keyboard animation. Includes numbers/symbols, hold-and-release symbols (hinted in the upper corner of each key; slide while holding to choose accents or alternatives), caps lock (hold Shift), and repeating backspace. Turn off **Settings → Keyboard → Use built-in keyboard** for your preferred keyboard, swipe typing, or other languages. Browser fields and dialogs use your system keyboard.
