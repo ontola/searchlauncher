@@ -729,20 +729,24 @@ fun SearchScreen(
       onCopyUrl = openTab?.let { tab -> { copyUrlToClipboard(context, tab.url) } },
       onClearSearchResults = { onQueryChange("") },
       onOpenTab =
-        webUrl?.takeIf { builtInBrowser }?.let { url ->
-          {
-            openInBrowser(url)
-            searchRepository.reportUsageAsync(result.namespace, result.id, query, index == 0)
-            onDismiss()
-          }
-        },
+        webUrl
+          ?.takeIf { builtInBrowser }
+          ?.let { url ->
+            {
+              openInBrowser(url)
+              searchRepository.reportUsageAsync(result.namespace, result.id, query, index == 0)
+              onDismiss()
+            }
+          },
       onOpenPrivate =
-        webUrl?.takeIf { builtInBrowser }?.let { url ->
-          {
-            context.startActivity(BrowserActivity.createPrivateIntent(context, url))
-            onDismiss()
-          }
-        },
+        webUrl
+          ?.takeIf { builtInBrowser }
+          ?.let { url ->
+            {
+              context.startActivity(BrowserActivity.createPrivateIntent(context, url))
+              onDismiss()
+            }
+          },
       onContactChatAction = { contact, action ->
         if (searchRepository.launchContactChatAction(contact, action)) {
           searchRepository.reportUsageAsync(contact.namespace, contact.id, query, index == 0)
