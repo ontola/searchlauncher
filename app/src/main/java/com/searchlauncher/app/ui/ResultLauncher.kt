@@ -17,6 +17,7 @@ import com.searchlauncher.app.data.shouldResumeFavoritedSite
 import com.searchlauncher.app.ui.browser.BrowserActivity
 import com.searchlauncher.app.ui.browser.BrowserTabStore
 import com.searchlauncher.app.ui.browser.BrowserTabTasks
+import com.searchlauncher.app.ui.browser.BuiltInBrowser
 import com.searchlauncher.app.ui.browser.indexOfTabShowing
 import com.searchlauncher.app.ui.onboarding.OnboardingManager
 import com.searchlauncher.app.util.CustomActionHandler
@@ -43,6 +44,8 @@ class ResultLauncher(
   private val onOpenBrowserTab: ((Int) -> Unit)? = null,
   private val treatFavoritedSitesAsApps: () -> Boolean = { TREAT_FAVORITED_SITES_AS_APPS_DEFAULT },
   private val favoriteResults: () -> List<SearchResult> = { emptyList() },
+  /** When false, web pages go to the user's own browser app instead. */
+  private val useBuiltInBrowser: () -> Boolean = { BuiltInBrowser.enabled },
 ) {
   fun launch(
     result: SearchResult,
@@ -84,6 +87,10 @@ class ResultLauncher(
    * that host, wherever it has since navigated. A miss opens a new tab.
    */
   private fun launchWebUrl(url: String, resumeBySite: Boolean) {
+    if (!useBuiltInBrowser()) {
+      BuiltInBrowser.openExternally(context, url)
+      return
+    }
     com.searchlauncher.app.ui.browser.InstalledWebApps.forStartUrl(context, url)?.let { app ->
       context.startActivity(
         com.searchlauncher.app.ui.browser.InstalledWebApps.launchIntent(context, app)
@@ -126,6 +133,10 @@ class ResultLauncher(
    * a fresh one, which is still the page the user asked for.
    */
   private fun launchBrowserTab(result: SearchResult.BrowserTab) {
+    if (!useBuiltInBrowser()) {
+      BuiltInBrowser.openExternally(context, result.url)
+      return
+    }
     val index = BrowserTabStore.indexOfTab(result.tabId)
     if (index >= 0) {
       onOpenBrowserTab?.let {
@@ -343,8 +354,12 @@ class ResultLauncher(
               uri != null &&
               (uri.scheme == "http" || uri.scheme == "https")
           ) {
-            onOpenInBrowser?.invoke(uri.toString())
-              ?: context.startActivity(BrowserActivity.createIntent(context, uri.toString()))
+            if (!useBuiltInBrowser()) {
+              BuiltInBrowser.openExternally(context, uri.toString())
+            } else {
+              onOpenInBrowser?.invoke(uri.toString())
+                ?: context.startActivity(BrowserActivity.createIntent(context, uri.toString()))
+            }
           } else {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)

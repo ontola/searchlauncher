@@ -2089,6 +2089,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
    * once the tab is closed. Blank tabs have nothing to match on and are skipped.
    */
   private fun searchOpenTabs(query: String): List<SearchResult> {
+    // With the built-in browser off, a tab left from before cannot be opened, so it is not offered.
+    if (!com.searchlauncher.app.ui.browser.BuiltInBrowser.enabled) return emptyList()
     val tabs = com.searchlauncher.app.ui.browser.BrowserTabStore.tabs?.items ?: return emptyList()
     return tabs.mapNotNull { tab ->
       val result = tab.toSearchResult(context) ?: return@mapNotNull null
