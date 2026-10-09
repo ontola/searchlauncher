@@ -114,6 +114,7 @@ import com.searchlauncher.app.ui.browser.BrowserTabTasks
 import com.searchlauncher.app.ui.browser.BrowserTabs
 import com.searchlauncher.app.ui.browser.BrowserTabsButton
 import com.searchlauncher.app.ui.browser.BrowserTabsOverviewLayer
+import com.searchlauncher.app.ui.browser.BuiltInBrowser
 import com.searchlauncher.app.ui.browser.TAB_CARD_WIDTH_FRACTION
 import com.searchlauncher.app.ui.browser.TAB_STRIP_LABEL_HEIGHT
 import com.searchlauncher.app.ui.browser.browserDestination
@@ -335,6 +336,10 @@ fun SearchScreen(
         }
       }
       .collectAsState(initial = TREAT_FAVORITED_SITES_AS_APPS_DEFAULT)
+  val builtInBrowser by
+    remember { BuiltInBrowser.flow(context) }.collectAsState(initial = BuiltInBrowser.enabled)
+  // Swiping to tabs and the tabs button need the built-in browser; with it off there are no tabs.
+  val tabSwipeEnabled = browserTabSwipeEnabled && builtInBrowser
   // "Autocomplete suggestions" setting. Gates the network fetch of query suggestions while typing
   // a shortcut search (e.g. "g cats"). Stored under SEARCH_SHORTCUTS_ENABLED for historical
   // reasons.
@@ -529,7 +534,7 @@ fun SearchScreen(
     wallpaperInMotion,
   ) {
     if (
-      browserTabSwipeEnabled &&
+      tabSwipeEnabled &&
         isActive &&
         query.isEmpty() &&
         !browserShowing &&
@@ -618,6 +623,11 @@ fun SearchScreen(
 
   /** Opens [url] in the tab already showing it, or in a new tab of its own. */
   fun openInBrowser(url: String) {
+    if (!builtInBrowser) {
+      BuiltInBrowser.openExternally(context, url)
+      onDismiss()
+      return
+    }
     // Only the launcher hosts a browser. Asked from the search overlay — its own translucent
     // activity, with no browser in it — this hands the page to the launcher instead, which used to
     // happen by starting the browser activity and is the last thing that would have brought the
@@ -719,20 +729,24 @@ fun SearchScreen(
       onCopyUrl = openTab?.let { tab -> { copyUrlToClipboard(context, tab.url) } },
       onClearSearchResults = { onQueryChange("") },
       onOpenTab =
-        webUrl?.let { url ->
-          {
-            openInBrowser(url)
-            searchRepository.reportUsageAsync(result.namespace, result.id, query, index == 0)
-            onDismiss()
-          }
-        },
+        webUrl
+          ?.takeIf { builtInBrowser }
+          ?.let { url ->
+            {
+              openInBrowser(url)
+              searchRepository.reportUsageAsync(result.namespace, result.id, query, index == 0)
+              onDismiss()
+            }
+          },
       onOpenPrivate =
-        webUrl?.let { url ->
-          {
-            context.startActivity(BrowserActivity.createPrivateIntent(context, url))
-            onDismiss()
-          }
-        },
+        webUrl
+          ?.takeIf { builtInBrowser }
+          ?.let { url ->
+            {
+              context.startActivity(BrowserActivity.createPrivateIntent(context, url))
+              onDismiss()
+            }
+          },
       onContactChatAction = { contact, action ->
         if (searchRepository.launchContactChatAction(contact, action)) {
           searchRepository.reportUsageAsync(contact.namespace, contact.id, query, index == 0)
@@ -842,6 +856,7 @@ fun SearchScreen(
         onOpenBrowserTab = { index -> openBrowserTab(index) },
         treatFavoritedSitesAsApps = { treatFavoritedSitesAsApps },
         favoriteResults = { searchRepository.favorites.value },
+        useBuiltInBrowser = { builtInBrowser },
       )
     }
 
@@ -1695,7 +1710,7 @@ fun SearchScreen(
           .drawWithContent {
             // Freeze the last complete home frame before any swipe or overview transforms it.
             if (
-              browserTabSwipeEnabled &&
+              tabSwipeEnabled &&
                 query.isEmpty() &&
                 !browserShowing &&
                 !openingTab &&
@@ -1991,7 +2006,7 @@ fun SearchScreen(
         }
       }
 
-      if (browserTabSwipeEnabled) {
+      if (tabSwipeEnabled) {
         // Measured here rather than inside the preview, which is only composed while the browser is
         // not. The browser's position is one screen minus this, so a placeholder width put it at
         // roughly zero — covering everything in the page's own colour for the few frames before the
@@ -2497,7 +2512,7 @@ fun SearchScreen(
                 Modifier.onSizeChanged { chromeBarHeightPx = it.height }
                   .browserTabSwipe(
                     state = browserTabSwipe,
-                    enabled = browserTabSwipeEnabled,
+                    enabled = tabSwipeEnabled,
                     tabsOverviewOpen = tabsOverviewOpen,
                     onOpenTabsOverview = ::openTabsOverview,
                     onCloseTabsOverview = { tabsOverviewOpen = false },
@@ -2649,7 +2664,7 @@ fun SearchScreen(
                 // the mic sideways the moment a tab appeared, so the two buttons that are always
                 // there
                 // never settled anywhere. Leading the row, it grows away from them instead.
-                if (browserTabSwipeEnabled && openTabCount > 0) {
+                if (tabSwipeEnabled && openTabCount > 0) {
                   BrowserTabsButton(
                     tabCount = openTabCount,
                     onClick = {
