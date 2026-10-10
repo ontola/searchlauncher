@@ -57,23 +57,23 @@ internal class GeckoPage(
   private val favicons = if (privateMode) null else GeckoFavicons(activity, tab, session)
   private val appearance = GeckoAppearance(activity, tab, session)
   var view: GeckoView? = null
-  var awaitingPaint by mutableStateOf<Boolean>(predecessor?.awaitingPaint ?: true)
+  var awaitingPaint: Boolean by mutableStateOf(predecessor?.awaitingPaint ?: true)
     private set
 
   // A live session reports these on change only, so a page taking one over starts from what its
   // predecessor last heard rather than from defaults Gecko will never correct.
-  var loading by mutableStateOf<Boolean>(predecessor?.loading ?: false)
-  var progress by mutableStateOf<Int>(predecessor?.progress ?: 0)
-  var canGoBack by mutableStateOf<Boolean>(predecessor?.canGoBack ?: false)
-  var canGoForward by mutableStateOf<Boolean>(predecessor?.canGoForward ?: false)
-  var fullscreen by mutableStateOf<Boolean>(predecessor?.fullscreen ?: false)
-  var webAppManifest by mutableStateOf<InstalledWebApp?>(predecessor?.webAppManifest)
+  var loading: Boolean by mutableStateOf(predecessor?.loading ?: false)
+  var progress: Int by mutableStateOf(predecessor?.progress ?: 0)
+  var canGoBack: Boolean by mutableStateOf(predecessor?.canGoBack ?: false)
+  var canGoForward: Boolean by mutableStateOf(predecessor?.canGoForward ?: false)
+  var fullscreen: Boolean by mutableStateOf(predecessor?.fullscreen ?: false)
+  var webAppManifest: InstalledWebApp? by mutableStateOf(predecessor?.webAppManifest)
     private set
 
   val inAppScope: Boolean
     get() = !privateMode && tab.installedApp?.contains(tab.url) == true
 
-  var error by mutableStateOf<String?>(predecessor?.error)
+  var error: String? by mutableStateOf(predecessor?.error)
   var showDownloads by mutableStateOf(false)
   private var closeDownloadTab = false
   private var hasRenderedDocument: Boolean = predecessor?.hasRenderedDocument ?: false
