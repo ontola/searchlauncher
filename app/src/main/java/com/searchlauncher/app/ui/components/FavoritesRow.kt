@@ -375,15 +375,7 @@ fun FavoritesRow(
                 bitmap = imageBitmap,
                 contentDescription = result.title,
                 contentScale = ContentScale.Fit,
-                modifier =
-                  Modifier.size(finalIconSize * 0.8f)
-                    .then(
-                      if (result is SearchResult.Contact) {
-                        Modifier.clip(RoundedCornerShape(8.dp))
-                      } else {
-                        Modifier
-                      }
-                    ),
+                modifier = Modifier.size(finalIconSize * 0.8f).then(nonAppIconClip(result)),
               )
             } else {
               Box(
@@ -456,18 +448,22 @@ fun FavoritesRow(
             bitmap = imageBitmap,
             contentDescription = result.title,
             contentScale = ContentScale.Fit,
-            modifier =
-              Modifier.size(finalIconSize * 0.8f)
-                .then(
-                  if (result is SearchResult.Contact) {
-                    Modifier.clip(RoundedCornerShape(8.dp))
-                  } else {
-                    Modifier
-                  }
-                ),
+            modifier = Modifier.size(finalIconSize * 0.8f).then(nonAppIconClip(result)),
           )
         }
       }
     }
   }
 }
+
+/**
+ * App icons arrive already masked by the launcher's icon shape, but favicons, page thumbnails and
+ * contact photos are plain squares that stood out in the row. Round them to roughly the same corner
+ * as an app icon so the row reads as one set.
+ */
+private fun nonAppIconClip(result: SearchResult): Modifier =
+  when (result) {
+    is SearchResult.App,
+    is SearchResult.PrivateSpace -> Modifier
+    else -> Modifier.clip(RoundedCornerShape(percent = 22))
+  }
