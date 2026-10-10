@@ -205,7 +205,8 @@ internal object BrowserEngine {
         prompts.close()
         page.persist()
         page.view?.releaseSession()
-        page.close()
+        // A window recreated for a configuration change shows the same tab again at once.
+        if (activity.isChangingConfigurations) page.handOver() else page.close()
         if (activity.isFinishing && !privateMode) page.forget()
       }
     }

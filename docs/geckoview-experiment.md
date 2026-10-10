@@ -500,3 +500,22 @@ An optimized-build regression surfaced during installation: R8 removed the gener
 converter constructor, preventing the favorite from being saved. The ProGuard rules now retain
 DocumentClassFactory implementations used through reflection. PWA device checks exercise the real
 AppSearch write in the optimized build, rather than only an unshrunk instrumentation build.
+
+## Tabs survive window recreation
+
+Each tab's window closed its Gecko session in `onDestroy`, including when Android only recreated
+the window for a configuration change. The browser windows handled rotation and resizing, but not
+`uiMode`, so dark mode switching on a schedule or with battery saver recreated every tab's window
+the next time it was shown and reloaded its page from the saved history: scroll position, form
+input and in-page app state were lost. Font scale, display size, locale and keyboard changes did
+the same.
+
+- The browser windows now handle those configuration changes themselves. Compose, the page chrome
+  and Gecko (through the runtime's `configurationChanged`) already follow them live.
+- Any remaining recreation (theme overlay changes, `recreate()`) hands the open session and its
+  observed state to the replacement window instead of closing it. An unclaimed session is closed
+  after ten seconds.
+
+`recreatingTheWindowKeepsTheLiveDocument` toggles night mode and recreates the window, then checks
+that in-page memory is intact and the document was not loaded again. Content-process kills still
+reload the page as before (see build 9 and 11); this does not change Android's memory reclamation.
