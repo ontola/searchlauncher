@@ -109,7 +109,7 @@
         <activity
             android:name=".ui.browser.BrowserActivity"
             android:autoRemoveFromRecents="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection|colorMode|touchscreen|mcc|mnc"
             android:documentLaunchMode="intoExisting"
             android:exported="true"
             android:supportsPictureInPicture="true"
@@ -129,7 +129,7 @@
 
         <activity
             android:name=".ui.browser.PrivateBrowserActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection|colorMode|touchscreen|mcc|mnc"
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleTask"

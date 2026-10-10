@@ -95,7 +95,11 @@ internal class BrowserTabs(initialUrl: String, initialId: Long? = null) {
    */
   fun add(url: String, onEvict: (BrowserTab) -> Unit = {}, restoredId: Long? = null): BrowserTab {
     if (items.size >= MAX_TABS) {
-      val removableIndex = items.indices.firstOrNull { it != activeIndex } ?: 0
+      // The oldest tab goes, unless it shows a favorite: those stay while anything else can go.
+      val removableIndex =
+        items.indices.firstOrNull { it != activeIndex && !FavoriteSites.covers(items[it]) }
+          ?: items.indices.firstOrNull { it != activeIndex }
+          ?: 0
       onEvict(items.removeAt(removableIndex))
       if (removableIndex < activeIndex) activeIndex--
     }

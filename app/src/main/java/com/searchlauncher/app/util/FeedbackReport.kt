@@ -8,6 +8,7 @@ import android.os.Build
 import android.webkit.WebView
 import com.searchlauncher.app.BuildConfig
 import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.ui.browser.BrowserReloadLog
 import io.sentry.Sentry
 import io.sentry.SentryLevel
 import io.sentry.protocol.Feedback
@@ -193,6 +194,12 @@ internal object FeedbackReporter {
       Sentry.withScope { scope ->
         report.tags.forEach { (key, value) -> scope.setTag(key, value) }
         report.extras.forEach { (key, value) -> scope.setExtra(key, value) }
+        // Sent with every report: a reload is usually reported right after it happened.
+        runCatching {
+          scope.setExtra("browser_reloads", BrowserReloadLog.text(context))
+          scope.setExtra("process_exits", BrowserReloadLog.processExits(context))
+          scope.setExtra("last_anr_main_thread", BrowserReloadLog.lastAnrMainThread(context))
+        }
         report.contactEmail?.let { address -> scope.user = User().apply { email = address } }
         eventId = Sentry.captureMessage(report.eventMessage, SentryLevel.INFO)
         if (eventId != SentryId.EMPTY_ID) {
