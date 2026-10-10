@@ -69,6 +69,32 @@ internal object BrowserReloadLog {
       .ifEmpty { "none recorded" }
   }
 
+  /**
+   * The main thread's stack from the app's most recent "isn't responding" exit, which Android keeps
+   * after the dialog is dismissed. That stack is what says what the app was stuck on.
+   */
+  fun lastAnrMainThread(context: Context): String {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return "needs Android 11"
+    val manager =
+      context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return "unavailable"
+    return runCatching {
+        val anr =
+          manager.getHistoricalProcessExitReasons(null, 0, 25).firstOrNull {
+            it.reason == ApplicationExitInfo.REASON_ANR
+          } ?: return "none recorded"
+        val trace =
+          anr.traceInputStream?.bufferedReader()?.use { it.readText() } ?: return "no trace kept"
+        val lines = trace.lines()
+        val start = lines.indexOfFirst { it.startsWith("\"main\"") }
+        val stack =
+          if (start < 0) lines.take(80)
+          else lines.drop(start).takeWhile { it.isNotBlank() }.take(80)
+        "${timestamp(anr.timestamp)} ${anr.processName} ${anr.description.orEmpty()}\n" +
+          stack.joinToString("\n")
+      }
+      .getOrElse { "unavailable: ${it.javaClass.simpleName}" }
+  }
+
   @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
   private fun exitReason(reason: Int): String =
     when (reason) {

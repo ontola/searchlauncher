@@ -198,6 +198,7 @@ internal object FeedbackReporter {
         runCatching {
           scope.setExtra("browser_reloads", BrowserReloadLog.text(context))
           scope.setExtra("process_exits", BrowserReloadLog.processExits(context))
+          scope.setExtra("last_anr_main_thread", BrowserReloadLog.lastAnrMainThread(context))
         }
         report.contactEmail?.let { address -> scope.user = User().apply { email = address } }
         eventId = Sentry.captureMessage(report.eventMessage, SentryLevel.INFO)
