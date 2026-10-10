@@ -519,3 +519,10 @@ the same.
 `recreatingTheWindowKeepsTheLiveDocument` toggles night mode and recreates the window, then checks
 that in-page memory is intact and the document was not loaded again. Content-process kills still
 reload the page as before (see build 9 and 11); this does not change Android's memory reclamation.
+
+### Favorites stay open longest
+
+Tabs showing a pinned site (any page on its host) or an installed web app now keep Gecko's high
+priority while hidden, outside the six-session recent working set, so Android reclaims other
+pages first. When the 16-tab cap is reached the oldest ordinary tab closes before any favorite.
+This is still a priority, not a guarantee: under real memory pressure Android can stop them too.

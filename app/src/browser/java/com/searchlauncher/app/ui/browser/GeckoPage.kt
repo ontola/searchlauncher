@@ -242,6 +242,7 @@ internal class GeckoPage(
             tab.url = url
             session.settings.displayMode = appDisplayMode(url)
             if (tab.favicon == null) favicons?.restoreCached()
+            retainIfFavorite()
             session.flushSessionState()
           }
         }
@@ -386,7 +387,13 @@ internal class GeckoPage(
       }
   }
 
+  /** Pinned sites stay at high priority while hidden, for as long as Android has the memory. */
+  private fun retainIfFavorite() {
+    if (!privateMode) GeckoEnvironment.retainFavorite(session, FavoriteSites.covers(tab))
+  }
+
   fun setVisible(visible: Boolean) {
+    retainIfFavorite()
     if (visible) GeckoEnvironment.retainRecent(session)
     else {
       touching = false
