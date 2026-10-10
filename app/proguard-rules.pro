@@ -8,3 +8,9 @@
 # AppSearch loads generated converters by class name and invokes their no-arg constructor.
 # Keeping the annotated document alone leaves that constructor removable in optimized builds.
 -keep class ** implements androidx.appsearch.app.DocumentClassFactory { *; }
+
+# GeckoView reads its debug config (/data/local/tmp/*-geckoview-config.yaml) through SnakeYAML when
+# the app is debuggable or set as Android's debug app. SnakeYAML calls getPackage().getName() on
+# its own classes in a static initializer, so R8 moving them into the unnamed package made
+# GeckoRuntime.create crash with ExceptionInInitializerError on every browser launch.
+-keep class org.yaml.snakeyaml.** { *; }
