@@ -62,6 +62,10 @@ internal object GeckoEnvironment {
             context.applicationContext,
             GeckoRuntimeSettings.Builder()
               .arguments(arrayOf("-profile", profile.absolutePath))
+              // Without a path Gecko reads /data/local/tmp/<package>-geckoview-config.yaml
+              // whenever this app is Android's "debug app" (Developer options), even in release.
+              // R8 strips the SnakeYAML parser it needs, so that crashed every page open.
+              .configFilePath("")
               .remoteDebuggingEnabled(false)
               .consoleOutput(true)
               .build(),
