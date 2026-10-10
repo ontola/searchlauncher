@@ -42,11 +42,11 @@ internal class GeckoPage(
       saved.getString("url:${tab.id}", null) ?: tab.installedApp?.startUrl ?: tab.url
     else tab.url
   /** The same tab's page from the window this one replaces, if that window was only recreated. */
-  private var predecessor = if (privateMode) null else handedOver.remove(tab.id)
-  private var awaitingInitialLocation =
+  private var predecessor: GeckoPage? = if (privateMode) null else handedOver.remove(tab.id)
+  private var awaitingInitialLocation: Boolean =
     predecessor?.awaitingInitialLocation ?: (initialUrl != "about:blank")
-  private val suppliedSession = predecessor?.session ?: GeckoEnvironment.take(tab.id)
-  val session =
+  private val suppliedSession: GeckoSession? = predecessor?.session ?: GeckoEnvironment.take(tab.id)
+  val session: GeckoSession =
     suppliedSession
       ?: GeckoSession(
         GeckoSessionSettings.Builder()
@@ -57,26 +57,26 @@ internal class GeckoPage(
   private val favicons = if (privateMode) null else GeckoFavicons(activity, tab, session)
   private val appearance = GeckoAppearance(activity, tab, session)
   var view: GeckoView? = null
-  var awaitingPaint by mutableStateOf(predecessor?.awaitingPaint ?: true)
+  var awaitingPaint by mutableStateOf<Boolean>(predecessor?.awaitingPaint ?: true)
     private set
 
   // A live session reports these on change only, so a page taking one over starts from what its
   // predecessor last heard rather than from defaults Gecko will never correct.
-  var loading by mutableStateOf(predecessor?.loading ?: false)
-  var progress by mutableStateOf(predecessor?.progress ?: 0)
-  var canGoBack by mutableStateOf(predecessor?.canGoBack ?: false)
-  var canGoForward by mutableStateOf(predecessor?.canGoForward ?: false)
-  var fullscreen by mutableStateOf(predecessor?.fullscreen ?: false)
-  var webAppManifest by mutableStateOf(predecessor?.webAppManifest)
+  var loading by mutableStateOf<Boolean>(predecessor?.loading ?: false)
+  var progress by mutableStateOf<Int>(predecessor?.progress ?: 0)
+  var canGoBack by mutableStateOf<Boolean>(predecessor?.canGoBack ?: false)
+  var canGoForward by mutableStateOf<Boolean>(predecessor?.canGoForward ?: false)
+  var fullscreen by mutableStateOf<Boolean>(predecessor?.fullscreen ?: false)
+  var webAppManifest by mutableStateOf<InstalledWebApp?>(predecessor?.webAppManifest)
     private set
 
   val inAppScope: Boolean
     get() = !privateMode && tab.installedApp?.contains(tab.url) == true
 
-  var error by mutableStateOf(predecessor?.error)
+  var error by mutableStateOf<String?>(predecessor?.error)
   var showDownloads by mutableStateOf(false)
   private var closeDownloadTab = false
-  private var hasRenderedDocument = predecessor?.hasRenderedDocument ?: false
+  private var hasRenderedDocument: Boolean = predecessor?.hasRenderedDocument ?: false
   private var failedUrl: String? = predecessor?.failedUrl
   private var captureRunning = false
   private var scrollCapture: Job? = null
@@ -86,7 +86,7 @@ internal class GeckoPage(
   private var loadGeneration = 0
   private val captureCallbacks = mutableListOf<() -> Unit>()
   private var state: GeckoSession.SessionState? = predecessor?.state
-  private var killed = predecessor?.killed ?: false
+  private var killed: Boolean = predecessor?.killed ?: false
   private var lastAutomaticRecoveryAt: Long? = null
   private var recoveryJob: Job? = null
   private var closed = false
