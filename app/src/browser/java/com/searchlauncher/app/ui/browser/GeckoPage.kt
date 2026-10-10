@@ -90,6 +90,8 @@ internal class GeckoPage(
   private var lastAutomaticRecoveryAt: Long? = null
   private var recoveryJob: Job? = null
   private var closed = false
+  /** When this page was last hidden, for the reload log. */
+  private var hiddenSince: Long? = null
 
   init {
     // Its state has been copied; holding on would keep the destroyed window alive.
@@ -359,6 +361,11 @@ internal class GeckoPage(
       "GeckoRecovery",
       "Page process ${if (wasKilled) "killed" else "crashed"}; resumed=${activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)}",
     )
+    BrowserReloadLog.record(
+      activity,
+      if (wasKilled) "page process killed" else "page process crashed",
+      reloadContext(),
+    )
     failedUrl = failedUrl ?: tab.url
     navigationGeneration++
     loadGeneration++
@@ -392,7 +399,23 @@ internal class GeckoPage(
     if (!privateMode) GeckoEnvironment.retainFavorite(session, FavoriteSites.covers(tab))
   }
 
+  private fun reloadContext(): String {
+    val hidden = hiddenSince?.let { "hidden ${(SystemClock.elapsedRealtime() - it) / 1000}s" }
+    val memory =
+      runCatching {
+          val info = android.app.ActivityManager.MemoryInfo()
+          (activity.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager)
+            .getMemoryInfo(info)
+          "free ${info.availMem / (1024 * 1024)}MB${if (info.lowMemory) " (low)" else ""}"
+        }
+        .getOrNull()
+    val favorite = if (FavoriteSites.covers(tab)) "favorite" else null
+    val tabs = BrowserTabStore.tabs?.items?.size?.let { "$it tabs" }
+    return listOfNotNull(hidden ?: "visible", favorite, tabs, memory).joinToString(", ")
+  }
+
   fun setVisible(visible: Boolean) {
+    hiddenSince = if (visible) null else hiddenSince ?: SystemClock.elapsedRealtime()
     retainIfFavorite()
     if (visible) GeckoEnvironment.retainRecent(session)
     else {
@@ -469,8 +492,11 @@ internal class GeckoPage(
           .getOrNull()
       else null
     // An empty/stale history snapshot must not replace the separately saved destination.
-    if (restored != null && restored.currentUrl() == initialUrl) session.restoreState(restored)
-    else session.loadUri(initialUrl)
+    if (restored != null && restored.currentUrl() == initialUrl) {
+      // This tab had a live page before; whatever ended it, the page now loads again.
+      BrowserReloadLog.record(activity, "tab restored from saved state", reloadContext())
+      session.restoreState(restored)
+    } else session.loadUri(initialUrl)
   }
 
   /**
