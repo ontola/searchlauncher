@@ -375,9 +375,7 @@ fun FavoritesRow(
                 bitmap = imageBitmap,
                 contentDescription = result.title,
                 contentScale = ContentScale.Fit,
-                modifier =
-                  Modifier.size(finalIconSize * 0.8f)
-                    .then(nonAppIconClip(result)),
+                modifier = Modifier.size(finalIconSize * 0.8f).then(nonAppIconClip(result)),
               )
             } else {
               Box(
@@ -450,9 +448,7 @@ fun FavoritesRow(
             bitmap = imageBitmap,
             contentDescription = result.title,
             contentScale = ContentScale.Fit,
-            modifier =
-              Modifier.size(finalIconSize * 0.8f)
-                .then(nonAppIconClip(result)),
+            modifier = Modifier.size(finalIconSize * 0.8f).then(nonAppIconClip(result)),
           )
         }
       }
