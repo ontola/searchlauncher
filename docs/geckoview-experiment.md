@@ -526,3 +526,12 @@ Tabs showing a pinned site (any page on its host) or an installed web app now ke
 priority while hidden, outside the six-session recent working set, so Android reclaims other
 pages first. When the 16-tab cap is reached the oldest ordinary tab closes before any favorite.
 This is still a priority, not a guarantee: under real memory pressure Android can stop them too.
+
+## The page resizes once per keyboard change
+
+Every size change of the GeckoView makes Gecko resume and resize its compositor with a synchronous
+call from the main thread. Padding the page by the live IME inset resized it on every frame of the
+keyboard animation, from a layout pass inside draw, and Joep's Xiaomi phone reported four ANRs
+blocked in `GeckoSession$Compositor.syncResumeResizeCompositor` from exactly that path. The page
+now follows `WindowInsets.imeAnimationTarget`, as the WebView browser already did, so it resizes
+once and the keys slide over it.
