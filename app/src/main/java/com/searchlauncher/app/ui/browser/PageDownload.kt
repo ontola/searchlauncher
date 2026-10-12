@@ -92,6 +92,7 @@ internal data class PageDownloadProgress(
   val seenInHistory: Boolean = false,
   val onCancel: (() -> Unit)? = null,
   val cancelling: Boolean = false,
+  val transfer: DownloadTransfer? = null,
 )
 
 internal val pendingPageDownloads =
@@ -207,10 +208,11 @@ internal suspend fun downloadFromPage(
     file = target
     withContext(Dispatchers.IO) { target.writeBytes(byteArrayOf()) }
     var offset = 0L
-    while (offset < size) {
-      val end = minOf(offset + PAGE_DOWNLOAD_CHUNK_BYTES, size)
-      view.scriptResult(
-        """
+    trackDownloadTransfer(key, name, size, notification) { reportBytes ->
+      while (offset < size) {
+        val end = minOf(offset + PAGE_DOWNLOAD_CHUNK_BYTES, size)
+        view.scriptResult(
+          """
         (() => {
           const s = window[$quotedKey];
           if (!s) return;
@@ -221,16 +223,16 @@ internal suspend fun downloadFromPage(
           reader.readAsDataURL(s.blob.slice($offset, $end));
         })()
         """
-          .trimIndent()
-      )
-      val chunk = awaitState().getString("chunk")
-      check(chunk.length <= PAGE_DOWNLOAD_CHUNK_BYTES * 2)
-      val bytes = Base64.decode(chunk, Base64.DEFAULT)
-      check(bytes.size.toLong() == end - offset)
-      withContext(Dispatchers.IO) { target.appendBytes(bytes) }
-      offset = end
-      updatePageDownload(key, name, offset.toFloat() / size)
-      notification.progress(name, offset.toFloat() / size)
+            .trimIndent()
+        )
+        val chunk = awaitState().getString("chunk")
+        check(chunk.length <= PAGE_DOWNLOAD_CHUNK_BYTES * 2)
+        val bytes = Base64.decode(chunk, Base64.DEFAULT)
+        check(bytes.size.toLong() == end - offset)
+        withContext(Dispatchers.IO) { target.appendBytes(bytes) }
+        offset = end
+        reportBytes(offset)
+      }
     }
     control.complete(
       name,

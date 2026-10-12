@@ -18,6 +18,25 @@ class DownloadNotificationTest {
   private val manager = app.getSystemService(NotificationManager::class.java)
 
   @Test
+  fun progressShowsSpeedAndRemainingThenClearsOnCompletion() {
+    shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+    val notification = DownloadNotification(app, "stats", "file.zip")
+    notification.progress("file.zip", 0.25f, DownloadTransfer(1_000_000, 4_000_000, 500_000.0))
+    val active = manager.activeNotifications.single().notification
+    assertTrue(active.extras.getString("android.text")!!.contains("KB/s"))
+    assertTrue(active.extras.getString("android.text")!!.contains("MB left"))
+    assertTrue(active.extras.getString("android.subText")!!.contains("MB left"))
+    assertEquals(25, active.extras.getInt("android.progress"))
+    notification.complete("file.zip")
+    assertEquals(
+      "Download complete",
+      manager.activeNotifications.single().notification.extras.getString("android.text"),
+    )
+    notification.cancel()
+    assertTrue(manager.activeNotifications.isEmpty())
+  }
+
+  @Test
   fun parallelTransfersAndFailureDoNotOverwriteEachOther() {
     shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
     val first = DownloadNotification(app, "first", "one.apk")
