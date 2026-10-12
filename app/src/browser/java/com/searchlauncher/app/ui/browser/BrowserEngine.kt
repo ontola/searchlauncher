@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -381,7 +382,13 @@ internal object BrowserEngine {
               .background(frameColor)
               .onSizeChanged { chromeSize = it }
               .drawWithContent {
-                chromeLayer.record { this@drawWithContent.drawContent() }
+                chromeLayer.record {
+                  this@drawWithContent.drawContent()
+                  drawRect(
+                    color = frameContentColor.copy(alpha = 0.18f),
+                    size = Size(size.width, 1f),
+                  )
+                }
                 drawLayer(chromeLayer)
               }
           ) {

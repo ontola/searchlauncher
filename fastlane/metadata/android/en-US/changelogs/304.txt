@@ -1,0 +1,5 @@
+Smoother website keyboard transitions: pages and browser controls resize together, reducing jumps in bottom navigation bars.
+Added a subtle 1px divider above the browser bar.
+Tabs survive more settings changes, and favorite sites and installed web apps stay open longer.
+Fixed a browser startup crash in optimized builds.
+Improved feedback diagnostics for freezes and unexpected tab reloads.
