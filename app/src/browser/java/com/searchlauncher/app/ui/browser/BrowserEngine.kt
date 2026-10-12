@@ -78,8 +78,14 @@ internal object BrowserEngine {
     val density = androidx.compose.ui.platform.LocalDensity.current
     // Website editing needs the full viewport above the IME, without browser controls
     // riding on top of it.
-    val imeInsets = WindowInsets.ime
-    val websiteKeyboardVisible = imeInsets.getBottom(density) > 0
+    // Keep toolbar visibility and page sizing on the same IME state. Using animated
+    // visibility here but target insets below creates a second viewport jump when
+    // the toolbar disappears/returns, making fixed website footers change direction.
+    val imeTargetBottom = WindowInsets.imeAnimationTarget.getBottom(density)
+    val websiteKeyboardVisible = imeTargetBottom > 0
+    // Snapshot the padding during composition too. Reading the live target only in
+    // layout can resize Gecko one frame before the toolbar visibility recomposes.
+    val imeInsets = remember(imeTargetBottom) { WindowInsets(bottom = imeTargetBottom) }
     val localTab = remember { BrowserTab(navigationRequest?.url ?: "about:blank") }
     val tab = if (privateMode) localTab else pinnedTabId?.let(BrowserTabStore::tab) ?: return
     val page = remember(tab.id) { GeckoPage(activity, tab, privateMode, onClose) }
@@ -286,7 +292,7 @@ internal object BrowserEngine {
           // Follow the keyboard's target, not each frame of its animation: every size change
           // makes Gecko resume and resize its compositor synchronously on the main thread, and
           // a resize per frame inside a draw pass has hung the window (ANR on Xiaomi).
-          .windowInsetsPadding(WindowInsets.imeAnimationTarget)
+          .windowInsetsPadding(imeInsets)
       ) {
         Box(Modifier.weight(1f).fillMaxWidth().background(Color(tab.pageBackgroundArgb))) {
           AndroidView(
