@@ -31,6 +31,7 @@ class BrowserKeyboardBackgroundTest {
     val oldIdle = config.waitForIdleTimeout
     config.waitForIdleTimeout = 0
     val heights = CopyOnWriteArrayList<Int>()
+    val viewportEvents = CopyOnWriteArrayList<String>()
     val server = ServerSocket(0)
     thread(isDaemon = true) {
       while (!server.isClosed) {
@@ -41,8 +42,10 @@ class BrowserKeyboardBackgroundTest {
               val reader = it.getInputStream().bufferedReader()
               val path = reader.readLine()?.split(" ")?.getOrNull(1).orEmpty()
               while (!reader.readLine().isNullOrEmpty()) {}
-              if (path.startsWith("/height/"))
-                path.substringAfterLast('/').toIntOrNull()?.let(heights::add)
+              if (path.startsWith("/height/")) {
+                path.substringBefore('?').substringAfterLast('/').toIntOrNull()?.let(heights::add)
+                viewportEvents += path
+              }
               val body =
                 if (path.startsWith("/height/")) "ok"
                 else
@@ -54,7 +57,7 @@ class BrowserKeyboardBackgroundTest {
                 <input aria-label="Keyboard resize probe" placeholder="Type here">
                 <footer>Bottom of viewport</footer>
                 <script>
-                function report(){fetch('/height/'+Math.round(visualViewport.height))}
+                function report(){fetch('/height/'+Math.round(visualViewport.height)+'?t='+Math.round(performance.now())+'&footer='+Math.round(document.querySelector('footer').getBoundingClientRect().bottom))}
                 visualViewport.addEventListener('resize',report);addEventListener('load',report);
                 </script>
               """
@@ -88,11 +91,20 @@ class BrowserKeyboardBackgroundTest {
       waitFor { heights.isNotEmpty() }
       val fullHeight = heights.last()
       repeat(3) { cycle ->
+        val eventsBefore = heights.size
         device.findObject(By.clazz("android.widget.EditText"))!!.click()
         waitFor { heights.last() < fullHeight * 0.85 }
+        SystemClock.sleep(450) // Include the complete keyboard entrance, not just its first frame.
         device.executeShellCommand("input text hello")
         device.pressBack()
         waitFor { kotlin.math.abs(heights.last() - fullHeight) <= 2 }
+        SystemClock.sleep(450) // Include delayed toolbar changes at the end of the exit animation.
+        val keyboardHeights = heights.drop(eventsBefore).filter { it != fullHeight }.distinct()
+        assertEquals(
+          "The page and toolbar must resize together: $keyboardHeights",
+          1,
+          keyboardHeights.size,
+        )
         assertNotNull(device.wait(Until.findObject(By.desc("Browser menu")), 5000))
         val chrome = device.findObject(By.desc("Browser menu"))!!.visibleBounds
         waitFor {
@@ -116,6 +128,8 @@ class BrowserKeyboardBackgroundTest {
         }
       }
     } finally {
+      File(context.getExternalFilesDir(null), "keyboard-viewport-events.txt")
+        .writeText(viewportEvents.joinToString("\n"))
       File(context.getExternalFilesDir(null), "keyboard-viewport-heights.txt")
         .writeText(heights.joinToString("\n"))
       config.waitForIdleTimeout = oldIdle
