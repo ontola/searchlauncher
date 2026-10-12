@@ -41,9 +41,12 @@ internal class GeckoPage(
     if (!privateMode && tab.url == "about:blank")
       saved.getString("url:${tab.id}", null) ?: tab.installedApp?.startUrl ?: tab.url
     else tab.url
-  private var awaitingInitialLocation = initialUrl != "about:blank"
-  private val suppliedSession = GeckoEnvironment.take(tab.id)
-  val session =
+  /** The same tab's page from the window this one replaces, if that window was only recreated. */
+  private var predecessor: GeckoPage? = if (privateMode) null else handedOver.remove(tab.id)
+  private var awaitingInitialLocation: Boolean =
+    predecessor?.awaitingInitialLocation ?: (initialUrl != "about:blank")
+  private val suppliedSession: GeckoSession? = predecessor?.session ?: GeckoEnvironment.take(tab.id)
+  val session: GeckoSession =
     suppliedSession
       ?: GeckoSession(
         GeckoSessionSettings.Builder()
@@ -54,25 +57,27 @@ internal class GeckoPage(
   private val favicons = if (privateMode) null else GeckoFavicons(activity, tab, session)
   private val appearance = GeckoAppearance(activity, tab, session)
   var view: GeckoView? = null
-  var awaitingPaint by mutableStateOf(true)
+  var awaitingPaint: Boolean by mutableStateOf(predecessor?.awaitingPaint ?: true)
     private set
 
-  var loading by mutableStateOf(false)
-  var progress by mutableStateOf(0)
-  var canGoBack by mutableStateOf(false)
-  var canGoForward by mutableStateOf(false)
-  var fullscreen by mutableStateOf(false)
-  var webAppManifest by mutableStateOf<InstalledWebApp?>(null)
+  // A live session reports these on change only, so a page taking one over starts from what its
+  // predecessor last heard rather than from defaults Gecko will never correct.
+  var loading: Boolean by mutableStateOf(predecessor?.loading ?: false)
+  var progress: Int by mutableStateOf(predecessor?.progress ?: 0)
+  var canGoBack: Boolean by mutableStateOf(predecessor?.canGoBack ?: false)
+  var canGoForward: Boolean by mutableStateOf(predecessor?.canGoForward ?: false)
+  var fullscreen: Boolean by mutableStateOf(predecessor?.fullscreen ?: false)
+  var webAppManifest: InstalledWebApp? by mutableStateOf(predecessor?.webAppManifest)
     private set
 
   val inAppScope: Boolean
     get() = !privateMode && tab.installedApp?.contains(tab.url) == true
 
-  var error by mutableStateOf<String?>(null)
+  var error: String? by mutableStateOf(predecessor?.error)
   var showDownloads by mutableStateOf(false)
   private var closeDownloadTab = false
-  private var hasRenderedDocument = false
-  private var failedUrl: String? = null
+  private var hasRenderedDocument: Boolean = predecessor?.hasRenderedDocument ?: false
+  private var failedUrl: String? = predecessor?.failedUrl
   private var captureRunning = false
   private var scrollCapture: Job? = null
   private var touching = false
@@ -80,13 +85,17 @@ internal class GeckoPage(
   private var navigationGeneration = 0
   private var loadGeneration = 0
   private val captureCallbacks = mutableListOf<() -> Unit>()
-  private var state: GeckoSession.SessionState? = null
-  private var killed = false
+  private var state: GeckoSession.SessionState? = predecessor?.state
+  private var killed: Boolean = predecessor?.killed ?: false
   private var lastAutomaticRecoveryAt: Long? = null
   private var recoveryJob: Job? = null
   private var closed = false
+  /** When this page was last hidden, for the reload log. */
+  private var hiddenSince: Long? = null
 
   init {
+    // Its state has been copied; holding on would keep the destroyed window alive.
+    predecessor = null
     tab.url = initialUrl
     session.scrollDelegate =
       object : GeckoSession.ScrollDelegate {
@@ -235,6 +244,7 @@ internal class GeckoPage(
             tab.url = url
             session.settings.displayMode = appDisplayMode(url)
             if (tab.favicon == null) favicons?.restoreCached()
+            retainIfFavorite()
             session.flushSessionState()
           }
         }
@@ -351,6 +361,11 @@ internal class GeckoPage(
       "GeckoRecovery",
       "Page process ${if (wasKilled) "killed" else "crashed"}; resumed=${activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)}",
     )
+    BrowserReloadLog.record(
+      activity,
+      if (wasKilled) "page process killed" else "page process crashed",
+      reloadContext(),
+    )
     failedUrl = failedUrl ?: tab.url
     navigationGeneration++
     loadGeneration++
@@ -379,7 +394,29 @@ internal class GeckoPage(
       }
   }
 
+  /** Pinned sites stay at high priority while hidden, for as long as Android has the memory. */
+  private fun retainIfFavorite() {
+    if (!privateMode) GeckoEnvironment.retainFavorite(session, FavoriteSites.covers(tab))
+  }
+
+  private fun reloadContext(): String {
+    val hidden = hiddenSince?.let { "hidden ${(SystemClock.elapsedRealtime() - it) / 1000}s" }
+    val memory =
+      runCatching {
+          val info = android.app.ActivityManager.MemoryInfo()
+          (activity.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager)
+            .getMemoryInfo(info)
+          "free ${info.availMem / (1024 * 1024)}MB${if (info.lowMemory) " (low)" else ""}"
+        }
+        .getOrNull()
+    val favorite = if (FavoriteSites.covers(tab)) "favorite" else null
+    val tabs = BrowserTabStore.tabs?.items?.size?.let { "$it tabs" }
+    return listOfNotNull(hidden ?: "visible", favorite, tabs, memory).joinToString(", ")
+  }
+
   fun setVisible(visible: Boolean) {
+    hiddenSince = if (visible) null else hiddenSince ?: SystemClock.elapsedRealtime()
+    retainIfFavorite()
     if (visible) GeckoEnvironment.retainRecent(session)
     else {
       touching = false
@@ -455,8 +492,11 @@ internal class GeckoPage(
           .getOrNull()
       else null
     // An empty/stale history snapshot must not replace the separately saved destination.
-    if (restored != null && restored.currentUrl() == initialUrl) session.restoreState(restored)
-    else session.loadUri(initialUrl)
+    if (restored != null && restored.currentUrl() == initialUrl) {
+      // This tab had a live page before; whatever ended it, the page now loads again.
+      BrowserReloadLog.record(activity, "tab restored from saved state", reloadContext())
+      session.restoreState(restored)
+    } else session.loadUri(initialUrl)
   }
 
   /**
@@ -591,6 +631,36 @@ internal class GeckoPage(
     session.close()
   }
 
+  /**
+   * Keeps this tab's page alive for the window that is about to replace this one.
+   *
+   * Android destroys and recreates a window for configuration changes it does not hand to the
+   * activity (and for theme overlay changes, which cannot be handed over at all). Closing the
+   * session there meant every such recreation reloaded the page from its saved history: lost scroll
+   * position, form input and app state, which is what an open tab "randomly reloading" looked like.
+   * The session is not tied to a window, so the next page for this tab adopts it.
+   *
+   * A page nobody claims (the tab was closed meanwhile) is closed after a grace period.
+   */
+  fun handOver() {
+    if (privateMode || !session.isOpen) {
+      close()
+      return
+    }
+    closed = true
+    recoveryJob?.cancel()
+    scrollCapture?.cancel()
+    favicons?.close()
+    view = null
+    handedOver.put(tab.id, this)?.takeIf { it !== this }?.close()
+    android.os
+      .Handler(android.os.Looper.getMainLooper())
+      .postDelayed(
+        { if (handedOver[tab.id] === this) handedOver.remove(tab.id)?.close() },
+        UNCLAIMED_HANDOVER_MS,
+      )
+  }
+
   fun forget() {
     saved.edit().remove("url:${tab.id}").remove("state:${tab.id}").apply()
   }
@@ -602,6 +672,11 @@ internal class GeckoPage(
     activity.lifecycleScope.launch {
       (activity.application as SearchLauncherApp).searchRepositoryOrNull?.indexWebUrl(url, title)
     }
+  }
+
+  companion object {
+    private const val UNCLAIMED_HANDOVER_MS = 10_000L
+    private val handedOver = mutableMapOf<Long, GeckoPage>()
   }
 }
 

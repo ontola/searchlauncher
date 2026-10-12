@@ -314,6 +314,11 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private val _favorites = kotlinx.coroutines.flow.MutableStateFlow<List<SearchResult>>(emptyList())
   val favorites: kotlinx.coroutines.flow.StateFlow<List<SearchResult>> = _favorites
 
+  init {
+    // The browser keeps tabs on pinned sites open before others; it reads the same list.
+    com.searchlauncher.app.ui.browser.FavoriteSites.source = { _favorites.value }
+  }
+
   private val _recentItems =
     kotlinx.coroutines.flow.MutableStateFlow<List<SearchResult>>(emptyList())
   val recentItems: kotlinx.coroutines.flow.StateFlow<List<SearchResult>> = _recentItems

@@ -59,6 +59,7 @@ import org.mozilla.geckoview.StorageController
 internal object BrowserEngine {
   const val isGecko = true
 
+  @OptIn(ExperimentalLayoutApi::class)
   @Composable
   fun Content(
     navigationRequest: NavigationRequest?,
@@ -205,7 +206,8 @@ internal object BrowserEngine {
         prompts.close()
         page.persist()
         page.view?.releaseSession()
-        page.close()
+        // A window recreated for a configuration change shows the same tab again at once.
+        if (activity.isChangingConfigurations) page.handOver() else page.close()
         if (activity.isFinishing && !privateMode) page.forget()
       }
     }
@@ -277,8 +279,14 @@ internal object BrowserEngine {
         Modifier.fillMaxSize()
           .graphicsLayer { translationX = swipe.offset }
           .background(frameColor)
-          .windowInsetsPadding(if (immersive) WindowInsets(0) else WindowInsets.safeDrawing)
-          .imePadding()
+          .windowInsetsPadding(
+            if (immersive) WindowInsets(0)
+            else WindowInsets.systemBars.union(WindowInsets.displayCutout)
+          )
+          // Follow the keyboard's target, not each frame of its animation: every size change
+          // makes Gecko resume and resize its compositor synchronously on the main thread, and
+          // a resize per frame inside a draw pass has hung the window (ANR on Xiaomi).
+          .windowInsetsPadding(WindowInsets.imeAnimationTarget)
       ) {
         Box(Modifier.weight(1f).fillMaxWidth().background(Color(tab.pageBackgroundArgb))) {
           AndroidView(
