@@ -44,6 +44,7 @@ internal data class BrowserDownload(
   val updated: Long,
   /** DownloadManager's COLUMN_REASON: an HTTP status or an ERROR_* code once a download fails. */
   val reason: Int = 0,
+  val transfer: DownloadTransfer? = null,
 ) {
   // addCompletedDownload records the file length without transferring bytes through
   // DownloadManager.
@@ -211,13 +212,28 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
       }
     }
   LaunchedEffect(manager) {
+    val trackers = mutableMapOf<Long, DownloadSpeedTracker>()
     while (true) {
       val result = withContext(Dispatchers.IO) { runCatching { readBrowserDownloads(manager) } }
       result
         .onSuccess {
           androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
             acknowledgePageDownloadHistory(it)
-            downloads = it
+            val now = android.os.SystemClock.elapsedRealtime()
+            trackers.keys.retainAll(
+              it.filter { item -> item.active }.map { item -> item.id }.toSet()
+            )
+            downloads =
+              it.map { item ->
+                if (item.active)
+                  item.copy(
+                    transfer =
+                      trackers
+                        .getOrPut(item.id) { DownloadSpeedTracker() }
+                        .sample(item.bytes, item.total.takeIf { size -> size >= 0 }, now)
+                  )
+                else item
+              }
           }
         }
         .onFailure { error = true }
@@ -389,15 +405,22 @@ private fun DownloadCard(
       )
 
     val bytes = Formatter.formatShortFileSize(context, item.displayBytes)
-    val total =
-      if (item.active && item.total > 0) " / ${Formatter.formatShortFileSize(context, item.total)}"
-      else ""
-    if (pageProgress == null)
+    if (item.active) {
+      val transfer = pageProgress?.transfer ?: item.transfer
+      transfer?.let {
+        Text(
+          it.description(),
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+    } else {
       Text(
-        "$bytes$total · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(item.updated))}",
+        "$bytes · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(item.updated))}",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
+    }
     if (item.active)
       OutlinedButton(
         onClick = onCancel,

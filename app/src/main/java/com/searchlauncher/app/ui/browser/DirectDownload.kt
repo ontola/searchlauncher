@@ -90,23 +90,18 @@ internal fun startDirectDownload(
             file = target
             val total = connection.contentLengthLong
             var written = 0L
-            var reported = 0L
-            connection.inputStream.use { input ->
-              target.outputStream().use { output ->
-                val buffer = ByteArray(64 * 1024)
-                while (true) {
-                  currentCoroutineContext().ensureActive()
-                  val read = input.read(buffer)
-                  if (read < 0) break
-                  output.write(buffer, 0, read)
-                  written += read
-                  if (written - reported >= 512 * 1024) {
-                    reported = written
-                    val fraction = if (total > 0) written.toFloat() / total else null
-                    withContext(Dispatchers.Main) {
-                      updatePageDownload(key, name, fraction)
-                      notification.progress(name, fraction)
-                    }
+            trackDownloadTransfer(key, name, total.takeIf { it >= 0 }, notification) { reportBytes
+              ->
+              connection.inputStream.use { input ->
+                target.outputStream().use { output ->
+                  val buffer = ByteArray(64 * 1024)
+                  while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                    written += read
+                    reportBytes(written)
                   }
                 }
               }

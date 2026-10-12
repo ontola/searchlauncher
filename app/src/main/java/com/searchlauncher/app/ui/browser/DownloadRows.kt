@@ -4,9 +4,15 @@ import android.app.DownloadManager
 
 // Completed transfers retain their identity until the corresponding history record is deleted.
 // In particular, registration and the next asynchronous DownloadManager query are not atomic.
-internal fun updatePageDownload(key: String, name: String, fraction: Float?) {
+internal fun updatePageDownload(
+  key: String,
+  name: String,
+  fraction: Float?,
+  transfer: DownloadTransfer? = null,
+) {
   val previous = pendingPageDownloads[key] ?: PageDownloadProgress(name, fraction)
-  pendingPageDownloads[key] = previous.copy(name = name, fraction = fraction)
+  pendingPageDownloads[key] =
+    previous.copy(name = name, fraction = fraction, transfer = transfer ?: previous.transfer)
 }
 
 internal fun completePageDownload(key: String, id: Long, name: String, bytes: Long) {
@@ -72,8 +78,8 @@ internal fun reconcileDownloadRows(
             -1,
             transfer.name,
             DownloadManager.STATUS_RUNNING,
-            0,
-            -1,
+            transfer.transfer?.bytes ?: 0,
+            transfer.transfer?.total ?: -1,
             transfer.startedAt,
           ),
         if (complete == null) transfer else null,
