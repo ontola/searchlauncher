@@ -1,0 +1,50 @@
+name: Verify Play APK compatibility
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/download-play-apk.py
+      - scripts/tests/test_download_play_apk.py
+      - .github/workflows/android.yml
+      - .github/workflows/play-apk-check.yml
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: Existing uploaded version to verify (read-only; does not release anything)
+        default: "304"
+        required: true
+        type: string
+
+jobs:
+  verify:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: build-tools;36.0.0
+      - name: Verify a previously published APK without changing Play
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          PLAY_APP_SIGNING_SHA256: ${{ vars.PLAY_APP_SIGNING_SHA256 }}
+          VERSION_CODE: ${{ inputs.version_code || vars.PLAY_APK_SMOKE_VERSION_CODE || '304' }}
+        run: |
+          python3 scripts/download-play-apk.py \
+            --version-code "$VERSION_CODE" \
+            --wait-seconds 60 \
+            --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner" \
+            --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-play-apk
+          path: play-apk/*
+          if-no-files-found: error
+          retention-days: 7
