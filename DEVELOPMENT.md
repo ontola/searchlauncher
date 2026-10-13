@@ -145,8 +145,10 @@ Edit Compose files:
 # Sign the APK
 # (Configure signing in app/build.gradle.kts)
 
-# Test release build thoroughly
-adb install app/build/outputs/apk/release/app-release.apk
+# Test optimized app behavior without colliding with Google Play
+./gradlew installGecko
+# For deliberate distribution-signature testing on an isolated device only:
+# ./gradlew installRelease -PallowNonPlayReleaseInstall=true
 ```
 
 ## Troubleshooting

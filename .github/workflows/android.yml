@@ -40,6 +40,8 @@ jobs:
       # Cheap, and catches the two things that only show up at upload time: store text that
       # was edited in the generated file instead of the source, and a changelog too long
       # for Play's 500-character limit. Standard library only, so nothing to install.
+      - name: Test Play APK verification
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       - name: Check store text
         run: python3 marketing/copy.py --check
       - name: Decode Keystore
@@ -53,7 +55,12 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            ./gradlew assembleRelease
+          else
+            ./gradlew assemblePreview
+          fi
       - name: Run unit tests
         run: ./gradlew test
 
@@ -83,7 +90,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: searchlauncher-mapping
-          path: app/build/outputs/mapping/release/mapping.txt
+          path: app/build/outputs/mapping/*/mapping.txt
 
       - name: Upload App Bundle
         if: startsWith(github.ref, 'refs/tags/v') && env.SIGNING_KEY_STORE_BASE64 != ''
@@ -93,27 +100,75 @@ jobs:
           path: app/build/outputs/bundle/release/*.aab
 
   release:
-    needs: build
+    needs: [build, play_apk]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Download APKs
+      - name: Download legacy F-Droid APK
         uses: actions/download-artifact@v4
         with:
           name: searchlauncher-apks
-          path: .
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+          path: legacy
+      - name: Download Play-signed APK
+        uses: actions/download-artifact@v4
         with:
-          files: "*.apk"
-          body_path: docs/releases/${{ github.ref_name }}.md
-          overwrite_files: true
+          name: searchlauncher-play-apk
+          path: play-apk
+      - name: Publish compatible GitHub download
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > /tmp/release-notes.md <<'NOTES'
+          **Install `app-play.apk` for the same signing identity as Google Play.**
+          GitHub and Play can update this installation interchangeably when the version code permits.
+
+          `app-release.apk` is retained only for existing legacy GitHub/F-Droid installs. Its older
+          signing key is incompatible with Play. Switching from that copy requires exporting your
+          data, removing it from every Android user/profile, and importing into the Play-signed app.
+
+          NOTES
+          cat "docs/releases/$GITHUB_REF_NAME.md" >> /tmp/release-notes.md
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file /tmp/release-notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --notes-file /tmp/release-notes.md
+          fi
+          gh release upload "$GITHUB_REF_NAME" \
+            'play-apk/app-play.apk#SearchLauncher - Google Play compatible' \
+            'play-apk/app-play.json#Verified package, version and signing certificate' \
+            'legacy/app-release.apk#Legacy GitHub and F-Droid signature - incompatible with Play' \
+            --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+
+  play_apk:
+    needs: play
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: build-tools;36.0.0
+      - name: Download and verify Play-signed universal APK
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          PLAY_APP_SIGNING_SHA256: ${{ vars.PLAY_APP_SIGNING_SHA256 }}
+        run: |
+          python3 scripts/download-play-apk.py \
+            --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner" \
+            --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: searchlauncher-play-apk
+          path: play-apk/*
+          if-no-files-found: error
 
   play:
     concurrency:
