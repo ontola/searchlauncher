@@ -161,6 +161,10 @@ class SearchLauncherApp : Application() {
         options.release = "$packageName@${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}"
         options.beforeSend =
           io.sentry.SentryOptions.BeforeSendCallback { event, _ ->
+            // Coroutine cancellation is normal control flow, not an error worth a report.
+            if (event.throwable is kotlinx.coroutines.CancellationException) {
+              return@BeforeSendCallback null
+            }
             event.setTag("git_hash", BuildConfig.GIT_HASH)
             event.setTag("build_date", BuildConfig.BUILD_DATE)
             event

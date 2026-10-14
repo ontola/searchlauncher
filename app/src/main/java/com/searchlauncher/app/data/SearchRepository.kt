@@ -926,6 +926,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         true,
         contactsObserver,
       )
+    } catch (e: SecurityException) {
+      // Expected while the permission is missing or the provider does not exist on this device.
+      android.util.Log.w("SearchRepository", "Cannot observe contacts", e)
     } catch (e: Exception) {
       android.util.Log.e("SearchRepository", "Failed to observe contacts", e)
       Sentry.captureException(e)
@@ -1016,6 +1019,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         true,
         calendarObserver,
       )
+    } catch (e: SecurityException) {
+      // Expected while the permission is missing or the provider does not exist on this device.
+      android.util.Log.w("SearchRepository", "Cannot observe calendar", e)
     } catch (e: Exception) {
       android.util.Log.e("SearchRepository", "Failed to observe calendar", e)
       Sentry.captureException(e)
@@ -1366,9 +1372,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           "reportUsage: namespace=$namespace, id=$id, query=$query",
         )
 
-        // Only report usage to AppSearch for namespaces that are actually in the index.
-        // smart_actions and others are dynamic and will cause reportUsageAsync to fail.
-        if (session != null && namespace != "smart_actions" && namespace != "snippets") {
+        // Only report usage to AppSearch for documents that are actually in the index. Many results
+        // are built on the fly (search shortcut suggestions, widgets, default actions, calculator)
+        // and AppSearch rejects those with "Failed to find DocumentId by key".
+        if (
+          session != null && documentByNamespaceAndId.containsKey(documentLookupKey(namespace, id))
+        ) {
           try {
             val request =
               androidx.appsearch.app.ReportUsageRequest.Builder(namespace, id)
@@ -1377,12 +1386,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             session.reportUsageAsync(request).await()
           } catch (e: Exception) {
             e.rethrowIfCancellation()
-            // Not in index or other issue, ignore
+            // Best effort: the in-memory snapshot can briefly list a document the index lost.
             android.util.Log.w(
               "SearchRepository",
               "AppSearch reportUsage failed for $namespace:$id",
+              e,
             )
-            Sentry.captureException(e)
           }
         }
 
