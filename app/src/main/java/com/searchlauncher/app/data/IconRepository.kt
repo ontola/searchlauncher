@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.util.LruCache
+import com.searchlauncher.app.util.rethrowIfCancellation
 import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.Dispatchers
@@ -104,6 +105,7 @@ class IconRepository(private val context: Context) {
         saveToDisk(key, icon, force = true)
         android.util.Log.d("IconRepository", "Cached icon for $packageName as $key")
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("IconRepository", "Failed to cache icon for $packageName", e)
       }
     }

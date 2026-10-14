@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.datastore.preferences.core.edit
 import com.searchlauncher.app.ui.dataStore
+import com.searchlauncher.app.util.rethrowIfCancellation
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
@@ -154,6 +155,7 @@ class BackupManager(
                   }
                 }
               } catch (e: Exception) {
+                e.rethrowIfCancellation()
                 e.printStackTrace()
               }
             }
@@ -238,6 +240,7 @@ class BackupManager(
           Result.success(totalItems)
         }
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("BackupManager", "Export failed", e)
         Result.failure(e)
       }
@@ -417,6 +420,7 @@ class BackupManager(
               File(wallpaperDir, filename).writeBytes(bytes)
               wallpapersCount++
             } catch (e: Exception) {
+              e.rethrowIfCancellation()
               e.printStackTrace()
             }
           }
@@ -508,6 +512,7 @@ class BackupManager(
           )
         )
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         Result.failure(e)
       }
     }

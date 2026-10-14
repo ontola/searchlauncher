@@ -32,6 +32,7 @@ import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.WidgetData
 import com.searchlauncher.app.data.WidgetRepository
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
+import com.searchlauncher.app.util.rethrowIfCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -1153,6 +1154,7 @@ private suspend fun MainActivity.performExport(uri: android.net.Uri) {
               }
             }
           } catch (e: Exception) {
+            e.rethrowIfCancellation()
             e.printStackTrace()
           }
         }
@@ -1176,6 +1178,7 @@ private suspend fun MainActivity.performExport(uri: android.net.Uri) {
         }
       }
     } catch (e: Exception) {
+      e.rethrowIfCancellation()
       withContext(Dispatchers.Main) {
         android.widget.Toast.makeText(
             this@performExport,
@@ -1217,6 +1220,7 @@ private suspend fun MainActivity.performImport(uri: android.net.Uri) {
         }
       }
     } catch (e: Exception) {
+      e.rethrowIfCancellation()
       withContext(Dispatchers.Main) {
         android.widget.Toast.makeText(
             this@performImport,
