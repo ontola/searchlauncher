@@ -72,6 +72,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.browser.ExternalBrowserChooserActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.SearchLauncher.BrowserChooser" />
+
         <!-- Main Activity -->
         <activity
             android:name=".ui.MainActivity"

@@ -31,6 +31,11 @@ object PreferencesKeys {
    * tab already open on that host instead of opening the start URL again.
    */
   val TREAT_FAVORITED_SITES_AS_APPS = booleanPreferencesKey("treat_favorited_sites_as_apps")
+  /**
+   * When true (the default), web pages open in the launcher's own browser. When false they open in
+   * the user's browser app, and tabs, swipe-to-tab and open-tab search go away with it.
+   */
+  val BUILT_IN_BROWSER = booleanPreferencesKey("built_in_browser")
   val BROWSER_SHOW_FAVORITES = booleanPreferencesKey("browser_show_favorites")
   val HISTORY_LIMIT = intPreferencesKey("history_limit")
   val MIN_ICON_SIZE = intPreferencesKey("min_icon_size")
