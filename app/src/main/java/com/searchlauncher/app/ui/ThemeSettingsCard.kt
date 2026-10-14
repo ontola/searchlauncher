@@ -31,6 +31,7 @@ import androidx.datastore.preferences.core.edit
 import coil.compose.AsyncImage
 import com.google.android.material.color.utilities.Hct
 import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.util.rethrowIfCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -450,6 +451,7 @@ private fun ImageColorPickerDialog(
         val bitmap = decodeSampledColorPickerBitmap(context, uri)
         withContext(Dispatchers.Main) { imageBitmap = bitmap }
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         // Silently fail
       }
     }
