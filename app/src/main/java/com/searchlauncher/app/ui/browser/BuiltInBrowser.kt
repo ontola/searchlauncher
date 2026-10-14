@@ -1,6 +1,5 @@
 package com.searchlauncher.app.ui.browser
 
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -50,9 +49,14 @@ object BuiltInBrowser {
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     val pm = context.packageManager
     val others =
-      pm.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY).filter {
-        it.activityInfo.packageName != context.packageName
-      }
+      // Web intent queries otherwise return only the default browser. If that is us,
+      // excluding ourselves would hide every installed external browser.
+      pm
+        .queryIntentActivities(
+          intent,
+          PackageManager.MATCH_DEFAULT_ONLY or PackageManager.MATCH_ALL,
+        )
+        .filter { it.activityInfo.packageName != context.packageName }
     val preferred = pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo
     val target =
       when {
@@ -62,13 +66,17 @@ object BuiltInBrowser {
           intent
         others.size == 1 ->
           others[0].activityInfo.let { Intent(intent).setClassName(it.packageName, it.name) }
-        else ->
-          Intent.createChooser(intent, null)
-            .putExtra(
-              Intent.EXTRA_EXCLUDE_COMPONENTS,
-              arrayOf(ComponentName(context, BrowserActivity::class.java)),
-            )
+        else -> {
+          // System choosers can prune web intents to the default browser, and truncate
+          // EXTRA_INITIAL_INTENTS. Our picker retains every explicit alternative.
+          val choices =
+            others.map {
+              Intent(intent).setClassName(it.activityInfo.packageName, it.activityInfo.name)
+            }
+          Intent(context, ExternalBrowserChooserActivity::class.java)
+            .putExtra(Intent.EXTRA_INITIAL_INTENTS, choices.toTypedArray())
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
       }
     if (target == null) {
       Toast.makeText(context, "No browser app installed", Toast.LENGTH_SHORT).show()
