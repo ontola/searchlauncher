@@ -1666,7 +1666,7 @@ private fun PrivacyCard() {
         Column(modifier = Modifier.weight(1f)) {
           Text(text = "Crash reporting", style = MaterialTheme.typography.bodyMedium)
           Text(
-            text = "Send anonymous error logs to GlitchTip to help us fix bugs",
+            text = "Send anonymous error logs to Sentry to help us fix bugs",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )

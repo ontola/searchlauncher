@@ -16,11 +16,10 @@ import io.sentry.protocol.SentryId
 import io.sentry.protocol.User
 
 /**
- * Crash reports already go to GlitchTip through the Sentry Android SDK. GlitchTip stores a Sentry
- * feedback envelope as a user report and keeps only the message, name, and email — device context
- * on that envelope is dropped. A normal event keeps the SDK's device, OS, and app context, so
- * feedback is sent as both: the event for the diagnostics, and a feedback item so the address the
- * user typed is attached to it.
+ * Crash reports already go to Sentry through the Sentry Android SDK. A normal event carries the
+ * SDK's device, OS, and app context, while a feedback item carries the message, name, and email, so
+ * feedback is sent as both: the event for the diagnostics, and a feedback item linked to it so the
+ * address the user typed is attached.
  */
 internal data class FeedbackDiagnostics(
   val versionName: String,
