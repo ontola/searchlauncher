@@ -188,7 +188,7 @@ fun ConsentDialog(
         PrivacyChoiceRow(
           title = "Crash reporting",
           description =
-            "Send anonymous error reports to GlitchTip to help fix bugs. Search queries and personal input are not intentionally collected.",
+            "Send anonymous error reports to Sentry to help fix bugs. Search queries and personal input are not intentionally collected.",
           checked = allowCrashReporting,
           onCheckedChange = { allowCrashReporting = it },
         )

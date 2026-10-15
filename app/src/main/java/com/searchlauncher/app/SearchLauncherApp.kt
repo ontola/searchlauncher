@@ -146,8 +146,8 @@ class SearchLauncherApp : Application() {
   }
 
   /**
-   * Starts the GlitchTip client. Crash reporting calls this after consent. Send feedback calls it
-   * for that one report even when crash reporting is off, and closes the client afterwards.
+   * Starts the Sentry client. Crash reporting calls this after consent. Send feedback calls it for
+   * that one report even when crash reporting is off, and closes the client afterwards.
    */
   fun ensureCrashReporter() {
     initSentry()
@@ -156,7 +156,8 @@ class SearchLauncherApp : Application() {
   private fun initSentry() {
     if (!io.sentry.Sentry.isEnabled()) {
       io.sentry.android.core.SentryAndroid.init(this) { options ->
-        options.dsn = "https://dbf3428d2c6942e4816c063d289fa95d@app.glitchtip.com/20343"
+        options.dsn =
+          "https://67a35d2b748a5257ab3c172d9ef50075@o1378995.ingest.us.sentry.io/4512259442212864"
         options.environment = if (BuildConfig.DEBUG) "debug" else "release"
         options.isSendDefaultPii = false
         options.release = "$packageName@${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}"
