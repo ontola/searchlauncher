@@ -67,6 +67,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.datastore.preferences.core.edit
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import coil.compose.AsyncImage
 import com.searchlauncher.app.data.WidgetData
 import com.searchlauncher.app.data.WidgetRepository
@@ -215,6 +217,8 @@ fun WallpaperBackground(
    * stored keyboard height, or they slide under the live favorites bar.
    */
   chromeBottomPadding: Dp = bottomPadding,
+  /** Moves on every home intent, which always lands on a home screen that is not editing. */
+  homeTrigger: Long = 0L,
 ) {
   val context = LocalContext.current
   // The browser overlay is a different activity and has no AppWidgetHost. Drawing widgets there
@@ -249,6 +253,12 @@ fun WallpaperBackground(
       activeWidgetId = -1
     }
   }
+
+  // Edit mode belongs to the moment the user entered it. Coming back to the launcher, whether by
+  // unlocking the phone (the screen turning off stops the activity) or returning from another app,
+  // or pressing home while already here, must never show a widget still waiting to be arranged.
+  LaunchedEffect(homeTrigger) { activeWidgetId = -1 }
+  LifecycleEventEffect(Lifecycle.Event.ON_STOP) { activeWidgetId = -1 }
 
   Box(
     modifier =

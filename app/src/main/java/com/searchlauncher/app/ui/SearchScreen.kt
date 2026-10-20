@@ -1877,6 +1877,7 @@ fun SearchScreen(
             folderImages = folderImages,
             lastImageUriString = lastImageUriString,
             savedUriResolved = savedUriResolved,
+            homeTrigger = homeTrigger,
             modifier = Modifier.fillMaxSize(),
             onOpenAppDrawer = {
               scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeAppDrawer) }
