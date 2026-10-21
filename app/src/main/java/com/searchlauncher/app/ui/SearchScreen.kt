@@ -3052,7 +3052,7 @@ private fun launchShortcutSearch(
   try {
     val url = shortcut.urlForQuery(query)
     // Web templates are loaded in the in-app browser so they keep working with no extra app.
-    // When the shortcut names one (YouTube, …) and that app can handle the URL, prefer it —
+    // When an installed app can handle the URL (YouTube, Maps, …), prefer it —
     // private browsing stays in the private browser, since the app would not be private.
     val openedInApp =
       !privateWebResults &&
@@ -3063,16 +3063,17 @@ private fun launchShortcutSearch(
               url,
               shortcut.packageName,
               query,
+              otherApps = shortcut.iconPackages,
             )
-          if (appIntent != null) {
+          // Neither the shortcut's own app nor one it is known to search inside: hand the URL to
+          // whatever app the user has set to open it, and only fall back to the browser after that.
+          listOfNotNull(appIntent, ShortcutLaunch.defaultAppIntent(url)).any { intent ->
             try {
-              context.startActivity(appIntent)
+              context.startActivity(intent)
               true
             } catch (_: Exception) {
               false
             }
-          } else {
-            false
           }
         }
     if (!openedInApp) {
