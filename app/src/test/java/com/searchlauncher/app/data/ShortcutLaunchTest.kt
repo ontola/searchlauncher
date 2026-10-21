@@ -121,6 +121,69 @@ class ShortcutLaunchTest {
   }
 
   @Test
+  fun `maps shortcut opens in the maps app it lists`() {
+    val maps = DefaultShortcuts.searchShortcuts.first { it.id == "maps" }
+    val url = maps.urlForQuery("coffee")
+    val mapsPackage = "com.google.android.apps.maps"
+    installViewHandler(url, mapsPackage)
+
+    val intent =
+      ShortcutLaunch.preferredAppIntent(
+        context.packageManager,
+        url,
+        maps.packageName,
+        "coffee",
+        otherApps = maps.iconPackages,
+      )
+
+    assertEquals(Intent.ACTION_VIEW, intent!!.action)
+    assertEquals(mapsPackage, intent.`package`)
+    assertEquals(url, intent.data.toString())
+  }
+
+  @Test
+  fun `listed apps are not sent a bare search when they do not claim the url`() {
+    val other = "com.example.maps"
+    installSearchHandler(other)
+
+    assertNull(
+      ShortcutLaunch.preferredAppIntent(
+        context.packageManager,
+        youtubeUrl,
+        null,
+        "cats",
+        otherApps = listOf(other),
+      )
+    )
+  }
+
+  @Test
+  fun `listed apps are tried when the named app is missing`() {
+    val other = "com.example.tube"
+    installViewHandler(youtubeUrl, other)
+
+    val intent =
+      ShortcutLaunch.preferredAppIntent(
+        context.packageManager,
+        youtubeUrl,
+        youtubePackage,
+        "cats",
+        otherApps = listOf(youtubePackage, other),
+      )
+
+    assertEquals(other, intent!!.`package`)
+  }
+
+  @Test
+  fun `default app intent excludes browsers`() {
+    val intent = ShortcutLaunch.defaultAppIntent(youtubeUrl)!!
+
+    assertTrue(intent.flags and Intent.FLAG_ACTIVITY_REQUIRE_NON_BROWSER != 0)
+    assertTrue(intent.flags and Intent.FLAG_ACTIVITY_REQUIRE_DEFAULT != 0)
+    assertNull(ShortcutLaunch.defaultAppIntent("geo:0,0?q=cats"))
+  }
+
+  @Test
   fun `content from a search shortcut prefers the app`() {
     installViewHandler(youtubeUrl, youtubePackage)
     val result =

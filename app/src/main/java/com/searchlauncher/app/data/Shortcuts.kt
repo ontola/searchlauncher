@@ -18,9 +18,9 @@ data class SearchShortcut(
     urlTemplate.replace("%s", java.net.URLEncoder.encode(query, "UTF-8"))
 
   /**
-   * Apps whose icon may stand in for this shortcut's letter tile, first installed one wins. Only
-   * the picture is borrowed: unlike [packageName], these never decide which app opens or whether
-   * the shortcut is offered.
+   * Apps whose icon may stand in for this shortcut's letter tile, first installed one wins. Unlike
+   * [packageName], these never decide whether the shortcut is offered. They do get its URL when
+   * they claim it themselves, see [ShortcutLaunch.preferredAppIntent].
    */
   val iconPackages: List<String>
     get() = listOfNotNull(packageName) + DefaultShortcuts.iconPackages[id].orEmpty()
