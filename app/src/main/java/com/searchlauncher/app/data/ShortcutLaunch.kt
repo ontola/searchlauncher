@@ -88,19 +88,41 @@ object ShortcutLaunch {
   }
 
   /**
-   * Same as [preferredAppIntent], but only for content results that came from a search shortcut.
-   * Bookmarks and other web hits use placeholder packages such as Chrome and must stay in the
-   * in-app browser.
+   * Same as [preferredAppIntent], but only for content results that came from a search shortcut
+   * (`imdb matrix`, a suggestion under it, …). Bookmarks and other web hits use placeholder
+   * packages such as Chrome and must stay in the in-app browser.
+   *
+   * [shortcuts] lets the result find its shortcut again, so the apps it lists get the URL too, and
+   * failing those the user's default app for it. Callers must still fall back to the browser if
+   * starting the returned intent fails.
    */
   fun preferredAppIntentForContent(
     packageManager: PackageManager,
     result: SearchResult.Content,
     query: String = "",
+    shortcuts: List<SearchShortcut> = emptyList(),
   ): Intent? {
     if (result.namespace != SearchOptions.NAMESPACE) return null
     val deepLink = result.deepLink ?: return null
-    return preferredAppIntent(packageManager, deepLink, result.packageName, query)
+    val shortcut = shortcutForResultId(result.id, shortcuts)
+    return preferredAppIntent(
+      packageManager,
+      deepLink,
+      result.packageName,
+      query,
+      otherApps = shortcut?.iconPackages.orEmpty(),
+    ) ?: shortcut?.let { defaultAppIntent(deepLink) }
   }
+
+  /**
+   * The shortcut behind a result id built by the search list: `shortcut_<alias>` for the shortcut
+   * itself and `suggestion_<alias>_<text>` for a suggestion under it. The longest matching alias
+   * wins, since an alias may itself contain an underscore.
+   */
+  fun shortcutForResultId(id: String, shortcuts: List<SearchShortcut>): SearchShortcut? =
+    shortcuts
+      .filter { id == "shortcut_${it.alias}" || id.startsWith("suggestion_${it.alias}_") }
+      .maxByOrNull { it.alias.length }
 
   /**
    * Real app ids look like `com.google.android.youtube`. Placeholders used elsewhere — `android`,
