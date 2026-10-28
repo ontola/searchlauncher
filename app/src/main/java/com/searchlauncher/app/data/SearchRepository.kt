@@ -314,6 +314,18 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private val _indexUpdated = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(replay = 1)
   val indexUpdated: kotlinx.coroutines.flow.SharedFlow<Unit> = _indexUpdated
 
+  private val _searchableContentChanged =
+    kotlinx.coroutines.flow.MutableSharedFlow<Unit>(
+      extraBufferCapacity = 1,
+      onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+    )
+  /**
+   * Fires when something outside the launcher (a new contact, a calendar event, a download) has
+   * been re-indexed. Unlike [indexUpdated] it does not fire for favicons or usage, so the search
+   * screen can re-run the typed query on it without churning while the user types.
+   */
+  val searchableContentChanged: kotlinx.coroutines.flow.SharedFlow<Unit> = _searchableContentChanged
+
   private val _favorites = kotlinx.coroutines.flow.MutableStateFlow<List<SearchResult>>(emptyList())
   val favorites: kotlinx.coroutines.flow.StateFlow<List<SearchResult>> = _favorites
 
@@ -918,7 +930,15 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
     }
 
+  /**
+   * Registering needs READ_CONTACTS, which may only be granted after startup, so this is retried
+   * from [indexContacts] and must not register twice.
+   */
+  @Volatile private var contactsObserverRegistered = false
+
+  @Synchronized
   private fun registerContactsObserver() {
+    if (contactsObserverRegistered) return
     try {
       context.contentResolver.registerContentObserver(
         ContactsContract.Contacts.CONTENT_URI,
@@ -926,6 +946,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         true,
         contactsObserver,
       )
+      contactsObserverRegistered = true
     } catch (e: SecurityException) {
       // Expected while the permission is missing or the provider does not exist on this device.
       android.util.Log.w("SearchRepository", "Cannot observe contacts", e)
@@ -940,6 +961,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     indexWriteMutex.withLock { indexContacts() }
     saveFastIndexCache()
     _indexUpdated.emit(Unit)
+    _searchableContentChanged.emit(Unit)
   }
 
   /** Rebuilds contacts only when the provider reports a different set than we last indexed. */
@@ -960,6 +982,26 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       refreshContacts()
     }
 
+  /**
+   * Called when the launcher comes back to the foreground. Change notifications are not reliable
+   * while we sit in the background (cached processes can be frozen, the observer may not be
+   * registered yet), and adding a contact in another app is exactly that situation, so compare the
+   * cheap fingerprint instead of waiting for the next restart.
+   */
+  fun onLauncherResumed() {
+    if (!storageReady.isCompleted) return
+    // An observer-triggered rebuild is already on its way.
+    if (contactsRefreshJob?.isActive == true) return
+    scope.launch {
+      try {
+        refreshContactsIfChanged()
+      } catch (e: Exception) {
+        e.rethrowIfCancellation()
+        android.util.Log.w("SearchRepository", "Contacts resume check failed", e)
+      }
+    }
+  }
+
   suspend fun indexContacts() =
     withContext(IndexingDispatchers.limited) {
       pauseIndexingIfSearchIsActive()
@@ -969,6 +1011,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         android.util.Log.w("SearchRepository", "READ_CONTACTS permission denied")
         return@withContext
       }
+      // Without this a permission granted after startup indexes once and then never sees changes.
+      registerContactsObserver()
       android.util.Log.d("SearchRepository", "Indexing contacts...")
 
       // Read before building: a change landing mid-build then leaves us with the older
@@ -1032,6 +1076,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     indexWriteMutex.withLock { indexCalendar() }
     saveFastIndexCache()
     _indexUpdated.emit(Unit)
+    _searchableContentChanged.emit(Unit)
   }
 
   private suspend fun refreshCalendarIfChanged() =
@@ -1115,6 +1160,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     indexWriteMutex.withLock { indexDownloads() }
     saveFastIndexCache()
     _indexUpdated.emit(Unit)
+    _searchableContentChanged.emit(Unit)
   }
 
   private suspend fun refreshAppsIfChanged() =

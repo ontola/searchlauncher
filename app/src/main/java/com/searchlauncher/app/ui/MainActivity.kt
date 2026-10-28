@@ -645,6 +645,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
   override fun onResume() {
     super.onResume()
     stoppedSinceResume = false
+    (application as SearchLauncherApp).searchRepository.onLauncherResumed()
     if (currentScreenState == Screen.Search) {
       focusTrigger = System.currentTimeMillis()
     }

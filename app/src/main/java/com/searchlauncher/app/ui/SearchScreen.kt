@@ -300,6 +300,11 @@ fun SearchScreen(
   // Bumped whenever something a result was built from changes — a bookmark's title, a tab being
   // closed — so the visible list catches up without the user having to clear their query.
   var resultsRefreshTick by remember { mutableIntStateOf(0) }
+  // A contact added in another app lands in the index after the user may already have typed its
+  // name; re-run the query so it shows up without retyping.
+  LaunchedEffect(searchRepository) {
+    searchRepository.searchableContentChanged.collect { resultsRefreshTick++ }
+  }
   var editingShortcut by remember {
     mutableStateOf<com.searchlauncher.app.data.SearchShortcut?>(null)
   }
