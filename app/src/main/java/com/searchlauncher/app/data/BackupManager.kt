@@ -10,6 +10,7 @@ import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.util.rethrowIfCancellation
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FilterOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import kotlinx.coroutines.Dispatchers
@@ -36,209 +37,221 @@ class BackupManager(
     private val WIDGET_DATASTORE_KEYS = setOf("widgets_data", "widget_ids")
   }
 
-  suspend fun exportBackup(outputStream: OutputStream, includeWallpapers: Boolean): Result<Int> =
+  data class ExportResult(val itemsCount: Int, val bytesWritten: Long)
+
+  suspend fun exportBackup(
+    outputStream: OutputStream,
+    includeWallpapers: Boolean,
+  ): Result<ExportResult> =
     withContext(Dispatchers.IO) {
       try {
         android.util.Log.d("BackupManager", "Starting export...")
         val bookmarks = searchRepository.exportBookmarks()
         // Using BufferedWriter and JsonWriter for memory efficiency
-        android.util.JsonWriter(outputStream.writer().buffered()).use { writer ->
-          writer.setIndent("  ")
-          writer.beginObject()
-
-          writer.name("version").value(BACKUP_VERSION)
-
-          writer.name("bookmarks").beginArray()
-          bookmarks.forEach { bookmark ->
+        val countedOutput = ByteCountingOutputStream(outputStream)
+        val jsonWriter = android.util.JsonWriter(countedOutput.writer(Charsets.UTF_8).buffered())
+        val itemsCount =
+          jsonWriter.use { writer ->
+            writer.setIndent("  ")
             writer.beginObject()
-            writer.name("url").value(bookmark.url)
-            writer.name("title").value(bookmark.title)
-            writer.endObject()
-          }
-          writer.endArray()
 
-          // Icons live outside AppSearch. Include one cached image per bookmarked host, even
-          // when wallpapers are excluded; restoring a backup must not require visiting the sites.
-          writer.name("bookmarkFavicons").beginObject()
-          bookmarks
-            .distinctBy { faviconHost(it.url) }
-            .forEach { bookmark ->
-              val host = faviconHost(bookmark.url) ?: return@forEach
-              val icon = searchRepository.loadFavicon(bookmark.url) ?: return@forEach
-              encodeFavicon(icon)?.let { writer.name(host).value(it) }
-            }
-          writer.endObject()
+            writer.name("version").value(BACKUP_VERSION)
 
-          // 1. Export Snippets
-          android.util.Log.d("BackupManager", "Exporting Snippets...")
-          writer.name("snippets")
-          writer.beginArray()
-          var snippetsCount = 0
-          snippetsRepository.items.value.forEach { item ->
-            writer.beginObject()
-            writer.name("alias").value(item.alias)
-            writer.name("content").value(item.content)
-            writer.endObject()
-            snippetsCount++
-          }
-          writer.endArray()
-
-          // 2. Export Search Shortcuts
-          android.util.Log.d("BackupManager", "Exporting Shortcuts...")
-          writer.name("searchShortcuts")
-          writer.beginArray()
-          var shortcutsCount = 0
-          searchShortcutRepository.items.value.forEach { shortcut ->
-            writer.beginObject()
-            writer.name("id").value(shortcut.id)
-            writer.name("alias").value(shortcut.alias)
-            writer.name("urlTemplate").value(shortcut.urlTemplate)
-            writer.name("description").value(shortcut.description)
-            shortcut.color?.let { writer.name("color").value(it) }
-            shortcut.suggestionUrl?.let { writer.name("suggestionUrl").value(it) }
-            shortcut.packageName?.let { writer.name("packageName").value(it) }
-            writer.endObject()
-            shortcutsCount++
-          }
-          writer.endArray()
-          writer.name("searchShortcutOrderManual").value(searchShortcutRepository.manualOrder.value)
-
-          // 3. Export Favorites
-          android.util.Log.d("BackupManager", "Exporting Favorites...")
-          writer.name("favorites")
-          writer.beginArray()
-          var favoritesCount = 0
-          favoritesRepository.getFavoriteIds().forEach { id ->
-            writer.value(id)
-            favoritesCount++
-          }
-          writer.endArray()
-
-          writer.name("searchOptionFavorites")
-          writer.beginArray()
-          favoritesRepository.getSearchOptionIds().forEach { id ->
-            writer.value(id)
-            favoritesCount++
-          }
-          writer.endArray()
-
-          // 4. Export History
-          android.util.Log.d("BackupManager", "Exporting History...")
-          writer.name("history")
-          writer.beginArray()
-          var historyCount = 0
-          historyRepository.historyIds.value.forEach { id ->
-            writer.value(id)
-            historyCount++
-          }
-          writer.endArray()
-
-          // 5. Export Wallpapers (Base64)
-          var wallpapersCount = 0
-          if (includeWallpapers) {
-            android.util.Log.d("BackupManager", "Exporting Wallpapers...")
-            writer.name("wallpapers")
-            writer.beginArray()
-            wallpaperRepository.wallpapers.value.forEach { uri ->
-              try {
-                val file = File(uri.path ?: return@forEach)
-                if (file.exists()) {
-                  val bytes = file.readBytes()
-                  if (bytes.size <= MAX_IMAGE_SIZE) {
-                    val base64 =
-                      android.util.Base64.encodeToString(bytes, android.util.Base64.DEFAULT)
-                    writer.beginObject()
-                    writer.name("filename").value(file.name)
-                    writer.name("data").value(base64)
-                    writer.endObject()
-                    wallpapersCount++
-                  }
-                }
-              } catch (e: Exception) {
-                e.rethrowIfCancellation()
-                e.printStackTrace()
-              }
+            writer.name("bookmarks").beginArray()
+            bookmarks.forEach { bookmark ->
+              writer.beginObject()
+              writer.name("url").value(bookmark.url)
+              writer.name("title").value(bookmark.title)
+              writer.endObject()
             }
             writer.endArray()
-          } else {
-            android.util.Log.d("BackupManager", "Skipping Wallpapers (user selection)...")
-          }
 
-          // 6. Export Widgets
-          android.util.Log.d("BackupManager", "Exporting Widgets...")
-          writer.name("widgets")
-          writer.beginArray()
-          var widgetsCount = 0
-          // Fetch widgets before writing
-          val widgetsList = widgetRepository.widgets.first()
-          val appWidgetManager = android.appwidget.AppWidgetManager.getInstance(context)
-          widgetsList.forEach { widget ->
-            writer.beginObject()
-            writer.name("id").value(widget.id)
-            widget.height?.let { writer.name("height").value(it) }
-            val provider =
-              widget.provider
-                ?: appWidgetManager.getAppWidgetInfo(widget.id)?.provider?.flattenToString()
-            provider?.let { writer.name("provider").value(it) }
+            // Icons live outside AppSearch. Include one cached image per bookmarked host, even
+            // when wallpapers are excluded; restoring a backup must not require visiting the sites.
+            writer.name("bookmarkFavicons").beginObject()
+            bookmarks
+              .distinctBy { faviconHost(it.url) }
+              .forEach { bookmark ->
+                val host = faviconHost(bookmark.url) ?: return@forEach
+                val icon = searchRepository.loadFavicon(bookmark.url) ?: return@forEach
+                encodeFavicon(icon)?.let { writer.name(host).value(it) }
+              }
             writer.endObject()
-            widgetsCount++
-          }
-          writer.endArray()
 
-          // 7. Export Settings (DataStore)
-          android.util.Log.d("BackupManager", "Exporting Settings...")
-          writer.name("settings")
-          writer.beginObject()
-          var settingsCount = 0
-          val prefs = context.dataStore.data.first()
-          prefs.asMap().forEach { entry ->
-            val key = entry.key
-            val value = entry.value
-            if (key.name in WIDGET_DATASTORE_KEYS) return@forEach
-            when (value) {
-              is String -> {
-                writer.name(key.name).value(value)
-                settingsCount++
+            // 1. Export Snippets
+            android.util.Log.d("BackupManager", "Exporting Snippets...")
+            writer.name("snippets")
+            writer.beginArray()
+            var snippetsCount = 0
+            snippetsRepository.items.value.forEach { item ->
+              writer.beginObject()
+              writer.name("alias").value(item.alias)
+              writer.name("content").value(item.content)
+              writer.endObject()
+              snippetsCount++
+            }
+            writer.endArray()
+
+            // 2. Export Search Shortcuts
+            android.util.Log.d("BackupManager", "Exporting Shortcuts...")
+            writer.name("searchShortcuts")
+            writer.beginArray()
+            var shortcutsCount = 0
+            searchShortcutRepository.items.value.forEach { shortcut ->
+              writer.beginObject()
+              writer.name("id").value(shortcut.id)
+              writer.name("alias").value(shortcut.alias)
+              writer.name("urlTemplate").value(shortcut.urlTemplate)
+              writer.name("description").value(shortcut.description)
+              shortcut.color?.let { writer.name("color").value(it) }
+              shortcut.suggestionUrl?.let { writer.name("suggestionUrl").value(it) }
+              shortcut.packageName?.let { writer.name("packageName").value(it) }
+              writer.endObject()
+              shortcutsCount++
+            }
+            writer.endArray()
+            writer
+              .name("searchShortcutOrderManual")
+              .value(searchShortcutRepository.manualOrder.value)
+
+            // 3. Export Favorites
+            android.util.Log.d("BackupManager", "Exporting Favorites...")
+            writer.name("favorites")
+            writer.beginArray()
+            var favoritesCount = 0
+            favoritesRepository.getFavoriteIds().forEach { id ->
+              writer.value(id)
+              favoritesCount++
+            }
+            writer.endArray()
+
+            writer.name("searchOptionFavorites")
+            writer.beginArray()
+            favoritesRepository.getSearchOptionIds().forEach { id ->
+              writer.value(id)
+              favoritesCount++
+            }
+            writer.endArray()
+
+            // 4. Export History
+            android.util.Log.d("BackupManager", "Exporting History...")
+            writer.name("history")
+            writer.beginArray()
+            var historyCount = 0
+            historyRepository.historyIds.value.forEach { id ->
+              writer.value(id)
+              historyCount++
+            }
+            writer.endArray()
+
+            // 5. Export Wallpapers (Base64)
+            var wallpapersCount = 0
+            if (includeWallpapers) {
+              android.util.Log.d("BackupManager", "Exporting Wallpapers...")
+              writer.name("wallpapers")
+              writer.beginArray()
+              wallpaperRepository.wallpapers.value.forEach { uri ->
+                try {
+                  val file = File(uri.path ?: return@forEach)
+                  if (file.exists()) {
+                    val bytes = file.readBytes()
+                    if (bytes.size <= MAX_IMAGE_SIZE) {
+                      val base64 =
+                        android.util.Base64.encodeToString(bytes, android.util.Base64.DEFAULT)
+                      writer.beginObject()
+                      writer.name("filename").value(file.name)
+                      writer.name("data").value(base64)
+                      writer.endObject()
+                      wallpapersCount++
+                    }
+                  }
+                } catch (e: Exception) {
+                  e.rethrowIfCancellation()
+                  e.printStackTrace()
+                }
               }
-              is Int -> {
-                writer.name(key.name).value(value.toLong()) // JsonWriter doesn't have value(Int)
-                settingsCount++
-              }
-              is Long -> {
-                writer.name(key.name).value(value)
-                settingsCount++
-              }
-              is Float -> {
-                writer.name(key.name).value(value.toDouble())
-                settingsCount++
-              }
-              is Double -> {
-                writer.name(key.name).value(value)
-                settingsCount++
-              }
-              is Boolean -> {
-                writer.name(key.name).value(value)
-                settingsCount++
+              writer.endArray()
+            } else {
+              android.util.Log.d("BackupManager", "Skipping Wallpapers (user selection)...")
+            }
+
+            // 6. Export Widgets
+            android.util.Log.d("BackupManager", "Exporting Widgets...")
+            writer.name("widgets")
+            writer.beginArray()
+            var widgetsCount = 0
+            // Fetch widgets before writing
+            val widgetsList = widgetRepository.widgets.first()
+            val appWidgetManager = android.appwidget.AppWidgetManager.getInstance(context)
+            widgetsList.forEach { widget ->
+              writer.beginObject()
+              writer.name("id").value(widget.id)
+              widget.height?.let { writer.name("height").value(it) }
+              val provider =
+                widget.provider
+                  ?: appWidgetManager.getAppWidgetInfo(widget.id)?.provider?.flattenToString()
+              provider?.let { writer.name("provider").value(it) }
+              writer.endObject()
+              widgetsCount++
+            }
+            writer.endArray()
+
+            // 7. Export Settings (DataStore)
+            android.util.Log.d("BackupManager", "Exporting Settings...")
+            writer.name("settings")
+            writer.beginObject()
+            var settingsCount = 0
+            val prefs = context.dataStore.data.first()
+            prefs.asMap().forEach { entry ->
+              val key = entry.key
+              val value = entry.value
+              if (key.name in WIDGET_DATASTORE_KEYS) return@forEach
+              when (value) {
+                is String -> {
+                  writer.name(key.name).value(value)
+                  settingsCount++
+                }
+                is Int -> {
+                  writer.name(key.name).value(value.toLong()) // JsonWriter doesn't have value(Int)
+                  settingsCount++
+                }
+                is Long -> {
+                  writer.name(key.name).value(value)
+                  settingsCount++
+                }
+                is Float -> {
+                  writer.name(key.name).value(value.toDouble())
+                  settingsCount++
+                }
+                is Double -> {
+                  writer.name(key.name).value(value)
+                  settingsCount++
+                }
+                is Boolean -> {
+                  writer.name(key.name).value(value)
+                  settingsCount++
+                }
               }
             }
+            writer.endObject()
+
+            writer.endObject() // End root object
+
+            val totalItems =
+              bookmarks.size +
+                snippetsCount +
+                shortcutsCount +
+                favoritesCount +
+                historyCount +
+                wallpapersCount +
+                widgetsCount +
+                settingsCount
+
+            android.util.Log.d("BackupManager", "Export complete. Total items: $totalItems")
+            totalItems
           }
-          writer.endObject()
-
-          writer.endObject() // End root object
-
-          val totalItems =
-            bookmarks.size +
-              snippetsCount +
-              shortcutsCount +
-              favoritesCount +
-              historyCount +
-              wallpapersCount +
-              widgetsCount +
-              settingsCount
-
-          android.util.Log.d("BackupManager", "Export complete. Total items: $totalItems")
-          Result.success(totalItems)
-        }
+        // The writer has flushed and closed successfully; count bytes, not provider metadata.
+        Result.success(ExportResult(itemsCount, countedOutput.bytesWritten))
       } catch (e: Exception) {
         e.rethrowIfCancellation()
         android.util.Log.e("BackupManager", "Export failed", e)
@@ -528,4 +541,19 @@ class BackupManager(
     val settingsCount: Int,
     val backgroundRestored: Boolean,
   )
+}
+
+private class ByteCountingOutputStream(output: OutputStream) : FilterOutputStream(output) {
+  var bytesWritten = 0L
+    private set
+
+  override fun write(value: Int) {
+    out.write(value)
+    bytesWritten++
+  }
+
+  override fun write(bytes: ByteArray, offset: Int, length: Int) {
+    out.write(bytes, offset, length)
+    bytesWritten += length
+  }
 }

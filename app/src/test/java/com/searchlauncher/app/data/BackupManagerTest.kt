@@ -63,13 +63,33 @@ class BackupManagerTest {
     coEvery { search.saveBookmark(bookmark.url, bookmark.title) } returns true
     val backup = manager()
     val output = ByteArrayOutputStream()
-    backup.exportBackup(output, false).getOrThrow()
+    val exported = backup.exportBackup(output, false).getOrThrow()
+    assertEquals(output.size().toLong(), exported.bytesWritten)
+    assertTrue(exported.bytesWritten > 0)
     val json = JSONObject(output.toString("UTF-8"))
     assertEquals(5, json.getInt("version"))
     assertEquals(bookmark.url, json.getJSONArray("bookmarks").getJSONObject(0).getString("url"))
+    assertTrue(
+      "Count UTF-8 bytes, not characters",
+      exported.bytesWritten > output.toString("UTF-8").length,
+    )
     val restored = backup.importBackup(output.toByteArray().inputStream()).getOrThrow()
     assertEquals(1, restored.bookmarksCount)
     coVerify(exactly = 1) { search.saveBookmark(bookmark.url, bookmark.title) }
+  }
+
+  @Test
+  fun `export fails if final buffered output cannot be closed`() = runBlocking {
+    coEvery { search.exportBookmarks() } returns emptyList()
+    val output =
+      object : ByteArrayOutputStream() {
+        override fun close() {
+          throw java.io.IOException("Destination could not finish writing")
+        }
+      }
+    val result = manager().exportBackup(output, false)
+    assertTrue("No successful byte count before the destination closes", result.isFailure)
+    assertTrue(output.size() > 0)
   }
 
   @Test
