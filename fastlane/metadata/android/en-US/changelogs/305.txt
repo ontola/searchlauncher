@@ -1,0 +1,5 @@
+Backup exports now show the actual file size instead of 0 B.
+Downloads show speed and remaining megabytes.
+Choose whether to use the built-in browser; fixed external browser detection when SearchLauncher is the default.
+Widget editing ends when returning home or leaving the launcher.
+Improved error reporting and cancellation handling.
