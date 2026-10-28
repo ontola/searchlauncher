@@ -121,6 +121,69 @@ class ShortcutLaunchTest {
   }
 
   @Test
+  fun `maps shortcut opens in the maps app it lists`() {
+    val maps = DefaultShortcuts.searchShortcuts.first { it.id == "maps" }
+    val url = maps.urlForQuery("coffee")
+    val mapsPackage = "com.google.android.apps.maps"
+    installViewHandler(url, mapsPackage)
+
+    val intent =
+      ShortcutLaunch.preferredAppIntent(
+        context.packageManager,
+        url,
+        maps.packageName,
+        "coffee",
+        otherApps = maps.iconPackages,
+      )
+
+    assertEquals(Intent.ACTION_VIEW, intent!!.action)
+    assertEquals(mapsPackage, intent.`package`)
+    assertEquals(url, intent.data.toString())
+  }
+
+  @Test
+  fun `listed apps are not sent a bare search when they do not claim the url`() {
+    val other = "com.example.maps"
+    installSearchHandler(other)
+
+    assertNull(
+      ShortcutLaunch.preferredAppIntent(
+        context.packageManager,
+        youtubeUrl,
+        null,
+        "cats",
+        otherApps = listOf(other),
+      )
+    )
+  }
+
+  @Test
+  fun `listed apps are tried when the named app is missing`() {
+    val other = "com.example.tube"
+    installViewHandler(youtubeUrl, other)
+
+    val intent =
+      ShortcutLaunch.preferredAppIntent(
+        context.packageManager,
+        youtubeUrl,
+        youtubePackage,
+        "cats",
+        otherApps = listOf(youtubePackage, other),
+      )
+
+    assertEquals(other, intent!!.`package`)
+  }
+
+  @Test
+  fun `default app intent excludes browsers`() {
+    val intent = ShortcutLaunch.defaultAppIntent(youtubeUrl)!!
+
+    assertTrue(intent.flags and Intent.FLAG_ACTIVITY_REQUIRE_NON_BROWSER != 0)
+    assertTrue(intent.flags and Intent.FLAG_ACTIVITY_REQUIRE_DEFAULT != 0)
+    assertNull(ShortcutLaunch.defaultAppIntent("geo:0,0?q=cats"))
+  }
+
+  @Test
   fun `content from a search shortcut prefers the app`() {
     installViewHandler(youtubeUrl, youtubePackage)
     val result =
@@ -138,6 +201,65 @@ class ShortcutLaunchTest {
 
     assertEquals(youtubePackage, intent!!.`package`)
     assertEquals(Intent.ACTION_VIEW, intent.action)
+  }
+
+  private fun imdbResult(id: String, url: String) =
+    SearchResult.Content(
+      id = id,
+      namespace = SearchOptions.NAMESPACE,
+      title = "IMDb Search: matrix",
+      subtitle = "Search Shortcut",
+      icon = ColorDrawable(0),
+      packageName = "android",
+      deepLink = url,
+    )
+
+  @Test
+  fun `typed shortcut search opens in an app the shortcut lists`() {
+    val imdb = ShortcutCatalog.entries.first { it.shortcut.id == "imdb" }.shortcut
+    val url = imdb.urlForQuery("matrix")
+    val imdbPackage = "com.imdb.mobile"
+    installViewHandler(url, imdbPackage)
+
+    val intent =
+      ShortcutLaunch.preferredAppIntentForContent(
+        context.packageManager,
+        imdbResult("shortcut_${imdb.alias}", url),
+        "imdb matrix",
+        listOf(imdb),
+      )
+
+    assertEquals(Intent.ACTION_VIEW, intent!!.action)
+    assertEquals(imdbPackage, intent.`package`)
+  }
+
+  @Test
+  fun `typed shortcut search falls back to the default app for the link`() {
+    val imdb = ShortcutCatalog.entries.first { it.shortcut.id == "imdb" }.shortcut
+    val url = imdb.urlForQuery("matrix")
+
+    val intent =
+      ShortcutLaunch.preferredAppIntentForContent(
+        context.packageManager,
+        imdbResult("shortcut_${imdb.alias}", url),
+        "imdb matrix",
+        listOf(imdb),
+      )
+
+    assertNull(intent!!.`package`)
+    assertTrue(intent.flags and Intent.FLAG_ACTIVITY_REQUIRE_NON_BROWSER != 0)
+  }
+
+  @Test
+  fun `shortcutForResultId finds the shortcut behind results and suggestions`() {
+    val y = SearchShortcut(id = "youtube", alias = "y", urlTemplate = "", description = "")
+    val yt = SearchShortcut(id = "yt_music", alias = "y_t", urlTemplate = "", description = "")
+    val shortcuts = listOf(y, yt)
+
+    assertEquals(y, ShortcutLaunch.shortcutForResultId("shortcut_y", shortcuts))
+    assertEquals(y, ShortcutLaunch.shortcutForResultId("suggestion_y_cats", shortcuts))
+    assertEquals(yt, ShortcutLaunch.shortcutForResultId("suggestion_y_t_cats", shortcuts))
+    assertNull(ShortcutLaunch.shortcutForResultId("shortcut_x", shortcuts))
   }
 
   @Test

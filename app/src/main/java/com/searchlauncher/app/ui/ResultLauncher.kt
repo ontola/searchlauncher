@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.ShortcutLaunch
@@ -261,13 +262,23 @@ class ResultLauncher(
         }
       }
       val appIntent =
-        ShortcutLaunch.preferredAppIntentForContent(context.packageManager, result, query)
+        ShortcutLaunch.preferredAppIntentForContent(
+          context.packageManager,
+          result,
+          query,
+          (context.applicationContext as? SearchLauncherApp)
+            ?.searchShortcutRepository
+            ?.launchable
+            ?.value
+            .orEmpty(),
+        )
       if (appIntent != null) {
         try {
           context.startActivity(appIntent)
           return
         } catch (_: Exception) {
-          // App was removed or disabled between resolve and start; use the browser below.
+          // App was removed or disabled between resolve and start, or no default app claims the
+          // link; use the browser below.
         }
       }
       if (uri != null && (uri.scheme == "http" || uri.scheme == "https")) {
