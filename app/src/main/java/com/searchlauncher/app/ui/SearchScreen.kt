@@ -3056,6 +3056,7 @@ private fun launchShortcutSearch(
     // private browsing stays in the private browser, since the app would not be private.
     val openedInApp =
       !privateWebResults &&
+        shortcut.opensInApp &&
         run {
           val appIntent =
             ShortcutLaunch.preferredAppIntent(

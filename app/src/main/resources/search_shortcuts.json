@@ -452,7 +452,8 @@
       "urlTemplate": "https://drive.google.com/drive/search?q=%s",
       "apps": ["com.google.android.apps.docs"],
       "color": "#1FA463",
-      "onlyWhenInstalled": true
+      "onlyWhenInstalled": true,
+      "openInApp": false
     },
     {
       "id": "google_news",

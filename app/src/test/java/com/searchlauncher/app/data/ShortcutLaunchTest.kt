@@ -251,6 +251,25 @@ class ShortcutLaunchTest {
   }
 
   @Test
+  fun `Drive searches stay in the browser even with the Drive app installed`() {
+    // The Drive app claims drive.google.com but answers drive/search with a 400 page.
+    val drive = ShortcutCatalog.entries.first { it.shortcut.id == "google_drive" }.shortcut
+    val url = drive.urlForQuery("dagboek")
+    installViewHandler(url, "com.google.android.apps.docs")
+
+    assertFalse(drive.opensInApp)
+    val intent =
+      ShortcutLaunch.preferredAppIntentForContent(
+        context.packageManager,
+        imdbResult("shortcut_${drive.alias}", url),
+        "d dagboek",
+        listOf(drive),
+      )
+
+    assertNull(intent)
+  }
+
+  @Test
   fun `shortcutForResultId finds the shortcut behind results and suggestions`() {
     val y = SearchShortcut(id = "youtube", alias = "y", urlTemplate = "", description = "")
     val yt = SearchShortcut(id = "yt_music", alias = "y_t", urlTemplate = "", description = "")

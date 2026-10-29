@@ -81,4 +81,17 @@ class BrowserAppLinksTest {
     assertFalse(openVerifiedAppLink(context, Uri.parse("https://example.org")))
     verify(exactly = 0) { context.startActivity(any()) }
   }
+
+  @Test
+  fun signInRedirectBackToChosenSiteStaysInBrowser() {
+    val back = Uri.parse("https://drive.google.com/drive/search?q=dagboek")
+    assertFalse(mayLeaveForApp(back, "drive.google.com"))
+    assertFalse(mayLeaveForApp(back, "Drive.Google.com"))
+  }
+
+  @Test
+  fun linkToAnotherSiteMayStillOpenItsApp() {
+    assertTrue(mayLeaveForApp(Uri.parse("https://app.digid.nl/login"), "mijn.overheid.nl"))
+    assertTrue(mayLeaveForApp(Uri.parse("https://drive.google.com/"), null))
+  }
 }
