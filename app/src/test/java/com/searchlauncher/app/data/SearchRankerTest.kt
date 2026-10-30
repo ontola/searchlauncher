@@ -74,4 +74,25 @@ class SearchRankerTest {
     val plain = rank("apc", snapshot).single().second
     assertEquals(plain, boosted)
   }
+
+  @Test
+  fun `an app outranks contacts with the same match grade`() {
+    val teams = doc("apps", 1, "com.microsoft.teams", "Teams")
+    val contacts =
+      listOf(
+        doc("contacts", 5, "c1", "Team Ontola"),
+        doc("contacts", 5, "c2", "Sam Teamleader"),
+        doc("contacts", 5, "c3", "Teams Support"),
+      )
+    val ranked = rank("team", (listOf(teams) + contacts).sortedBy { it.namespaceInt })
+    assertEquals(teams, ranked.first().first)
+  }
+
+  @Test
+  fun `a contact that matches better still outranks an app`() {
+    val teams = doc("apps", 1, "com.microsoft.teams", "Teams")
+    val contact = doc("contacts", 5, "c1", "Team")
+    val ranked = rank("team", listOf(teams, contact))
+    assertEquals(contact, ranked.first().first)
+  }
 }
