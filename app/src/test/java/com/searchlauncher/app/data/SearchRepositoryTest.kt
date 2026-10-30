@@ -581,8 +581,8 @@ class SearchRepositoryTest {
 
     val beforeTap = repository.searchApps("ali", limit = 5, includeSuggestions = false).getOrThrow()
     assertEquals(
-      "A strong 3-character contact prefix should win before query-specific learning",
-      contact.id,
+      "An app wins a tie with a contact of the same match grade before query-specific learning",
+      app.id,
       beforeTap.first().id,
     )
 
@@ -698,8 +698,8 @@ class SearchRepositoryTest {
 
     val beforePol = repository.searchApps("pol", limit = 5, includeSuggestions = false).getOrThrow()
     assertEquals(
-      "A strong 3-character contact prefix should win before query-specific learning",
-      contact.id,
+      "An app wins a tie with a contact of the same match grade before query-specific learning",
+      app.id,
       beforePol.first().id,
     )
 
