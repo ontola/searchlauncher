@@ -78,6 +78,9 @@ internal class GeckoPage(
   private var closeDownloadTab = false
   private var hasRenderedDocument: Boolean = predecessor?.hasRenderedDocument ?: false
   private var failedUrl: String? = predecessor?.failedUrl
+  /** Host of the last page loaded on purpose (typed, searched, shared), see [mayLeaveForApp]. */
+  private var chosenHost: String? =
+    predecessor?.chosenHost ?: Uri.parse(initialUrl).host.takeIf { initialUrl != "about:blank" }
   private var captureRunning = false
   private var scrollCapture: Job? = null
   private var touching = false
@@ -267,7 +270,9 @@ internal class GeckoPage(
             // external browser intent). Redispatching it can open a site's app, which may then
             // download in its own Chrome Custom Tab. Only website-initiated app links may leave.
             // Script/redirect handoffs remain allowed for login flows such as DigiD.
-            if (!request.isDirectNavigation && openVerifiedAppLink(activity, uri))
+            // Not back to the site the user opened here, though: that is where sign-in ends up.
+            if (request.isDirectNavigation) chosenHost = uri.host
+            else if (mayLeaveForApp(uri, chosenHost) && openVerifiedAppLink(activity, uri))
               return GeckoResult.deny()
             return null
           }

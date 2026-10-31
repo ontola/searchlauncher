@@ -25,6 +25,10 @@ data class SearchShortcut(
   val iconPackages: List<String>
     get() = listOfNotNull(packageName) + DefaultShortcuts.iconPackages[id].orEmpty()
 
+  /** Whether a search may leave for an installed app at all, see [ShortcutLaunch]. */
+  val opensInApp: Boolean
+    get() = id !in DefaultShortcuts.browserOnlyIds
+
   /**
    * Says the shortcut searches inside a known app, so the result reads as more than a letter. The
    * key to type is drawn beside it, so only shortcuts without an app spell the alias out.
@@ -85,6 +89,11 @@ object DefaultShortcuts {
    */
   val iconPackages: Map<String, List<String>> by lazy {
     ShortcutCatalog.entries.filter { it.apps.isNotEmpty() }.associate { it.shortcut.id to it.apps }
+  }
+
+  /** Shortcut ids whose searches stay in the browser, see [ShortcutCatalog.Entry.openInApp]. */
+  val browserOnlyIds: Set<String> by lazy {
+    ShortcutCatalog.entries.filterNot { it.openInApp }.map { it.shortcut.id }.toSet()
   }
 
   // App-defined actions and settings (not editable by user)

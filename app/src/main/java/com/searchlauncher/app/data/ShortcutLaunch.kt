@@ -105,6 +105,7 @@ object ShortcutLaunch {
     if (result.namespace != SearchOptions.NAMESPACE) return null
     val deepLink = result.deepLink ?: return null
     val shortcut = shortcutForResultId(result.id, shortcuts)
+    if (shortcut?.opensInApp == false) return null
     return preferredAppIntent(
       packageManager,
       deepLink,
