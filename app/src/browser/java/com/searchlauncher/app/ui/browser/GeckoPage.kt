@@ -52,6 +52,7 @@ internal class GeckoPage(
         GeckoSessionSettings.Builder()
           .usePrivateMode(privateMode)
           .displayMode(appDisplayMode(initialUrl))
+          .desktopMode(tab.desktopMode)
           .build()
       )
   private val favicons = if (privateMode) null else GeckoFavicons(activity, tab, session)
@@ -321,7 +322,9 @@ internal class GeckoPage(
           }
           val next =
             BrowserTabStore.addBackgroundTab(uri) { BrowserTabTasks.close(activity, it.id) }
-          val popup = GeckoEnvironment.createPopup(next.id, false)
+          // A popup belongs to the page that opened it, so it asks for the same kind of site.
+          next.desktopMode = tab.desktopMode
+          val popup = GeckoEnvironment.createPopup(next.id, false, next.desktopMode)
           BrowserTabTasks.open(activity, next.id)
           return GeckoResult.fromValue(popup)
         }
@@ -687,3 +690,26 @@ internal class GeckoPage(
 
 private fun GeckoSession.SessionState.currentUrl(): String? =
   runCatching { getOrNull(currentIndex)?.uri }.getOrNull()
+
+/** Desktop sites send a desktop user agent and lay out at desktop width, like Firefox's toggle. */
+internal fun GeckoSessionSettings.Builder.desktopMode(
+  enabled: Boolean
+): GeckoSessionSettings.Builder =
+  userAgentMode(
+      if (enabled) GeckoSessionSettings.USER_AGENT_MODE_DESKTOP
+      else GeckoSessionSettings.USER_AGENT_MODE_MOBILE
+    )
+    .viewportMode(
+      if (enabled) GeckoSessionSettings.VIEWPORT_MODE_DESKTOP
+      else GeckoSessionSettings.VIEWPORT_MODE_MOBILE
+    )
+
+/** Switches a live session; the current page needs a reload to be asked for again. */
+internal fun GeckoSession.setDesktopMode(enabled: Boolean) {
+  settings.userAgentMode =
+    if (enabled) GeckoSessionSettings.USER_AGENT_MODE_DESKTOP
+    else GeckoSessionSettings.USER_AGENT_MODE_MOBILE
+  settings.viewportMode =
+    if (enabled) GeckoSessionSettings.VIEWPORT_MODE_DESKTOP
+    else GeckoSessionSettings.VIEWPORT_MODE_MOBILE
+}

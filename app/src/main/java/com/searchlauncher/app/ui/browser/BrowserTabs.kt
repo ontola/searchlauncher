@@ -33,7 +33,8 @@ internal class BrowserTab(initialUrl: String, restoredId: Long? = null) {
   var url by mutableStateOf(initialUrl)
   var title by mutableStateOf<String?>(null)
   var installedApp by mutableStateOf<InstalledWebApp?>(null)
-  var desktopMode by mutableStateOf(false)
+  /** Starts from the "Always request desktop sites" setting; the menu flips it per tab. */
+  var desktopMode by mutableStateOf(DesktopSites.enabled)
   /** The colour the page itself is painted on, which is what shows through any gap in it. */
   var pageBackgroundArgb by mutableIntStateOf(android.graphics.Color.WHITE)
   /**

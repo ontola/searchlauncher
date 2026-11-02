@@ -67,6 +67,7 @@ class SearchLauncherApp : Application() {
     wallpaperRepository = WallpaperRepository(this)
     historyRepository = HistoryRepository(this)
     com.searchlauncher.app.ui.browser.BuiltInBrowser.keepInSync(this)
+    com.searchlauncher.app.ui.browser.DesktopSites.keepInSync(this)
     CoroutineScope(Dispatchers.IO).launch { wallpaperRepository.normalizeStoredWallpapers() }
     CoroutineScope(Dispatchers.IO).launch { searchRepository.initialize() }
     checkConsentAndInitSentry()

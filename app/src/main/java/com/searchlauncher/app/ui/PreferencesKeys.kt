@@ -37,6 +37,11 @@ object PreferencesKeys {
    */
   val BUILT_IN_BROWSER = booleanPreferencesKey("built_in_browser")
   val BROWSER_SHOW_FAVORITES = booleanPreferencesKey("browser_show_favorites")
+  /**
+   * Whether new browser tabs request the desktop version of sites. Off by default. See
+   * [com.searchlauncher.app.ui.browser.DesktopSites].
+   */
+  val BROWSER_DESKTOP_SITES = booleanPreferencesKey("browser_desktop_sites")
   val HISTORY_LIMIT = intPreferencesKey("history_limit")
   val MIN_ICON_SIZE = intPreferencesKey("min_icon_size")
   /**

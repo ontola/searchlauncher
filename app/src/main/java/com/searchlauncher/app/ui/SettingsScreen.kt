@@ -887,6 +887,9 @@ private fun BrowserSettingsCard() {
   val adBlockEnabled =
     remember { context.dataStore.data.map { it[PreferencesKeys.AD_BLOCK_ENABLED] ?: true } }
       .collectAsState(initial = true)
+  val desktopSites =
+    remember { com.searchlauncher.app.ui.browser.DesktopSites.flow(context) }
+      .collectAsState(initial = com.searchlauncher.app.ui.browser.DesktopSites.enabled)
   val builtInBrowser =
     remember { com.searchlauncher.app.ui.browser.BuiltInBrowser.flow(context) }
       .collectAsState(initial = com.searchlauncher.app.ui.browser.BuiltInBrowser.enabled)
@@ -975,6 +978,39 @@ private fun BrowserSettingsCard() {
                 Text("Set as Default Browser")
               }
             }
+          }
+
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Column(modifier = Modifier.weight(1f)) {
+              Text(
+                text = "Always request desktop sites",
+                style = MaterialTheme.typography.bodyMedium,
+              )
+              Text(
+                text =
+                  if (desktopSites.value) {
+                    "New tabs load the desktop version. Switch a tab back from its menu"
+                  } else {
+                    "New tabs load the mobile version. Switch a tab from its menu"
+                  },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+            Switch(
+              checked = desktopSites.value,
+              onCheckedChange = { enabled ->
+                scope.launch {
+                  context.dataStore.edit { preferences ->
+                    preferences[PreferencesKeys.BROWSER_DESKTOP_SITES] = enabled
+                  }
+                }
+              },
+            )
           }
 
           Row(
