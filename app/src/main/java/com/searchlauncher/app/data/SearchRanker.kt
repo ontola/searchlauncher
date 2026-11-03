@@ -2,6 +2,7 @@ package com.searchlauncher.app.data
 
 import com.searchlauncher.app.util.ContactUtils
 import com.searchlauncher.app.util.FuzzyMatch
+import com.searchlauncher.app.util.TextFold
 
 object SearchRanker {
   fun rankCandidates(
@@ -14,8 +15,11 @@ object SearchRanker {
     favoriteKeys: Set<String> = emptySet(),
   ): List<Pair<SearchableDocument, Int>> {
     val candidates = mutableListOf<Pair<SearchableDocument, Int>>()
-    val queryLower = query.lowercase().trim()
-    val usageQuery = normalizedUsageQuery(queryLower)
+    val queryAccented = query.lowercase().trim()
+    // Documents are indexed accent-folded (see SearchRepository.wrap), so match on folded text.
+    val queryLower = TextFold.fold(queryAccented)
+    // Usage keys stay as typed, so learned associations from before folding keep working.
+    val usageQuery = normalizedUsageQuery(queryAccented)
     val queryMask = calculateCharMask(queryLower)
     val normalizedQuery = ContactUtils.normalizePhoneNumber(queryLower)
 
@@ -62,7 +66,18 @@ object SearchRanker {
             0
           }
 
-        candidates.add(sdoc to (finalScore + namespaceBoost + usageBoost + favoriteBoost))
+        val accentPenalty =
+          FuzzyMatch.accentPenalty(
+            fuzzyScore,
+            queryAccented,
+            queryLower,
+            sdoc.nameAccented ?: sdoc.nameLower,
+            sdoc.nameLower,
+          )
+
+        candidates.add(
+          sdoc to (finalScore + namespaceBoost + usageBoost + favoriteBoost - accentPenalty)
+        )
       }
     }
 
