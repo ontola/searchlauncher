@@ -55,12 +55,19 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        # app-release.apk is the APK F-Droid rebuilds and verifies, so it uses the same
+        # -Pengine=webview build as the F-Droid recipe: F-Droid cannot take GeckoView from
+        # Mozilla's Maven repository. Play gets the Gecko bundle below.
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            ./gradlew assembleRelease
+            ./gradlew -Pengine=webview assembleRelease
           else
             ./gradlew assemblePreview
           fi
+      # Keeps the F-Droid build from rotting between releases; it is never exercised otherwise.
+      - name: Compile F-Droid WebView build
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: ./gradlew -Pengine=webview compileReleaseKotlin
       - name: Run unit tests
         run: ./gradlew test
 
@@ -125,8 +132,9 @@ jobs:
           **Install `app-play.apk` for the same signing identity as Google Play.**
           GitHub and Play can update this installation interchangeably when the version code permits.
 
-          `app-release.apk` is retained only for existing legacy GitHub/F-Droid installs. Its older
-          signing key is incompatible with Play. Switching from that copy requires exporting your
+          `app-release.apk` is the F-Droid build, for existing legacy GitHub/F-Droid installs. It uses
+          Android's system WebView instead of the Gecko browser engine, so the built-in browser has
+          fewer features. Its older signing key is incompatible with Play. Switching from that copy requires exporting your
           data, removing it from every Android user/profile, and importing into the Play-signed app.
 
           NOTES
@@ -139,7 +147,7 @@ jobs:
           gh release upload "$GITHUB_REF_NAME" \
             'play-apk/app-play.apk#SearchLauncher - Google Play compatible' \
             'play-apk/app-play.json#Verified package, version and signing certificate' \
-            'legacy/app-release.apk#Legacy GitHub and F-Droid signature - incompatible with Play' \
+            'legacy/app-release.apk#F-Droid build (WebView browser) - incompatible with Play' \
             --clobber
           gh release edit "$GITHUB_REF_NAME" --draft=false --latest
 

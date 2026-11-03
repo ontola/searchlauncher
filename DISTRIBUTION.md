@@ -298,6 +298,27 @@ this app.
 F-Droid builds from source, so a release is a public tag plus one YAML file in
 [fdroiddata](https://gitlab.com/fdroid/fdroiddata).
 
+### The F-Droid build has no GeckoView
+
+F-Droid only uses dependencies it can build from source, and GeckoView comes prebuilt from
+Mozilla's Maven repository ([#175](https://github.com/ontola/searchlauncher/issues/175)).
+Building GeckoView inside the recipe, as fdroiddata does for Fennec, means a full
+mozilla-central build per release, so the F-Droid build uses Android's system WebView instead:
+
+```bash
+./gradlew -Pengine=webview :app:assembleRelease
+```
+
+`-Pengine=webview` compiles `app/src/webview` instead of `app/src/browser`, and leaves out the
+GeckoView dependency and the Mozilla repository. The rest of the app is the same code. The
+built-in browser loses what only Gecko does: installed web apps, website notifications, ad
+blocking and the Gecko browser chrome. The recipe passes the property through `gradleprops` and
+deletes the two Mozilla lines with `sed` so the scanner does not see them; the APK is
+byte-identical with or without that `sed`.
+
+Tag CI builds `app-release.apk` the same way, so F-Droid's rebuild still matches the APK we sign,
+and every PR compiles the WebView build so it does not rot.
+
 ### What lives where
 
 Only the build recipe goes into fdroiddata. Everything a user reads — the name, summary,
