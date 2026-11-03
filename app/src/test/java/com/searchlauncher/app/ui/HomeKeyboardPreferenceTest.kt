@@ -39,4 +39,24 @@ class HomeKeyboardPreferenceTest {
       HomeKeyboardPreference.set(context, true)
     }
   }
+
+  @Test
+  fun numberRowDefaultsOffAndPersistsInBothStores() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    context.dataStore.edit { it.remove(PreferencesKeys.KEYBOARD_NUMBER_ROW) }
+    context
+      .getSharedPreferences(Prefs.Launcher.FILE, Context.MODE_PRIVATE)
+      .edit()
+      .remove("keyboard_number_row")
+      .commit()
+    assertFalse(KeyboardNumberRowPreference.cached(context))
+    assertFalse(KeyboardNumberRowPreference.flow(context).first())
+    try {
+      KeyboardNumberRowPreference.set(context, true)
+      assertTrue(KeyboardNumberRowPreference.cached(context))
+      assertTrue(KeyboardNumberRowPreference.flow(context).first())
+    } finally {
+      KeyboardNumberRowPreference.set(context, false)
+    }
+  }
 }

@@ -371,6 +371,9 @@ fun SearchScreen(
   val keyboardGesturesEnabled by
     remember { context.dataStore.data.map { it[PreferencesKeys.KEYBOARD_GESTURES] ?: true } }
       .collectAsState(initial = true)
+  val keyboardNumberRow by
+    remember { KeyboardNumberRowPreference.flow(context) }
+      .collectAsState(initial = KeyboardNumberRowPreference.cached(context))
   val separateQuickSettingsPref by
     remember { context.dataStore.data.map { it[PreferencesKeys.SEPARATE_QUICK_SETTINGS] } }
       .collectAsState(initial = null)
@@ -1459,7 +1462,11 @@ fun SearchScreen(
       openingOverviewTab = openingTab && tabsOverviewRendered,
       inPip = inPip,
     )
-  val builtInKeyboardHeight = minOf(243.dp, (LocalConfiguration.current.screenHeightDp * 0.45f).dp)
+  val builtInKeyboardHeight =
+    com.searchlauncher.app.ui.components.builtInHomeKeyboardHeight(
+      LocalConfiguration.current.screenHeightDp,
+      keyboardNumberRow,
+    )
   // Animate only the browser overlay's entrance. Home keeps its keyboard laid out immediately.
   // Translate the already measured keyboard and chrome together; avoid remeasuring search rows
   // on every animation frame.
@@ -2751,6 +2758,7 @@ fun SearchScreen(
                 .navigationBarsPadding()
                 .fillMaxWidth()
                 .height(builtInKeyboardHeight),
+            numberRow = keyboardNumberRow,
             onText = {
               if (
                 it == " " &&
