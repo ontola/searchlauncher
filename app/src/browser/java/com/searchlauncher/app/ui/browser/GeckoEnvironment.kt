@@ -172,8 +172,9 @@ internal object GeckoEnvironment {
 
   // The opener must return an unopened session to Gecko, which loads it and preserves
   // window.opener.
-  fun createPopup(id: Long, privateMode: Boolean): GeckoSession =
-    GeckoSession(GeckoSessionSettings.Builder().usePrivateMode(privateMode).build()).also {
-      sessions[id] = it
-    }
+  fun createPopup(id: Long, privateMode: Boolean, desktopMode: Boolean): GeckoSession =
+    GeckoSession(
+        GeckoSessionSettings.Builder().usePrivateMode(privateMode).desktopMode(desktopMode).build()
+      )
+      .also { sessions[id] = it }
 }

@@ -53,7 +53,6 @@ import com.searchlauncher.app.ui.theme.rememberBrowserSurfaceColors
 import com.searchlauncher.app.util.displayPageAddress
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import org.mozilla.geckoview.GeckoSessionSettings
 import org.mozilla.geckoview.GeckoView
 import org.mozilla.geckoview.StorageController
 
@@ -614,12 +613,7 @@ internal object BrowserEngine {
                       onClick = {
                         run {
                           tab.desktopMode = !tab.desktopMode
-                          page.session.settings.userAgentMode =
-                            if (tab.desktopMode) GeckoSessionSettings.USER_AGENT_MODE_DESKTOP
-                            else GeckoSessionSettings.USER_AGENT_MODE_MOBILE
-                          page.session.settings.viewportMode =
-                            if (tab.desktopMode) GeckoSessionSettings.VIEWPORT_MODE_DESKTOP
-                            else GeckoSessionSettings.VIEWPORT_MODE_MOBILE
+                          page.session.setDesktopMode(tab.desktopMode)
                           page.session.reload()
                         }
                       },
