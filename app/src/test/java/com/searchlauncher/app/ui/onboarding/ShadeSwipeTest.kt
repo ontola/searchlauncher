@@ -28,20 +28,19 @@ class ShadeSwipeTest {
   }
 
   @Test
-  fun rightSwipeOpensQuickSettingsOnlyWhenShadeIsSplit() {
-    assertTrue(shouldOpenQuickSettings(isLeft = false, currentStep = null, separateShade = true))
-    assertFalse(shouldOpenQuickSettings(isLeft = true, currentStep = null, separateShade = true))
-    assertFalse(shouldOpenQuickSettings(isLeft = false, currentStep = null, separateShade = false))
-  }
-
-  @Test
-  fun notificationsStepKeepsRightSwipeOnNotifications() {
-    assertFalse(
-      shouldOpenQuickSettings(
-        isLeft = false,
-        currentStep = OnboardingStep.SwipeNotifications,
-        separateShade = true,
-      )
+  fun reassignedSwipesAreNotTaught() {
+    assertEquals(
+      OnboardingStep.SwipeAppDrawer,
+      nextOnboardingStep(
+        completed = emptySet(),
+        queryIsEmpty = true,
+        hasMultipleWallpapers = true,
+        hasSearchResults = false,
+        favoritesCount = 0,
+        separateShade = false,
+        teachNotifications = false,
+        teachBackground = false,
+      ),
     )
   }
 

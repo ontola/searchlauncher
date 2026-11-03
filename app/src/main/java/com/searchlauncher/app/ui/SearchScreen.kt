@@ -145,7 +145,6 @@ import com.searchlauncher.app.ui.onboarding.OnboardingStep
 import com.searchlauncher.app.ui.onboarding.TutorialOverlay
 import com.searchlauncher.app.ui.onboarding.nextOnboardingStep
 import com.searchlauncher.app.ui.onboarding.resolveSeparateShade
-import com.searchlauncher.app.ui.onboarding.shouldOpenQuickSettings
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import com.searchlauncher.app.util.MathEvaluator
 import com.searchlauncher.app.util.SystemUtils
@@ -374,8 +373,26 @@ fun SearchScreen(
   val separateQuickSettingsPref by
     remember { context.dataStore.data.map { it[PreferencesKeys.SEPARATE_QUICK_SETTINGS] } }
       .collectAsState(initial = null)
-  val separateShade =
+  val phoneHasSeparateShade =
     resolveSeparateShade(separateQuickSettingsPref, Build.MANUFACTURER, Build.BRAND)
+  val gestureBindings by
+    remember(phoneHasSeparateShade) {
+        context.dataStore.data.map { resolveGestureBindings(it, phoneHasSeparateShade) }
+      }
+      .collectAsState(
+        initial =
+          HomeGesture.entries.associateWith {
+            GestureBinding(defaultGestureAction(it, phoneHasSeparateShade))
+          }
+      )
+  // Onboarding teaches a swipe only while it still does what the hint says.
+  val separateShade =
+    gestureBindings[HomeGesture.SwipeDownRight]?.action == GestureAction.QuickSettings
+  val teachNotificationsSwipe =
+    gestureBindings[HomeGesture.SwipeDownLeft]?.action == GestureAction.Notifications ||
+      gestureBindings[HomeGesture.SwipeDownRight]?.action == GestureAction.Notifications
+  val teachAppDrawerSwipe = gestureBindings[HomeGesture.SwipeUp]?.action == GestureAction.AppDrawer
+  val teachBackgroundSwipe = sidewaysSwipesPageWallpapers(gestureBindings)
   val useBuiltInKeyboard =
     builtInKeyboardEnabled && (!riseWithKeyboard || onOpenBrowserContext != null)
 
@@ -992,7 +1009,15 @@ fun SearchScreen(
   // (e.g. completedSteps updating async from DataStore) only trigger recomposition
   // when the actual computed step changes — avoids brief flashes of wrong steps.
   val currentOnboardingStep by
-    remember(query, folderImages, isActive, separateShade) {
+    remember(
+      query,
+      folderImages,
+      isActive,
+      separateShade,
+      teachNotificationsSwipe,
+      teachAppDrawerSwipe,
+      teachBackgroundSwipe,
+    ) {
       derivedStateOf {
         if (!isActive) return@derivedStateOf null
         val steps = completedSteps ?: return@derivedStateOf null
@@ -1003,6 +1028,9 @@ fun SearchScreen(
           hasSearchResults = searchResults.isNotEmpty(),
           favoritesCount = favorites.size,
           separateShade = separateShade,
+          teachNotifications = teachNotificationsSwipe,
+          teachAppDrawer = teachAppDrawerSwipe,
+          teachBackground = teachBackgroundSwipe,
         )
       }
     }
@@ -1047,23 +1075,38 @@ fun SearchScreen(
     }
   }
 
-  fun onShadeSwipeDown(isLeft: Boolean) {
-    val openQuickSettings =
-      shouldOpenQuickSettings(
-        isLeft = isLeft,
-        currentStep = currentOnboardingStep,
-        separateShade = separateShade,
+  fun performHomeGesture(gesture: HomeGesture) {
+    val binding = gestureBindings[gesture] ?: return
+    val action =
+      effectiveGestureAction(
+        binding.action,
+        teachingNotifications = currentOnboardingStep == OnboardingStep.SwipeNotifications,
       )
-    scope.launch {
-      onboardingManager.markStepComplete(
-        if (openQuickSettings) OnboardingStep.SwipeQuickSettings
-        else OnboardingStep.SwipeNotifications
-      )
-    }
-    if (openQuickSettings) {
-      SystemUtils.expandQuickSettings(context)
-    } else {
-      SystemUtils.expandNotifications(context)
+    when (action) {
+      GestureAction.Nothing -> Unit
+      GestureAction.Notifications -> {
+        scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeNotifications) }
+        SystemUtils.expandNotifications(context)
+      }
+      GestureAction.QuickSettings -> {
+        scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeQuickSettings) }
+        SystemUtils.expandQuickSettings(context)
+      }
+      GestureAction.AppDrawer -> {
+        scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeAppDrawer) }
+        onOpenAppDrawer()
+      }
+      GestureAction.NextWallpaper -> keyboardWallpaperSwipe++
+      GestureAction.PreviousWallpaper -> keyboardWallpaperSwipe--
+      GestureAction.OpenApp -> {
+        val intent =
+          binding.appPackage?.let { context.packageManager.getLaunchIntentForPackage(it) }
+        if (intent == null) {
+          Toast.makeText(context, "That app is no longer installed", Toast.LENGTH_SHORT).show()
+        } else {
+          context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+      }
     }
   }
 
@@ -1884,10 +1927,6 @@ fun SearchScreen(
             savedUriResolved = savedUriResolved,
             homeTrigger = homeTrigger,
             modifier = Modifier.fillMaxSize(),
-            onOpenAppDrawer = {
-              scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeAppDrawer) }
-              onOpenAppDrawer()
-            },
             onLongPress = { offset ->
               menuOffset = offset
               showBackgroundMenu = true
@@ -1907,8 +1946,8 @@ fun SearchScreen(
             },
             keyboardSwipeRequest = keyboardWallpaperSwipe,
             onScrollInProgressChanged = { wallpaperInMotion = it },
-            onSwipeDownLeft = { onShadeSwipeDown(isLeft = true) },
-            onSwipeDownRight = { onShadeSwipeDown(isLeft = false) },
+            onGesture = ::performHomeGesture,
+            pagerFollowsSwipes = teachBackgroundSwipe,
           )
 
           TutorialOverlay(
@@ -2771,24 +2810,20 @@ fun SearchScreen(
             onHomeSwipe =
               if (keyboardGesturesEnabled && query.isEmpty() && onOpenBrowserContext == null) {
                 { swipe ->
-                  when (swipe) {
-                    com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Up -> {
-                      scope.launch {
-                        onboardingManager.markStepComplete(OnboardingStep.SwipeAppDrawer)
-                      }
-                      onOpenAppDrawer()
+                  performHomeGesture(
+                    when (swipe) {
+                      com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Up ->
+                        HomeGesture.SwipeUp
+                      com.searchlauncher.app.ui.components.KeyboardHomeSwipe.DownLeft ->
+                        HomeGesture.SwipeDownLeft
+                      com.searchlauncher.app.ui.components.KeyboardHomeSwipe.DownRight ->
+                        HomeGesture.SwipeDownRight
+                      com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Left ->
+                        HomeGesture.SwipeLeft
+                      com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Right ->
+                        HomeGesture.SwipeRight
                     }
-                    com.searchlauncher.app.ui.components.KeyboardHomeSwipe.DownLeft -> {
-                      onShadeSwipeDown(isLeft = true)
-                    }
-                    com.searchlauncher.app.ui.components.KeyboardHomeSwipe.DownRight -> {
-                      onShadeSwipeDown(isLeft = false)
-                    }
-                    com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Left ->
-                      keyboardWallpaperSwipe++
-                    com.searchlauncher.app.ui.components.KeyboardHomeSwipe.Right ->
-                      keyboardWallpaperSwipe--
-                  }
+                  )
                 }
               } else null,
             gesturesEnabled = keyboardGesturesEnabled && query.isNotEmpty(),

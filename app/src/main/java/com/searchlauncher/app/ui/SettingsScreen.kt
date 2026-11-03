@@ -184,6 +184,7 @@ fun SettingsScreen(
     item { ThemeSettingsCard() }
 
     item { DefaultSearchEngineCard() }
+    item { GestureSettingsCard() }
     item { KeyboardSettingsCard() }
 
     item { BrowserSettingsCard() }
@@ -794,35 +795,6 @@ private fun KeyboardSettingsCard() {
           onCheckedChange = { enabled ->
             scope.launch {
               context.dataStore.edit { it[PreferencesKeys.KEYBOARD_GESTURES] = enabled }
-            }
-          },
-        )
-      }
-      val separateQuickSettingsPref by
-        remember { context.dataStore.data.map { it[PreferencesKeys.SEPARATE_QUICK_SETTINGS] } }
-          .collectAsState(initial = null)
-      val separateShade =
-        com.searchlauncher.app.ui.onboarding.resolveSeparateShade(
-          separateQuickSettingsPref,
-          Build.MANUFACTURER,
-          Build.BRAND,
-        )
-      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-          Text("Separate Quick Settings swipe", style = MaterialTheme.typography.bodyMedium)
-          Text(
-            "Swipe down on the right for Quick Settings, and on the left for notifications. " +
-              "Turn off if this phone uses one tray for both, as many Samsung phones do.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
-        Spacer(Modifier.width(12.dp))
-        Switch(
-          checked = separateShade,
-          onCheckedChange = { enabled ->
-            scope.launch {
-              context.dataStore.edit { it[PreferencesKeys.SEPARATE_QUICK_SETTINGS] = enabled }
             }
           },
         )
