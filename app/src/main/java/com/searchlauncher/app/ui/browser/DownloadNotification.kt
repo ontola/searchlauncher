@@ -53,7 +53,7 @@ internal class DownloadNotification(context: Context, private val key: String, n
     }
   }
 
-  fun progress(name: String, fraction: Float?) {
+  fun progress(name: String, fraction: Float?, transfer: DownloadTransfer? = null) {
     val now = SystemClock.elapsedRealtime()
     if (
       latest != null && name == title && determinate == (fraction != null) && now - lastUpdate < 500
@@ -65,7 +65,11 @@ internal class DownloadNotification(context: Context, private val key: String, n
     val percent = fraction?.let { (it.coerceIn(0f, 1f) * 100).toInt() }
     show(
       builder()
-        .setContentText(percent?.let { "Downloading · $it%" } ?: "Downloading…")
+        .setContentText(
+          transfer?.description() ?: percent?.let { "Downloading · $it%" } ?: "Downloading…"
+        )
+        // Android hides contentText in its collapsed progress template.
+        .setSubText(transfer?.description())
         .setOngoing(true)
         .setProgress(100, percent ?: 0, percent == null)
     )

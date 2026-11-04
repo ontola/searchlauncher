@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -52,13 +53,13 @@ import com.searchlauncher.app.ui.theme.rememberBrowserSurfaceColors
 import com.searchlauncher.app.util.displayPageAddress
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import org.mozilla.geckoview.GeckoSessionSettings
 import org.mozilla.geckoview.GeckoView
 import org.mozilla.geckoview.StorageController
 
 internal object BrowserEngine {
   const val isGecko = true
 
+  @OptIn(ExperimentalLayoutApi::class)
   @Composable
   fun Content(
     navigationRequest: NavigationRequest?,
@@ -77,8 +78,14 @@ internal object BrowserEngine {
     val density = androidx.compose.ui.platform.LocalDensity.current
     // Website editing needs the full viewport above the IME, without browser controls
     // riding on top of it.
-    val imeInsets = WindowInsets.ime
-    val websiteKeyboardVisible = imeInsets.getBottom(density) > 0
+    // Keep toolbar visibility and page sizing on the same IME state. Using animated
+    // visibility here but target insets below creates a second viewport jump when
+    // the toolbar disappears/returns, making fixed website footers change direction.
+    val imeTargetBottom = WindowInsets.imeAnimationTarget.getBottom(density)
+    val websiteKeyboardVisible = imeTargetBottom > 0
+    // Snapshot the padding during composition too. Reading the live target only in
+    // layout can resize Gecko one frame before the toolbar visibility recomposes.
+    val imeInsets = remember(imeTargetBottom) { WindowInsets(bottom = imeTargetBottom) }
     val localTab = remember { BrowserTab(navigationRequest?.url ?: "about:blank") }
     val tab = if (privateMode) localTab else pinnedTabId?.let(BrowserTabStore::tab) ?: return
     val page = remember(tab.id) { GeckoPage(activity, tab, privateMode, onClose) }
@@ -205,7 +212,8 @@ internal object BrowserEngine {
         prompts.close()
         page.persist()
         page.view?.releaseSession()
-        page.close()
+        // A window recreated for a configuration change shows the same tab again at once.
+        if (activity.isChangingConfigurations) page.handOver() else page.close()
         if (activity.isFinishing && !privateMode) page.forget()
       }
     }
@@ -277,8 +285,14 @@ internal object BrowserEngine {
         Modifier.fillMaxSize()
           .graphicsLayer { translationX = swipe.offset }
           .background(frameColor)
-          .windowInsetsPadding(if (immersive) WindowInsets(0) else WindowInsets.safeDrawing)
-          .imePadding()
+          .windowInsetsPadding(
+            if (immersive) WindowInsets(0)
+            else WindowInsets.systemBars.union(WindowInsets.displayCutout)
+          )
+          // Follow the keyboard's target, not each frame of its animation: every size change
+          // makes Gecko resume and resize its compositor synchronously on the main thread, and
+          // a resize per frame inside a draw pass has hung the window (ANR on Xiaomi).
+          .windowInsetsPadding(imeInsets)
       ) {
         Box(Modifier.weight(1f).fillMaxWidth().background(Color(tab.pageBackgroundArgb))) {
           AndroidView(
@@ -367,7 +381,13 @@ internal object BrowserEngine {
               .background(frameColor)
               .onSizeChanged { chromeSize = it }
               .drawWithContent {
-                chromeLayer.record { this@drawWithContent.drawContent() }
+                chromeLayer.record {
+                  this@drawWithContent.drawContent()
+                  drawRect(
+                    color = frameContentColor.copy(alpha = 0.18f),
+                    size = Size(size.width, 1f),
+                  )
+                }
                 drawLayer(chromeLayer)
               }
           ) {
@@ -593,12 +613,7 @@ internal object BrowserEngine {
                       onClick = {
                         run {
                           tab.desktopMode = !tab.desktopMode
-                          page.session.settings.userAgentMode =
-                            if (tab.desktopMode) GeckoSessionSettings.USER_AGENT_MODE_DESKTOP
-                            else GeckoSessionSettings.USER_AGENT_MODE_MOBILE
-                          page.session.settings.viewportMode =
-                            if (tab.desktopMode) GeckoSessionSettings.VIEWPORT_MODE_DESKTOP
-                            else GeckoSessionSettings.VIEWPORT_MODE_MOBILE
+                          page.session.setDesktopMode(tab.desktopMode)
                           page.session.reload()
                         }
                       },

@@ -114,6 +114,7 @@ import com.searchlauncher.app.ui.browser.BrowserTabTasks
 import com.searchlauncher.app.ui.browser.BrowserTabs
 import com.searchlauncher.app.ui.browser.BrowserTabsButton
 import com.searchlauncher.app.ui.browser.BrowserTabsOverviewLayer
+import com.searchlauncher.app.ui.browser.BuiltInBrowser
 import com.searchlauncher.app.ui.browser.TAB_CARD_WIDTH_FRACTION
 import com.searchlauncher.app.ui.browser.TAB_STRIP_LABEL_HEIGHT
 import com.searchlauncher.app.ui.browser.browserDestination
@@ -299,6 +300,11 @@ fun SearchScreen(
   // Bumped whenever something a result was built from changes — a bookmark's title, a tab being
   // closed — so the visible list catches up without the user having to clear their query.
   var resultsRefreshTick by remember { mutableIntStateOf(0) }
+  // A contact added in another app lands in the index after the user may already have typed its
+  // name; re-run the query so it shows up without retyping.
+  LaunchedEffect(searchRepository) {
+    searchRepository.searchableContentChanged.collect { resultsRefreshTick++ }
+  }
   var editingShortcut by remember {
     mutableStateOf<com.searchlauncher.app.data.SearchShortcut?>(null)
   }
@@ -335,6 +341,10 @@ fun SearchScreen(
         }
       }
       .collectAsState(initial = TREAT_FAVORITED_SITES_AS_APPS_DEFAULT)
+  val builtInBrowser by
+    remember { BuiltInBrowser.flow(context) }.collectAsState(initial = BuiltInBrowser.enabled)
+  // Swiping to tabs and the tabs button need the built-in browser; with it off there are no tabs.
+  val tabSwipeEnabled = browserTabSwipeEnabled && builtInBrowser
   // "Autocomplete suggestions" setting. Gates the network fetch of query suggestions while typing
   // a shortcut search (e.g. "g cats"). Stored under SEARCH_SHORTCUTS_ENABLED for historical
   // reasons.
@@ -361,6 +371,9 @@ fun SearchScreen(
   val keyboardGesturesEnabled by
     remember { context.dataStore.data.map { it[PreferencesKeys.KEYBOARD_GESTURES] ?: true } }
       .collectAsState(initial = true)
+  val keyboardNumberRow by
+    remember { KeyboardNumberRowPreference.flow(context) }
+      .collectAsState(initial = KeyboardNumberRowPreference.cached(context))
   val separateQuickSettingsPref by
     remember { context.dataStore.data.map { it[PreferencesKeys.SEPARATE_QUICK_SETTINGS] } }
       .collectAsState(initial = null)
@@ -529,7 +542,7 @@ fun SearchScreen(
     wallpaperInMotion,
   ) {
     if (
-      browserTabSwipeEnabled &&
+      tabSwipeEnabled &&
         isActive &&
         query.isEmpty() &&
         !browserShowing &&
@@ -618,6 +631,11 @@ fun SearchScreen(
 
   /** Opens [url] in the tab already showing it, or in a new tab of its own. */
   fun openInBrowser(url: String) {
+    if (!builtInBrowser) {
+      BuiltInBrowser.openExternally(context, url)
+      onDismiss()
+      return
+    }
     // Only the launcher hosts a browser. Asked from the search overlay — its own translucent
     // activity, with no browser in it — this hands the page to the launcher instead, which used to
     // happen by starting the browser activity and is the last thing that would have brought the
@@ -719,20 +737,24 @@ fun SearchScreen(
       onCopyUrl = openTab?.let { tab -> { copyUrlToClipboard(context, tab.url) } },
       onClearSearchResults = { onQueryChange("") },
       onOpenTab =
-        webUrl?.let { url ->
-          {
-            openInBrowser(url)
-            searchRepository.reportUsageAsync(result.namespace, result.id, query, index == 0)
-            onDismiss()
-          }
-        },
+        webUrl
+          ?.takeIf { builtInBrowser }
+          ?.let { url ->
+            {
+              openInBrowser(url)
+              searchRepository.reportUsageAsync(result.namespace, result.id, query, index == 0)
+              onDismiss()
+            }
+          },
       onOpenPrivate =
-        webUrl?.let { url ->
-          {
-            context.startActivity(BrowserActivity.createPrivateIntent(context, url))
-            onDismiss()
-          }
-        },
+        webUrl
+          ?.takeIf { builtInBrowser }
+          ?.let { url ->
+            {
+              context.startActivity(BrowserActivity.createPrivateIntent(context, url))
+              onDismiss()
+            }
+          },
       onContactChatAction = { contact, action ->
         if (searchRepository.launchContactChatAction(contact, action)) {
           searchRepository.reportUsageAsync(contact.namespace, contact.id, query, index == 0)
@@ -842,6 +864,7 @@ fun SearchScreen(
         onOpenBrowserTab = { index -> openBrowserTab(index) },
         treatFavoritedSitesAsApps = { treatFavoritedSitesAsApps },
         favoriteResults = { searchRepository.favorites.value },
+        useBuiltInBrowser = { builtInBrowser },
       )
     }
 
@@ -1439,7 +1462,11 @@ fun SearchScreen(
       openingOverviewTab = openingTab && tabsOverviewRendered,
       inPip = inPip,
     )
-  val builtInKeyboardHeight = minOf(243.dp, (LocalConfiguration.current.screenHeightDp * 0.45f).dp)
+  val builtInKeyboardHeight =
+    com.searchlauncher.app.ui.components.builtInHomeKeyboardHeight(
+      LocalConfiguration.current.screenHeightDp,
+      keyboardNumberRow,
+    )
   // Animate only the browser overlay's entrance. Home keeps its keyboard laid out immediately.
   // Translate the already measured keyboard and chrome together; avoid remeasuring search rows
   // on every animation frame.
@@ -1695,7 +1722,7 @@ fun SearchScreen(
           .drawWithContent {
             // Freeze the last complete home frame before any swipe or overview transforms it.
             if (
-              browserTabSwipeEnabled &&
+              tabSwipeEnabled &&
                 query.isEmpty() &&
                 !browserShowing &&
                 !openingTab &&
@@ -1862,6 +1889,7 @@ fun SearchScreen(
             folderImages = folderImages,
             lastImageUriString = lastImageUriString,
             savedUriResolved = savedUriResolved,
+            homeTrigger = homeTrigger,
             modifier = Modifier.fillMaxSize(),
             onOpenAppDrawer = {
               scope.launch { onboardingManager.markStepComplete(OnboardingStep.SwipeAppDrawer) }
@@ -1991,7 +2019,7 @@ fun SearchScreen(
         }
       }
 
-      if (browserTabSwipeEnabled) {
+      if (tabSwipeEnabled) {
         // Measured here rather than inside the preview, which is only composed while the browser is
         // not. The browser's position is one screen minus this, so a placeholder width put it at
         // roughly zero — covering everything in the page's own colour for the few frames before the
@@ -2497,7 +2525,7 @@ fun SearchScreen(
                 Modifier.onSizeChanged { chromeBarHeightPx = it.height }
                   .browserTabSwipe(
                     state = browserTabSwipe,
-                    enabled = browserTabSwipeEnabled,
+                    enabled = tabSwipeEnabled,
                     tabsOverviewOpen = tabsOverviewOpen,
                     onOpenTabsOverview = ::openTabsOverview,
                     onCloseTabsOverview = { tabsOverviewOpen = false },
@@ -2649,7 +2677,7 @@ fun SearchScreen(
                 // the mic sideways the moment a tab appeared, so the two buttons that are always
                 // there
                 // never settled anywhere. Leading the row, it grows away from them instead.
-                if (browserTabSwipeEnabled && openTabCount > 0) {
+                if (tabSwipeEnabled && openTabCount > 0) {
                   BrowserTabsButton(
                     tabCount = openTabCount,
                     onClick = {
@@ -2730,6 +2758,7 @@ fun SearchScreen(
                 .navigationBarsPadding()
                 .fillMaxWidth()
                 .height(builtInKeyboardHeight),
+            numberRow = keyboardNumberRow,
             onText = {
               if (
                 it == " " &&
@@ -3036,10 +3065,11 @@ private fun launchShortcutSearch(
   try {
     val url = shortcut.urlForQuery(query)
     // Web templates are loaded in the in-app browser so they keep working with no extra app.
-    // When the shortcut names one (YouTube, …) and that app can handle the URL, prefer it —
+    // When an installed app can handle the URL (YouTube, Maps, …), prefer it —
     // private browsing stays in the private browser, since the app would not be private.
     val openedInApp =
       !privateWebResults &&
+        shortcut.opensInApp &&
         run {
           val appIntent =
             ShortcutLaunch.preferredAppIntent(
@@ -3047,16 +3077,17 @@ private fun launchShortcutSearch(
               url,
               shortcut.packageName,
               query,
+              otherApps = shortcut.iconPackages,
             )
-          if (appIntent != null) {
+          // Neither the shortcut's own app nor one it is known to search inside: hand the URL to
+          // whatever app the user has set to open it, and only fall back to the browser after that.
+          listOfNotNull(appIntent, ShortcutLaunch.defaultAppIntent(url)).any { intent ->
             try {
-              context.startActivity(appIntent)
+              context.startActivity(intent)
               true
             } catch (_: Exception) {
               false
             }
-          } else {
-            false
           }
         }
     if (!openedInApp) {

@@ -62,6 +62,10 @@ internal object GeckoEnvironment {
             context.applicationContext,
             GeckoRuntimeSettings.Builder()
               .arguments(arrayOf("-profile", profile.absolutePath))
+              // Without a path Gecko reads /data/local/tmp/<package>-geckoview-config.yaml
+              // whenever this app is Android's "debug app" (Developer options), even in release.
+              // R8 strips the SnakeYAML parser it needs, so that crashed every page open.
+              .configFilePath("")
               .remoteDebuggingEnabled(false)
               .consoleOutput(true)
               .build(),
@@ -128,21 +132,39 @@ internal object GeckoEnvironment {
 
   // Visibility controls rendering/timers; priority controls how readily Android reclaims a page.
   // Keep a bounded working set protected when the user switches tabs or returns to the launcher.
+  // Favorite sites are protected on top of that, however long ago they were shown.
   private val recentSessions = linkedSetOf<GeckoSession>()
+  private val favoriteSessions = mutableSetOf<GeckoSession>()
 
   fun retainRecent(session: GeckoSession) {
     recentSessions.remove(session)
     recentSessions.add(session)
     session.setPriorityHint(GeckoSession.PRIORITY_HIGH)
-    while (recentSessions.size > 6) {
-      val oldest = recentSessions.first()
+    trimRecent()
+  }
+
+  private fun trimRecent() {
+    while (recentSessions.count { it !in favoriteSessions } > 6) {
+      val oldest = recentSessions.first { it !in favoriteSessions }
       recentSessions.remove(oldest)
       oldest.setPriorityHint(GeckoSession.PRIORITY_DEFAULT)
     }
   }
 
+  /** Keeps [session] at high priority while it shows a favorite, without using a recent slot. */
+  fun retainFavorite(session: GeckoSession, favorite: Boolean) {
+    if (favorite) {
+      if (favoriteSessions.add(session)) session.setPriorityHint(GeckoSession.PRIORITY_HIGH)
+    } else if (favoriteSessions.remove(session)) {
+      // Back among ordinary pages: it keeps high priority only as one of the recent ones.
+      if (session in recentSessions) trimRecent()
+      else session.setPriorityHint(GeckoSession.PRIORITY_DEFAULT)
+    }
+  }
+
   fun releaseRecent(session: GeckoSession) {
     recentSessions.remove(session)
+    favoriteSessions.remove(session)
     session.setPriorityHint(GeckoSession.PRIORITY_DEFAULT)
   }
 
@@ -150,8 +172,9 @@ internal object GeckoEnvironment {
 
   // The opener must return an unopened session to Gecko, which loads it and preserves
   // window.opener.
-  fun createPopup(id: Long, privateMode: Boolean): GeckoSession =
-    GeckoSession(GeckoSessionSettings.Builder().usePrivateMode(privateMode).build()).also {
-      sessions[id] = it
-    }
+  fun createPopup(id: Long, privateMode: Boolean, desktopMode: Boolean): GeckoSession =
+    GeckoSession(
+        GeckoSessionSettings.Builder().usePrivateMode(privateMode).desktopMode(desktopMode).build()
+      )
+      .also { sessions[id] = it }
 }

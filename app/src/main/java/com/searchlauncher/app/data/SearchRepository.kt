@@ -22,6 +22,8 @@ import com.searchlauncher.app.ui.browser.toSearchResult
 import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.util.FuzzyMatch
 import com.searchlauncher.app.util.SystemUtils
+import com.searchlauncher.app.util.TextFold
+import com.searchlauncher.app.util.rethrowIfCancellation
 import com.searchlauncher.app.util.traceAsyncSection
 import com.searchlauncher.app.util.traceSection
 import io.sentry.Sentry
@@ -73,6 +75,11 @@ data class SearchableDocument(
   val packageName: String? = null,
   val photoUri: String? = null,
   val phoneNumbers: String? = null, // Extra search metadata
+  /**
+   * The lowercased name with its accents, set only when it differs from the accent-folded
+   * [nameLower]. Used to rank results whose accents match the query slightly higher.
+   */
+  val nameAccented: String? = null,
 )
 
 class SearchRepository(private val context: Context) : BaseRepository() {
@@ -112,7 +119,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       } else {
         doc.name
       }
-    val nameLower = searchableText.lowercase()
+    val accentedLower = searchableText.lowercase()
+    val nameLower = TextFold.fold(accentedLower)
     val words = nameLower.split(Regex("\\s+")).filter { it.isNotEmpty() }
     val acronym = words.mapNotNull { it.firstOrNull() }.joinToString("")
     val charMask = calculateCharMask(nameLower)
@@ -169,6 +177,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       packageName,
       photoUri,
       phoneNumbers,
+      nameAccented = accentedLower.takeIf { it != nameLower },
     )
   }
 
@@ -269,6 +278,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         )
       }
     } catch (e: Exception) {
+      e.rethrowIfCancellation()
       android.util.Log.e("SearchRepository", "Failed to cleanup stale docs in $namespace", e)
       Sentry.captureException(e)
     }
@@ -281,6 +291,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       try {
         session.putAsync(PutDocumentsRequest.Builder().addDocuments(chunk).build()).await()
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("SearchRepository", "Failed to put batch of indexed documents", e)
         Sentry.captureException(e)
       }
@@ -311,8 +322,25 @@ class SearchRepository(private val context: Context) : BaseRepository() {
   private val _indexUpdated = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(replay = 1)
   val indexUpdated: kotlinx.coroutines.flow.SharedFlow<Unit> = _indexUpdated
 
+  private val _searchableContentChanged =
+    kotlinx.coroutines.flow.MutableSharedFlow<Unit>(
+      extraBufferCapacity = 1,
+      onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+    )
+  /**
+   * Fires when something outside the launcher (a new contact, a calendar event, a download) has
+   * been re-indexed. Unlike [indexUpdated] it does not fire for favicons or usage, so the search
+   * screen can re-run the typed query on it without churning while the user types.
+   */
+  val searchableContentChanged: kotlinx.coroutines.flow.SharedFlow<Unit> = _searchableContentChanged
+
   private val _favorites = kotlinx.coroutines.flow.MutableStateFlow<List<SearchResult>>(emptyList())
   val favorites: kotlinx.coroutines.flow.StateFlow<List<SearchResult>> = _favorites
+
+  init {
+    // The browser keeps tabs on pinned sites open before others; it reads the same list.
+    com.searchlauncher.app.ui.browser.FavoriteSites.source = { _favorites.value }
+  }
 
   private val _recentItems =
     kotlinx.coroutines.flow.MutableStateFlow<List<SearchResult>>(emptyList())
@@ -409,10 +437,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             try {
               iconRepository.cacheAppIcon(context.packageName, "launcher_app_icon")
             } catch (e: Exception) {
+              e.rethrowIfCancellation()
               e.printStackTrace()
             }
           }
         } catch (e: Exception) {
+          e.rethrowIfCancellation()
           e.printStackTrace()
         }
 
@@ -609,6 +639,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           android.util.Log.d("SearchRepository", "Loaded ${allDocs.size} documents from index")
         }
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("SearchRepository", "Failed to load from index", e)
         Sentry.captureException(e)
       }
@@ -644,6 +675,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         updateAppsCache()
         true
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("SearchRepository", "Failed to load fast index cache", e)
         false
       }
@@ -673,6 +705,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         tempFile.writeText(jsonArray.toString())
         tempFile.renameTo(file)
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("SearchRepository", "Failed to save fast index cache", e)
       }
     }
@@ -730,6 +763,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               .removeAsync(RemoveByDocumentIdRequest.Builder("apps").addIds(removedIds).build())
               .await()
           } catch (e: Exception) {
+            e.rethrowIfCancellation()
             android.util.Log.e("SearchRepository", "Failed to remove uninstalled apps", e)
             Sentry.captureException(e)
           }
@@ -741,6 +775,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         indexShortcuts(packageNames)
         indexStaticShortcuts(packageNames)
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("SearchRepository", "Error updating shortcuts after indexApps", e)
         Sentry.captureException(e)
       }
@@ -791,6 +826,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               RemoveByDocumentIdRequest.Builder("shortcuts").addIds(staleIds).build()
             session.removeAsync(removeRequest).await()
           } catch (e: Exception) {
+            e.rethrowIfCancellation()
             android.util.Log.e(
               "SearchRepository",
               "Failed to remove stale shortcuts for packages",
@@ -864,6 +900,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               )
               .await()
           } catch (e: Exception) {
+            e.rethrowIfCancellation()
             android.util.Log.e(
               "SearchRepository",
               "Failed to remove stale static shortcuts for packages",
@@ -901,7 +938,15 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       }
     }
 
+  /**
+   * Registering needs READ_CONTACTS, which may only be granted after startup, so this is retried
+   * from [indexContacts] and must not register twice.
+   */
+  @Volatile private var contactsObserverRegistered = false
+
+  @Synchronized
   private fun registerContactsObserver() {
+    if (contactsObserverRegistered) return
     try {
       context.contentResolver.registerContentObserver(
         ContactsContract.Contacts.CONTENT_URI,
@@ -909,6 +954,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         true,
         contactsObserver,
       )
+      contactsObserverRegistered = true
+    } catch (e: SecurityException) {
+      // Expected while the permission is missing or the provider does not exist on this device.
+      android.util.Log.w("SearchRepository", "Cannot observe contacts", e)
     } catch (e: Exception) {
       android.util.Log.e("SearchRepository", "Failed to observe contacts", e)
       Sentry.captureException(e)
@@ -920,6 +969,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     indexWriteMutex.withLock { indexContacts() }
     saveFastIndexCache()
     _indexUpdated.emit(Unit)
+    _searchableContentChanged.emit(Unit)
   }
 
   /** Rebuilds contacts only when the provider reports a different set than we last indexed. */
@@ -940,6 +990,26 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       refreshContacts()
     }
 
+  /**
+   * Called when the launcher comes back to the foreground. Change notifications are not reliable
+   * while we sit in the background (cached processes can be frozen, the observer may not be
+   * registered yet), and adding a contact in another app is exactly that situation, so compare the
+   * cheap fingerprint instead of waiting for the next restart.
+   */
+  fun onLauncherResumed() {
+    if (!storageReady.isCompleted) return
+    // An observer-triggered rebuild is already on its way.
+    if (contactsRefreshJob?.isActive == true) return
+    scope.launch {
+      try {
+        refreshContactsIfChanged()
+      } catch (e: Exception) {
+        e.rethrowIfCancellation()
+        android.util.Log.w("SearchRepository", "Contacts resume check failed", e)
+      }
+    }
+  }
+
   suspend fun indexContacts() =
     withContext(IndexingDispatchers.limited) {
       pauseIndexingIfSearchIsActive()
@@ -949,6 +1019,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         android.util.Log.w("SearchRepository", "READ_CONTACTS permission denied")
         return@withContext
       }
+      // Without this a permission granted after startup indexes once and then never sees changes.
+      registerContactsObserver()
       android.util.Log.d("SearchRepository", "Indexing contacts...")
 
       // Read before building: a change landing mid-build then leaves us with the older
@@ -999,6 +1071,9 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         true,
         calendarObserver,
       )
+    } catch (e: SecurityException) {
+      // Expected while the permission is missing or the provider does not exist on this device.
+      android.util.Log.w("SearchRepository", "Cannot observe calendar", e)
     } catch (e: Exception) {
       android.util.Log.e("SearchRepository", "Failed to observe calendar", e)
       Sentry.captureException(e)
@@ -1009,6 +1084,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     indexWriteMutex.withLock { indexCalendar() }
     saveFastIndexCache()
     _indexUpdated.emit(Unit)
+    _searchableContentChanged.emit(Unit)
   }
 
   private suspend fun refreshCalendarIfChanged() =
@@ -1092,6 +1168,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     indexWriteMutex.withLock { indexDownloads() }
     saveFastIndexCache()
     _indexUpdated.emit(Unit)
+    _searchableContentChanged.emit(Unit)
   }
 
   private suspend fun refreshAppsIfChanged() =
@@ -1168,6 +1245,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         saveFastIndexCache()
         _indexUpdated.emit(Unit)
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("SearchRepository", "Error during resetIndex", e)
         Sentry.captureException(e)
       } finally {
@@ -1226,6 +1304,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         android.util.Log.d("SearchRepository", "Full app data reset completed")
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("SearchRepository", "Error during resetAppData", e)
         Sentry.captureException(e)
       } finally {
@@ -1266,6 +1345,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               }
             }
           } catch (e: Exception) {
+            e.rethrowIfCancellation()
             // Ignore failures for specific namespaces
             Sentry.captureException(e)
           }
@@ -1325,6 +1405,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
 
         return@withContext results.take(limit)
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("SearchRepository", "Error getting search shortcuts", e)
         Sentry.captureException(e)
         return@withContext emptyList()
@@ -1345,9 +1426,12 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           "reportUsage: namespace=$namespace, id=$id, query=$query",
         )
 
-        // Only report usage to AppSearch for namespaces that are actually in the index.
-        // smart_actions and others are dynamic and will cause reportUsageAsync to fail.
-        if (session != null && namespace != "smart_actions" && namespace != "snippets") {
+        // Only report usage to AppSearch for documents that are actually in the index. Many results
+        // are built on the fly (search shortcut suggestions, widgets, default actions, calculator)
+        // and AppSearch rejects those with "Failed to find DocumentId by key".
+        if (
+          session != null && documentByNamespaceAndId.containsKey(documentLookupKey(namespace, id))
+        ) {
           try {
             val request =
               androidx.appsearch.app.ReportUsageRequest.Builder(namespace, id)
@@ -1355,12 +1439,13 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                 .build()
             session.reportUsageAsync(request).await()
           } catch (e: Exception) {
-            // Not in index or other issue, ignore
+            e.rethrowIfCancellation()
+            // Best effort: the in-memory snapshot can briefly list a document the index lost.
             android.util.Log.w(
               "SearchRepository",
               "AppSearch reportUsage failed for $namespace:$id",
+              e,
             )
-            Sentry.captureException(e)
           }
         }
 
@@ -1394,6 +1479,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           }
         }
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("SearchRepository", "Error reporting usage", e)
         Sentry.captureException(e)
       }
@@ -1469,6 +1555,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         saveFastIndexCache()
         _indexUpdated.emit(Unit)
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("SearchRepository", "Exception in indexWebUrl for $trimmedUrl", e)
         Sentry.captureException(e)
       }
@@ -1552,6 +1639,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         _indexUpdated.emit(Unit)
         true
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("SearchRepository", "Exception saving bookmark $trimmedUrl", e)
         Sentry.captureException(e)
         false
@@ -1645,6 +1733,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
     try {
       context.dataStore.data.map { it[PreferencesKeys.STORE_WEB_HISTORY] ?: true }.first()
     } catch (e: Exception) {
+      e.rethrowIfCancellation()
       android.util.Log.e("SearchRepository", "Error reading store_web_history pref", e)
       Sentry.captureException(e)
       true
@@ -1842,6 +1931,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         saveFastIndexCache()
         _indexUpdated.emit(Unit)
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("SearchRepository", "Failed to remove bookmark: $id", e)
         Sentry.captureException(e)
       }
@@ -1871,6 +1961,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         _indexUpdated.emit(Unit)
         android.util.Log.d("SearchRepository", "Cleared all web history")
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("SearchRepository", "Failed to clear web history", e)
         Sentry.captureException(e)
       }
@@ -1912,6 +2003,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         replaceCollection("snippets", docs)
         android.util.Log.d("SearchRepository", "Indexed ${docs.size} snippets")
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         e.printStackTrace()
         android.util.Log.e("SearchRepository", "Failed to index snippets", e)
         Sentry.captureException(e)
@@ -2058,7 +2150,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
                   )
                 }
               } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
+                e.rethrowIfCancellation()
                 SystemUtils.logError("SearchRepository", "Error processing suggestions", e)
               }
             }
@@ -2089,6 +2181,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
    * once the tab is closed. Blank tabs have nothing to match on and are skipped.
    */
   private fun searchOpenTabs(query: String): List<SearchResult> {
+    // With the built-in browser off, a tab left from before cannot be opened, so it is not offered.
+    if (!com.searchlauncher.app.ui.browser.BuiltInBrowser.enabled) return emptyList()
     val tabs = com.searchlauncher.app.ui.browser.BrowserTabStore.tabs?.items ?: return emptyList()
     return tabs.mapNotNull { tab ->
       val result = tab.toSearchResult(context) ?: return@mapNotNull null
@@ -2157,8 +2251,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             installedProviders
           } else {
             installedProviders.filter {
-              it.loadLabel(context.packageManager).contains(searchTerm, ignoreCase = true) ||
-                it.provider.packageName.contains(searchTerm, ignoreCase = true)
+              TextFold.containsFolded(
+                it.loadLabel(context.packageManager).toString(),
+                searchTerm,
+              ) || it.provider.packageName.contains(searchTerm, ignoreCase = true)
             }
           }
 
@@ -2180,6 +2276,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           )
         } to shortcut
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         SystemUtils.logError("SearchRepository", "Error looking up widgets", e)
         emptyList<SearchResult>() to shortcut
       }
@@ -2329,7 +2426,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
           }
         }
       } catch (e: Exception) {
-        if (e is kotlinx.coroutines.CancellationException) throw e
+        e.rethrowIfCancellation()
         // Log error
       }
       suggestions
@@ -2421,6 +2518,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
         }
         file.writeText(array.toString())
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         e.printStackTrace()
       }
     }
@@ -2688,12 +2786,14 @@ class SearchRepository(private val context: Context) : BaseRepository() {
               }
             }
           } catch (e: Exception) {
+            e.rethrowIfCancellation()
             android.util.Log.e("SearchRepository", "Error loading icons for profile", e)
           }
         }
 
         android.util.Log.d("SearchRepository", "Rebuilt icon cache: $iconCount app icons")
       } catch (e: Exception) {
+        e.rethrowIfCancellation()
         android.util.Log.e("SearchRepository", "Error rebuilding icon cache", e)
       }
     }

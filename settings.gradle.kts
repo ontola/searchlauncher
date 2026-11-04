@@ -11,9 +11,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven("https://maven.mozilla.org/maven2/") {
-            content { includeGroup("org.mozilla.geckoview") }
-        }
+        // F-Droid builds with -Pengine=webview and may not use this repository. Its recipe also
+        // deletes this line, since its scanner rejects any unknown repository URL it can see.
+        if (providers.gradleProperty("engine").getOrElse("gecko") != "webview") maven("https://maven.mozilla.org/maven2/") { content { includeGroup("org.mozilla.geckoview") } }
     }
 }
 

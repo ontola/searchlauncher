@@ -1,12 +1,13 @@
 package com.searchlauncher.app.data
 
+import com.searchlauncher.app.util.TextFold
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SearchRankerTest {
   private fun doc(namespace: String, namespaceInt: Int, id: String, name: String) =
-    name.lowercase().let { lower ->
+    TextFold.fold(name.lowercase()).let { lower ->
       val words = lower.split(' ').filter { it.isNotEmpty() }
       SearchableDocument(
         doc = AppSearchDocument(namespace = namespace, id = id, score = 0, name = name),
@@ -16,6 +17,7 @@ class SearchRankerTest {
         namespaceInt = namespaceInt,
         normalizedPhone = null,
         charMask = SearchRanker.calculateCharMask(lower),
+        nameAccented = name.lowercase().takeIf { it != lower },
       )
     }
 
@@ -73,5 +75,56 @@ class SearchRankerTest {
     val boosted = rank("apc", snapshot, setOf(favoriteKey)).single().second
     val plain = rank("apc", snapshot).single().second
     assertEquals(plain, boosted)
+  }
+
+  @Test
+  fun `an app outranks contacts with the same match grade`() {
+    val teams = doc("apps", 1, "com.microsoft.teams", "Teams")
+    val contacts =
+      listOf(
+        doc("contacts", 5, "c1", "Team Ontola"),
+        doc("contacts", 5, "c2", "Sam Teamleader"),
+        doc("contacts", 5, "c3", "Teams Support"),
+      )
+    val ranked = rank("team", (listOf(teams) + contacts).sortedBy { it.namespaceInt })
+    assertEquals(teams, ranked.first().first)
+  }
+
+  @Test
+  fun `a contact that matches better still outranks an app`() {
+    val teams = doc("apps", 1, "com.microsoft.teams", "Teams")
+    val contact = doc("contacts", 5, "c1", "Team")
+    val ranked = rank("team", listOf(teams, contact))
+    assertEquals(contact, ranked.first().first)
+  }
+
+  private val telephone = doc("apps", 1, "com.android.dialer", "Téléphone")
+  private val telegram = doc("apps", 1, "org.telegram", "Telegram")
+
+  @Test
+  fun `plain letters find a name with accents`() {
+    val ranked = rank("tel", listOf(telephone))
+    assertEquals(telephone, ranked.single().first)
+    assertEquals(telephone, rank("telephone", listOf(telephone)).single().first)
+  }
+
+  @Test
+  fun `accents typed in the query still find plain names`() {
+    assertEquals(telegram, rank("tél", listOf(telegram)).single().first)
+  }
+
+  @Test
+  fun `the result whose accents match the query ranks just ahead`() {
+    val snapshot = listOf(telephone, telegram)
+    assertEquals(telegram, rank("tel", snapshot).first().first)
+    assertEquals(telephone, rank("tél", snapshot).first().first)
+  }
+
+  @Test
+  fun `a better plain match still beats an accent match`() {
+    // An exact match on folded text outranks a prefix match whose accents agree.
+    val cafe = doc("apps", 1, "cafe", "Cafe")
+    val cafeteria = doc("apps", 1, "cafeteria", "Caféteria")
+    assertEquals(cafe, rank("café", listOf(cafeteria, cafe)).first().first)
   }
 }

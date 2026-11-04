@@ -36,4 +36,9 @@
         <item name="android:windowDisablePreview">true</item>
         <item name="android:windowBackground">?android:attr/colorBackground</item>
     </style>
+    <style name="Theme.SearchLauncher.BrowserChooser" parent="android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowDisablePreview">true</item>
+    </style>
 </resources>

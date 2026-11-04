@@ -29,7 +29,12 @@ internal fun saveGeckoDownload(context: Context, response: WebResponse) {
     response.headers.entries.firstOrNull { it.key.equals(name, true) }?.value
   val type = header("Content-Type")?.substringBefore(';') ?: "application/octet-stream"
   val name = downloadFileName(response.uri, header("Content-Disposition"), type)
-  val total = header("Content-Length")?.toLongOrNull()
+  val total =
+    header("Content-Length")?.toLongOrNull()?.takeIf {
+      header("Content-Encoding").let { encoding ->
+        encoding.isNullOrBlank() || encoding.equals("identity", true)
+      }
+    }
   pendingPageDownloads[key] = PageDownloadProgress(name, null)
   val notification = DownloadNotification(context, key, name)
   geckoDownloadScope.launch {
@@ -50,34 +55,22 @@ internal fun saveGeckoDownload(context: Context, response: WebResponse) {
         check(directory.mkdirs()) { "Could not create download folder" }
         val file = File(directory, name).also { target = it }
         var bytes = 0L
-        var reported = 0L
-        requireNotNull(response.body) { "This response contains no download" }
-          .use { input ->
-            file.outputStream().use { output ->
-              val buffer = ByteArray(64 * 1024)
-              while (true) {
-                currentCoroutineContext().ensureActive()
-                val count = runInterruptible { input.read(buffer) }
-                if (count < 0) break
-                output.write(buffer, 0, count)
-                bytes += count
-                if (bytes - reported >= 512 * 1024) {
-                  reported = bytes
-                  withContext(Dispatchers.Main) {
-                    notification.progress(
-                      name,
-                      total?.takeIf { it > 0 }?.let { bytes.toFloat() / it },
-                    )
-                    updatePageDownload(
-                      key,
-                      name,
-                      total?.takeIf { it > 0 }?.let { (bytes.toFloat() / it).coerceIn(0f, 1f) },
-                    )
-                  }
+        trackDownloadTransfer(key, name, total, notification) { reportBytes ->
+          requireNotNull(response.body) { "This response contains no download" }
+            .use { input ->
+              file.outputStream().use { output ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                  currentCoroutineContext().ensureActive()
+                  val count = runInterruptible { input.read(buffer) }
+                  if (count < 0) break
+                  output.write(buffer, 0, count)
+                  bytes += count
+                  reportBytes(bytes)
                 }
               }
             }
-          }
+        }
         // The stream can be decompressed by Gecko, so Content-Length is only a progress hint.
         val manager = app.getSystemService(DownloadManager::class.java)
         control.complete(

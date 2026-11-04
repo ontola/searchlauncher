@@ -28,14 +28,40 @@ To build one by hand:
 ./gradlew :app:bundleRelease     # app/build/outputs/bundle/release/app-release.aab
 ```
 
-It is signed with `upload.jks` at the repo root, alias `upload`, which is gitignored.
+It is signed with `app/upload.jks`, alias `upload`, which is gitignored.
 Play re-signs with its own app signing key, so this one only proves the upload is yours:
 losing it means asking Google to reset the upload key, not losing the app. The path and
 passwords can be overridden with `SIGNING_KEY_STORE_PATH`, `SIGNING_STORE_PASSWORD`,
 `SIGNING_KEY_ALIAS` and `SIGNING_KEY_PASSWORD`.
 
 The bundle Play receives is not the APK F-Droid builds, and does not need to be
-reproducible — F-Droid verifies the GitHub release APK, which is a separate artifact.
+reproducible — F-Droid verifies the legacy `app-release.apk`, which remains a separate artifact.
+
+### GitHub and Play share the installed app
+
+After the Play upload, CI downloads Google's **signed universal APK** using
+[`generatedapks.list`](https://developers.google.com/android-publisher/api-ref/rest/v3/generatedapks/list)
+and [`generatedapks.download`](https://developers.google.com/android-publisher/api-ref/rest/v3/generatedapks/download).
+`scripts/download-play-apk.py` checks its APK signature against the certificate returned by the
+authenticated Play API and checks the package ID and version code before publishing it as
+**`app-play.apk`** on GitHub. Both channels then use the same installed-app identity. Android's
+normal version-code rules still apply: an older Play rollout cannot downgrade a newer sideload.
+
+The GitHub release waits for this verified artifact. Missing credentials, API errors, ambiguous
+signing keys, or a missing universal APK fail the job; there is no fallback to the incompatible
+upload-key APK. `PLAY_APP_SIGNING_SHA256` can pin a particular Play signing certificate; it is
+required if Google returns universal APKs for multiple keys. `app-play.json` records the package,
+version, certificate and APK SHA-256. No token, service-account key or download credential is saved.
+
+`app-release.apk` is retained for existing legacy GitHub/F-Droid users and reproducible builds.
+It keeps its pinned signing key and existing F-Droid binary URL. Release notes and asset labels
+identify it as incompatible with Play. New installs should choose `app-play.apk`; migrating an old
+legacy install still requires a one-time export/uninstall/import across all Android profiles.
+Do not overwrite old released APKs with differently signed files.
+
+The **Verify Play APK compatibility** workflow tests the API against already uploaded version
+304 without submitting a build or changing any Play track. It runs for relevant internal PRs and
+can be dispatched with another existing version; `PLAY_APK_SMOKE_VERSION_CODE` changes the PR fixture.
 
 ### What to upload where
 
@@ -79,12 +105,12 @@ Three keys are involved, and only one of them can ever change.
 
 | Key | SHA-256 | What it does |
 | --- | --- | --- |
-| Release key | `553f6280…` | Signs the APK on GitHub and the one F-Droid verifies |
-| Play app signing key | `c016abdc…` | Google-generated. Signs what Play delivers to a device |
+| Release key | `553f6280…` | Signs legacy `app-release.apk`, F-Droid verification and CI previews |
+| Play app signing key | `c016abdc…` | Signs Play installs and GitHub `app-play.apk` |
 | Play upload key | — | Authenticates uploads. Never reaches a device |
 
-**The release key can never change.** F-Droid pins it in `AllowedAPKSigningKeys`, and every
-installed copy is signed with it. Swapping it would break reproducible-build verification
+**The release key can never change.** F-Droid pins it in `AllowedAPKSigningKeys`, and existing legacy
+GitHub/F-Droid installations are signed with it. Swapping it would break reproducible-build verification
 and make the app un-updatable for existing users, because Android refuses an update signed
 by a different key. It lives in the `SIGNING_KEY_STORE_BASE64` secret.
 
@@ -98,15 +124,10 @@ certificate and uploaded only the ciphertext, since the repository is public. Th
 in the history at `4d0a615` if it is ever needed again; it was deleted straight afterwards,
 because a job that decants the signing key on demand is worse than the problem it solved.
 
-**Play delivers a different signature from F-Droid**, because Play App Signing is
-mandatory for new apps and Google generated its own key at enrolment. So the Play build
-and the F-Droid build are separate installs as far as Android is concerned: the same
-package name with different signatures cannot replace one another. Someone moving between
-the two has to uninstall and restore through the app's own export and import.
-
-That is deliberate. Matching them would mean giving Google the release key — the same key
-F-Droid pins — and the only moment to do it was at enrolment. An hour of listing work was
-not worth a third party holding it.
+**Play and legacy F-Droid use different signatures.** Google generated the Play signing key
+at enrolment; it stays with Google. We do not need to export that private key or rotate either key
+to make GitHub compatible: Google provides a signed universal APK for redistribution. The
+legacy APK remains available for users who already depend on the F-Droid signing identity.
 
 **The upload key is the release key.** Play originally registered a different one, because
 the first bundle it ever received was built locally with `app/upload.jks` rather than by
@@ -126,6 +147,55 @@ If the upload ever fails with *"signed with the wrong key"*, compare the two fin
 in the error against the table above before changing anything. Making the release key
 match Play would be the wrong repair.
 
+### Installation conflicts and recovery
+
+Android matches apps by **application ID and signing certificate**, not by the visible name.
+These identities are intentional:
+
+| Build | Name | Application ID | Signing identity |
+| --- | --- | --- | --- |
+| Google Play / GitHub `app-play.apk` | SearchLauncher | `com.searchlauncher.app` | Google Play app signing key |
+| Legacy GitHub/F-Droid `app-release.apk` | SearchLauncher | `com.searchlauncher.app` | Pinned distribution/upload key |
+| CI preview | SearchLauncher (Debug Preview) | `com.searchlauncher.app.debug.preview` | Pinned distribution/upload key |
+| Local/fork preview | SearchLauncher (Debug Preview) | `com.searchlauncher.app.debug.preview.local` | Local debug key |
+| Local debug | SearchLauncher (Debug) | `com.searchlauncher.app.debug` | Local debug key |
+| Optimized development build | SearchLauncher (Debug Gecko) | `com.searchlauncher.app.gecko` | Local debug key |
+
+Use `installGecko` for device testing: it runs the optimized production engine with a separate
+identity and keeps updating existing Gecko test installs. `installRelease` is blocked by default;
+`-PallowNonPlayReleaseInstall=true` explicitly allows distribution testing on an isolated device.
+PR/main CI artifacts use the separate preview identity; only version tags produce the stable
+release APK. Signed release/preview builds reject certificates other than the pinned distribution key. Unsigned
+release builds remain available for F-Droid's reproducible-build process.
+
+**“Another user has already installed an incompatible version”** means a conflicting copy
+remains in another Android user/profile. Removing the app only in the personal profile does not
+remove a work-profile/Second Space copy. Keeping app data during uninstall can also retain the
+old package's signing identity.
+
+To move from a legacy GitHub/F-Droid copy to Play or `app-play.apk`:
+
+1. Export any SearchLauncher data you want to keep in **each** profile containing it.
+2. Check Android's users, work profile, Xiaomi Second Space, and Dual Apps profiles. Remove the
+   regular SearchLauncher copy there too, or use **Uninstall for all users** from App info if
+   available. Leave Debug/Debug Gecko installs alone; their IDs do not conflict with Play.
+3. Install from Google Play, then import the exported launcher data. Website sessions may need
+   signing in again.
+
+With USB debugging connected, first inspect without changing anything:
+
+```bash
+adb shell pm list users
+adb shell dumpsys package com.searchlauncher.app
+# Repeat for each user ID shown above (0 is normally the personal profile):
+adb shell pm list packages --user 0 com.searchlauncher.app
+```
+
+The package dump's per-user `installed` state identifies the remaining copy. Do not uninstall a
+whole work profile or erase data merely to remove this app. Only after the owner has exported
+needed data and confirmed removal from **all** profiles, `adb uninstall com.searchlauncher.app`
+removes the conflicting package globally. Do not use `-k`, which preserves data/signing state.
+
 ### Developer verification
 
 Google's developer verification asks for an APK signed with the private key behind a
@@ -139,9 +209,9 @@ console hands out. It has to sit in `assets` under that exact name, and the APK 
 proof of key ownership: any release APK built from this tree will do, and it does not
 need to be the one that ships.
 
-To produce one, run the Android CI workflow on a branch that contains the file and
-download the `searchlauncher-apks` artifact. The `app-release.apk` inside it is signed
-with the release key. Upload that in the console.
+For production developer verification, use `app-release.apk` from a version-tag release. PR/main
+CI artifacts are intentionally separate Debug Preview apps and must not be uploaded as proof of
+the production package. The tagged release APK is signed with the release key.
 
 ### Connecting CI to Play, once
 
@@ -198,10 +268,10 @@ closed-testing requirement below.
 - *Search suggestions*, when enabled, send what is typed to whichever provider the
   shortcut names — DuckDuckGo, Bing, Google, Wikipedia and YouTube endpoints are in the
   source. This is "shared, not collected": it goes to a third party, not to us.
-- *Crash reporting*, when enabled, sends stack traces to GlitchTip. Declare it as crash
+- *Crash reporting*, when enabled, sends stack traces to Sentry (sentry.io). Declare it as crash
   logs, optional, not used for tracking. Reports include device model, Android version,
   app version, build identifier, and WebView version.
-- *Send feedback* (Settings) is a separate, user-initiated report to the same GlitchTip
+- *Send feedback* (Settings) is a separate, user-initiated report to the same Sentry
   project. It includes the message, those same device details, and an email only if the
   user types one. It does not enable ongoing crash reporting.
 - Contacts and calendar are read on the device to answer a query and are never sent
@@ -227,6 +297,27 @@ this app.
 
 F-Droid builds from source, so a release is a public tag plus one YAML file in
 [fdroiddata](https://gitlab.com/fdroid/fdroiddata).
+
+### The F-Droid build has no GeckoView
+
+F-Droid only uses dependencies it can build from source, and GeckoView comes prebuilt from
+Mozilla's Maven repository ([#175](https://github.com/ontola/searchlauncher/issues/175)).
+Building GeckoView inside the recipe, as fdroiddata does for Fennec, means a full
+mozilla-central build per release, so the F-Droid build uses Android's system WebView instead:
+
+```bash
+./gradlew -Pengine=webview :app:assembleRelease
+```
+
+`-Pengine=webview` compiles `app/src/webview` instead of `app/src/browser`, and leaves out the
+GeckoView dependency and the Mozilla repository. The rest of the app is the same code. The
+built-in browser loses what only Gecko does: installed web apps, website notifications, ad
+blocking and the Gecko browser chrome. The recipe passes the property through `gradleprops` and
+deletes the two Mozilla lines with `sed` so the scanner does not see them; the APK is
+byte-identical with or without that `sed`.
+
+Tag CI builds `app-release.apk` the same way, so F-Droid's rebuild still matches the APK we sign,
+and every PR compiles the WebView build so it does not rot.
 
 ### What lives where
 

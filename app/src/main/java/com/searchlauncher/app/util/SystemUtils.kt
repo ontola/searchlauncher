@@ -41,7 +41,7 @@ object SystemUtils {
   }
 
   fun logError(tag: String, message: String, e: Throwable) {
-    if (e is kotlinx.coroutines.CancellationException) throw e
+    e.rethrowIfCancellation()
     android.util.Log.e(tag, message, e)
     io.sentry.Sentry.captureException(e)
   }

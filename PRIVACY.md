@@ -36,7 +36,7 @@ Pages you open naturally contact the servers of the sites you are visiting, exac
 ### Error Logs and Diagnostics
 We collect error logs and crash reports to identify and fix issues in the application. This data helps us improve the stability and performance of the app.
 
-We use **GlitchTip** (a Sentry-compatible service, via the Sentry SDK) to collect this information. The data collected involves:
+We use **Sentry** ([sentry.io](https://sentry.io), via the Sentry SDK) to collect this information. The data collected involves:
 - Stack traces of crashes
 - Device information (manufacturer, model, Android version, screen size, locale)
 - App version and build identifier

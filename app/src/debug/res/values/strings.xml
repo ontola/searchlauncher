@@ -5,5 +5,5 @@
   one you just built, or which of them the device is actually using as its home screen.
 -->
 <resources>
-    <string name="app_name">SearchLauncher (debug)</string>
+    <string name="app_name">SearchLauncher (Debug)</string>
 </resources>

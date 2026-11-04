@@ -1,0 +1,4 @@
+New contacts show up in search right away, without restarting the launcher.
+Google sign-in (for example Drive) now completes in the built-in browser instead of ending on an error.
+Drive searches open in the browser, since the Drive app cannot show them.
+Apps rank above contacts with an equally good match, so "team" finds Teams first.

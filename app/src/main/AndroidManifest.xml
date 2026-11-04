@@ -59,7 +59,7 @@
 
 
 
-        <meta-data android:name="io.sentry.dsn" android:value="https://dbf3428d2c6942e4816c063d289fa95d@app.glitchtip.com/20343" />
+        <meta-data android:name="io.sentry.dsn" android:value="https://67a35d2b748a5257ab3c172d9ef50075@o1378995.ingest.us.sentry.io/4512259442212864" />
         <meta-data android:name="io.sentry.auto-init" android:value="false" />
 
         <activity android:name=".ui.browser.DownloadsActivity" android:exported="false" android:theme="@style/Theme.SearchLauncher.Downloads" />
@@ -71,6 +71,12 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".ui.browser.ExternalBrowserChooserActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.SearchLauncher.BrowserChooser" />
 
         <!-- Main Activity -->
         <activity
@@ -109,7 +115,7 @@
         <activity
             android:name=".ui.browser.BrowserActivity"
             android:autoRemoveFromRecents="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection|colorMode|touchscreen|mcc|mnc"
             android:documentLaunchMode="intoExisting"
             android:exported="true"
             android:supportsPictureInPicture="true"
@@ -129,7 +135,7 @@
 
         <activity
             android:name=".ui.browser.PrivateBrowserActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection|colorMode|touchscreen|mcc|mnc"
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleTask"

@@ -31,7 +31,17 @@ object PreferencesKeys {
    * tab already open on that host instead of opening the start URL again.
    */
   val TREAT_FAVORITED_SITES_AS_APPS = booleanPreferencesKey("treat_favorited_sites_as_apps")
+  /**
+   * When true (the default), web pages open in the launcher's own browser. When false they open in
+   * the user's browser app, and tabs, swipe-to-tab and open-tab search go away with it.
+   */
+  val BUILT_IN_BROWSER = booleanPreferencesKey("built_in_browser")
   val BROWSER_SHOW_FAVORITES = booleanPreferencesKey("browser_show_favorites")
+  /**
+   * Whether new browser tabs request the desktop version of sites. Off by default. See
+   * [com.searchlauncher.app.ui.browser.DesktopSites].
+   */
+  val BROWSER_DESKTOP_SITES = booleanPreferencesKey("browser_desktop_sites")
   val HISTORY_LIMIT = intPreferencesKey("history_limit")
   val MIN_ICON_SIZE = intPreferencesKey("min_icon_size")
   /**
@@ -47,6 +57,9 @@ object PreferencesKeys {
   /** Built-in home search keyboard; other editors continue using the system keyboard. */
   val KEYBOARD_GESTURES = booleanPreferencesKey("keyboard_gestures")
   val BUILT_IN_KEYBOARD = booleanPreferencesKey("built_in_keyboard")
+
+  /** Adds a row of digits above the built-in keyboard's letters. Off by default. */
+  val KEYBOARD_NUMBER_ROW = booleanPreferencesKey("keyboard_number_row")
 
   /**
    * When true, the home screen stays in portrait even if the device has auto-rotate on. Off by

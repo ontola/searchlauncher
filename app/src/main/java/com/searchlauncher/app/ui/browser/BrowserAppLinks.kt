@@ -32,6 +32,15 @@ internal fun openVerifiedAppLink(context: Context, uri: Uri): Boolean {
   }
 }
 
+/**
+ * Whether a page-initiated navigation to [uri] may leave for the site's app. Not when it returns to
+ * [chosenHost], the site the user deliberately opened in this tab: sign-in flows bounce through
+ * another host (accounts.google.com, …) and back, and handing that way back to the app strands the
+ * login halfway, leaving the browser on an error page and the app without the session.
+ */
+internal fun mayLeaveForApp(uri: Uri, chosenHost: String?): Boolean =
+  chosenHost == null || !uri.host.equals(chosenHost, ignoreCase = true)
+
 internal fun isBrowserFileLink(uri: Uri): Boolean {
   val extension =
     uri.lastPathSegment?.substringAfterLast('.', "")?.lowercase(java.util.Locale.ROOT)

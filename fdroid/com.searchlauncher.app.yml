@@ -3,7 +3,7 @@ AntiFeatures:
     en-US: Search shortcuts and search suggestions query third-party services such
       as Google, YouTube and Wikipedia. They are optional and can be removed.
   Tracking:
-    en-US: Optional crash reporting to a self-hosted GlitchTip instance. It is off
+    en-US: Optional crash reporting to Sentry (sentry.io). It is off
       until you opt in, and can be turned off again in Settings.
 Categories:
   - Launcher
@@ -28,6 +28,11 @@ Builds:
     subdir: app
     gradle:
       - yes
+    gradleprops:
+      - engine=webview
+    prebuild:
+      - sed -i -e '/maven.mozilla.org/d' ../settings.gradle.kts
+      - sed -i -e '/org.mozilla.geckoview:geckoview/d' build.gradle.kts
 
 AllowedAPKSigningKeys: 553f628023ac5739ed10cfdfad26e9c79ad5ef669cd187c8effa97c733b1d6b0
 

@@ -33,7 +33,8 @@ internal class BrowserTab(initialUrl: String, restoredId: Long? = null) {
   var url by mutableStateOf(initialUrl)
   var title by mutableStateOf<String?>(null)
   var installedApp by mutableStateOf<InstalledWebApp?>(null)
-  var desktopMode by mutableStateOf(false)
+  /** Starts from the "Always request desktop sites" setting; the menu flips it per tab. */
+  var desktopMode by mutableStateOf(DesktopSites.enabled)
   /** The colour the page itself is painted on, which is what shows through any gap in it. */
   var pageBackgroundArgb by mutableIntStateOf(android.graphics.Color.WHITE)
   /**
@@ -95,7 +96,11 @@ internal class BrowserTabs(initialUrl: String, initialId: Long? = null) {
    */
   fun add(url: String, onEvict: (BrowserTab) -> Unit = {}, restoredId: Long? = null): BrowserTab {
     if (items.size >= MAX_TABS) {
-      val removableIndex = items.indices.firstOrNull { it != activeIndex } ?: 0
+      // The oldest tab goes, unless it shows a favorite: those stay while anything else can go.
+      val removableIndex =
+        items.indices.firstOrNull { it != activeIndex && !FavoriteSites.covers(items[it]) }
+          ?: items.indices.firstOrNull { it != activeIndex }
+          ?: 0
       onEvict(items.removeAt(removableIndex))
       if (removableIndex < activeIndex) activeIndex--
     }

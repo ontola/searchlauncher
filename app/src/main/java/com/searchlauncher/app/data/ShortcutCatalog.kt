@@ -28,6 +28,11 @@ object ShortcutCatalog {
      * the user's list, it gets the first one nobody else uses, and keeps it from then on.
      */
     val aliases: List<String> = listOf(shortcut.alias),
+    /**
+     * False when [apps] claim the shortcut's URL but cannot show it (the Drive app answers a
+     * `drive/search` link with a broken page), so the search always loads in the browser.
+     */
+    val openInApp: Boolean = true,
   ) {
     /** Every package that counts as "the app" for this entry. */
     val packages: List<String>
@@ -67,6 +72,7 @@ object ShortcutCatalog {
       apps = obj.optJSONArray("apps")?.strings().orEmpty(),
       onlyWhenInstalled = obj.optBoolean("onlyWhenInstalled", false),
       aliases = aliases,
+      openInApp = obj.optBoolean("openInApp", true),
     )
   }
 

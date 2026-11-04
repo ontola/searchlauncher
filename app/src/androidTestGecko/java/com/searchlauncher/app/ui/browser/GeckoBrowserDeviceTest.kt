@@ -1166,6 +1166,36 @@ class GeckoBrowserDeviceTest {
   }
 
   @Test
+  fun recreatingTheWindowKeepsTheLiveDocument() {
+    tap("Remember in memory")
+    waitFor("memory-set")
+    val initialLoads = reports.count { it.startsWith("/report?engine:") }
+    // Dark mode switching on a schedule or with battery saver used to recreate every tab's window
+    // and reload its page. Any other recreation must hand the live page over as well.
+    device.executeShellCommand("cmd uimode night yes")
+    try {
+      instrumentation.runOnMainSync {
+        ActivityLifecycleMonitorRegistry.getInstance()
+          .getActivitiesInStage(Stage.RESUMED)
+          .filterIsInstance<BrowserActivity>()
+          .single()
+          .recreate()
+      }
+      tap("Read memory")
+      waitFor("memory-present")
+    } finally {
+      device.executeShellCommand("cmd uimode night no")
+    }
+    tap("Read memory")
+    eventually { reports.count { it == "/report?memory-present" } == 2 }
+    assertEquals(
+      "Recreating the window must not reload the document",
+      initialLoads,
+      reports.count { it.startsWith("/report?engine:") },
+    )
+  }
+
+  @Test
   fun downloadNotificationKeepsItsIdentityAndOpensDownloads() {
     val manager = context.getSystemService(NotificationManager::class.java)
     // Earlier fixture notifications would collapse this transfer into an automatic group.

@@ -18,12 +18,16 @@ data class SearchShortcut(
     urlTemplate.replace("%s", java.net.URLEncoder.encode(query, "UTF-8"))
 
   /**
-   * Apps whose icon may stand in for this shortcut's letter tile, first installed one wins. Only
-   * the picture is borrowed: unlike [packageName], these never decide which app opens or whether
-   * the shortcut is offered.
+   * Apps whose icon may stand in for this shortcut's letter tile, first installed one wins. Unlike
+   * [packageName], these never decide whether the shortcut is offered. They do get its URL when
+   * they claim it themselves, see [ShortcutLaunch.preferredAppIntent].
    */
   val iconPackages: List<String>
     get() = listOfNotNull(packageName) + DefaultShortcuts.iconPackages[id].orEmpty()
+
+  /** Whether a search may leave for an installed app at all, see [ShortcutLaunch]. */
+  val opensInApp: Boolean
+    get() = id !in DefaultShortcuts.browserOnlyIds
 
   /**
    * Says the shortcut searches inside a known app, so the result reads as more than a letter. The
@@ -85,6 +89,11 @@ object DefaultShortcuts {
    */
   val iconPackages: Map<String, List<String>> by lazy {
     ShortcutCatalog.entries.filter { it.apps.isNotEmpty() }.associate { it.shortcut.id to it.apps }
+  }
+
+  /** Shortcut ids whose searches stay in the browser, see [ShortcutCatalog.Entry.openInApp]. */
+  val browserOnlyIds: Set<String> by lazy {
+    ShortcutCatalog.entries.filterNot { it.openInApp }.map { it.shortcut.id }.toSet()
   }
 
   // App-defined actions and settings (not editable by user)

@@ -8,6 +8,7 @@ import android.os.Build
 import android.webkit.WebView
 import com.searchlauncher.app.BuildConfig
 import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.ui.browser.BrowserReloadLog
 import io.sentry.Sentry
 import io.sentry.SentryLevel
 import io.sentry.protocol.Feedback
@@ -15,11 +16,10 @@ import io.sentry.protocol.SentryId
 import io.sentry.protocol.User
 
 /**
- * Crash reports already go to GlitchTip through the Sentry Android SDK. GlitchTip stores a Sentry
- * feedback envelope as a user report and keeps only the message, name, and email — device context
- * on that envelope is dropped. A normal event keeps the SDK's device, OS, and app context, so
- * feedback is sent as both: the event for the diagnostics, and a feedback item so the address the
- * user typed is attached to it.
+ * Crash reports already go to Sentry through the Sentry Android SDK. A normal event carries the
+ * SDK's device, OS, and app context, while a feedback item carries the message, name, and email, so
+ * feedback is sent as both: the event for the diagnostics, and a feedback item linked to it so the
+ * address the user typed is attached.
  */
 internal data class FeedbackDiagnostics(
   val versionName: String,
@@ -193,6 +193,12 @@ internal object FeedbackReporter {
       Sentry.withScope { scope ->
         report.tags.forEach { (key, value) -> scope.setTag(key, value) }
         report.extras.forEach { (key, value) -> scope.setExtra(key, value) }
+        // Sent with every report: a reload is usually reported right after it happened.
+        runCatching {
+          scope.setExtra("browser_reloads", BrowserReloadLog.text(context))
+          scope.setExtra("process_exits", BrowserReloadLog.processExits(context))
+          scope.setExtra("last_anr_main_thread", BrowserReloadLog.lastAnrMainThread(context))
+        }
         report.contactEmail?.let { address -> scope.user = User().apply { email = address } }
         eventId = Sentry.captureMessage(report.eventMessage, SentryLevel.INFO)
         if (eventId != SentryId.EMPTY_ID) {

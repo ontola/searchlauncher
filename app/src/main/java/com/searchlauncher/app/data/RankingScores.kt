@@ -94,9 +94,16 @@ object RankingScores {
    */
   const val CONTACT_PHONE_MATCH_SCORE = 85
 
-  /** Boost for contacts on 3+ char queries when they pass the strong-match threshold. */
+  /**
+   * Boost for contacts on 3+ char queries when they pass the strong-match threshold.
+   *
+   * Lifts a contact to just below an app with the same match grade ([NAMESPACE_BOOST_CONTACTS] +
+   * this = [NAMESPACE_BOOST_APPS] - 1), so a contact and an app compete on how well the name
+   * matched, and the app wins a tie. It used to be 120, which put every contact with a word
+   * starting "team" above the Teams app.
+   */
   const val CONTACT_STRONG_MATCH_MIN_QUERY_LENGTH = 3
-  const val CONTACT_STRONG_MATCH_BOOST = 120
+  const val CONTACT_STRONG_MATCH_BOOST = NAMESPACE_BOOST_APPS - NAMESPACE_BOOST_CONTACTS - 1
 
   /** Boost for contacts the user has launched before with a 1-2 char query. */
   const val LEARNED_CONTACT_SHORT_QUERY_MAX_LENGTH = 2

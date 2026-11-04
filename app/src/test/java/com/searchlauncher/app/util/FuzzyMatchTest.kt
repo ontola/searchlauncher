@@ -104,4 +104,18 @@ class FuzzyMatchTest {
     // Should return 90, not the subsequence score
     assertEquals(90, FuzzyMatch.calculateScore("Se", "Settings"))
   }
+
+  @Test
+  fun `raw text matches across accents, a little below an accent-exact match`() {
+    assertEquals(
+      90 - FuzzyMatch.ACCENT_MISMATCH_PENALTY,
+      FuzzyMatch.calculateScore("tel", "Téléphone"),
+    )
+    assertEquals(90, FuzzyMatch.calculateScore("tél", "Téléphone"))
+    assertEquals(
+      90 - FuzzyMatch.ACCENT_MISMATCH_PENALTY,
+      FuzzyMatch.calculateScore("tél", "Telegram"),
+    )
+    assertEquals(100, FuzzyMatch.calculateScore("Cafe", "cafe"))
+  }
 }

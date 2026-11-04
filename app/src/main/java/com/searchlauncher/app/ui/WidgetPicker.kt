@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
+import com.searchlauncher.app.util.TextFold
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -45,7 +46,7 @@ fun WidgetPicker(
         allWidgets
       } else {
         allWidgets.filter {
-          it.label.contains(searchQuery, ignoreCase = true) ||
+          TextFold.containsFolded(it.label, searchQuery) ||
             it.provider.packageName.contains(searchQuery, ignoreCase = true)
         }
       }

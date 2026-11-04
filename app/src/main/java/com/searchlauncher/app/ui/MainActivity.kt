@@ -32,6 +32,7 @@ import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.data.WidgetData
 import com.searchlauncher.app.data.WidgetRepository
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
+import com.searchlauncher.app.util.rethrowIfCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -644,6 +645,7 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
   override fun onResume() {
     super.onResume()
     stoppedSinceResume = false
+    (application as SearchLauncherApp).searchRepository.onLauncherResumed()
     if (currentScreenState == Screen.Search) {
       focusTrigger = System.currentTimeMillis()
     }
@@ -1129,53 +1131,27 @@ private suspend fun MainActivity.performExport(uri: android.net.Uri) {
     try {
       val backupManager = createBackupManager()
 
-      contentResolver.openOutputStream(uri)?.use { outputStream ->
-        val result = backupManager.exportBackup(outputStream, exportIncludeWallpapers)
-
-        // Calculate file size
-        var sizeString = ""
-        if (result.isSuccess) {
-          try {
-            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-              if (cursor.moveToFirst()) {
-                val sizeIndex = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
-                if (sizeIndex != -1) {
-                  val size = cursor.getLong(sizeIndex)
-                  val units = arrayOf("B", "KB", "MB", "GB")
-                  var fileSize = size.toDouble()
-                  var i = 0
-                  while (fileSize > 1024 && i < units.size - 1) {
-                    fileSize /= 1024
-                    i++
-                  }
-                  sizeString = String.format("%.1f %s", fileSize, units[i])
-                }
-              }
-            }
-          } catch (e: Exception) {
-            e.printStackTrace()
-          }
-        }
-
-        withContext(Dispatchers.Main) {
-          if (result.isSuccess) {
-            android.widget.Toast.makeText(
-                this@performExport,
-                "Backup exported successfully (${result.getOrNull()} items, $sizeString)",
-                android.widget.Toast.LENGTH_LONG,
-              )
-              .show()
-          } else {
-            android.widget.Toast.makeText(
-                this@performExport,
-                "Export failed: ${result.exceptionOrNull()?.message}",
-                android.widget.Toast.LENGTH_LONG,
-              )
-              .show()
-          }
-        }
+      val result =
+        (contentResolver.openOutputStream(uri)
+            ?: throw java.io.IOException("Could not open the backup destination"))
+          .use { outputStream -> backupManager.exportBackup(outputStream, exportIncludeWallpapers) }
+      withContext(Dispatchers.Main) {
+        val message =
+          result.fold(
+            onSuccess = { exported ->
+              val size =
+                android.text.format.Formatter.formatShortFileSize(
+                  this@performExport,
+                  exported.bytesWritten,
+                )
+              "Backup exported successfully (${exported.itemsCount} items, $size)"
+            },
+            onFailure = { "Export failed: ${it.message}" },
+          )
+        Toast.makeText(this@performExport, message, Toast.LENGTH_LONG).show()
       }
     } catch (e: Exception) {
+      e.rethrowIfCancellation()
       withContext(Dispatchers.Main) {
         android.widget.Toast.makeText(
             this@performExport,
@@ -1217,6 +1193,7 @@ private suspend fun MainActivity.performImport(uri: android.net.Uri) {
         }
       }
     } catch (e: Exception) {
+      e.rethrowIfCancellation()
       withContext(Dispatchers.Main) {
         android.widget.Toast.makeText(
             this@performImport,

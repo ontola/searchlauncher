@@ -1,0 +1,6 @@
+Search shortcuts such as Maps and IMDb now open in matching installed apps before the browser; private searches stay private.
+Backup exports show the actual file size instead of 0 B.
+Downloads show speed and remaining megabytes.
+The built-in browser is optional; fixed external browser detection.
+Widget editing ends when returning home or leaving the launcher.
+Improved error reporting and cancellation handling.

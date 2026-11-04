@@ -52,7 +52,7 @@ fun FeedbackDialog(onDismiss: () -> Unit) {
       ) {
         Text(
           text =
-            "Include what you expected to happen. Device model, Android version, app version, and WebView version are attached so the report can be reproduced. This is sent to GlitchTip and does not turn on crash reporting.",
+            "Include what you expected to happen. Device model, Android version, app version, and WebView version are attached so the report can be reproduced. This is sent to Sentry and does not turn on crash reporting.",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

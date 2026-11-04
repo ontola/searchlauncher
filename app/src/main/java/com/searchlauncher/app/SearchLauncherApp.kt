@@ -66,6 +66,8 @@ class SearchLauncherApp : Application() {
     widgetRepository = com.searchlauncher.app.data.WidgetRepository(this)
     wallpaperRepository = WallpaperRepository(this)
     historyRepository = HistoryRepository(this)
+    com.searchlauncher.app.ui.browser.BuiltInBrowser.keepInSync(this)
+    com.searchlauncher.app.ui.browser.DesktopSites.keepInSync(this)
     CoroutineScope(Dispatchers.IO).launch { wallpaperRepository.normalizeStoredWallpapers() }
     CoroutineScope(Dispatchers.IO).launch { searchRepository.initialize() }
     checkConsentAndInitSentry()
@@ -145,8 +147,8 @@ class SearchLauncherApp : Application() {
   }
 
   /**
-   * Starts the GlitchTip client. Crash reporting calls this after consent. Send feedback calls it
-   * for that one report even when crash reporting is off, and closes the client afterwards.
+   * Starts the Sentry client. Crash reporting calls this after consent. Send feedback calls it for
+   * that one report even when crash reporting is off, and closes the client afterwards.
    */
   fun ensureCrashReporter() {
     initSentry()
@@ -155,12 +157,17 @@ class SearchLauncherApp : Application() {
   private fun initSentry() {
     if (!io.sentry.Sentry.isEnabled()) {
       io.sentry.android.core.SentryAndroid.init(this) { options ->
-        options.dsn = "https://dbf3428d2c6942e4816c063d289fa95d@app.glitchtip.com/20343"
+        options.dsn =
+          "https://67a35d2b748a5257ab3c172d9ef50075@o1378995.ingest.us.sentry.io/4512259442212864"
         options.environment = if (BuildConfig.DEBUG) "debug" else "release"
         options.isSendDefaultPii = false
         options.release = "$packageName@${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}"
         options.beforeSend =
           io.sentry.SentryOptions.BeforeSendCallback { event, _ ->
+            // Coroutine cancellation is normal control flow, not an error worth a report.
+            if (event.throwable is kotlinx.coroutines.CancellationException) {
+              return@BeforeSendCallback null
+            }
             event.setTag("git_hash", BuildConfig.GIT_HASH)
             event.setTag("build_date", BuildConfig.BUILD_DATE)
             event

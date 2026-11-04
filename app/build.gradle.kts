@@ -1,3 +1,6 @@
+import java.security.KeyStore
+import java.security.MessageDigest
+
 plugins {
   id("com.android.application")
   id("org.jetbrains.kotlin.android")
@@ -33,6 +36,16 @@ val geckoDebug = providers.gradleProperty("geckoDebug").map(String::toBoolean).g
 // SurfaceView is the validated default; an override remains available for renderer comparisons.
 val geckoSurfaceView =
   providers.gradleProperty("geckoSurfaceView").map(String::toBoolean).getOrElse(true)
+// F-Droid builds without GeckoView: it may only use dependencies it can build from source, and
+// GeckoView comes prebuilt from Mozilla's Maven repository. `-Pengine=webview` swaps in the system
+// WebView engine (src/webview) and leaves Gecko and its repository out of the build entirely.
+val browserEngine = providers.gradleProperty("engine").getOrElse("gecko")
+val useGecko =
+  when (browserEngine) {
+    "gecko" -> true
+    "webview" -> false
+    else -> throw GradleException("Unknown -Pengine=$browserEngine, expected gecko or webview")
+  }
 
 android {
   namespace = "com.searchlauncher.app"
@@ -47,8 +60,8 @@ android {
     // F-Droid greps these two literals out of this file to notice new release tags, so
     // they have to stay plain literals and be bumped in the commit that gets tagged. The series
     // starts at 250 to clear 242, the highest the old commit-count scheme ever shipped.
-    versionCode = 303
-    versionName = "0.1.0"
+    versionCode = 307
+    versionName = "0.1.4"
 
     buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
     buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")
@@ -105,11 +118,22 @@ android {
       }
     }
   }
+  buildTypes.create("preview") {
+    initWith(buildTypes.getByName("release"))
+    // CI previews must coexist with both Play and locally signed Gecko/debug installs.
+    // Fork/local previews without the distribution key also need a different identity.
+    applicationIdSuffix = if (hasReleaseSigning) ".debug.preview" else ".debug.preview.local"
+    versionNameSuffix = "-debug-preview"
+    signingConfig = signingConfigs.getByName(if (hasReleaseSigning) "release" else "debug")
+    matchingFallbacks += listOf("release")
+  }
+
   sourceSets {
     getByName("main") {
-      java.srcDir("src/browser/java")
-      assets.srcDir("src/browser/assets")
-      res.srcDir("src/browser/res")
+      val engineDir = if (useGecko) "src/browser" else "src/webview"
+      java.srcDir("$engineDir/java")
+      assets.srcDir("$engineDir/assets")
+      res.srcDir("$engineDir/res")
     }
   }
   testBuildType = providers.gradleProperty("testBuildType").getOrElse("debug")
@@ -132,6 +156,53 @@ android {
   packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
 }
 
+// A release APK uses our GitHub/F-Droid key, not Google's Play app signing key.
+// Even a copy in another Android user/profile prevents Play from installing it.
+val allowNonPlayReleaseInstall =
+  providers.gradleProperty("allowNonPlayReleaseInstall").map(String::toBoolean).getOrElse(false)
+
+gradle.taskGraph.whenReady {
+  if (!allowNonPlayReleaseInstall && allTasks.any { it.path == ":app:installRelease" }) {
+    throw GradleException(
+      "Local release APKs conflict with Google Play installs, including copies in other profiles. " +
+        "Use installGecko (optimized Debug) or installDebug. For deliberate GitHub/F-Droid " +
+        "release testing on an isolated device, pass -PallowNonPlayReleaseInstall=true."
+    )
+  }
+}
+
+// A file named upload.jks is not proof that it contains the distribution key.
+// Reject ad-hoc keys before they can produce an incompatible production-package APK/AAB.
+val verifyReleaseSigningIdentity =
+  tasks.register("verifyReleaseSigningIdentity") {
+    doLast {
+      if (hasReleaseSigning) {
+        val store =
+          KeyStore.getInstance(
+            releaseKeyStoreFile,
+            (System.getenv("SIGNING_STORE_PASSWORD") ?: "password").toCharArray(),
+          )
+        val certificate =
+          store.getCertificate(System.getenv("SIGNING_KEY_ALIAS") ?: "upload")
+            ?: throw GradleException(
+              "Release signing alias has no certificate. Use assembleGecko for test builds."
+            )
+        val fingerprint =
+          MessageDigest.getInstance("SHA-256").digest(certificate.encoded).joinToString("") {
+            "%02x".format(it)
+          }
+        check(fingerprint == "553f628023ac5739ed10cfdfad26e9c79ad5ef669cd187c8effa97c733b1d6b0") {
+          "Unrecognized release signing certificate ($fingerprint). " +
+            "Use assembleGecko or assembleDebug for development; release requires the pinned distribution key."
+        }
+      }
+    }
+  }
+
+tasks
+  .matching { it.name == "validateSigningRelease" || it.name == "validateSigningPreview" }
+  .configureEach { dependsOn(verifyReleaseSigningIdentity) }
+
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 spotless {
@@ -147,8 +218,8 @@ spotless {
 }
 
 dependencies {
-  // All app variants use the same pinned browser engine.
-  implementation("org.mozilla.geckoview:geckoview:157.0.20260924084938")
+  // All app variants use the same pinned browser engine, except the F-Droid WebView build.
+  if (useGecko) implementation("org.mozilla.geckoview:geckoview:157.0.20260924084938")
   implementation("androidx.core:core-ktx:1.17.0")
   implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
   implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")

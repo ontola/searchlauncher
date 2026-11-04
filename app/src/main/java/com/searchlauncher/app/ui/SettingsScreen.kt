@@ -750,6 +750,9 @@ private fun KeyboardSettingsCard() {
   val builtInKeyboardEnabled by
     remember { HomeKeyboardPreference.flow(context) }
       .collectAsState(initial = HomeKeyboardPreference.cached(context))
+  val numberRowEnabled by
+    remember { KeyboardNumberRowPreference.flow(context) }
+      .collectAsState(initial = KeyboardNumberRowPreference.cached(context))
   val autocorrectEnabled by
     remember { context.dataStore.data.map { it[PreferencesKeys.SEARCH_AUTOCORRECT] ?: false } }
       .collectAsState(initial = false)
@@ -795,6 +798,25 @@ private fun KeyboardSettingsCard() {
             scope.launch {
               context.dataStore.edit { it[PreferencesKeys.KEYBOARD_GESTURES] = enabled }
             }
+          },
+        )
+      }
+
+      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+          Text("Show number row", style = MaterialTheme.typography.bodyMedium)
+          Text(
+            "Adds a row of digits above the letters. The keyboard gets a little taller.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(
+          checked = numberRowEnabled,
+          enabled = builtInKeyboardEnabled,
+          onCheckedChange = { enabled ->
+            scope.launch { KeyboardNumberRowPreference.set(context, enabled) }
           },
         )
       }
@@ -887,6 +909,12 @@ private fun BrowserSettingsCard() {
   val adBlockEnabled =
     remember { context.dataStore.data.map { it[PreferencesKeys.AD_BLOCK_ENABLED] ?: true } }
       .collectAsState(initial = true)
+  val desktopSites =
+    remember { com.searchlauncher.app.ui.browser.DesktopSites.flow(context) }
+      .collectAsState(initial = com.searchlauncher.app.ui.browser.DesktopSites.enabled)
+  val builtInBrowser =
+    remember { com.searchlauncher.app.ui.browser.BuiltInBrowser.flow(context) }
+      .collectAsState(initial = com.searchlauncher.app.ui.browser.BuiltInBrowser.enabled)
   var showClearHistoryConfirm by remember { mutableStateOf(false) }
   var blockedDomainCount by remember { mutableStateOf(AdBlocker.domainCount) }
   var isUpdatingFilters by remember { mutableStateOf(false) }
@@ -894,161 +922,233 @@ private fun BrowserSettingsCard() {
   Card(modifier = Modifier.fillMaxWidth()) {
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
       Text(text = "Browser", style = MaterialTheme.typography.titleMedium)
-      OutlinedButton(onClick = { showStorage = true }, modifier = Modifier.fillMaxWidth()) {
-        Text("Website storage")
-      }
-      Text(
-        "See storage used by each domain and clear website data",
-        style = MaterialTheme.typography.bodySmall,
-      )
-
-      if (isDefaultBrowser.value) {
-        Row(
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          Icon(
-            imageVector = Icons.Default.Check,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-          )
-          Text(
-            "SearchLauncher is your default browser",
-            style = MaterialTheme.typography.bodyMedium,
-          )
-        }
-      } else {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-          Text(
-            text = "Open links in SearchLauncher's browser instead of another app",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-          Button(
-            // Reuses the exact action the "Set Default Browser" search result triggers, so both
-            // entry points stay in sync.
-            onClick = {
-              CustomActionHandler.handleAction(
-                context,
-                Intent("com.searchlauncher.action.SET_DEFAULT_BROWSER"),
-              )
-            },
-            modifier = Modifier.fillMaxWidth(),
-          ) {
-            Text("Set as Default Browser")
-          }
-        }
-      }
-
       Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
       ) {
         Column(modifier = Modifier.weight(1f)) {
-          Text(text = "Block ads and trackers", style = MaterialTheme.typography.bodyMedium)
+          Text(text = "Use built-in browser", style = MaterialTheme.typography.bodyMedium)
           Text(
             text =
-              when {
-                !adBlockEnabled.value -> "Ads and trackers load normally"
-                blockedDomainCount > 0 -> "Blocking $blockedDomainCount known domains"
-                else -> "Filter list downloads the first time you browse"
+              if (builtInBrowser.value) {
+                "Recommended. Pages open as tabs you can swipe to and find in search"
+              } else {
+                "Links open in your default browser app"
               },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
         }
         Switch(
-          checked = adBlockEnabled.value,
+          checked = builtInBrowser.value,
           onCheckedChange = { enabled ->
             scope.launch {
               context.dataStore.edit { preferences ->
-                preferences[PreferencesKeys.AD_BLOCK_ENABLED] = enabled
-              }
-              if (enabled) {
-                AdBlocker.ensureLoaded(context)
-                blockedDomainCount = AdBlocker.domainCount
+                preferences[PreferencesKeys.BUILT_IN_BROWSER] = enabled
               }
             }
           },
         )
       }
 
-      AnimatedVisibility(visible = adBlockEnabled.value) {
-        OutlinedButton(
-          onClick = {
-            scope.launch {
-              isUpdatingFilters = true
-              val result = AdBlocker.update(context)
-              isUpdatingFilters = false
-              blockedDomainCount = AdBlocker.domainCount
-              android.widget.Toast.makeText(
-                  context,
-                  result.fold(
-                    onSuccess = { count -> "Filter list updated: $count domains" },
-                    onFailure = { "Could not update filter list" },
-                  ),
-                  android.widget.Toast.LENGTH_SHORT,
-                )
-                .show()
-            }
-          },
-          enabled = !isUpdatingFilters,
-          modifier = Modifier.fillMaxWidth(),
-        ) {
-          Text(if (isUpdatingFilters) "Updating filter list…" else "Update filter list")
-        }
-      }
-
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Column(modifier = Modifier.weight(1f)) {
-          Text(text = "Store Web History", style = MaterialTheme.typography.bodyMedium)
+      // Everything below configures the built-in browser itself, so it goes away with it. Removing
+      // web history stays: pages saved earlier are still in search.
+      AnimatedVisibility(visible = builtInBrowser.value) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+          OutlinedButton(onClick = { showStorage = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("Website storage")
+          }
           Text(
-            text = "Keep visited pages locally so they appear in launcher search",
+            "See storage used by each domain and clear website data",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
-        }
-        Switch(
-          checked = storeWebHistory.value,
-          onCheckedChange = { enabled ->
-            scope.launch {
-              context.dataStore.edit { preferences ->
-                preferences[PreferencesKeys.STORE_WEB_HISTORY] = enabled
-              }
-            }
-          },
-        )
-      }
 
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Column(modifier = Modifier.weight(1f)) {
-          Text(text = "Treat favorited sites as apps", style = MaterialTheme.typography.bodyMedium)
-          Text(
-            text =
-              "One icon per site. Tapping a pinned bookmark reopens that site's tab instead of creating another.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
-        Switch(
-          checked = treatFavoritedSitesAsApps.value,
-          onCheckedChange = { enabled ->
-            scope.launch {
-              context.dataStore.edit { preferences ->
-                preferences[PreferencesKeys.TREAT_FAVORITED_SITES_AS_APPS] = enabled
+          if (isDefaultBrowser.value) {
+            Row(
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+              )
+              Text(
+                "SearchLauncher is your default browser",
+                style = MaterialTheme.typography.bodyMedium,
+              )
+            }
+          } else {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+              Text(
+                text = "Open links in SearchLauncher's browser instead of another app",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+              Button(
+                // Reuses the exact action the "Set Default Browser" search result triggers, so both
+                // entry points stay in sync.
+                onClick = {
+                  CustomActionHandler.handleAction(
+                    context,
+                    Intent("com.searchlauncher.action.SET_DEFAULT_BROWSER"),
+                  )
+                },
+                modifier = Modifier.fillMaxWidth(),
+              ) {
+                Text("Set as Default Browser")
               }
             }
-          },
-        )
+          }
+
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Column(modifier = Modifier.weight(1f)) {
+              Text(
+                text = "Always request desktop sites",
+                style = MaterialTheme.typography.bodyMedium,
+              )
+              Text(
+                text =
+                  if (desktopSites.value) {
+                    "New tabs load the desktop version. Switch a tab back from its menu"
+                  } else {
+                    "New tabs load the mobile version. Switch a tab from its menu"
+                  },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+            Switch(
+              checked = desktopSites.value,
+              onCheckedChange = { enabled ->
+                scope.launch {
+                  context.dataStore.edit { preferences ->
+                    preferences[PreferencesKeys.BROWSER_DESKTOP_SITES] = enabled
+                  }
+                }
+              },
+            )
+          }
+
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Column(modifier = Modifier.weight(1f)) {
+              Text(text = "Block ads and trackers", style = MaterialTheme.typography.bodyMedium)
+              Text(
+                text =
+                  when {
+                    !adBlockEnabled.value -> "Ads and trackers load normally"
+                    blockedDomainCount > 0 -> "Blocking $blockedDomainCount known domains"
+                    else -> "Filter list downloads the first time you browse"
+                  },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+            Switch(
+              checked = adBlockEnabled.value,
+              onCheckedChange = { enabled ->
+                scope.launch {
+                  context.dataStore.edit { preferences ->
+                    preferences[PreferencesKeys.AD_BLOCK_ENABLED] = enabled
+                  }
+                  if (enabled) {
+                    AdBlocker.ensureLoaded(context)
+                    blockedDomainCount = AdBlocker.domainCount
+                  }
+                }
+              },
+            )
+          }
+
+          AnimatedVisibility(visible = adBlockEnabled.value) {
+            OutlinedButton(
+              onClick = {
+                scope.launch {
+                  isUpdatingFilters = true
+                  val result = AdBlocker.update(context)
+                  isUpdatingFilters = false
+                  blockedDomainCount = AdBlocker.domainCount
+                  android.widget.Toast.makeText(
+                      context,
+                      result.fold(
+                        onSuccess = { count -> "Filter list updated: $count domains" },
+                        onFailure = { "Could not update filter list" },
+                      ),
+                      android.widget.Toast.LENGTH_SHORT,
+                    )
+                    .show()
+                }
+              },
+              enabled = !isUpdatingFilters,
+              modifier = Modifier.fillMaxWidth(),
+            ) {
+              Text(if (isUpdatingFilters) "Updating filter list…" else "Update filter list")
+            }
+          }
+
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Column(modifier = Modifier.weight(1f)) {
+              Text(text = "Store Web History", style = MaterialTheme.typography.bodyMedium)
+              Text(
+                text = "Keep visited pages locally so they appear in launcher search",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+            Switch(
+              checked = storeWebHistory.value,
+              onCheckedChange = { enabled ->
+                scope.launch {
+                  context.dataStore.edit { preferences ->
+                    preferences[PreferencesKeys.STORE_WEB_HISTORY] = enabled
+                  }
+                }
+              },
+            )
+          }
+
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Column(modifier = Modifier.weight(1f)) {
+              Text(
+                text = "Treat favorited sites as apps",
+                style = MaterialTheme.typography.bodyMedium,
+              )
+              Text(
+                text =
+                  "One icon per site. Tapping a pinned bookmark reopens that site's tab instead of creating another.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+            Switch(
+              checked = treatFavoritedSitesAsApps.value,
+              onCheckedChange = { enabled ->
+                scope.launch {
+                  context.dataStore.edit { preferences ->
+                    preferences[PreferencesKeys.TREAT_FAVORITED_SITES_AS_APPS] = enabled
+                  }
+                }
+              },
+            )
+          }
+        }
       }
 
       OutlinedButton(
@@ -1624,7 +1724,7 @@ private fun PrivacyCard() {
         Column(modifier = Modifier.weight(1f)) {
           Text(text = "Crash reporting", style = MaterialTheme.typography.bodyMedium)
           Text(
-            text = "Send anonymous error logs to GlitchTip to help us fix bugs",
+            text = "Send anonymous error logs to Sentry to help us fix bugs",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
