@@ -8,6 +8,7 @@ import android.net.Uri
 import android.util.Log
 import com.searchlauncher.app.R
 import com.searchlauncher.app.SearchLauncherApp
+import com.searchlauncher.app.util.TextFold
 import com.searchlauncher.app.util.displayPageAddress
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -496,7 +497,7 @@ class SearchResultFactory(
 
   private fun contactSubtitle(sdoc: SearchableDocument, query: String?): String {
     val doc = sdoc.doc
-    if (query == null || doc.name.contains(query, ignoreCase = true)) {
+    if (query == null || TextFold.containsFolded(doc.name, query)) {
       return "Contact"
     }
 
