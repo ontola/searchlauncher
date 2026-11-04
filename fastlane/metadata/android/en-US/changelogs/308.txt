@@ -1,0 +1,5 @@
+Choose what each home-screen swipe does, or turn a swipe off, in Settings > Gestures.
+Optional number row on the built-in keyboard.
+Search ignores accents, so "tel" finds "Téléphone".
+New browser setting to always request desktop sites.
+Rounded icons for bookmarks, tabs and contacts in favorites.
