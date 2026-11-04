@@ -36,6 +36,16 @@ val geckoDebug = providers.gradleProperty("geckoDebug").map(String::toBoolean).g
 // SurfaceView is the validated default; an override remains available for renderer comparisons.
 val geckoSurfaceView =
   providers.gradleProperty("geckoSurfaceView").map(String::toBoolean).getOrElse(true)
+// F-Droid builds without GeckoView: it may only use dependencies it can build from source, and
+// GeckoView comes prebuilt from Mozilla's Maven repository. `-Pengine=webview` swaps in the system
+// WebView engine (src/webview) and leaves Gecko and its repository out of the build entirely.
+val browserEngine = providers.gradleProperty("engine").getOrElse("gecko")
+val useGecko =
+  when (browserEngine) {
+    "gecko" -> true
+    "webview" -> false
+    else -> throw GradleException("Unknown -Pengine=$browserEngine, expected gecko or webview")
+  }
 
 android {
   namespace = "com.searchlauncher.app"
@@ -120,9 +130,10 @@ android {
 
   sourceSets {
     getByName("main") {
-      java.srcDir("src/browser/java")
-      assets.srcDir("src/browser/assets")
-      res.srcDir("src/browser/res")
+      val engineDir = if (useGecko) "src/browser" else "src/webview"
+      java.srcDir("$engineDir/java")
+      assets.srcDir("$engineDir/assets")
+      res.srcDir("$engineDir/res")
     }
   }
   testBuildType = providers.gradleProperty("testBuildType").getOrElse("debug")
@@ -207,8 +218,8 @@ spotless {
 }
 
 dependencies {
-  // All app variants use the same pinned browser engine.
-  implementation("org.mozilla.geckoview:geckoview:157.0.20260924084938")
+  // All app variants use the same pinned browser engine, except the F-Droid WebView build.
+  if (useGecko) implementation("org.mozilla.geckoview:geckoview:157.0.20260924084938")
   implementation("androidx.core:core-ktx:1.17.0")
   implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
   implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")

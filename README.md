@@ -2,7 +2,7 @@
 
 Android app that lets you search everything on your phone and on the web, and opens what you find in its own ad-blocking browser.
 
-**Get it on [Google Play](https://play.google.com/store/apps/details?id=com.searchlauncher.app).** APKs are also on [GitHub Releases](https://github.com/ontola/searchlauncher/releases/latest): choose **app-play.apk** for the same signing identity as Google Play. The older **app-release.apk** is only for legacy GitHub/F-Droid installs.
+**Get it on [Google Play](https://play.google.com/store/apps/details?id=com.searchlauncher.app).** APKs are also on [GitHub Releases](https://github.com/ontola/searchlauncher/releases/latest): choose **app-play.apk** for the same signing identity as Google Play. The older **app-release.apk** is the F-Droid build for legacy GitHub/F-Droid installs; it uses the system WebView instead of the Gecko browser engine.
 
 **Website:** [searchlauncher.eu](https://searchlauncher.eu/) (source in [`website/`](website/))
 
