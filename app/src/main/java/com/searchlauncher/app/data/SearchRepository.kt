@@ -22,6 +22,7 @@ import com.searchlauncher.app.ui.browser.toSearchResult
 import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.util.FuzzyMatch
 import com.searchlauncher.app.util.SystemUtils
+import com.searchlauncher.app.util.TextFold
 import com.searchlauncher.app.util.rethrowIfCancellation
 import com.searchlauncher.app.util.traceAsyncSection
 import com.searchlauncher.app.util.traceSection
@@ -74,6 +75,11 @@ data class SearchableDocument(
   val packageName: String? = null,
   val photoUri: String? = null,
   val phoneNumbers: String? = null, // Extra search metadata
+  /**
+   * The lowercased name with its accents, set only when it differs from the accent-folded
+   * [nameLower]. Used to rank results whose accents match the query slightly higher.
+   */
+  val nameAccented: String? = null,
 )
 
 class SearchRepository(private val context: Context) : BaseRepository() {
@@ -113,7 +119,8 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       } else {
         doc.name
       }
-    val nameLower = searchableText.lowercase()
+    val accentedLower = searchableText.lowercase()
+    val nameLower = TextFold.fold(accentedLower)
     val words = nameLower.split(Regex("\\s+")).filter { it.isNotEmpty() }
     val acronym = words.mapNotNull { it.firstOrNull() }.joinToString("")
     val charMask = calculateCharMask(nameLower)
@@ -170,6 +177,7 @@ class SearchRepository(private val context: Context) : BaseRepository() {
       packageName,
       photoUri,
       phoneNumbers,
+      nameAccented = accentedLower.takeIf { it != nameLower },
     )
   }
 
@@ -2243,8 +2251,10 @@ class SearchRepository(private val context: Context) : BaseRepository() {
             installedProviders
           } else {
             installedProviders.filter {
-              it.loadLabel(context.packageManager).contains(searchTerm, ignoreCase = true) ||
-                it.provider.packageName.contains(searchTerm, ignoreCase = true)
+              TextFold.containsFolded(
+                it.loadLabel(context.packageManager).toString(),
+                searchTerm,
+              ) || it.provider.packageName.contains(searchTerm, ignoreCase = true)
             }
           }
 

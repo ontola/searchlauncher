@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -71,6 +72,25 @@ private val accents =
 private val keySymbols =
   ("qwertyuiop".zip("1234567890") + "asdfghjkl".zip("@#$%&-+()") + "zxcvbnm".zip("*\"':;!?"))
     .toMap()
+
+// With the number row on, the top letters hint symbols that otherwise need the second symbol page.
+private val numberRowTopSymbols = "qwertyuiop".zip("%^~|[]<>{}").toMap()
+
+// Long-press extras for the optional number row.
+private val digitAlternatives =
+  mapOf('1' to "¹½⅓¼", '2' to "²⅔", '3' to "³¾", '4' to "⁴", '0' to "°⁰")
+
+/**
+ * Height of the home keyboard. Without the number row it has four 55dp rows in 243dp. The number
+ * row is 0.8 of a letter row, so letters keep their size and the keyboard grows to 292dp.
+ */
+internal fun builtInHomeKeyboardHeight(screenHeightDp: Int, numberRow: Boolean): Dp {
+  val base = minOf(243f, screenHeightDp * 0.45f)
+  return (if (numberRow) base * 292f / 243f else base).dp
+}
+
+/** Weight of the number row relative to a letter row. */
+private const val NUMBER_ROW_WEIGHT = 0.8f
 
 data class KeyboardShortcutHint(val label: String, val icon: ImageBitmap?)
 
@@ -104,6 +124,7 @@ fun HomeSearchKeyboard(
   onBackspace: () -> Unit,
   onGo: () -> Unit,
   modifier: Modifier = Modifier,
+  numberRow: Boolean = false,
   shortcutHints: Map<Char, KeyboardShortcutHint> = emptyMap(),
   goIcon: ImageBitmap? = null,
   goDescription: String = "Go: open search result",
@@ -284,6 +305,32 @@ fun HomeSearchKeyboard(
           Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
           verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
+          if (numberRow) {
+            Row(
+              Modifier.fillMaxWidth().weight(NUMBER_ROW_WEIGHT),
+              horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+              val digits = "1234567890"
+              val groups = if (split) listOf(digits.take(5), digits.drop(5)) else listOf(digits)
+              groups.forEachIndexed { half, keys ->
+                if (half == 1) Spacer(Modifier.width(splitGap))
+                Row(
+                  Modifier.weight(1f).fillMaxHeight(),
+                  horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                  keys.forEach { digit ->
+                    KeyboardKey(
+                      label = digit.toString(),
+                      onClick = { type(digit.toString()) },
+                      modifier = Modifier.weight(1f).fillMaxHeight(),
+                      alternatives = digitAlternatives[digit].orEmpty().map { it.toString() },
+                      onAlternative = { type(it) },
+                    )
+                  }
+                }
+              }
+            }
+          }
           val rows =
             if (!symbols) listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
             else if (!extraSymbols) listOf("1234567890", "@#€%&-+()", "*\"':;!?/")
@@ -327,7 +374,10 @@ fun HomeSearchKeyboard(
                     )
                   }
                   keys.forEach { letter ->
-                    val symbolHint = if (symbols) null else keySymbols[letter]
+                    val symbolHint =
+                      if (symbols) null
+                      else if (numberRow) numberRowTopSymbols[letter] ?: keySymbols[letter]
+                      else keySymbols[letter]
                     val alternatives =
                       if (symbols) emptyList()
                       else

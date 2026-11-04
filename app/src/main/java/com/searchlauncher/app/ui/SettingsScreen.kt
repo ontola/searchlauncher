@@ -751,6 +751,9 @@ private fun KeyboardSettingsCard() {
   val builtInKeyboardEnabled by
     remember { HomeKeyboardPreference.flow(context) }
       .collectAsState(initial = HomeKeyboardPreference.cached(context))
+  val numberRowEnabled by
+    remember { KeyboardNumberRowPreference.flow(context) }
+      .collectAsState(initial = KeyboardNumberRowPreference.cached(context))
   val autocorrectEnabled by
     remember { context.dataStore.data.map { it[PreferencesKeys.SEARCH_AUTOCORRECT] ?: false } }
       .collectAsState(initial = false)
@@ -796,6 +799,25 @@ private fun KeyboardSettingsCard() {
             scope.launch {
               context.dataStore.edit { it[PreferencesKeys.KEYBOARD_GESTURES] = enabled }
             }
+          },
+        )
+      }
+
+      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+          Text("Show number row", style = MaterialTheme.typography.bodyMedium)
+          Text(
+            "Adds a row of digits above the letters. The keyboard gets a little taller.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(
+          checked = numberRowEnabled,
+          enabled = builtInKeyboardEnabled,
+          onCheckedChange = { enabled ->
+            scope.launch { KeyboardNumberRowPreference.set(context, enabled) }
           },
         )
       }

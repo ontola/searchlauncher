@@ -58,6 +58,9 @@ object PreferencesKeys {
   val KEYBOARD_GESTURES = booleanPreferencesKey("keyboard_gestures")
   val BUILT_IN_KEYBOARD = booleanPreferencesKey("built_in_keyboard")
 
+  /** Adds a row of digits above the built-in keyboard's letters. Off by default. */
+  val KEYBOARD_NUMBER_ROW = booleanPreferencesKey("keyboard_number_row")
+
   /**
    * When true, the home screen stays in portrait even if the device has auto-rotate on. Off by
    * default so the launcher follows the system orientation like any other activity.

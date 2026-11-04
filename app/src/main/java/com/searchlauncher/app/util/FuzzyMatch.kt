@@ -47,10 +47,34 @@ object FuzzyMatch {
     }
   }
 
-  // Backward compatibility
+  /** Scores raw text, accent-insensitively; see [accentPenalty]. */
   fun calculateScore(query: String, target: String): Int {
     val q = query.lowercase(Locale.getDefault()).trim()
     val t = target.lowercase(Locale.getDefault()).trim()
+    val foldedQuery = TextFold.fold(q)
+    val foldedTarget = TextFold.fold(t)
+    val score = scoreLowercased(foldedQuery, foldedTarget)
+    return score - accentPenalty(score, q, foldedQuery, t, foldedTarget)
+  }
+
+  /**
+   * How much to take off a score that was computed on folded text, when the accents as typed match
+   * the target less well than the folded text does. "tel" still finds "Téléphone", but "Telegram"
+   * stays just ahead of it, and "tél" puts "Téléphone" just ahead of "Telegram". The penalty is
+   * small, so usage history still decides between otherwise similar results.
+   */
+  fun accentPenalty(
+    foldedScore: Int,
+    query: String,
+    foldedQuery: String,
+    target: String,
+    foldedTarget: String,
+  ): Int {
+    if (foldedScore <= 0 || (query == foldedQuery && target == foldedTarget)) return 0
+    return if (scoreLowercased(query, target) >= foldedScore) 0 else ACCENT_MISMATCH_PENALTY
+  }
+
+  private fun scoreLowercased(q: String, t: String): Int {
     val words = t.split(' ').filter { it.isNotEmpty() }
     val acronym = words.mapNotNull { it.firstOrNull() }.joinToString("")
     return calculateScore(q, t, words, acronym)
@@ -140,4 +164,5 @@ object FuzzyMatch {
   }
 
   private const val MAX_TYPO_TARGET_LENGTH = 32
+  const val ACCENT_MISMATCH_PENALTY = 2
 }

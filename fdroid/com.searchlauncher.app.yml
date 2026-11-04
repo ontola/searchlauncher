@@ -28,6 +28,11 @@ Builds:
     subdir: app
     gradle:
       - yes
+    gradleprops:
+      - engine=webview
+    prebuild:
+      - sed -i -e '/maven.mozilla.org/d' ../settings.gradle.kts
+      - sed -i -e '/org.mozilla.geckoview:geckoview/d' build.gradle.kts
 
 AllowedAPKSigningKeys: 553f628023ac5739ed10cfdfad26e9c79ad5ef669cd187c8effa97c733b1d6b0
 
