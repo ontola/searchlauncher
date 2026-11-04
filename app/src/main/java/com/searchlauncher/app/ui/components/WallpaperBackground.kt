@@ -121,6 +121,7 @@ internal fun WallpaperPager(
       pageCount = { Int.MAX_VALUE },
     ),
   onScrollInProgressChanged: (Boolean) -> Unit = {},
+  userSwipeEnabled: Boolean = true,
 ) {
   val context = LocalContext.current
   val reportScrolling by androidx.compose.runtime.rememberUpdatedState(onScrollInProgressChanged)
@@ -176,7 +177,7 @@ internal fun WallpaperPager(
   HorizontalPager(
     state = pagerState,
     modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
-    userScrollEnabled = folderImages.size > 1,
+    userScrollEnabled = userSwipeEnabled && folderImages.size > 1,
   ) { page ->
     Box(modifier = Modifier.fillMaxSize()) {
       AsyncImage(
@@ -198,14 +199,18 @@ fun WallpaperBackground(
   modifier: Modifier = Modifier,
   folderImages: List<Uri> = emptyList(),
   lastImageUriString: String? = null,
-  onOpenAppDrawer: () -> Unit = {},
   onLongPress: (Offset) -> Unit = {},
   onTap: () -> Unit = {},
   onPageChanged: (Uri) -> Unit = {},
   keyboardSwipeRequest: Int = 0,
   onScrollInProgressChanged: (Boolean) -> Unit = {},
-  onSwipeDownLeft: () -> Unit = {},
-  onSwipeDownRight: () -> Unit = {},
+  /** A swipe on the background, once per gesture. See [com.searchlauncher.app.ui.HomeGesture]. */
+  onGesture: (com.searchlauncher.app.ui.HomeGesture) -> Unit = {},
+  /**
+   * When true the wallpaper pager follows the finger sideways. When false sideways swipes are
+   * reported through [onGesture] instead, because the user gave them another action.
+   */
+  pagerFollowsSwipes: Boolean = true,
   savedUriResolved: Boolean = true,
   /**
    * Measured favorites bar plus search chrome. Extra favorites rows grow this; a one-row guess left
@@ -260,21 +265,32 @@ fun WallpaperBackground(
   LaunchedEffect(homeTrigger) { activeWidgetId = -1 }
   LifecycleEventEffect(Lifecycle.Event.ON_STOP) { activeWidgetId = -1 }
 
+  val currentOnGesture by androidx.compose.runtime.rememberUpdatedState(onGesture)
   Box(
     modifier =
       modifier
         .fillMaxSize()
         .pointerInput(Unit) {
-          detectDragGestures { change, dragAmount ->
-            if (dragAmount.y > 20) {
-              val isLeft = change.position.x < size.width / 2
-              if (isLeft) {
-                onSwipeDownLeft()
-              } else {
-                onSwipeDownRight()
+          // One action per gesture: an "open an app" or wallpaper action firing on every drag
+          // event would launch twice or skip several backgrounds.
+          var fired = false
+          detectDragGestures(onDragStart = { fired = false }) { change, dragAmount ->
+            if (fired) return@detectDragGestures
+            val gesture =
+              when {
+                dragAmount.y > 20 && dragAmount.y > kotlin.math.abs(dragAmount.x) ->
+                  if (change.position.x < size.width / 2)
+                    com.searchlauncher.app.ui.HomeGesture.SwipeDownLeft
+                  else com.searchlauncher.app.ui.HomeGesture.SwipeDownRight
+                dragAmount.y < -20 && -dragAmount.y > kotlin.math.abs(dragAmount.x) ->
+                  com.searchlauncher.app.ui.HomeGesture.SwipeUp
+                dragAmount.x < -20 -> com.searchlauncher.app.ui.HomeGesture.SwipeLeft
+                dragAmount.x > 20 -> com.searchlauncher.app.ui.HomeGesture.SwipeRight
+                else -> null
               }
-            } else if (dragAmount.y < -20) {
-              onOpenAppDrawer()
+            if (gesture != null) {
+              fired = true
+              currentOnGesture(gesture)
             }
           }
         }
@@ -314,6 +330,7 @@ fun WallpaperBackground(
         onPageChanged = onPageChanged,
         keyboardSwipeRequest = keyboardSwipeRequest,
         onScrollInProgressChanged = onScrollInProgressChanged,
+        userSwipeEnabled = pagerFollowsSwipes,
       )
     } else {
       // No custom images: the theme window is transparent with FLAG_SHOW_WALLPAPER, so the
@@ -343,7 +360,7 @@ fun WallpaperBackground(
             accumulatedPull += available.y
             if (accumulatedPull > 150f) { // Threshold
               accumulatedPull = 0f
-              com.searchlauncher.app.util.SystemUtils.expandNotifications(context)
+              currentOnGesture(com.searchlauncher.app.ui.HomeGesture.SwipeDownLeft)
             }
           } else {
             accumulatedPull = 0f
