@@ -228,4 +228,43 @@ class HomeSearchKeyboardTouchTest {
     }
     assertEquals(true, text.length <= 7)
   }
+
+  @Test
+  fun goCancelsOnASmallDragThatALetterWouldTolerate() {
+    var opens = 0
+    compose.setContent {
+      dp = LocalDensity.current.density
+      val platform = LocalViewConfiguration.current
+      val phone =
+        object : ViewConfiguration by platform {
+          override val touchSlop: Float = 8f * dp
+        }
+      CompositionLocalProvider(LocalViewConfiguration provides phone) {
+        MaterialTheme {
+          HomeSearchKeyboard(
+            { text += it },
+            {},
+            { opens++ },
+            Modifier.requiredWidth(400.dp).height(243.dp),
+          )
+        }
+      }
+    }
+    // 12dp: past the 8dp slop, within the 16dp a typing key tolerates.
+    val go = compose.onNodeWithContentDescription("Go: open search result")
+    go.performTouchInput {
+      down(center)
+      advanceEventTime(300)
+      moveBy(Offset(0f, -12f * dp), delayMillis = 16)
+      up()
+    }
+    compose.runOnIdle { assertEquals(0, opens) }
+    val g = center("g")
+    compose.onRoot().performTouchInput {
+      down(g)
+      moveBy(Offset(0f, -12f * dp), delayMillis = 16)
+      up()
+    }
+    assertEquals("g", text)
+  }
 }

@@ -494,6 +494,7 @@ private fun KeyboardGoKey(
     onGo,
     modifier,
     selected = true,
+    strictDrag = true,
     description = resolved?.description ?: description,
     icon = if (resolved != null) resolved.icon else icon,
   )
@@ -516,6 +517,8 @@ private fun KeyboardKey(
   alternatives: List<String> = emptyList(),
   onAlternative: (String) -> Unit = {},
   visualModifier: Modifier = Modifier,
+  /** Actions such as Go cancel on any drag past the touch slop; typing keys tolerate drift. */
+  strictDrag: Boolean = false,
 ) {
   val colors = LocalKeyboardKeyColors.current
   val restingColor = colors.resting
@@ -559,7 +562,7 @@ private fun KeyboardKey(
             }
         }
       }
-      .pointerInput(alternatives, reverse, repeat, hasLongPress) {
+      .pointerInput(alternatives, reverse, repeat, hasLongPress, strictDrag) {
         // Every touch on a key is its own press, so fast overlapping taps never cancel each other.
         awaitEachGesture {
           var next: PointerInputChange? = awaitFirstDown()
@@ -570,7 +573,8 @@ private fun KeyboardKey(
               next = null
               down.consume()
               val press = KeyPress { currentClick() }
-              val maxDrift = KEYBOARD_GESTURE_SLOP.toPx()
+              val maxDrift =
+                if (strictDrag) viewConfiguration.touchSlop else KEYBOARD_GESTURE_SLOP.toPx()
               rollover.begin(press)
               val holdMillis =
                 when {
