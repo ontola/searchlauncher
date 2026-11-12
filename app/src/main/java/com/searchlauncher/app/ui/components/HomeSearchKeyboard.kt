@@ -7,12 +7,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.rememberSplineBasedDecay
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -23,7 +19,9 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -37,6 +35,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -51,7 +50,6 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sign
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val accents =
@@ -91,6 +89,13 @@ internal fun builtInHomeKeyboardHeight(screenHeightDp: Int, numberRow: Boolean):
 
 /** Weight of the number row relative to a letter row. */
 private const val NUMBER_ROW_WEIGHT = 0.8f
+
+/** Visible space between keys. Each key's touch area covers half of it on every side. */
+private val KEY_GAP = 4.dp
+private val ROW_GAP = 5.dp
+
+/** Drag distance before a keyboard touch becomes a cursor, scroll or home swipe. */
+private val KEYBOARD_GESTURE_SLOP = 16.dp
 
 data class KeyboardShortcutHint(val label: String, val icon: ImageBitmap?)
 
@@ -170,9 +175,12 @@ fun HomeSearchKeyboard(
   DisposableEffect(gesturesEnabled) { onDispose { flingJob?.cancel() } }
   val density = LocalDensity.current
   val cursorStep = with(density) { 16.dp.toPx() }
+  // Fast typing drifts a little more than the platform slop. Claiming those touches for a
+  // swipe swallowed the letter, so keyboard gestures need a clearly deliberate drag.
+  val gestureSlop = with(density) { KEYBOARD_GESTURE_SLOP.toPx() }
   val homeSwipe by rememberUpdatedState(onHomeSwipe)
   val homeSwipeInput =
-    Modifier.pointerInput(density) {
+    Modifier.pointerInput(density, gestureSlop) {
       awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
         var claimed = false
@@ -186,7 +194,7 @@ fun HomeSearchKeyboard(
           if (!claimed) {
             // Preserve immediate taps and the existing accent/symbol long press.
             if (!change.pressed || change.uptimeMillis - down.uptimeMillis >= 250L) break
-            if (distance.getDistance() <= viewConfiguration.touchSlop) continue
+            if (distance.getDistance() <= maxOf(viewConfiguration.touchSlop, gestureSlop)) continue
             claimed = true
             vertical = abs(distance.y) > abs(distance.x)
           }
@@ -207,7 +215,7 @@ fun HomeSearchKeyboard(
       }
     }
   val swipeInput =
-    Modifier.pointerInput(cursorStep) {
+    Modifier.pointerInput(cursorStep, gestureSlop) {
       awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
         flingJob?.cancel()
@@ -225,14 +233,15 @@ fun HomeSearchKeyboard(
             // Once a hold starts, leave the gesture to the key's symbol/accent picker.
             if (change.uptimeMillis - down.uptimeMillis >= 250L || !change.pressed) break
             val distance = change.position - down.position
-            if (distance.getDistance() <= viewConfiguration.touchSlop) continue
+            if (distance.getDistance() <= maxOf(viewConfiguration.touchSlop, gestureSlop)) continue
             vertical = abs(distance.y) > abs(distance.x)
             val amount = if (vertical) distance.y else distance.x
             remainder = 0f
             if (vertical) {
               startResultSwipe()
               scrollResults(
-                amount.sign * (abs(amount) - viewConfiguration.touchSlop).coerceAtLeast(0f)
+                amount.sign *
+                  (abs(amount) - maxOf(viewConfiguration.touchSlop, gestureSlop)).coerceAtLeast(0f)
               )
             } else moveCursor(amount.sign.toInt())
           } else {
@@ -287,9 +296,11 @@ fun HomeSearchKeyboard(
       ),
       animatedKeyboardColor(if (dark) colors.onSurface else colors.onSecondaryContainer),
     )
+  val rollover = remember { KeyRollover() }
   CompositionLocalProvider(
     LocalViewConfiguration provides keyboardConfiguration,
     LocalKeyboardKeyColors provides keyColors,
+    LocalKeyRollover provides rollover,
   ) {
     Surface(
       modifier.then(
@@ -301,23 +312,18 @@ fun HomeSearchKeyboard(
       BoxWithConstraints {
         val split = maxWidth >= 600.dp
         val splitGap = maxOf(48.dp, maxWidth - 640.dp)
-        Column(
-          Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-          verticalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
+        // Keys own the gaps around them (see KEY_GAP), so the outer padding shrinks by half a gap.
+        Column(Modifier.padding(horizontal = 4.dp - KEY_GAP / 2, vertical = 4.dp - ROW_GAP / 2)) {
           if (numberRow) {
             Row(
               Modifier.fillMaxWidth().weight(NUMBER_ROW_WEIGHT),
-              horizontalArrangement = Arrangement.spacedBy(4.dp),
+              horizontalArrangement = Arrangement.spacedBy(KEY_GAP / 2),
             ) {
               val digits = "1234567890"
               val groups = if (split) listOf(digits.take(5), digits.drop(5)) else listOf(digits)
               groups.forEachIndexed { half, keys ->
                 if (half == 1) Spacer(Modifier.width(splitGap))
-                Row(
-                  Modifier.weight(1f).fillMaxHeight(),
-                  horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
+                Row(Modifier.weight(1f).fillMaxHeight()) {
                   keys.forEach { digit ->
                     KeyboardKey(
                       label = digit.toString(),
@@ -338,18 +344,14 @@ fun HomeSearchKeyboard(
           rows.forEachIndexed { index, letters ->
             Row(
               Modifier.fillMaxWidth().weight(1f),
-              horizontalArrangement = Arrangement.spacedBy(4.dp),
+              horizontalArrangement = Arrangement.spacedBy(KEY_GAP / 2),
             ) {
               val splitAt = if (index == 2) 4 else 5
               val groups =
                 if (split) listOf(letters.take(splitAt), letters.drop(splitAt)) else listOf(letters)
               groups.forEachIndexed { half, keys ->
                 if (half == 1) Spacer(Modifier.width(splitGap))
-                Row(
-                  Modifier.weight(1f).fillMaxHeight(),
-                  horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                  if (index == 1 && !split) Spacer(Modifier.weight(0.5f))
+                Row(Modifier.weight(1f).fillMaxHeight()) {
                   if (index == 2 && half == 0) {
                     KeyboardKey(
                       label = if (symbols) "=\\<" else if (capsLock) "⇪" else "⇧",
@@ -373,7 +375,11 @@ fun HomeSearchKeyboard(
                           }),
                     )
                   }
-                  keys.forEach { letter ->
+                  keys.forEachIndexed { position, letter ->
+                    // The middle row's outer keys also own the indent beside them.
+                    val indented = index == 1 && !split
+                    val first = indented && position == 0
+                    val last = indented && position == keys.lastIndex
                     val symbolHint =
                       if (symbols) null
                       else if (numberRow) numberRowTopSymbols[letter] ?: keySymbols[letter]
@@ -389,10 +395,15 @@ fun HomeSearchKeyboard(
                           if (letter == 'l') addAll("]}".toList())
                           addAll(accents[letter].orEmpty().toList())
                         }
-                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                    Box(Modifier.weight(if (first || last) 1.5f else 1f).fillMaxHeight()) {
                       KeyboardKey(
                         label = if (shift || capsLock) letter.uppercase() else letter.toString(),
                         modifier = Modifier.fillMaxSize(),
+                        visualModifier =
+                          if (first) Modifier.wrapContentWidth(Alignment.End).fillMaxWidth(2f / 3f)
+                          else if (last)
+                            Modifier.wrapContentWidth(Alignment.Start).fillMaxWidth(2f / 3f)
+                          else Modifier,
                         symbolHint = symbolHint?.toString(),
                         description =
                           shortcutHints[letter]
@@ -408,7 +419,6 @@ fun HomeSearchKeyboard(
                       )
                     }
                   }
-                  if (index == 1 && !split) Spacer(Modifier.weight(0.5f))
                   if (index == 2 && (!split || half == 1))
                     KeyboardKey(
                       "⌫",
@@ -423,14 +433,11 @@ fun HomeSearchKeyboard(
           }
           Row(
             Modifier.fillMaxWidth().weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(KEY_GAP / 2),
           ) {
             repeat(if (split) 2 else 1) { half ->
               if (half == 1) Spacer(Modifier.width(splitGap))
-              Row(
-                Modifier.weight(1f).fillMaxHeight(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-              ) {
+              Row(Modifier.weight(1f).fillMaxHeight()) {
                 if (half == 0) {
                   KeyboardKey(
                     if (symbols) "ABC" else "?123",
@@ -487,6 +494,7 @@ private fun KeyboardGoKey(
     onGo,
     modifier,
     selected = true,
+    strictDrag = true,
     description = resolved?.description ?: description,
     icon = if (resolved != null) resolved.icon else icon,
   )
@@ -508,6 +516,9 @@ private fun KeyboardKey(
   content: (@Composable () -> Unit)? = null,
   alternatives: List<String> = emptyList(),
   onAlternative: (String) -> Unit = {},
+  visualModifier: Modifier = Modifier,
+  /** Actions such as Go cancel on any drag past the touch slop; typing keys tolerate drift. */
+  strictDrag: Boolean = false,
 ) {
   val colors = LocalKeyboardKeyColors.current
   val restingColor = colors.resting
@@ -524,37 +535,24 @@ private fun KeyboardKey(
   val cellWidthPx = with(density) { cellWidth.toPx() }
   val popupOffset = with(density) { 52.dp.roundToPx() }
   val currentAlternative by rememberUpdatedState(onAlternative)
-  val interactions = remember { MutableInteractionSource() }
-  val pressed by interactions.collectIsPressedAsState()
   val currentClick by rememberUpdatedState(onClick)
-  var repeated by remember { mutableStateOf(false) }
-  LaunchedEffect(pressed, repeat) {
-    if (pressed && repeat) {
-      repeated = false
-      delay(400)
-      while (true) {
-        repeated = true
-        currentClick()
-        delay(65)
-      }
-    }
-  }
+  val currentLongClick by rememberUpdatedState(onLongClick)
+  val rollover = LocalKeyRollover.current
+  val hasLongPress = onLongClick != null
   val keyInput =
-    if (alternatives.isEmpty()) {
-      Modifier.combinedClickable(
-        interactionSource = interactions,
-        indication = null,
-        role = Role.Button,
-        onClick = { if (!repeat || !repeated) onClick() },
-        onLongClick = onLongClick,
-      )
-    } else {
-      Modifier.semantics {
-          role = Role.Button
-          onClick {
-            currentClick()
+    Modifier.semantics {
+        role = Role.Button
+        onClick {
+          currentClick()
+          true
+        }
+        if (hasLongPress) {
+          onLongClick {
+            currentLongClick?.invoke()
             true
           }
+        }
+        if (alternatives.isNotEmpty()) {
           customActions =
             alternatives.map { value ->
               CustomAccessibilityAction("Insert $value") {
@@ -563,150 +561,176 @@ private fun KeyboardKey(
               }
             }
         }
-        .pointerInput(alternatives, reverse) {
-          awaitEachGesture {
-            val down = awaitFirstDown()
-            down.consume()
-            gesturePressed = true
-            try {
-              val longPress = awaitLongPressOrCancellation(down.id)
-              if (longPress == null) {
-                // A normal release types the letter; consumed/cancelled gestures do not.
-                val release = currentEvent.changes.firstOrNull { it.id == down.id }
-                if (release != null && !release.pressed && !release.isConsumed) {
-                  release.consume()
-                  currentClick()
+      }
+      .pointerInput(alternatives, reverse, repeat, hasLongPress, strictDrag) {
+        // Every touch on a key is its own press, so fast overlapping taps never cancel each other.
+        awaitEachGesture {
+          var next: PointerInputChange? = awaitFirstDown()
+          gesturePressed = true
+          try {
+            while (next != null) {
+              val down: PointerInputChange = next
+              next = null
+              down.consume()
+              val press = KeyPress { currentClick() }
+              val maxDrift =
+                if (strictDrag) viewConfiguration.touchSlop else KEYBOARD_GESTURE_SLOP.toPx()
+              rollover.begin(press)
+              val holdMillis =
+                when {
+                  repeat -> 400L
+                  hasLongPress || alternatives.isNotEmpty() ->
+                    viewConfiguration.longPressTimeoutMillis
+                  else -> null
                 }
-              } else {
-                heldSelection = 0
-                val origin = longPress.position.x
-                val direction = if (reverse) -1 else 1
-                while (true) {
-                  val event = awaitPointerEvent()
-                  val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                  if (change.isConsumed) break
-                  val distance = (change.position.x - origin) * direction
-                  heldSelection =
-                    (distance / cellWidthPx).roundToInt().coerceIn(0, alternatives.lastIndex)
-                  change.consume()
-                  if (!change.pressed) {
-                    currentAlternative(alternatives[heldSelection ?: 0])
-                    break
+              var outcome =
+                if (holdMillis == null) awaitKeyRelease(down, maxDrift)
+                else withTimeoutOrNull(holdMillis) { awaitKeyRelease(down, maxDrift) }
+              if (outcome == null && press.committed) {
+                // A later key already typed this one; the hold must not add anything.
+                outcome = awaitKeyRelease(down, maxDrift)
+              }
+              when {
+                outcome is KeyRelease.Released -> press.commit()
+                outcome is KeyRelease.Handover -> {
+                  press.commit()
+                  next = outcome.down
+                }
+                outcome == null && repeat -> {
+                  rollover.hold(press)
+                  do {
+                    currentClick()
+                    outcome = withTimeoutOrNull(65L) { awaitKeyRelease(down, maxDrift) }
+                  } while (outcome == null)
+                  if (outcome is KeyRelease.Handover) next = outcome.down
+                }
+                outcome == null && alternatives.isEmpty() -> {
+                  rollover.hold(press)
+                  currentLongClick?.invoke()
+                  val release = awaitKeyRelease(down, maxDrift)
+                  if (release is KeyRelease.Handover) next = release.down
+                }
+                outcome == null -> {
+                  rollover.hold(press)
+                  heldSelection = 0
+                  val origin = currentEvent.changes.firstOrNull { it.id == down.id }?.position?.x
+                  val direction = if (reverse) -1 else 1
+                  while (origin != null) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (change.isConsumed) break
+                    val distance = (change.position.x - origin) * direction
+                    heldSelection =
+                      (distance / cellWidthPx).roundToInt().coerceIn(0, alternatives.lastIndex)
+                    change.consume()
+                    if (!change.pressed) {
+                      currentAlternative(alternatives[heldSelection ?: 0])
+                      break
+                    }
                   }
+                  heldSelection = null
                 }
               }
-            } finally {
-              heldSelection = null
-              gesturePressed = false
+              rollover.end(press)
             }
+          } finally {
+            heldSelection = null
+            gesturePressed = false
           }
         }
-    }
-  Surface(
+      }
+  Box(
     modifier =
       modifier
         .focusProperties { canFocus = false }
         .onGloballyPositioned { keyCenterX = it.positionInWindow().x + it.size.width / 2f }
         .semantics { contentDescription = description }
-        // Clickable keys (especially Go) must never turn a drag into a click, even when
-        // the keyboard-level recognizer yields to a hold or gestures are switched off.
-        .then(
-          if (alternatives.isEmpty())
-            Modifier.pointerInput(Unit) {
-              awaitEachGesture {
-                val down =
-                  awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                var dragged = false
-                while (true) {
-                  val event = awaitPointerEvent(PointerEventPass.Initial)
-                  val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                  if (change.isConsumed) break
-                  if (
-                    (change.position - down.position).getDistance() > viewConfiguration.touchSlop
-                  ) {
-                    dragged = true
-                  }
-                  if (dragged) change.consume()
-                  if (!change.pressed) break
-                }
-              }
-            }
-          else Modifier
-        )
-        .then(keyInput),
-    shape = RoundedCornerShape(6.dp),
-    color =
-      when {
-        (pressed || gesturePressed) -> MaterialTheme.colorScheme.primaryContainer
-        selected -> selectedColor
-        else -> restingColor
-      },
-    contentColor =
-      when {
-        (pressed || gesturePressed) -> MaterialTheme.colorScheme.onPrimaryContainer
-        selected -> selectedContentColor
-        else -> restingContentColor
-      },
+        // Keys (especially Go) never turn a drag into a click: awaitKeyRelease cancels a press
+        // once it drifts past the keyboard gesture slop, even when no keyboard gesture claims it.
+        .then(keyInput)
   ) {
-    Box(contentAlignment = Alignment.Center) {
-      heldSelection?.let { selection ->
-        Popup(
-          alignment = if (reverse) Alignment.TopEnd else Alignment.TopStart,
-          offset = IntOffset(0, -popupOffset),
-          properties = PopupProperties(focusable = false),
-        ) {
-          Surface(shape = RoundedCornerShape(8.dp), shadowElevation = 6.dp, color = restingColor) {
-            Row(Modifier.padding(4.dp)) {
-              val indices =
-                if (reverse) alternatives.indices.reversed() else alternatives.indices.toList()
-              indices.forEach { index ->
-                Surface(
-                  modifier =
-                    Modifier.size(width = cellWidth, height = 40.dp).semantics {
-                      contentDescription = "Alternative ${alternatives[index]}"
-                      this.selected = index == selection
-                    },
-                  shape = RoundedCornerShape(4.dp),
-                  color =
-                    if (index == selection) MaterialTheme.colorScheme.primary else restingColor,
-                  contentColor =
-                    if (index == selection) MaterialTheme.colorScheme.onPrimary
-                    else restingContentColor,
-                ) {
-                  Box(contentAlignment = Alignment.Center) {
-                    Text(alternatives[index], fontSize = 20.sp)
+    Surface(
+      // The touch area includes the gap around the key, so taps between keys still land.
+      modifier =
+        visualModifier.fillMaxSize().padding(horizontal = KEY_GAP / 2, vertical = ROW_GAP / 2),
+      shape = RoundedCornerShape(6.dp),
+      color =
+        when {
+          gesturePressed -> MaterialTheme.colorScheme.primaryContainer
+          selected -> selectedColor
+          else -> restingColor
+        },
+      contentColor =
+        when {
+          gesturePressed -> MaterialTheme.colorScheme.onPrimaryContainer
+          selected -> selectedContentColor
+          else -> restingContentColor
+        },
+    ) {
+      Box(contentAlignment = Alignment.Center) {
+        heldSelection?.let { selection ->
+          Popup(
+            alignment = if (reverse) Alignment.TopEnd else Alignment.TopStart,
+            offset = IntOffset(0, -popupOffset),
+            properties = PopupProperties(focusable = false),
+          ) {
+            Surface(
+              shape = RoundedCornerShape(8.dp),
+              shadowElevation = 6.dp,
+              color = restingColor,
+            ) {
+              Row(Modifier.padding(4.dp)) {
+                val indices =
+                  if (reverse) alternatives.indices.reversed() else alternatives.indices.toList()
+                indices.forEach { index ->
+                  Surface(
+                    modifier =
+                      Modifier.size(width = cellWidth, height = 40.dp).semantics {
+                        contentDescription = "Alternative ${alternatives[index]}"
+                        this.selected = index == selection
+                      },
+                    shape = RoundedCornerShape(4.dp),
+                    color =
+                      if (index == selection) MaterialTheme.colorScheme.primary else restingColor,
+                    contentColor =
+                      if (index == selection) MaterialTheme.colorScheme.onPrimary
+                      else restingContentColor,
+                  ) {
+                    Box(contentAlignment = Alignment.Center) {
+                      Text(alternatives[index], fontSize = 20.sp)
+                    }
                   }
                 }
               }
             }
           }
         }
-      }
 
-      if (content != null) {
-        content()
-      } else if (icon != null && showLabelWithIcon) {
-        Row(
-          Modifier.padding(horizontal = 8.dp),
-          horizontalArrangement = Arrangement.spacedBy(6.dp),
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(24.dp))
-          Text(label, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (content != null) {
+          content()
+        } else if (icon != null && showLabelWithIcon) {
+          Row(
+            Modifier.padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(24.dp))
+            Text(label, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+          }
+        } else if (icon != null) {
+          Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(28.dp))
+        } else {
+          Text(label, fontSize = if (label.length > 2) 14.sp else 20.sp, maxLines = 1)
         }
-      } else if (icon != null) {
-        Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(28.dp))
-      } else {
-        Text(label, fontSize = if (label.length > 2) 14.sp else 20.sp, maxLines = 1)
-      }
-      if (symbolHint != null) {
-        Text(
-          symbolHint,
-          modifier = Modifier.align(Alignment.TopEnd).padding(top = 3.dp, end = 5.dp),
-          fontSize = 9.sp,
-          lineHeight = 10.sp,
-          color = LocalContentColor.current.copy(alpha = 0.65f),
-        )
+        if (symbolHint != null) {
+          Text(
+            symbolHint,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 3.dp, end = 5.dp),
+            fontSize = 9.sp,
+            lineHeight = 10.sp,
+            color = LocalContentColor.current.copy(alpha = 0.65f),
+          )
+        }
       }
     }
   }
@@ -733,3 +757,80 @@ private data class KeyboardKeyColors(
 
 private val LocalKeyboardKeyColors =
   compositionLocalOf<KeyboardKeyColors> { error("Keyboard keys must be inside HomeSearchKeyboard") }
+
+/** One touch on one key. It types at most once, either on release or when a later key goes down. */
+private class KeyPress(private val onCommit: () -> Unit) {
+  var committed = false
+    private set
+
+  fun commit() {
+    if (committed) return
+    committed = true
+    onCommit()
+  }
+
+  /** A hold (repeat, long click or accent picker) took over, so release must not type. */
+  fun disarm() {
+    committed = true
+  }
+}
+
+/**
+ * Keeps overlapping taps in touch order. When typing fast, the next finger often lands before the
+ * previous one lifts. The earlier key then types at once instead of waiting for its release, so
+ * letters never swap and no press is lost while another is down.
+ */
+private class KeyRollover {
+  private var pending: KeyPress? = null
+
+  fun begin(press: KeyPress) {
+    pending?.commit()
+    pending = press
+  }
+
+  fun hold(press: KeyPress) {
+    press.disarm()
+    end(press)
+  }
+
+  fun end(press: KeyPress) {
+    if (pending === press) pending = null
+  }
+}
+
+private val LocalKeyRollover = staticCompositionLocalOf { KeyRollover() }
+
+private sealed interface KeyRelease {
+  data object Released : KeyRelease
+
+  data object Cancelled : KeyRelease
+
+  /** Another finger landed on the same key: it starts a new press. */
+  class Handover(val down: PointerInputChange) : KeyRelease
+}
+
+/**
+ * Waits for [down] to lift. Unlike a regular tap detector it tolerates a little drift, even past
+ * the key's edge, because fast thumbs roll off the key they hit. A longer drag ([maxDrift]), a
+ * consumed change (a keyboard swipe took over) or a cancelled touch types nothing.
+ */
+private suspend fun AwaitPointerEventScope.awaitKeyRelease(
+  down: PointerInputChange,
+  maxDrift: Float,
+): KeyRelease {
+  while (true) {
+    val event = awaitPointerEvent()
+    event.changes
+      .firstOrNull { it.id != down.id && it.pressed && !it.previousPressed }
+      ?.let {
+        return KeyRelease.Handover(it)
+      }
+    val change = event.changes.firstOrNull { it.id == down.id } ?: return KeyRelease.Cancelled
+    if (change.isConsumed) return KeyRelease.Cancelled
+    if ((change.position - down.position).getDistance() > maxDrift) return KeyRelease.Cancelled
+    if (!change.pressed) {
+      change.consume()
+      return KeyRelease.Released
+    }
+  }
+}

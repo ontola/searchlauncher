@@ -145,6 +145,8 @@ android {
     compose = true
     buildConfig = true
   }
+  // Robolectric Compose tests (multi-touch keyboard input) need the merged test manifest.
+  testOptions { unitTests.isIncludeAndroidResources = true }
 
   // AGP otherwise signs a dependency list into the APK for Google Play's benefit. F-Droid's
   // scanner rejects it as an extra signing block, and it tells our users nothing.
@@ -266,6 +268,8 @@ dependencies {
   debugImplementation("androidx.compose.ui:ui-test-manifest")
   implementation("io.coil-kt:coil-compose:2.5.0")
   testImplementation("org.robolectric:robolectric:4.16")
+  testImplementation(platform("androidx.compose:compose-bom:2025.11.00"))
+  testImplementation("androidx.compose.ui:ui-test-junit4")
   testImplementation("io.mockk:mockk:1.14.6")
   implementation("io.sentry:sentry-android:8.16.0")
 }
