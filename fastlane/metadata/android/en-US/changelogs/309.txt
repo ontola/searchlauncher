@@ -1,0 +1,4 @@
+The built-in keyboard no longer drops letters when you type fast with two thumbs.
+Overlapping taps each count, in the order you pressed them.
+Taps in the gaps between keys and taps that drift off a key now type the key.
+Small drags no longer cancel a letter or open the selected result.
