@@ -430,6 +430,10 @@ internal class GeckoPage(
       touching = false
       scrollCapture?.cancel()
     }
+    if (!privateMode) {
+      if (visible) BrowserCrashGuard.shown(activity, tab.id)
+      else BrowserCrashGuard.hidden(activity, tab.id)
+    }
     if (session.isOpen) session.setActive(visible)
   }
 
@@ -500,7 +504,11 @@ internal class GeckoPage(
           .getOrNull()
       else null
     // An empty/stale history snapshot must not replace the separately saved destination.
-    if (restored != null && restored.currentUrl() == initialUrl) {
+    if (restored != null && !BrowserCrashGuard.mayRestore(activity, tab.id)) {
+      // The app froze or crashed while this page was up: open its address fresh, once.
+      BrowserReloadLog.record(activity, "tab opened fresh after crash", reloadContext())
+      session.loadUri(initialUrl)
+    } else if (restored != null && restored.currentUrl() == initialUrl) {
       // This tab had a live page before; whatever ended it, the page now loads again.
       BrowserReloadLog.record(activity, "tab restored from saved state", reloadContext())
       session.restoreState(restored)
