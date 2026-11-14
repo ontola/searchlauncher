@@ -77,6 +77,7 @@ internal object GeckoEnvironment {
             // the controller so service-worker cleanup can still unsubscribe without hanging.
             it.webPushController.setDelegate(object : org.mozilla.geckoview.WebPushDelegate {})
             instance = it
+            GeckoHangRecovery.start(context.applicationContext)
             val runtime = it
             val app = context.applicationContext
             runtime.configurationChanged(app.resources.configuration)
