@@ -23,7 +23,8 @@ internal object BrowserReloadLog {
   private const val KEY = "events"
   private const val LIMIT = 40
 
-  fun record(context: Context, reason: String, details: String = "") {
+  /** [sync] writes before returning, for a caller that is about to end the process. */
+  fun record(context: Context, reason: String, details: String = "", sync: Boolean = false) {
     val app = context.applicationContext
     val uptimeS = (SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime()) / 1000
     val line =
@@ -33,7 +34,8 @@ internal object BrowserReloadLog {
     android.util.Log.i("BrowserReloadLog", line)
     val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val lines = (prefs.getString(KEY, null)?.lines().orEmpty() + line).takeLast(LIMIT)
-    prefs.edit().putString(KEY, lines.joinToString("\n")).apply()
+    val edit = prefs.edit().putString(KEY, lines.joinToString("\n"))
+    if (sync) edit.commit() else edit.apply()
   }
 
   fun text(context: Context): String =
