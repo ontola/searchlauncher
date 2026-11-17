@@ -399,10 +399,18 @@ fun HomeSearchKeyboard(
                       KeyboardKey(
                         label = if (shift || capsLock) letter.uppercase() else letter.toString(),
                         modifier = Modifier.fillMaxSize(),
+                        // fillMaxWidth() first: the key's Box hands its child loose
+                        // constraints, so wrapContentWidth alone would shrink to the 2/3 key and
+                        // the alignment would have no room to act (the 'a' stuck to the left).
                         visualModifier =
-                          if (first) Modifier.wrapContentWidth(Alignment.End).fillMaxWidth(2f / 3f)
+                          if (first)
+                            Modifier.fillMaxWidth()
+                              .wrapContentWidth(Alignment.End)
+                              .fillMaxWidth(2f / 3f)
                           else if (last)
-                            Modifier.wrapContentWidth(Alignment.Start).fillMaxWidth(2f / 3f)
+                            Modifier.fillMaxWidth()
+                              .wrapContentWidth(Alignment.Start)
+                              .fillMaxWidth(2f / 3f)
                           else Modifier,
                         symbolHint = symbolHint?.toString(),
                         description =
