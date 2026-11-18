@@ -23,8 +23,8 @@ Run from the repo root with the Gradle wrapper:
 - PR/main CI builds produce `app-preview.apk` (**SearchLauncher (Debug Preview)**) under
   `com.searchlauncher.app.debug.preview`; local/fork previews without the distribution key use
   `com.searchlauncher.app.debug.preview.local` instead.
-- Official GitHub `app-play.apk` is downloaded from Play and verified to share its signing identity.
-  Use it for production sideloads; development builds must still use separate Debug identities.
+- There is no Play-signed APK on GitHub: Play builds include Google's licence check and will not
+  run when sideloaded. Production installs come from Google Play; test builds use Debug identities.
 - Never install `app-release.apk` on the user's device as a test build. Its GitHub/F-Droid
   certificate differs from Google's Play certificate, despite sharing `com.searchlauncher.app`.
   A copy left in any Android user/profile blocks Play installation even after the personal copy
