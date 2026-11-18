@@ -2,7 +2,7 @@
 
 Android app that lets you search everything on your phone and on the web, and opens what you find in its own ad-blocking browser.
 
-**Get it on [Google Play](https://play.google.com/store/apps/details?id=com.searchlauncher.app).** APKs are also on [GitHub Releases](https://github.com/ontola/searchlauncher/releases/latest): choose **app-play.apk** for the same signing identity as Google Play. The older **app-release.apk** is the F-Droid build for legacy GitHub/F-Droid installs; it uses the system WebView instead of the Gecko browser engine.
+**Get it on [Google Play](https://play.google.com/store/apps/details?id=com.searchlauncher.app).** [GitHub Releases](https://github.com/ontola/searchlauncher/releases/latest) only has **app-release.apk**, the F-Droid build for legacy GitHub/F-Droid installs. It uses the system WebView instead of the Gecko browser engine, and its signing key differs from Play's.
 
 **Website:** [searchlauncher.eu](https://searchlauncher.eu/) (source in [`website/`](website/))
 
@@ -109,8 +109,9 @@ PR/main CI builds also produce a separate **Debug Preview** APK, never a product
 The optimized Gecko test build keeps its existing `.gecko` ID so it upgrades older experimental
 installs without erasing their data. It uses the same Gecko engine as production.
 
-For a production APK that can receive Google Play updates, use **app-play.apk** from GitHub
-Releases. Do not use the legacy `app-release.apk`: its signing key differs from Google's Play key. The conflict also applies
+For a production install that receives updates, use Google Play. Play builds include Google's
+licence check (Play Console automatic protection), so a Play-signed APK will not run when
+sideloaded. Do not use the legacy `app-release.apk`: its signing key differs from Google's Play key. The conflict also applies
 when the old copy remains in a work profile, Xiaomi Second Space, or another Android user.
 See [installation conflicts and recovery](DISTRIBUTION.md#installation-conflicts-and-recovery).
 

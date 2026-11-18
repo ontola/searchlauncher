@@ -37,31 +37,18 @@ passwords can be overridden with `SIGNING_KEY_STORE_PATH`, `SIGNING_STORE_PASSWO
 The bundle Play receives is not the APK F-Droid builds, and does not need to be
 reproducible — F-Droid verifies the legacy `app-release.apk`, which remains a separate artifact.
 
-### GitHub and Play share the installed app
+### No Play-signed APK on GitHub
 
-After the Play upload, CI downloads Google's **signed universal APK** using
-[`generatedapks.list`](https://developers.google.com/android-publisher/api-ref/rest/v3/generatedapks/list)
-and [`generatedapks.download`](https://developers.google.com/android-publisher/api-ref/rest/v3/generatedapks/download).
-`scripts/download-play-apk.py` checks its APK signature against the certificate returned by the
-authenticated Play API and checks the package ID and version code before publishing it as
-**`app-play.apk`** on GitHub. Both channels then use the same installed-app identity. Android's
-normal version-code rules still apply: an older Play rollout cannot downgrade a newer sideload.
-
-The GitHub release waits for this verified artifact. Missing credentials, API errors, ambiguous
-signing keys, or a missing universal APK fail the job; there is no fallback to the incompatible
-upload-key APK. `PLAY_APP_SIGNING_SHA256` can pin a particular Play signing certificate; it is
-required if Google returns universal APKs for multiple keys. `app-play.json` records the package,
-version, certificate and APK SHA-256. No token, service-account key or download credential is saved.
+Automatic protection (Play Console > Release > App integrity) is on. Play then adds a licence
+check (`com.pairip.licensecheck`) to every APK it generates, so a sideloaded copy only shows
+"Get this app from Play". Until v0.1.6, CI published Google's signed universal APK as
+`app-play.apk` on GitHub. Those copies would not start, so CI no longer downloads or publishes it.
 
 `app-release.apk` is retained for existing legacy GitHub/F-Droid users and reproducible builds.
 It keeps its pinned signing key and existing F-Droid binary URL. Release notes and asset labels
-identify it as incompatible with Play. New installs should choose `app-play.apk`; migrating an old
+identify it as incompatible with Play. New installs should use Google Play; migrating an old
 legacy install still requires a one-time export/uninstall/import across all Android profiles.
 Do not overwrite old released APKs with differently signed files.
-
-The **Verify Play APK compatibility** workflow tests the API against already uploaded version
-304 without submitting a build or changing any Play track. It runs for relevant internal PRs and
-can be dispatched with another existing version; `PLAY_APK_SMOKE_VERSION_CODE` changes the PR fixture.
 
 ### What to upload where
 
@@ -106,7 +93,7 @@ Three keys are involved, and only one of them can ever change.
 | Key | SHA-256 | What it does |
 | --- | --- | --- |
 | Release key | `553f6280…` | Signs legacy `app-release.apk`, F-Droid verification and CI previews |
-| Play app signing key | `c016abdc…` | Signs Play installs and GitHub `app-play.apk` |
+| Play app signing key | `c016abdc…` | Signs Play installs |
 | Play upload key | — | Authenticates uploads. Never reaches a device |
 
 **The release key can never change.** F-Droid pins it in `AllowedAPKSigningKeys`, and existing legacy
@@ -126,7 +113,7 @@ because a job that decants the signing key on demand is worse than the problem i
 
 **Play and legacy F-Droid use different signatures.** Google generated the Play signing key
 at enrolment; it stays with Google. We do not need to export that private key or rotate either key
-to make GitHub compatible: Google provides a signed universal APK for redistribution. The
+for Play. The
 legacy APK remains available for users who already depend on the F-Droid signing identity.
 
 **The upload key is the release key.** Play originally registered a different one, because
@@ -154,7 +141,7 @@ These identities are intentional:
 
 | Build | Name | Application ID | Signing identity |
 | --- | --- | --- | --- |
-| Google Play / GitHub `app-play.apk` | SearchLauncher | `com.searchlauncher.app` | Google Play app signing key |
+| Google Play | SearchLauncher | `com.searchlauncher.app` | Google Play app signing key |
 | Legacy GitHub/F-Droid `app-release.apk` | SearchLauncher | `com.searchlauncher.app` | Pinned distribution/upload key |
 | CI preview | SearchLauncher (Debug Preview) | `com.searchlauncher.app.debug.preview` | Pinned distribution/upload key |
 | Local/fork preview | SearchLauncher (Debug Preview) | `com.searchlauncher.app.debug.preview.local` | Local debug key |
@@ -173,7 +160,7 @@ remains in another Android user/profile. Removing the app only in the personal p
 remove a work-profile/Second Space copy. Keeping app data during uninstall can also retain the
 old package's signing identity.
 
-To move from a legacy GitHub/F-Droid copy to Play or `app-play.apk`:
+To move from a legacy GitHub/F-Droid copy to Play:
 
 1. Export any SearchLauncher data you want to keep in **each** profile containing it.
 2. Check Android's users, work profile, Xiaomi Second Space, and Dual Apps profiles. Remove the
