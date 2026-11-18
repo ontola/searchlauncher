@@ -65,6 +65,9 @@ class PrivateSpaceManager(private val context: Context) {
       refreshInternal()
     } catch (e: Exception) {
       Log.w(TAG, "Failed to refresh Private Space", e)
+    } catch (e: LinkageError) {
+      // A platform method missing on this OS version must not take down the launcher.
+      Log.w(TAG, "Private Space API missing on this device", e)
     }
   }
 
@@ -79,10 +82,17 @@ class PrivateSpaceManager(private val context: Context) {
       return
     }
 
-    val userInfo = launcherApps.getLauncherUserInfo(privateUser)
+    // LauncherUserInfo.getUserConfig() only exists from Android 16 (API 36); calling it on
+    // Android 15 throws NoSuchMethodError, which the catch in refresh() does not see.
     val hideWhenLocked =
-      userInfo?.userConfig?.getBoolean(LauncherUserInfo.PRIVATE_SPACE_ENTRYPOINT_HIDDEN, false)
-        ?: false
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+        launcherApps
+          .getLauncherUserInfo(privateUser)
+          ?.userConfig
+          ?.getBoolean(LauncherUserInfo.PRIVATE_SPACE_ENTRYPOINT_HIDDEN, false) ?: false
+      } else {
+        false
+      }
     val unlocked = !userManager.isQuietModeEnabled(privateUser)
     _snapshot.value =
       PrivateSpaceSnapshot(
