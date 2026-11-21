@@ -2337,7 +2337,11 @@ fun SearchScreen(
                                     delayMillis = (index * 12).coerceAtMost(48),
                                   ),
                               placementSpec = tween(durationMillis = 140),
-                              fadeOutSpec = tween(durationMillis = 90),
+                              // No fade-out. LazyColumn draws a fading row from a cached layer
+                              // on top of the list, and while typing fast that layer could stay
+                              // at full opacity, leaving the previous query's rows drawn over the
+                              // new ones. A row that no longer matches should vanish at once.
+                              fadeOutSpec = null,
                             ),
                         result = result,
                         highlighted = index == keyboardSelectedIndex,
