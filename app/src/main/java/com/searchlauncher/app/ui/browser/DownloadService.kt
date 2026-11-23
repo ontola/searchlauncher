@@ -60,12 +60,7 @@ class DownloadService : Service() {
     val built = notification?.current ?: placeholder()
     val id = notification?.id ?: PLACEHOLDER_ID
     try {
-      ServiceCompat.startForeground(
-        this,
-        id,
-        built,
-        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
-      )
+      ServiceCompat.startForeground(this, id, built, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
       foreground = true
     } catch (error: Exception) {
       // Android refuses when the app is in the background (Android 12+). Transfers still run
