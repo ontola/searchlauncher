@@ -211,6 +211,7 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
         }
       }
     }
+  LaunchedEffect(Unit) { ResumableDownloads.load(context) }
   LaunchedEffect(manager) {
     val trackers = mutableMapOf<Long, DownloadSpeedTracker>()
     while (true) {
@@ -271,6 +272,18 @@ internal fun BrowserDownloadsScreen(onDismiss: () -> Unit) {
       LazyColumn(Modifier.weight(1f)) {
         items(rows, key = { it.key }) { row ->
           val item = row.item
+          val resumable = row.progress?.resumable
+          if (resumable != null) {
+            ResumableDownloadCard(
+              name = row.progress.name,
+              status = resumable,
+              transfer = row.progress.transfer,
+              cancelling = row.progress.cancelling,
+              onCancel = row.progress.onCancel,
+              onShowInFiles = ::showInFiles,
+            )
+            return@items
+          }
           DownloadCard(
             item = item,
             pageProgress = row.progress,
@@ -436,13 +449,104 @@ private fun DownloadCard(
 }
 
 @Composable
-private fun DownloadProgress(fraction: Float?) {
-  if (fraction == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+private fun DownloadProgress(fraction: Float?, moving: Boolean = true) {
+  val color =
+    if (moving) ProgressIndicatorDefaults.linearColor else MaterialTheme.colorScheme.outline
+  if (fraction == null && moving) LinearProgressIndicator(Modifier.fillMaxWidth(), color = color)
   else
     LinearProgressIndicator(
-      progress = { fraction.coerceIn(0f, 1f) },
+      progress = { (fraction ?: 0f).coerceIn(0f, 1f) },
       modifier = Modifier.fillMaxWidth(),
+      color = color,
     )
+}
+
+/** The headline of a resumable download's card, by state. */
+internal fun resumableStatusText(status: ResumableStatus, now: Long): String {
+  val percent = status.total?.takeIf { it > 0 }?.let { (status.bytes * 100 / it).coerceIn(0, 100) }
+  return when (status.state) {
+    ResumableState.QUEUED -> "Starting…"
+    ResumableState.RUNNING -> percent?.let { "Downloading · $it%" } ?: "Downloading"
+    ResumableState.WAITING_FOR_NETWORK -> "Waiting for network · continues by itself"
+    ResumableState.RETRYING -> {
+      val seconds = ((status.retryAt - now + 999) / 1000).coerceAtLeast(0)
+      val reason = status.error?.replaceFirstChar { it.uppercase() } ?: "Connection problem"
+      if (seconds > 0) "$reason · retrying in $seconds s" else "$reason · retrying"
+    }
+    ResumableState.PAUSED -> status.error ?: "Paused"
+    ResumableState.FAILED -> "Download failed: ${status.error ?: "unknown error"}"
+  }
+}
+
+@Composable
+private fun ResumableDownloadCard(
+  name: String,
+  status: ResumableStatus,
+  transfer: DownloadTransfer?,
+  cancelling: Boolean,
+  onCancel: (() -> Unit)?,
+  onShowInFiles: () -> Unit,
+) {
+  val context = LocalContext.current
+  val now by
+    produceState(System.currentTimeMillis(), status.state, status.retryAt) {
+      while (status.state == ResumableState.RETRYING) {
+        value = System.currentTimeMillis()
+        delay(1_000)
+      }
+    }
+  val failed = status.state == ResumableState.FAILED
+  val running = status.state == ResumableState.RUNNING
+  var menu by remember { mutableStateOf(false) }
+  DownloadCardLayout(
+    name = name,
+    status = if (cancelling) "Cancelling…" else resumableStatusText(status, now),
+    active = !failed,
+    failed = failed,
+    actions = {
+      Box {
+        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Actions for $name") }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+          DropdownMenuItem(
+            text = { Text("Show in Files") },
+            onClick = {
+              menu = false
+              onShowInFiles()
+            },
+          )
+        }
+      }
+    },
+  ) {
+    if (!failed)
+      DownloadProgress(
+        status.total?.takeIf { it > 0 }?.let { status.bytes.toFloat() / it },
+        moving = running || status.state == ResumableState.QUEUED,
+      )
+    val detail =
+      if (running && transfer != null) transfer.description()
+      else {
+        val saved = Formatter.formatShortFileSize(context, status.bytes)
+        status.total?.let { "$saved of ${Formatter.formatShortFileSize(context, it)} saved" }
+          ?: "$saved saved"
+      }
+    Text(
+      detail,
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      status.onPause?.let {
+        FilledTonalButton(onClick = it, enabled = !cancelling) { Text("Pause") }
+      }
+      status.onResume?.let {
+        FilledTonalButton(onClick = it, enabled = !cancelling) { Text("Resume") }
+      }
+      OutlinedButton(onClick = { onCancel?.invoke() }, enabled = onCancel != null) {
+        Text(if (failed) "Delete" else "Cancel")
+      }
+    }
+  }
 }
 
 @Composable

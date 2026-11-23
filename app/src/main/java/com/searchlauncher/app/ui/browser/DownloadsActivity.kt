@@ -42,6 +42,11 @@ class DownloadsActivity : ComponentActivity() {
     }
   }
 
+  override fun onStart() {
+    super.onStart()
+    ResumableDownloads.resumeInterrupted(this)
+  }
+
   override fun finish() {
     super.finish()
     if (android.os.Build.VERSION.SDK_INT < 34) {

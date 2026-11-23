@@ -253,6 +253,7 @@ open class BrowserActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
     super.onResume()
     searchOverlayVisible = false
     pendingSearchLaunch = false
+    if (!isPrivateMode) ResumableDownloads.resumeInterrupted(this)
     if (isPrivateMode || tabId == 0L) return
     val index = BrowserTabStore.indexOfTab(tabId)
     // The tab was closed while this window was away — from the launcher's overview, or from a
