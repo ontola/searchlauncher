@@ -151,7 +151,7 @@ fun HomeSearchKeyboard(
   var capsLock by remember { mutableStateOf(false) }
   var symbols by remember { mutableStateOf(false) }
   var extraSymbols by remember { mutableStateOf(false) }
-  val typeText by rememberUpdatedState(onText)
+  val typeText by rememberLatest(onText)
   fun type(text: String) {
     typeText(if (shift || capsLock) text.uppercase() else text)
     if (!capsLock) shift = false
@@ -163,11 +163,11 @@ fun HomeSearchKeyboard(
         override val longPressTimeoutMillis: Long = 250L
       }
     }
-  val moveCursor by rememberUpdatedState(onMoveCursor)
-  val scrollResults by rememberUpdatedState(onScrollResults)
-  val startResultSwipe by rememberUpdatedState(onResultSwipeStart)
-  val keyboardTouch by rememberUpdatedState(onKeyboardTouch)
-  val resultFling by rememberUpdatedState(onResultFling)
+  val moveCursor by rememberLatest(onMoveCursor)
+  val scrollResults by rememberLatest(onScrollResults)
+  val startResultSwipe by rememberLatest(onResultSwipeStart)
+  val keyboardTouch by rememberLatest(onKeyboardTouch)
+  val resultFling by rememberLatest(onResultFling)
   val gestureScope = rememberCoroutineScope()
   val flingDecay = rememberSplineBasedDecay<Float>()
   var flingJob by remember { mutableStateOf<Job?>(null) }
@@ -178,7 +178,7 @@ fun HomeSearchKeyboard(
   // Fast typing drifts a little more than the platform slop. Claiming those touches for a
   // swipe swallowed the letter, so keyboard gestures need a clearly deliberate drag.
   val gestureSlop = with(density) { KEYBOARD_GESTURE_SLOP.toPx() }
-  val homeSwipe by rememberUpdatedState(onHomeSwipe)
+  val homeSwipe by rememberLatest(onHomeSwipe)
   val homeSwipeInput =
     Modifier.pointerInput(density, gestureSlop) {
       awaitEachGesture {
@@ -534,9 +534,9 @@ private fun KeyboardKey(
   val cellWidth = 36.dp
   val cellWidthPx = with(density) { cellWidth.toPx() }
   val popupOffset = with(density) { 52.dp.roundToPx() }
-  val currentAlternative by rememberUpdatedState(onAlternative)
-  val currentClick by rememberUpdatedState(onClick)
-  val currentLongClick by rememberUpdatedState(onLongClick)
+  val currentAlternative by rememberLatest(onAlternative)
+  val currentClick by rememberLatest(onClick)
+  val currentLongClick by rememberLatest(onLongClick)
   val rollover = LocalKeyRollover.current
   val hasLongPress = onLongClick != null
   val keyInput =
@@ -834,3 +834,13 @@ private suspend fun AwaitPointerEventScope.awaitKeyRelease(
     }
   }
 }
+
+/**
+ * Like [rememberUpdatedState], but swaps in every new instance. Function references to the same
+ * local function are equal() while bound to different captured values, so the structural equality
+ * of [rememberUpdatedState] kept the first `::submitSearch` forever and Go opened the result list
+ * as it was when the keyboard first appeared (usually empty, so nothing happened).
+ */
+@Composable
+private fun <T> rememberLatest(value: T): State<T> =
+  remember { mutableStateOf(value, referentialEqualityPolicy()) }.apply { this.value = value }
