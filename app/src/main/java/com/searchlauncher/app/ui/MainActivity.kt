@@ -625,6 +625,9 @@ class MainActivity : ComponentActivity(), KeyShortcutHost, PipCapable {
 
   override fun onStart() {
     super.onStart()
+    // Downloads the process was working on when Android stopped it continue now that the app is
+    // visible again; Android only allows that from the foreground.
+    com.searchlauncher.app.ui.browser.ResumableDownloads.resumeInterrupted(this)
     try {
       appWidgetHost.startListening()
     } catch (e: Exception) {

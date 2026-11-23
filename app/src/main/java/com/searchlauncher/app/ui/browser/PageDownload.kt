@@ -93,6 +93,8 @@ internal data class PageDownloadProgress(
   val onCancel: (() -> Unit)? = null,
   val cancelling: Boolean = false,
   val transfer: DownloadTransfer? = null,
+  /** Set for downloads [ResumableDownloads] runs: their state, and Pause and Resume. */
+  val resumable: ResumableStatus? = null,
 )
 
 internal val pendingPageDownloads =
