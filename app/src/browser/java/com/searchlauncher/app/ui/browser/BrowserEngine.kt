@@ -50,6 +50,7 @@ import com.searchlauncher.app.ui.PreferencesKeys
 import com.searchlauncher.app.ui.components.SearchChromeBar
 import com.searchlauncher.app.ui.dataStore
 import com.searchlauncher.app.ui.theme.rememberBrowserSurfaceColors
+import com.searchlauncher.app.ui.toImageBitmapOrNull
 import com.searchlauncher.app.util.displayPageAddress
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -139,7 +140,7 @@ internal object BrowserEngine {
       ) {
         // Capture the settled toolbar, never during the swipe or on every animation frame.
         kotlinx.coroutines.delay(100)
-        tab.chromeSnapshot = chromeLayer.toImageBitmap()
+        chromeLayer.toImageBitmapOrNull()?.let { tab.chromeSnapshot = it }
       }
     }
     var menu by remember { mutableStateOf(false) }

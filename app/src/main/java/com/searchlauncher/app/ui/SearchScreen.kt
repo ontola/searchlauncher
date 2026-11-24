@@ -283,13 +283,28 @@ fun SearchScreen(
         searchRepository.globalUsage(SearchOptions.NAMESPACE, it.id)
       }
     }
+  // Each icon is a PackageManager call that loads the searched app's resources, which on a slow
+  // phone is hundreds of milliseconds apiece. Done here in composition, for every shortcut, again
+  // after every launch (usageRevision reorders the bar), it froze the launcher for long enough to
+  // be killed (SEARCHLAUNCHER-M, -D). So the icons load once per shortcut list, off the main
+  // thread, and the bar shows the letter tiles until they arrive.
+  val searchOptionIcons by
+    produceState<Map<String, Drawable?>>(emptyMap(), searchShortcuts, iconGenerator) {
+      value =
+        withContext(Dispatchers.IO) {
+          searchShortcuts.associate { it.id to iconGenerator.getShortcutIcon(it, badged = true) }
+        }
+    }
   val searchOptionResults =
-    remember(searchOptionBar) {
+    remember(searchOptionBar, searchOptionIcons) {
       searchOptionBar
         .mapNotNull { entry -> (entry as? SearchOptions.QueryBarEntry.Option)?.shortcut }
         .associate { shortcut ->
           shortcut.id to
-            shortcut.toSearchIntent(iconGenerator.getShortcutIcon(shortcut, badged = true))
+            shortcut.toSearchIntent(
+              if (shortcut.id in searchOptionIcons) searchOptionIcons[shortcut.id]
+              else iconGenerator.getLetterTile(shortcut)
+            )
         }
     }
   val searchOptionFavoriteIds =
@@ -573,8 +588,8 @@ fun SearchScreen(
       // Capturing when the drag starts both stalls that frame and can bake the incoming tab
       // into the image that is later supposed to show only home.
       kotlinx.coroutines.delay(120)
-      if (homePreviewLayer.size.width > 0) {
-        val image = homePreviewLayer.toImageBitmap()
+      val image = homePreviewLayer.toImageBitmapOrNull()
+      if (image != null) {
         currentCoroutineContext().ensureActive()
         com.searchlauncher.app.ui.browser.HomeSwipePreview.image = image
       }
