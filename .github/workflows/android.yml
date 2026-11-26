@@ -42,8 +42,6 @@ jobs:
       # Cheap, and catches the two things that only show up at upload time: store text that
       # was edited in the generated file instead of the source, and a changelog too long
       # for Play's 500-character limit. Standard library only, so nothing to install.
-      - name: Test Play APK verification
-        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       - name: Check store text
         run: python3 marketing/copy.py --check
       - name: Decode Keystore
@@ -133,7 +131,7 @@ jobs:
           path: app/build/outputs/bundle/release/*.aab
 
   release:
-    needs: [build, play_apk]
+    needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -145,18 +143,13 @@ jobs:
         with:
           name: searchlauncher-apks
           path: legacy
-      - name: Download Play-signed APK
-        uses: actions/download-artifact@v4
-        with:
-          name: searchlauncher-play-apk
-          path: play-apk
-      - name: Publish compatible GitHub download
+      - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md <<'NOTES'
-          **Install `app-play.apk` for the same signing identity as Google Play.**
-          GitHub and Play can update this installation interchangeably when the version code permits.
+          **Install SearchLauncher from [Google Play](https://play.google.com/store/apps/details?id=com.searchlauncher.app).**
+          Play builds include Google's licence check, so a Play-signed APK cannot be sideloaded.
 
           `app-release.apk` is the F-Droid build, for existing legacy GitHub/F-Droid installs. It uses
           Android's system WebView instead of the Gecko browser engine, so the built-in browser has
@@ -171,38 +164,9 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --draft --verify-tag --notes-file /tmp/release-notes.md
           fi
           gh release upload "$GITHUB_REF_NAME" \
-            'play-apk/app-play.apk#SearchLauncher - Google Play compatible' \
-            'play-apk/app-play.json#Verified package, version and signing certificate' \
             'legacy/app-release.apk#F-Droid build (WebView browser) - incompatible with Play' \
             --clobber
           gh release edit "$GITHUB_REF_NAME" --draft=false --latest
-
-  play_apk:
-    needs: play
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          java-version: "21"
-          distribution: "temurin"
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: build-tools;36.0.0
-      - name: Download and verify Play-signed universal APK
-        env:
-          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          PLAY_APP_SIGNING_SHA256: ${{ vars.PLAY_APP_SIGNING_SHA256 }}
-        run: |
-          python3 scripts/download-play-apk.py \
-            --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner" \
-            --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: searchlauncher-play-apk
-          path: play-apk/*
-          if-no-files-found: error
 
   play:
     concurrency:
