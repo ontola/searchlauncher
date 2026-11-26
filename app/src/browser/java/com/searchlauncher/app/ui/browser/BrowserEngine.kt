@@ -147,6 +147,7 @@ internal object BrowserEngine {
     var find by remember { mutableStateOf(false) }
     var findText by remember { mutableStateOf("") }
     var showInfo by remember { mutableStateOf(false) }
+    var showPageReport by remember { mutableStateOf(false) }
     var fileReply by remember { mutableStateOf<((android.app.Activity?, Intent?) -> Unit)?>(null) }
     var permissionReply by remember { mutableStateOf<((Map<String, Boolean>) -> Unit)?>(null) }
     val fileLauncher =
@@ -344,6 +345,14 @@ internal object BrowserEngine {
             // Retain the same page preview used by home until Gecko has painted on resume.
             // Swap directly; a fade would expose the compositor's temporary white surface.
             GeckoTabPreview(tab, Modifier.fillMaxSize())
+          }
+          WatchForStuckPaint(page, suppressed = overview || page.showDownloads || swipe.inMotion)
+          if (page.notResponding && page.error == null && !overview && !page.showDownloads) {
+            NotRespondingBar(
+              onReload = page::reload,
+              onReport = { showPageReport = true },
+              modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter),
+            )
           }
           page.error?.let { message ->
             Surface(Modifier.fillMaxSize()) {
@@ -721,6 +730,12 @@ internal object BrowserEngine {
                         },
                       )
                     DropdownMenuItem(
+                      text = { Text("Report a problem") },
+                      leadingIcon = { Icon(Icons.Default.BugReport, null) },
+                      colors = menuColors,
+                      onClick = { run { showPageReport = true } },
+                    )
+                    DropdownMenuItem(
                       text = { Text("About this browser") },
                       leadingIcon = { Icon(Icons.Default.Info, null) },
                       colors = menuColors,
@@ -794,6 +809,7 @@ internal object BrowserEngine {
           )
         }
       }
+      if (showPageReport) PageReportSheet(page, privateMode, onDismiss = { showPageReport = false })
       if (showInfo)
         AlertDialog(
           onDismissRequest = { showInfo = false },

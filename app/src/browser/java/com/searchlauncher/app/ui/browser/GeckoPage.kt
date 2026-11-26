@@ -61,6 +61,26 @@ internal class GeckoPage(
   var awaitingPaint: Boolean by mutableStateOf(predecessor?.awaitingPaint ?: true)
     private set
 
+  /** When Gecko last dropped its paint, for hang reports. */
+  private var awaitingPaintSince: Long =
+    predecessor?.awaitingPaintSince ?: SystemClock.elapsedRealtime()
+
+  /** Shown on screen, between ON_START and ON_STOP: the only time a missing paint is a problem. */
+  var shown: Boolean by mutableStateOf(false)
+    private set
+
+  /**
+   * Set when the page has been on screen without a paint for long enough to call it stuck. The
+   * preview cover is still up then, which is what a "hung" browser looks like: a soft picture of
+   * the page that does not react, because the live page under it never drew.
+   */
+  var notResponding: Boolean by mutableStateOf(false)
+    private set
+
+  /** The automatic Sentry report for the current stuck episode, linked from the user's report. */
+  var hangEventId: String? = null
+    private set
+
   // A live session reports these on change only, so a page taking one over starts from what its
   // predecessor last heard rather than from defaults Gecko will never correct.
   var loading: Boolean by mutableStateOf(predecessor?.loading ?: false)
@@ -161,6 +181,7 @@ internal class GeckoPage(
 
         override fun onPaintStatusReset(session: GeckoSession) {
           awaitingPaint = true
+          awaitingPaintSince = SystemClock.elapsedRealtime()
           tab.pageDrawn = false
         }
 
@@ -168,16 +189,14 @@ internal class GeckoPage(
           // Resuming an already rendered document can reuse its layers without another FCP.
           // FIRST_PAINT is also the signal GeckoView uses to remove coverUntilFirstPaint.
           if (hasRenderedDocument && !loading && !awaitingInitialLocation) {
-            awaitingPaint = false
-            tab.pageDrawn = true
+            painted()
             schedulePreview()
           }
         }
 
         override fun onFirstContentfulPaint(session: GeckoSession) {
           if (awaitingInitialLocation) return
-          awaitingPaint = false
-          tab.pageDrawn = true
+          painted()
           if (tab.url != "about:blank") hasRenderedDocument = true
           schedulePreview()
         }
@@ -422,7 +441,70 @@ internal class GeckoPage(
     return listOfNotNull(hidden ?: "visible", favorite, tabs, memory).joinToString(", ")
   }
 
+  private fun painted() {
+    awaitingPaint = false
+    tab.pageDrawn = true
+    if (notResponding) {
+      BrowserReloadLog.record(activity, "page painted again", "after ${stuckSeconds()}s")
+    }
+    notResponding = false
+    hangEventId = null
+  }
+
+  private fun stuckSeconds(): Long = (SystemClock.elapsedRealtime() - awaitingPaintSince) / 1000
+
+  /** Called once the page has been [shown] without a paint for the not-responding threshold. */
+  fun markNotResponding() {
+    if (notResponding || !awaitingPaint || closed) return
+    notResponding = true
+    val details = diagnostics(includeUrl = false)
+    android.util.Log.w("GeckoHang", "Page not painted: $details")
+    BrowserReloadLog.record(activity, "page not responding", reloadContext())
+    hangEventId = PageHangReport.reportAutomatically(details)
+  }
+
+  /**
+   * What the page and its Gecko session are doing, for hang reports. The address is left out unless
+   * asked for: automatic reports carry only the host.
+   */
+  fun diagnostics(includeUrl: Boolean): Map<String, String> {
+    val now = SystemClock.elapsedRealtime()
+    val currentView = view
+    return buildMap {
+      if (includeUrl) put("page_url", tab.url)
+      put("page_host", Uri.parse(tab.url).host ?: Uri.parse(tab.url).scheme ?: "none")
+      put("awaiting_paint", awaitingPaint.toString())
+      put("awaiting_paint_s", ((now - awaitingPaintSince) / 1000).toString())
+      put("not_responding", notResponding.toString())
+      put("page_drawn", tab.pageDrawn.toString())
+      put("has_rendered_document", hasRenderedDocument.toString())
+      put("awaiting_initial_location", awaitingInitialLocation.toString())
+      put("loading", loading.toString())
+      put("progress", progress.toString())
+      put("error", error ?: "none")
+      put("session_open", session.isOpen.toString())
+      put("process_killed", killed.toString())
+      put("shown", shown.toString())
+      put("lifecycle", activity.lifecycle.currentState.name)
+      put("hidden_for_s", hiddenSince?.let { ((now - it) / 1000).toString() } ?: "0")
+      put(
+        "view",
+        currentView?.let {
+          "${it.width}x${it.height} shown=${it.isShown} attached=${it.isAttachedToWindow}"
+        } ?: "none",
+      )
+      put(
+        "surface",
+        if (com.searchlauncher.app.BuildConfig.GECKO_SURFACE_VIEW) "SurfaceView" else "TextureView",
+      )
+      put("preview", tab.snapshot?.let { "${it.width}x${it.height}" } ?: "none")
+      put("gecko", org.mozilla.geckoview.BuildConfig.MOZILLA_VERSION)
+      put("context", reloadContext())
+    }
+  }
+
   fun setVisible(visible: Boolean) {
+    shown = visible
     hiddenSince = if (visible) null else hiddenSince ?: SystemClock.elapsedRealtime()
     retainIfFavorite()
     if (visible) GeckoEnvironment.retainRecent(session)

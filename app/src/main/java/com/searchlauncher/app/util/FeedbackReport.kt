@@ -143,8 +143,10 @@ internal data class FeedbackReport(
       userMessage: String,
       contactEmail: String?,
       diagnostics: FeedbackDiagnostics,
+      /** Used when the user typed nothing; without one an empty message is refused. */
+      fallbackMessage: String? = null,
     ): FeedbackReport? {
-      val message = userMessage.trim()
+      val message = userMessage.trim().ifEmpty { fallbackMessage?.trim().orEmpty() }
       if (message.isEmpty()) return null
       val email = contactEmail?.trim()?.take(EMAIL_LIMIT)?.ifEmpty { null }
       val details = diagnostics.format()
@@ -176,14 +178,28 @@ internal enum class FeedbackResult {
 }
 
 internal object FeedbackReporter {
-  fun submit(context: Context, userMessage: String, contactEmail: String?): FeedbackResult {
+  /**
+   * [extraTags] and [extraExtras] are added to the event, for reports sent from a particular screen
+   * such as the browser's "Report a problem". The browser's reload and process-exit log goes along
+   * unless [includeBrowserLog] is false.
+   */
+  fun submit(
+    context: Context,
+    userMessage: String,
+    contactEmail: String?,
+    fallbackMessage: String? = null,
+    extraTags: Map<String, String> = emptyMap(),
+    extraExtras: Map<String, String> = emptyMap(),
+    includeBrowserLog: Boolean = true,
+  ): FeedbackResult {
     val diagnostics =
       runCatching { FeedbackDiagnostics.collect(context) }
         .getOrElse {
           return FeedbackResult.Failed
         }
     val report =
-      FeedbackReport.build(userMessage, contactEmail, diagnostics) ?: return FeedbackResult.Empty
+      FeedbackReport.build(userMessage, contactEmail, diagnostics, fallbackMessage)
+        ?: return FeedbackResult.Empty
     val app = context.applicationContext as SearchLauncherApp
     if (!Sentry.isEnabled()) {
       app.ensureCrashReporter()
@@ -193,12 +209,15 @@ internal object FeedbackReporter {
       Sentry.withScope { scope ->
         report.tags.forEach { (key, value) -> scope.setTag(key, value) }
         report.extras.forEach { (key, value) -> scope.setExtra(key, value) }
+        extraTags.forEach { (key, value) -> scope.setTag(key, tagValue(value)) }
+        extraExtras.forEach { (key, value) -> scope.setExtra(key, value) }
         // Sent with every report: a reload is usually reported right after it happened.
-        runCatching {
-          scope.setExtra("browser_reloads", BrowserReloadLog.text(context))
-          scope.setExtra("process_exits", BrowserReloadLog.processExits(context))
-          scope.setExtra("last_anr_main_thread", BrowserReloadLog.lastAnrMainThread(context))
-        }
+        if (includeBrowserLog)
+          runCatching {
+            scope.setExtra("browser_reloads", BrowserReloadLog.text(context))
+            scope.setExtra("process_exits", BrowserReloadLog.processExits(context))
+            scope.setExtra("last_anr_main_thread", BrowserReloadLog.lastAnrMainThread(context))
+          }
         report.contactEmail?.let { address -> scope.user = User().apply { email = address } }
         eventId = Sentry.captureMessage(report.eventMessage, SentryLevel.INFO)
         if (eventId != SentryId.EMPTY_ID) {

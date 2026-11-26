@@ -38,6 +38,13 @@ class FeedbackReportTest {
   }
 
   @Test
+  fun emptyMessageUsesTheFallbackWhenGiven() {
+    val report = FeedbackReport.build("  ", null, sample(), fallbackMessage = "Page report")
+    assertTrue(report!!.eventMessage.startsWith("Page report"))
+    assertNull(FeedbackReport.build("  ", null, sample(), fallbackMessage = null))
+  }
+
+  @Test
   fun blankMessageIsRejectedAndBlankEmailIsOmitted() {
     assertNull(FeedbackReport.build("   ", "ada@example.com", sample()))
     val report = FeedbackReport.build("Hello", "  ", sample())
