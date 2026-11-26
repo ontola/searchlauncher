@@ -1,0 +1,3 @@
+If a page in the built-in browser stops responding, a bar now offers Reload and Report.
+New "Report a problem" in the browser menu sends a report with the page's state.
+Old search results no longer stay drawn over new ones while you type fast.
